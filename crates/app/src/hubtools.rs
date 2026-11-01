@@ -3,58 +3,65 @@
 //! They draw from the save and report what you clicked as [`WbOut`]s; the app applies those
 //! through `Save`'s methods in core.
 
-use egui::{Color32, RichText, Ui, Visuals};
+use egui::{RichText, Ui, Visuals};
 use ninsei_core::hexedit::HexBuffer;
+use ninsei_core::hub::MATCH_RUN_THEME;
 use ninsei_core::hub::{Answer, Save, ScanResult, Upgrade};
 use ninsei_core::tuning::HEAT_MAX;
 use ninsei_core::{Data, binary, tuning};
 
 use crate::hexview::{self, HexCtx, HexOut};
 use crate::theme::Palette;
-use crate::workbench::{BLACK, BLUE, DIAL_SECS, Dialing, ORANGE, WHITE, WbOut};
+use crate::workbench::{DIAL_SECS, Dialing, WbOut, accent, backdrop, fill, ink, muted, shadow};
 
 /// Restyles egui widgets in the 1.3 palette: blue fields, white ink, orange when pressed.
 pub fn wb_visuals(v: &mut Visuals) {
     let w = &mut v.widgets;
     for wv in [&mut w.noninteractive, &mut w.inactive] {
-        wv.bg_fill = BLUE;
-        wv.weak_bg_fill = BLUE;
-        wv.bg_stroke = egui::Stroke::new(1.0, WHITE);
-        wv.fg_stroke = egui::Stroke::new(1.0, WHITE);
+        wv.bg_fill = backdrop();
+        wv.weak_bg_fill = backdrop();
+        wv.bg_stroke = egui::Stroke::new(1.0, ink());
+        wv.fg_stroke = egui::Stroke::new(1.0, ink());
     }
-    for wv in [&mut w.hovered, &mut w.active, &mut w.open] {
-        wv.bg_fill = ORANGE;
-        wv.weak_bg_fill = ORANGE;
-        wv.bg_stroke = egui::Stroke::new(1.0, WHITE);
-        wv.fg_stroke = egui::Stroke::new(1.0, BLACK);
+    // Hover: an accent outline with accent text, readable on any theme.
+    for wv in [&mut w.hovered, &mut w.open] {
+        wv.bg_fill = backdrop();
+        wv.weak_bg_fill = backdrop();
+        wv.bg_stroke = egui::Stroke::new(1.0, accent());
+        wv.fg_stroke = egui::Stroke::new(1.0, accent());
     }
-    v.selection.bg_fill = ORANGE;
-    v.selection.stroke = egui::Stroke::new(1.0, BLACK);
-    v.extreme_bg_color = BLUE;
-    v.text_edit_bg_color = Some(BLUE);
-    v.faint_bg_color = BLUE;
-    v.code_bg_color = BLUE;
-    v.hyperlink_color = ORANGE;
-    v.warn_fg_color = ORANGE;
-    v.error_fg_color = ORANGE;
-    v.window_fill = BLUE;
-    v.panel_fill = BLUE;
+    // Pressed: inverse video.
+    w.active.bg_fill = accent();
+    w.active.weak_bg_fill = accent();
+    w.active.bg_stroke = egui::Stroke::new(1.0, ink());
+    w.active.fg_stroke = egui::Stroke::new(1.0, shadow());
+    v.selection.bg_fill = accent();
+    v.selection.stroke = egui::Stroke::new(1.0, shadow());
+    v.extreme_bg_color = backdrop();
+    v.text_edit_bg_color = Some(backdrop());
+    v.faint_bg_color = backdrop();
+    v.code_bg_color = backdrop();
+    v.hyperlink_color = accent();
+    v.warn_fg_color = accent();
+    v.error_fg_color = accent();
+    v.window_fill = backdrop();
+    v.panel_fill = backdrop();
 }
 
 /// The hex editor's palette at home: the same four colours.
 fn wb_palette() -> Palette {
     Palette {
-        bg: BLUE,
-        panel: BLUE,
-        faint: BLACK,
-        dim: WHITE,
-        fg: WHITE,
-        bright: ORANGE,
+        bg: backdrop(),
+        panel: backdrop(),
+        faint: shadow(),
+        dim: muted(),
+        fg: ink(),
+        bright: accent(),
     }
 }
 
 fn dim(text: impl Into<String>) -> RichText {
-    RichText::new(text).color(Color32::from_rgb(0xAA, 0xCC, 0xFF))
+    RichText::new(text).color(muted())
 }
 
 /// RIG: buy permanent deck upgrades with banked credits.
@@ -63,7 +70,7 @@ pub fn rig(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
     ui.horizontal(|ui| {
         ui.label(
             RichText::new(format!("bank {}¢", save.bank))
-                .color(ORANGE)
+                .color(accent())
                 .strong(),
         );
         ui.label(dim(format!(
@@ -85,16 +92,16 @@ pub fn rig(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
                 let pips: String = (0..def.max)
                     .map(|i| if i < lvl { '█' } else { '░' })
                     .collect();
-                ui.label(RichText::new(&def.label).color(WHITE).strong());
-                ui.label(RichText::new(format!("+{} {}", def.step, def.unit)).color(WHITE));
-                ui.label(RichText::new(pips).color(ORANGE))
+                ui.label(RichText::new(&def.label).color(ink()).strong());
+                ui.label(RichText::new(format!("+{} {}", def.step, def.unit)).color(ink()));
+                ui.label(RichText::new(pips).color(accent()))
                     .on_hover_text(&def.blurb);
                 match def.cost(lvl) {
                     Some(c) => {
                         ui.label(RichText::new(format!("{c}¢")).color(if save.bank >= c {
-                            WHITE
+                            ink()
                         } else {
-                            ORANGE
+                            accent()
                         }));
                         if ui
                             .add_enabled(save.bank >= c, egui::Button::new(" Buy "))
@@ -124,7 +131,7 @@ pub fn stash(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>, edit: 
     ui.horizontal(|ui| {
         ui.label(
             RichText::new(format!("stash {}/{cap}", save.stash.len()))
-                .color(ORANGE)
+                .color(accent())
                 .strong(),
         );
         ui.label(dim(format!(
@@ -135,7 +142,7 @@ pub fn stash(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>, edit: 
         )));
     });
     ui.add_space(4.0);
-    ui.label(RichText::new("KEPT PROGRAMS").color(WHITE).strong());
+    ui.label(RichText::new("KEPT PROGRAMS").color(ink()).strong());
     if save.stash.is_empty() {
         ui.label(dim("  empty. reach an exit and keep what you bring out."));
     }
@@ -158,7 +165,7 @@ pub fn stash(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>, edit: 
                             };
                             ui.label(
                                 RichText::new(format!("{:<14}{opt}", s.file()))
-                                    .color(WHITE)
+                                    .color(ink())
                                     .monospace(),
                             );
                             ui.label(dim(format!(
@@ -170,7 +177,8 @@ pub fn stash(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>, edit: 
                         }
                         None => {
                             ui.label(
-                                RichText::new(format!("item {} (corrupt)", item.id)).color(ORANGE),
+                                RichText::new(format!("item {} (corrupt)", item.id))
+                                    .color(accent()),
                             );
                         }
                     }
@@ -192,7 +200,7 @@ pub fn stash(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>, edit: 
     ui.add_space(4.0);
     ui.label(
         RichText::new("STARTERS  (always free, never at risk)")
-            .color(WHITE)
+            .color(ink())
             .strong(),
     );
     ui.horizontal_wrapped(|ui| {
@@ -221,7 +229,11 @@ pub fn hexed(
     edit: &mut Option<u32>,
 ) {
     let Some((id, h)) = hex.as_mut() else {
-        ui.label(RichText::new("HexEd: no file open").color(ORANGE).strong());
+        ui.label(
+            RichText::new("HexEd: no file open")
+                .color(accent())
+                .strong(),
+        );
         ui.label(dim("Programs in your STASH can be edited here. Pick one:"));
         ui.add_space(4.0);
         for item in &save.stash {
@@ -274,18 +286,18 @@ pub fn carrierterm(
         let Some(e) = save.entry(d.entry) else { return };
         ui.label(
             RichText::new(format!("Dialing {}", e.name))
-                .color(ORANGE)
+                .color(accent())
                 .strong(),
         );
         ui.add_space(6.0);
         let script = [
-            (0.0, "ATZ".to_string(), WHITE),
-            (0.15, "OK".to_string(), WHITE),
-            (0.35, format!("ATDT {}", e.number), WHITE),
-            (0.8, "~~ RING ~~".to_string(), WHITE),
-            (1.3, "~~ RING ~~".to_string(), WHITE),
-            (1.7, "CONNECT 2400/ARQ".to_string(), ORANGE),
-            (2.0, "CARRIER DETECTED. JACKING IN...".to_string(), ORANGE),
+            (0.0, "ATZ".to_string(), ink()),
+            (0.15, "OK".to_string(), ink()),
+            (0.35, format!("ATDT {}", e.number), ink()),
+            (0.8, "~~ RING ~~".to_string(), ink()),
+            (1.3, "~~ RING ~~".to_string(), ink()),
+            (1.7, "CONNECT 2400/ARQ".to_string(), accent()),
+            (2.0, "CARRIER DETECTED. JACKING IN...".to_string(), accent()),
         ];
         for (at, line, col) in script {
             if d.t >= at {
@@ -298,7 +310,7 @@ pub fn carrierterm(
         ui.add_space(6.0);
         ui.label(mono(
             format!("[{}{}]", "█".repeat(on), "░".repeat(cells - on)),
-            ORANGE,
+            accent(),
         ));
         return;
     }
@@ -315,7 +327,7 @@ pub fn carrierterm(
             "{:<3} {:<9} {:<22} {:<5} {}",
             "#", "NUMBER", "NAME", "TIER", "HEAT"
         ),
-        WHITE,
+        ink(),
     ));
     egui::ScrollArea::vertical()
         .max_height(150.0)
@@ -333,7 +345,7 @@ pub fn carrierterm(
                     tier
                 );
                 let on = *sel == Some(e.id);
-                let r = ui.selectable_label(on, mono(line, if on { BLACK } else { WHITE }));
+                let r = ui.selectable_label(on, mono(line, if on { shadow() } else { ink() }));
                 if r.clicked() {
                     *sel = Some(e.id);
                 }
@@ -354,7 +366,7 @@ pub fn carrierterm(
         .map_or("?".to_string(), |t| t.label.clone());
     ui.label(
         RichText::new(format!("{}  ·  {}", e.name, e.business))
-            .color(ORANGE)
+            .color(accent())
             .strong(),
     );
     ui.label(mono(
@@ -366,7 +378,7 @@ pub fn carrierterm(
             mods.pay_pct,
             mods.trace_pct
         ),
-        WHITE,
+        ink(),
     ));
     if e.traits.is_empty() {
         ui.label(dim("  no known quirks"));
@@ -376,7 +388,7 @@ pub fn carrierterm(
             ui.horizontal(|ui| {
                 ui.label(
                     RichText::new(format!("  {}", def.label))
-                        .color(WHITE)
+                        .color(ink())
                         .strong(),
                 );
                 ui.label(dim(&def.blurb));
@@ -420,7 +432,7 @@ pub fn wardial(
     ui.horizontal(|ui| {
         ui.label(
             RichText::new(format!("bank {}¢", save.bank))
-                .color(ORANGE)
+                .color(accent())
                 .strong(),
         );
         if save.telco_heat > 0 {
@@ -429,7 +441,7 @@ pub fn wardial(
                     "telco heat {}: your next call is watched",
                     save.telco_heat
                 ))
-                .color(ORANGE),
+                .color(accent()),
             );
         }
     });
@@ -449,7 +461,7 @@ pub fn wardial(
         let on = sel.as_deref() == Some(r.id.as_str());
         ui.horizontal(|ui| {
             if ui
-                .selectable_label(on, mono(line, if on { BLACK } else { WHITE }))
+                .selectable_label(on, mono(line, if on { shadow() } else { ink() }))
                 .clicked()
             {
                 *sel = Some(r.id.clone());
@@ -495,22 +507,22 @@ pub fn wardial(
         .map_or(res.range.clone(), |r| r.pattern());
     ui.label(mono(
         format!("scan {pattern}  block {:02}", res.block),
-        WHITE,
+        ink(),
     ));
     ui.horizontal(|ui| {
         ui.vertical(|ui| {
             for (row, chunk) in res.cells.chunks(10).enumerate() {
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 0.0;
-                    ui.label(mono(format!("{:02} ", row * 10), WHITE));
+                    ui.label(mono(format!("{:02} ", row * 10), ink()));
                     for (i, (_, a)) in chunk.iter().enumerate() {
                         let k = row * 10 + i;
                         let (g, c) = if k >= shown {
-                            ('░', BLUE.gamma_multiply(1.6))
+                            ('░', fill())
                         } else {
                             let c = match a {
-                                Answer::Carrier { .. } | Answer::Trap => ORANGE,
-                                _ => WHITE,
+                                Answer::Carrier { .. } | Answer::Trap => accent(),
+                                _ => ink(),
                             };
                             (a.glyph(), c)
                         };
@@ -546,11 +558,71 @@ pub fn wardial(
                         .entry(*entry)
                         .map_or("?".to_string(), |e| format!("{} T{}", e.name, e.tier));
                     let tag = if *new { "-> phonebook" } else { "(known)" };
-                    ui.label(mono(format!("{number} CARRIER {who} {tag}"), ORANGE));
+                    ui.label(mono(format!("{number} CARRIER {who} {tag}"), accent()));
                 } else {
-                    ui.label(mono(format!("{number} TRAP: telco is listening"), ORANGE));
+                    ui.label(mono(format!("{number} TRAP: telco is listening"), accent()));
                 }
             }
         });
     });
+}
+
+/// Prefs: the desktop theme, the run theme and the CRT. Themes come from `data/themes.ron`.
+pub fn prefs(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
+    let swatch = |ui: &mut Ui, t: &ninsei_core::data::ThemeDef| {
+        let p = Palette::from_def(t);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 0.0;
+            for c in [p.bg, p.panel, p.faint, p.dim, p.fg, p.bright] {
+                let (r, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
+                ui.painter().rect_filled(r, 0.0, c);
+            }
+        });
+    };
+    ui.label(RichText::new("DESKTOP THEME").color(ink()).strong());
+    let run_label = data
+        .theme(&save.phosphor)
+        .map_or(save.phosphor.clone(), |t| t.label.clone());
+    ui.horizontal(|ui| {
+        if ui
+            .radio(
+                save.desktop == MATCH_RUN_THEME,
+                format!("match run theme ({run_label})"),
+            )
+            .clicked()
+        {
+            out.push(WbOut::SetDesktop(MATCH_RUN_THEME.into()));
+        }
+    });
+    for t in data.themes.iter().filter(|t| t.desktop) {
+        ui.horizontal(|ui| {
+            if ui
+                .radio(save.desktop == t.id, format!("{:<16}", t.label))
+                .clicked()
+            {
+                out.push(WbOut::SetDesktop(t.id.clone()));
+            }
+            swatch(ui, t);
+        });
+    }
+    ui.add_space(8.0);
+    ui.label(RichText::new("RUN THEME").color(ink()).strong());
+    for t in data.themes.iter().filter(|t| t.run) {
+        ui.horizontal(|ui| {
+            if ui
+                .radio(save.phosphor == t.id, format!("{:<16}", t.label))
+                .clicked()
+            {
+                out.push(WbOut::Theme(t.id.clone()));
+            }
+            swatch(ui, t);
+        });
+    }
+    ui.add_space(8.0);
+    let mut crt = save.crt;
+    if ui.checkbox(&mut crt, "CRT scanlines").changed() {
+        out.push(WbOut::Crt);
+    }
+    ui.add_space(6.0);
+    ui.label(dim("New themes go in data/themes.ron."));
 }

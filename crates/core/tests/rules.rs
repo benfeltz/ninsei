@@ -26,6 +26,7 @@ fn bad_loot_reference_is_rejected() {
         rig: include_str!("../../../data/hub/rig.ron"),
         networks: include_str!("../../../data/hub/networks.ron"),
         exchanges: include_str!("../../../data/hub/exchanges.ron"),
+        themes: include_str!("../../../data/themes.ron"),
     })
     .unwrap_err();
     assert!(err.contains("nope"), "{err}");

@@ -15,14 +15,14 @@ use egui::{Key, RichText};
 use egui_dock::{DockArea, DockState, NodeIndex};
 use ninsei_core::bbs::Outcome;
 use ninsei_core::hexedit::HexBuffer;
-use ninsei_core::hub::{Answer, RunEnd, RunReport, SAVE_KEY, Save, Screen};
+use ninsei_core::hub::{Answer, DEFAULT_RUN_THEME, RunEnd, RunReport, SAVE_KEY, Save, Screen};
 use ninsei_core::{Action, Command, Data, Game, LogKind, Phase, command::HELP, parse_command};
 
 use bbs_view::BbsView;
 use encounter_view::EncounterView;
 
 use panes::{Panes, Request, Tab};
-use theme::Phosphor;
+use theme::Palette;
 use workbench::{WbOut, Workbench};
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -118,6 +118,16 @@ fn fresh_seed() -> u64 {
     (now << 20) ^ r
 }
 
+/// Only used if the theme file somehow lacks the default theme (validation forbids it).
+const FALLBACK_PALETTE: Palette = Palette {
+    bg: egui::Color32::BLACK,
+    panel: egui::Color32::BLACK,
+    faint: egui::Color32::DARK_GRAY,
+    dim: egui::Color32::GRAY,
+    fg: egui::Color32::LIGHT_GRAY,
+    bright: egui::Color32::WHITE,
+};
+
 fn default_layout() -> DockState<Tab> {
     let mut dock = DockState::new(vec![Tab::Network, Tab::Target, Tab::Hex]);
     let tree = dock.main_surface_mut();
@@ -145,7 +155,9 @@ struct App {
     /// The run. Between runs this is the last one, or a placeholder before the first.
     game: Game,
     dock: DockState<Tab>,
-    phosphor: Phosphor,
+    /// Run theme id (see `data/themes.ron`) and its palette.
+    run_theme: String,
+    pal: Palette,
     crt: bool,
     input: String,
     focus_input: bool,
@@ -189,8 +201,15 @@ impl App {
         let keyed = save.ensure_key(fresh_seed());
         // A new save starts with a handful of numbers to dial.
         let keyed = save.ensure_phonebook(&data, fresh_seed()) || keyed;
-        let phosphor = Phosphor::from_name(&save.phosphor).unwrap_or(Phosphor::Amber);
-        theme::apply(&cc.egui_ctx, &phosphor.palette());
+        let run_theme = match data.theme(&save.phosphor) {
+            Some(t) if t.run => t.id.clone(),
+            _ => DEFAULT_RUN_THEME.to_string(),
+        };
+        let pal = data
+            .theme(&run_theme)
+            .map(Palette::from_def)
+            .unwrap_or(FALLBACK_PALETTE);
+        theme::apply(&cc.egui_ctx, &pal);
         let game = Game::new(data.clone(), first_seed.unwrap_or(0));
         Self {
             crt: save.crt,
@@ -211,17 +230,30 @@ impl App {
             last_phase: game.phase,
             game,
             dock: default_layout(),
-            phosphor,
+            run_theme,
+            pal,
             input: String::new(),
             focus_input: true,
         }
     }
 
-    fn set_phosphor(&mut self, ctx: &egui::Context, p: Phosphor) {
-        self.phosphor = p;
-        theme::apply(ctx, &p.palette());
-        self.save.phosphor = p.name().to_string();
+    /// Switches the run theme. Returns false for an unknown or desktop-only theme.
+    fn set_run_theme(&mut self, ctx: &egui::Context, id: &str) -> bool {
+        let Some(t) = self.data.theme(id).filter(|t| t.run) else {
+            return false;
+        };
+        self.pal = Palette::from_def(t);
+        self.run_theme = t.id.clone();
+        theme::apply(ctx, &self.pal);
+        self.save.phosphor = t.id.clone();
         self.save_dirty = true;
+        true
+    }
+
+    fn run_theme_label(&self) -> String {
+        self.data
+            .theme(&self.run_theme)
+            .map_or(self.run_theme.clone(), |t| t.label.clone())
     }
 
     fn toggle_crt(&mut self) {
@@ -327,7 +359,7 @@ impl App {
                 }
                 Err(e) => Err(e),
             },
-            WbOut::Dial(..) | WbOut::Theme(_) | WbOut::Crt => return,
+            WbOut::Dial(..) | WbOut::Theme(_) | WbOut::Crt | WbOut::SetDesktop(_) => return,
         };
         match result {
             Ok(msg) => {
@@ -407,17 +439,24 @@ impl App {
                 let state = if self.crt { "on" } else { "off" };
                 self.game.say(LogKind::Sys, format!("crt {state}"));
             }
-            Command::Theme(name) => match Phosphor::from_name(&name) {
-                Some(p) => {
-                    self.set_phosphor(ctx, p);
-                    self.game
-                        .say(LogKind::Sys, format!("phosphor: {}", p.label()));
+            Command::Theme(name) => {
+                if self.set_run_theme(ctx, &name) {
+                    let label = self.run_theme_label();
+                    self.game.say(LogKind::Sys, format!("theme: {label}"));
+                } else {
+                    let ids: Vec<String> = self
+                        .data
+                        .themes
+                        .iter()
+                        .filter(|t| t.run)
+                        .map(|t| t.id.clone())
+                        .collect();
+                    self.game.say(
+                        LogKind::Sys,
+                        format!("err: no run theme `{name}`. try {}.", ids.join(", ")),
+                    );
                 }
-                None => self.game.say(
-                    LogKind::Sys,
-                    format!("err: no theme `{name}`. try amber, green or ice."),
-                ),
-            },
+            }
         }
     }
 
@@ -514,11 +553,18 @@ impl App {
                     out.push(Request::Cmd(Command::Crt));
                 }
             });
-            ui.menu_button("phosphor", |ui| {
-                for p in Phosphor::ALL {
-                    let mark = if p == self.phosphor { "(•)" } else { "( )" };
-                    if ui.button(format!("{mark} {}", p.label())).clicked() {
-                        self.set_phosphor(ui.ctx(), p);
+            ui.menu_button("theme", |ui| {
+                let themes: Vec<(String, String)> = self
+                    .data
+                    .themes
+                    .iter()
+                    .filter(|t| t.run)
+                    .map(|t| (t.id.clone(), t.label.clone()))
+                    .collect();
+                for (id, label) in themes {
+                    let mark = if id == self.run_theme { "(•)" } else { "( )" };
+                    if ui.button(format!("{mark} {label}")).clicked() {
+                        self.set_run_theme(ui.ctx(), &id);
                     }
                 }
             });
@@ -560,7 +606,7 @@ impl App {
             ui.label(RichText::new(format!("trace {}%", g.deck.trace)).color(pal.dim));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(RichText::new("UTF-8  LF  RUST").color(pal.dim));
-                ui.label(RichText::new(self.phosphor.label()).color(pal.dim));
+                ui.label(RichText::new(self.run_theme_label()).color(pal.dim));
             });
         });
     }
@@ -569,7 +615,7 @@ impl App {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
-        let pal = self.phosphor.palette();
+        let pal = self.pal;
         let dt = ctx.input(|i| i.stable_dt).min(0.1);
         self.screen = self.screen.tick(dt);
 
@@ -593,6 +639,15 @@ impl eframe::App for App {
 
         // The desktop: on its own while home, dragging during the transitions.
         if !matches!(self.screen, Screen::Run | Screen::Crash) {
+            // Load the desktop's palette from its theme (falling back to the run theme).
+            let desk = self
+                .data
+                .theme(self.save.desktop_theme())
+                .filter(|t| t.desktop)
+                .or_else(|| self.data.theme(&self.run_theme));
+            if let Some(t) = desk {
+                workbench::set_desk(workbench::Desk::from_def(t));
+            }
             let offset = self.screen.drag() * ctx.content_rect().height();
             let live = self.screen.hub_live();
             let mut outs = Vec::new();
@@ -609,9 +664,14 @@ impl eframe::App for App {
                     WbOut::Dial(entry, seed) if live => self.dial(entry, seed),
                     WbOut::Dial(..) => {}
                     WbOut::Theme(name) => {
-                        if let Some(p) = Phosphor::from_name(&name) {
-                            self.set_phosphor(&ctx, p);
+                        if self.set_run_theme(&ctx, &name) {
+                            let label = self.run_theme_label();
+                            self.wb.say(format!("run theme: {label}"));
                         }
+                    }
+                    WbOut::SetDesktop(id) => {
+                        self.save.desktop = id;
+                        self.save_dirty = true;
                     }
                     WbOut::Crt => {
                         self.toggle_crt();
