@@ -39,6 +39,21 @@
         ],
     ),
     (
+        id: "lineman",
+        from: "ph0ne_ph1l",
+        title: "a phone phreak",
+        text: [
+            "hey. you're on a line I rerouted, so we're friends now.",
+            "I know which exchanges the corps hide their modems on.",
+            "a name and a prefix, {cost}¢. or I trade it for a dare.",
+        ],
+        choices: [
+            (label: "Pay {cost}¢ for a range", effect: Pay(cost: 40, get: Hint("saito"))),
+            (label: "Take the dare (50%: a hot range, or +10 trace)", effect: Gamble(pct: 50, win: Hint("kestrel"), lose: Trace(10))),
+            (label: "Hang up", effect: Leave),
+        ],
+    ),
+    (
         id: "honeypot",
         from: "cache.sys",
         title: "an unsecured cache",

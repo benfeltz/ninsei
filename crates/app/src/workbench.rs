@@ -10,7 +10,7 @@ use egui::{
 use ninsei_core::Data;
 use ninsei_core::binary::Bin;
 use ninsei_core::hexedit::HexBuffer;
-use ninsei_core::hub::{self, IconDef, Save, ShellEffect, Tool, Upgrade};
+use ninsei_core::hub::{self, IconDef, Save, ScanResult, ShellEffect, Tool, Upgrade};
 
 use crate::hubtools;
 
@@ -40,6 +40,8 @@ fn font() -> FontId {
 pub enum WbOut {
     /// Dial a phonebook entry (and jack in), with an optional seed.
     Dial(u32, Option<u64>),
+    /// Wardial a range (by id).
+    Scan(String),
     Theme(String),
     Crt,
     Buy(Upgrade),
@@ -94,8 +96,20 @@ pub struct Workbench {
     pub(crate) hex: Option<(u32, HexBuffer)>,
     /// Phonebook entry highlighted in CarrierTerm.
     pub(crate) term_sel: Option<u32>,
+    pub(crate) term_tab: TermTab,
+    /// Range highlighted in WarDial.
+    pub(crate) range_sel: Option<String>,
+    /// The last scan and how long it's been filling in.
+    pub(crate) scan: Option<(ScanResult, f32)>,
     /// A dial in progress: the modem handshake before jacking in.
     pub(crate) dialing: Option<Dialing>,
+}
+
+/// CarrierTerm's two tabs.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum TermTab {
+    Phonebook,
+    WarDial,
 }
 
 /// The modem handshake that plays before a dial jacks you in.
@@ -120,6 +134,9 @@ impl Workbench {
             focus_shell: true,
             hex: None,
             term_sel: None,
+            term_tab: TermTab::Phonebook,
+            range_sel: None,
+            scan: None,
             dialing: None,
         };
         wb.open(Tool::Shell);
@@ -209,6 +226,12 @@ impl Workbench {
                 out.push(WbOut::Dial(d.entry, d.seed));
                 self.dialing = None;
             }
+            ui.ctx().request_repaint();
+        }
+        if let Some((_, t)) = &mut self.scan
+            && *t < hubtools::SCAN_FILL_SECS
+        {
+            *t += ui.input(|i| i.stable_dt).min(0.1);
             ui.ctx().request_repaint();
         }
         let screen = ui.ctx().content_rect().translate(vec2(0.0, offset));
@@ -389,14 +412,43 @@ impl Workbench {
                     let mut edit = None;
                     let mut dial = None;
                     match kind {
-                        Kind::Terminal => hubtools::carrierterm(
-                            &mut child,
-                            data,
-                            save,
-                            &mut self.term_sel,
-                            self.dialing.as_ref(),
-                            &mut dial,
-                        ),
+                        Kind::Terminal => {
+                            if self.dialing.is_none() {
+                                child.horizontal(|ui| {
+                                    for (tab, label) in [
+                                        (TermTab::Phonebook, " Phonebook "),
+                                        (TermTab::WarDial, " WarDial "),
+                                    ] {
+                                        if ui
+                                            .selectable_label(self.term_tab == tab, label)
+                                            .clicked()
+                                        {
+                                            self.term_tab = tab;
+                                        }
+                                    }
+                                });
+                                child.separator();
+                            }
+                            if self.term_tab == TermTab::WarDial && self.dialing.is_none() {
+                                hubtools::wardial(
+                                    &mut child,
+                                    data,
+                                    save,
+                                    &mut self.range_sel,
+                                    self.scan.as_ref(),
+                                    &mut out,
+                                );
+                            } else {
+                                hubtools::carrierterm(
+                                    &mut child,
+                                    data,
+                                    save,
+                                    &mut self.term_sel,
+                                    self.dialing.as_ref(),
+                                    &mut dial,
+                                );
+                            }
+                        }
                         Kind::Rig => hubtools::rig(&mut child, data, save, &mut out),
                         Kind::Stash => hubtools::stash(&mut child, data, save, &mut out, &mut edit),
                         _ => hubtools::hexed(&mut child, save, &mut self.hex, &mut out, &mut edit),
@@ -442,9 +494,17 @@ impl Workbench {
         self.open(tool);
     }
 
+    /// Shows a finished scan filling in on the WarDial tab.
+    pub fn show_scan(&mut self, result: ScanResult) {
+        self.range_sel = Some(result.range.clone());
+        self.scan = Some((result, 0.0));
+        self.term_tab = TermTab::WarDial;
+    }
+
     /// Starts the modem handshake for a phonebook entry, in the CarrierTerm window.
     pub fn start_dial(&mut self, entry: u32, seed: Option<u64>) {
         self.term_sel = Some(entry);
+        self.term_tab = TermTab::Phonebook;
         self.dialing = Some(Dialing {
             entry,
             seed,
@@ -512,6 +572,12 @@ impl Workbench {
             match effect {
                 ShellEffect::None => {}
                 ShellEffect::Dial(entry, seed) => self.start_dial(entry, seed),
+                ShellEffect::Scan(range) => {
+                    self.term_tab = TermTab::WarDial;
+                    self.range_sel = Some(range.clone());
+                    self.open(Tool::Terminal);
+                    out.push(WbOut::Scan(range));
+                }
                 ShellEffect::Open(t) => self.activate(t),
                 ShellEffect::Theme(t) => out.push(WbOut::Theme(t)),
                 ShellEffect::Crt => out.push(WbOut::Crt),

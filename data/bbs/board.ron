@@ -24,6 +24,7 @@
             "|07Deck mods restocked. OCLOCK.EXE is unstable. Enjoy.",
             "|07New area: OPTIMIZERS. Fragments raise a binary's opt level.",
             "|07Pro tip: |15hex <slot>|07 opens your warez. Mind the checksum.",
+            "|07TEXTFILES has leaked phone ranges. Wardial them from home.",
         ]),
     ],
     users: [
@@ -52,6 +53,13 @@
             (file: "OCLOCK.EXE",   item: Cpu(1),            price: 220, desc: "Overclock. +1 cpu cycle"),
             (file: "HDDX.EXE",     item: Hdd(2),            price: 90,  desc: "Disk compressor. +2 slots"),
             (file: "NANOFIX.EXE",  item: Repair(8),         price: 60,  desc: "Nanite fix. +8 integrity"),
+        ]),
+        (name: "TEXTFILES", stock: 2, files: [
+            (file: "PHONES.TXT",   item: Hint("brightwater"),      price: 30,  desc: "Brightwater's lines. Leaked by a temp"),
+            (file: "YMT-NET.TXT",  item: Hint("yamatai"),          price: 40,  desc: "Yamatai dial-ins, partial list"),
+            (file: "SAITO.TXT",    item: Hint("saito"),            price: 35,  desc: "Saito Pharma line dump"),
+            (file: "BWCORE.TXT",   item: Hint("brightwater_core"), price: 90,  desc: "Brightwater core prefix. Fresh"),
+            (file: "KSTRL.TXT",    item: Hint("kestrel"),          price: 70,  desc: "Kestrel exchange. Don't get caught"),
         ]),
         (name: "OPTIMIZERS", stock: 2, files: [
             (file: "OPTFRAG.ZIP",  item: Fragment(1),       price: 70,  desc: "Optimizer fragment. +2 budget"),

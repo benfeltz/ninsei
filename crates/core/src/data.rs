@@ -99,6 +99,8 @@ pub enum Drop {
     Fragment(u32),
     /// Lowers trace.
     Scrub(u32),
+    /// A number range for the wardialer (id in `hub/exchanges.ron`). Comes home even on a flatline.
+    Hint(String),
     Nothing,
 }
 
@@ -236,6 +238,7 @@ pub struct Sources<'a> {
     pub icons: &'a str,
     pub rig: &'a str,
     pub networks: &'a str,
+    pub exchanges: &'a str,
 }
 
 #[derive(Clone, Debug)]
@@ -252,6 +255,8 @@ pub struct Data {
     pub rig: Vec<crate::hub::UpgradeDef>,
     /// Network tiers, traits and companies for the phonebook.
     pub networks: crate::hub::NetworksDef,
+    /// Number ranges the wardialer scans.
+    pub exchanges: Vec<crate::hub::RangeDef>,
 }
 
 impl Data {
@@ -268,6 +273,7 @@ impl Data {
             icons: include_str!("../../../data/hub/icons.ron"),
             rig: include_str!("../../../data/hub/rig.ron"),
             networks: include_str!("../../../data/hub/networks.ron"),
+            exchanges: include_str!("../../../data/hub/exchanges.ron"),
         })
     }
 
@@ -284,6 +290,8 @@ impl Data {
             icons: ron::from_str(src.icons).map_err(|e| format!("hub/icons.ron: {e}"))?,
             rig: ron::from_str(src.rig).map_err(|e| format!("hub/rig.ron: {e}"))?,
             networks: ron::from_str(src.networks).map_err(|e| format!("hub/networks.ron: {e}"))?,
+            exchanges: ron::from_str(src.exchanges)
+                .map_err(|e| format!("hub/exchanges.ron: {e}"))?,
         };
         data.validate()?;
         Ok(data)
@@ -347,6 +355,47 @@ impl Data {
         self.networks
             .validate()
             .map_err(|e| format!("hub/networks.ron: {e}"))?;
+        crate::hub::RangeDef::validate(&self.exchanges, &self.networks)
+            .map_err(|e| format!("hub/exchanges.ron: {e}"))?;
+        // Every hint anywhere must name a range that exists.
+        let mut drops: Vec<(String, &Drop)> = Vec::new();
+        for (name, t) in [
+            ("ice", &self.loot.ice),
+            ("black_ice", &self.loot.black_ice),
+            ("vault", &self.loot.vault),
+        ] {
+            drops.extend(
+                t.entries
+                    .iter()
+                    .map(|e| (format!("loot table `{name}`"), &e.drop)),
+            );
+        }
+        for a in &self.bbs.areas {
+            drops.extend(
+                a.files
+                    .iter()
+                    .map(|f| (format!("bbs file `{}`", f.file), &f.item)),
+            );
+        }
+        for ev in &self.events {
+            for c in &ev.choices {
+                match &c.effect {
+                    ChoiceEffect::Pay { get: d, .. }
+                    | ChoiceEffect::Gamble { win: d, .. }
+                    | ChoiceEffect::Fight { reward: d, .. } => {
+                        drops.push((format!("event `{}`", ev.id), d));
+                    }
+                    _ => {}
+                }
+            }
+        }
+        for (place, d) in drops {
+            if let Drop::Hint(r) = d
+                && !self.exchanges.iter().any(|x| &x.id == r)
+            {
+                return Err(format!("{place} hints at unknown range `{r}`"));
+            }
+        }
         if self.contracts.is_empty() {
             return Err("contracts.ron has no templates".into());
         }
