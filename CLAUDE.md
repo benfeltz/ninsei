@@ -19,4 +19,6 @@ Cyberspace hacking roguelike styled as a retro IDE. Rust workspace: `crates/core
 - **Balance numbers live in `crates/core/src/tuning.rs`.** After changing them, run the balance probe; the `runs_always_end` test fails if a dumb bot always or never wins.
 - **Every colour comes from the phosphor `Palette`** (`crates/app/src/theme.rs`). The BBS window is the one exception: it shows true CGA colours unless switched to phosphor.
 - **BBS screens are pipe-coded text, max 78x24**, enforced by `every_screen_fits_the_terminal`.
+- **Every encounter needs a `Leave` choice** (`Data::validate`), and `every_choice_in_every_event_resolves` must keep passing: no choice may leave the runner stuck in `Phase::Encounter`.
+- **Programs are tracked by `Slot::uid`, not index**, wherever the UI holds on to one across frames: trades and sales reshuffle the HDD.
 - **A program's stats come from its 32-byte binary** (`crates/core/src/binary.rs`), never from `WarezDef` after creation. A slot never holds an invalid binary: `Action::Patch` runs `binary::check` first. Every factory program must fit the budget rule; `Data::validate` enforces it.

@@ -12,6 +12,8 @@ pub enum NodeKind {
     BlackIce,
     Vault,
     Bbs,
+    /// An encounter: someone wants to talk.
+    Contact,
     Exit,
 }
 
@@ -23,6 +25,7 @@ impl NodeKind {
             NodeKind::BlackIce => "BLACK ICE",
             NodeKind::Vault => "DATA VAULT",
             NodeKind::Bbs => "BBS",
+            NodeKind::Contact => "MSG",
             NodeKind::Exit => "EXIT",
         }
     }
@@ -136,6 +139,18 @@ impl Network {
         self.nodes.iter().position(|n| n.kind == NodeKind::Bbs)
     }
 
+    /// Every node reachable from `from` (inclusive), following links forward.
+    pub fn reachable_from(&self, from: usize) -> Vec<bool> {
+        let mut seen = vec![false; self.nodes.len()];
+        let mut stack = vec![from];
+        while let Some(n) = stack.pop() {
+            if !std::mem::replace(&mut seen[n], true) {
+                stack.extend(&self.nodes[n].links);
+            }
+        }
+        seen
+    }
+
     pub fn entry(&self) -> usize {
         self.layers[0][0]
     }
@@ -161,9 +176,15 @@ fn pick_kind(rng: &mut Rng, layer: usize) -> NodeKind {
     } else {
         0
     };
-    match rng.weighted([NODE_WEIGHT_ICE, NODE_WEIGHT_VAULT, black]) {
+    match rng.weighted([
+        NODE_WEIGHT_ICE,
+        NODE_WEIGHT_VAULT,
+        black,
+        NODE_WEIGHT_CONTACT,
+    ]) {
         Some(1) => NodeKind::Vault,
         Some(2) => NodeKind::BlackIce,
+        Some(3) => NodeKind::Contact,
         _ => NodeKind::Ice,
     }
 }
@@ -182,6 +203,7 @@ fn hostname(rng: &mut Rng, kind: NodeKind) -> String {
         NodeKind::BlackIce => "blk",
         NodeKind::Vault => "dat",
         NodeKind::Bbs => "bbs",
+        NodeKind::Contact => "msg",
         NodeKind::Exit => "out",
     };
     format!("{prefix}-{:04x}", rng.next_u64() & 0xffff)

@@ -1,7 +1,7 @@
 //! Run state and the rules that change it. The app only ever calls [`Game::apply`].
 
 use crate::binary::{self, Bin, Spec};
-use crate::data::{Data, Drop, Effect, Intent, LootTable};
+use crate::data::{ChoiceEffect, Data, Drop, Effect, Intent, LootTable, Penalty};
 use crate::network::{Network, NodeKind};
 use crate::rng::Rng;
 use crate::tuning::*;
@@ -22,6 +22,8 @@ pub struct Deck {
 /// One program on the HDD. Loaded programs occupy RAM and can be run.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Slot {
+    /// Unique per run, so the UI can tell programs apart after the HDD reshuffles.
+    pub uid: u32,
     /// The factory program this binary started as (index into `Data::warez`), for its blurb.
     pub warez: usize,
     pub loaded: bool,
@@ -46,12 +48,51 @@ pub struct Combat {
     /// ICE that just shook off a stun can't be stunned again this turn.
     pub stun_immune: bool,
     pub turn: u32,
+    /// Extra reward for winning (encounter fights).
+    pub bonus: Option<Drop>,
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ContractStatus {
+    /// Posted on a jobs board, not taken.
+    Offered,
+    Active,
+    Done,
+    /// The target became unreachable.
+    Failed,
+}
+
+/// A commission to derez one node.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Contract {
+    pub client: String,
+    pub brief: String,
+    pub node: usize,
+    pub reward: u32,
+    /// Ghost bonus: paid on top if trace is at or under `cap` when the target falls.
+    pub ghost: Option<(u32, u32)>,
+    pub status: ContractStatus,
+}
+
+/// An FTL-style event on a MSG node.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Encounter {
+    /// Index into `Data::events`.
+    pub event: usize,
+    pub node: usize,
+    /// The program a trader is offering (index into `Data::warez`).
+    pub offer: Option<usize>,
+    /// Set once a choice has been made; the window then shows `result`.
+    pub done: bool,
+    pub result: Vec<LogLine>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Phase {
     Exploring,
     Combat,
+    /// Talking to someone on a MSG node. Moving waits until you choose.
+    Encounter,
     Flatlined,
     JackedOut,
 }
@@ -110,6 +151,17 @@ pub enum Action {
     Unload(usize),
     EndTurn,
     NewRun(u64),
+    /// Pick choice `choice` in the current encounter; `slot` names the program for trades and sales.
+    Choose {
+        choice: usize,
+        slot: Option<usize>,
+    },
+    /// Close a finished encounter.
+    EndEncounter,
+    /// Take job `job` from the BBS jobs board.
+    TakeJob {
+        job: usize,
+    },
 }
 
 #[derive(Clone, Debug)]
@@ -128,6 +180,14 @@ pub struct Game {
     pub hops: u32,
     /// This run's BBS listing: per area, the files on offer.
     pub bbs_stock: Vec<Vec<StockFile>>,
+    /// Contracts posted on the BBS jobs board, rolled when you connect.
+    pub bbs_jobs: Vec<Contract>,
+    /// Contracts you've taken, in every state.
+    pub contracts: Vec<Contract>,
+    pub encounter: Option<Encounter>,
+    /// Events already seen this run, so MSG nodes don't repeat while others remain.
+    pub events_seen: Vec<usize>,
+    pub next_uid: u32,
 }
 
 impl Game {
@@ -174,13 +234,18 @@ impl Game {
             log: Vec::new(),
             hops: 0,
             bbs_stock,
+            bbs_jobs: Vec::new(),
+            contracts: Vec::new(),
+            encounter: None,
+            events_seen: Vec::new(),
+            next_uid: 1,
         };
         for id in START_WAREZ {
             if let Some(w) = game.data.warez_ix(id)
                 && let Some(mut slot) = game.factory_slot(w)
             {
                 slot.loaded = game.ram_used() + slot.spec.ram <= game.deck.ram_max;
-                game.hdd.push(slot);
+                game.add_slot(slot);
             }
         }
         game.say(LogKind::Sys, format!("ninsei v0.0.1 // seed {seed:016x}"));
@@ -212,11 +277,19 @@ impl Game {
         let bin = binary::encode(&self.data.warez[w], self.key());
         let spec = binary::check(&bin, self.key()).ok()?;
         Some(Slot {
+            uid: 0,
             warez: w,
             loaded: false,
             bin,
             spec,
         })
+    }
+
+    /// Puts a program on the HDD with a fresh uid.
+    fn add_slot(&mut self, mut slot: Slot) {
+        slot.uid = self.next_uid;
+        self.next_uid += 1;
+        self.hdd.push(slot);
     }
 
     /// The next thing the current ICE will do, if fighting.
@@ -264,6 +337,12 @@ impl Game {
                 Err("run is over. `newrun` to jack in again.".into())
             }
             Action::Move(to) => self.move_to(to),
+            Action::Choose { choice, slot } => self.choose(choice, slot),
+            Action::EndEncounter => {
+                self.encounter = self.encounter.take().filter(|e| !e.done);
+                Ok(())
+            }
+            Action::TakeJob { job } => self.take_job(job),
             Action::Run(slot) => self.run(slot),
             Action::Load(slot) => self.load(slot),
             Action::Unload(slot) => self.unload(slot),
@@ -278,11 +357,15 @@ impl Game {
         if self.phase == Phase::Combat {
             return Err("ICE is holding the connection. break it first.".into());
         }
+        if self.phase == Phase::Encounter {
+            return Err("someone's still talking. answer them first.".into());
+        }
         if !self.net.nodes[self.at].links.contains(&to) {
             return Err(format!("no route to node {to}."));
         }
         self.at = to;
         self.hops += 1;
+        self.encounter = None;
         self.deck.trace += TRACE_PER_HOP;
         let node = self.net.nodes[to].clone();
         self.say(
@@ -309,6 +392,13 @@ impl Game {
                 let b = &self.data.bbs;
                 let line = format!("ATDT {} ... CONNECT {} to {}", b.phone, b.baud, b.name);
                 self.say(LogKind::Good, line);
+                self.bbs_jobs = (0..BBS_JOBS)
+                    .filter_map(|_| self.roll_contract(true))
+                    .collect();
+            }
+            NodeKind::Contact if !node.cleared => {
+                self.net.nodes[to].cleared = true;
+                self.start_encounter(to);
             }
             NodeKind::Exit => {
                 self.net.nodes[to].cleared = true;
@@ -323,6 +413,7 @@ impl Game {
             }
             _ => {}
         }
+        self.void_unreachable_contracts();
         Ok(())
     }
 
@@ -341,6 +432,7 @@ impl Game {
             stunned: false,
             stun_immune: false,
             turn: 1,
+            bonus: None,
         });
         self.phase = Phase::Combat;
         self.say(
@@ -423,6 +515,11 @@ impl Game {
         };
         self.say(LogKind::Good, format!("{name} derezzed. node clear."));
         self.roll_loot(&table);
+        if let Some(b) = c.bonus {
+            self.say(LogKind::Good, "as promised:");
+            self.grant(b);
+        }
+        self.settle_contracts(c.node);
     }
 
     fn end_turn(&mut self) -> Result<(), String> {
@@ -478,6 +575,363 @@ impl Game {
         }
         self.check_trace();
         Ok(())
+    }
+
+    // ---- encounters ----------------------------------------------------------
+
+    fn start_encounter(&mut self, node: usize) {
+        let n = self.data.events.len();
+        let fresh: Vec<usize> = (0..n).filter(|i| !self.events_seen.contains(i)).collect();
+        let event = if fresh.is_empty() {
+            self.rng.below(n)
+        } else {
+            fresh[self.rng.below(fresh.len())]
+        };
+        self.events_seen.push(event);
+        let ev = &self.data.events[event];
+        let pool = ev.choices.iter().find_map(|c| match &c.effect {
+            ChoiceEffect::Trade { pool } => Some(pool.clone()),
+            _ => None,
+        });
+        let offer = pool.and_then(|p| {
+            let id = &p[self.rng.below(p.len())];
+            self.data.warez_ix(id)
+        });
+        let line = format!("<{}> ...incoming message: {}", ev.from, ev.title);
+        self.encounter = Some(Encounter {
+            event,
+            node,
+            offer,
+            done: false,
+            result: Vec::new(),
+        });
+        self.phase = Phase::Encounter;
+        self.say(LogKind::Info, line);
+    }
+
+    /// Fills `{offer}`, `{per_ram}` and `{cost}` in an event's text.
+    pub fn fill(&self, text: &str, choice: Option<usize>) -> String {
+        let Some(e) = &self.encounter else {
+            return text.to_string();
+        };
+        let ev = &self.data.events[e.event];
+        let offer = e
+            .offer
+            .map_or("nothing".to_string(), |w| self.data.warez[w].name.clone());
+        let mut out = text.replace("{offer}", &offer);
+        let effects: Vec<&ChoiceEffect> = match choice {
+            Some(c) => ev.choices.get(c).map(|c| &c.effect).into_iter().collect(),
+            None => ev.choices.iter().map(|c| &c.effect).collect(),
+        };
+        for eff in effects {
+            match eff {
+                ChoiceEffect::Sell { per_ram } => {
+                    out = out.replace("{per_ram}", &per_ram.to_string())
+                }
+                ChoiceEffect::Pay { cost, .. } => out = out.replace("{cost}", &cost.to_string()),
+                _ => {}
+            }
+        }
+        out
+    }
+
+    /// Whether choice `c` asks you to pick one of your programs.
+    pub fn choice_needs_slot(&self, c: usize) -> bool {
+        self.encounter.as_ref().is_some_and(|e| {
+            matches!(
+                self.data.events[e.event].choices.get(c).map(|c| &c.effect),
+                Some(ChoiceEffect::Trade { .. } | ChoiceEffect::Sell { .. })
+            )
+        })
+    }
+
+    /// Why choice `c` can't be picked, if it can't (with `slot` where one is needed).
+    pub fn choice_blocker(&self, c: usize, slot: Option<usize>) -> Option<String> {
+        let e = self.encounter.as_ref()?;
+        if e.done || self.phase != Phase::Encounter {
+            return Some("this conversation is over.".into());
+        }
+        let Some(choice) = self.data.events[e.event].choices.get(c) else {
+            return Some(format!("no choice {}.", c + 1));
+        };
+        let needs_slot = self.choice_needs_slot(c);
+        if needs_slot {
+            match slot {
+                None => return Some("pick a program.".into()),
+                Some(s) if s >= self.hdd.len() => return Some(format!("no program in slot {s}.")),
+                _ => {}
+            }
+        }
+        match &choice.effect {
+            ChoiceEffect::Sell { .. } if self.hdd.len() <= 1 => {
+                Some("you can't sell your last program.".into())
+            }
+            ChoiceEffect::Trade { .. } if e.offer.is_none() => Some("nothing on offer.".into()),
+            ChoiceEffect::Pay { cost, .. } if self.deck.credits < *cost => {
+                Some(format!("needs {cost}¢, you have {}¢.", self.deck.credits))
+            }
+            ChoiceEffect::Contract if self.contract_targets().is_empty() => {
+                Some("no targets left ahead.".into())
+            }
+            _ => None,
+        }
+    }
+
+    /// What a program fetches from a fence paying `per_ram` a GB.
+    pub fn sale_price(&self, slot: usize, per_ram: u32) -> u32 {
+        self.hdd
+            .get(slot)
+            .map_or(0, |s| per_ram * s.spec.ram + SELL_PER_OPT * s.spec.opt)
+    }
+
+    fn choose(&mut self, c: usize, slot: Option<usize>) -> Result<(), String> {
+        if self.encounter.is_none() {
+            return Err("nobody's talking to you.".into());
+        }
+        if let Some(why) = self.choice_blocker(c, slot) {
+            return Err(why);
+        }
+        let Some(e) = self.encounter.clone() else {
+            return Ok(());
+        };
+        let effect = self.data.events[e.event].choices[c].effect.clone();
+        let from = self.data.events[e.event].from.clone();
+        let mark = self.log.len();
+        self.phase = Phase::Exploring;
+        match effect {
+            ChoiceEffect::Leave => {
+                self.say(LogKind::Info, format!("you cut the line on <{from}>."))
+            }
+            ChoiceEffect::Trade { .. } => {
+                let (Some(i), Some(w)) = (slot, e.offer) else {
+                    return Ok(());
+                };
+                let gave = self.hdd[i].spec.file();
+                if let Some(mut new) = self.factory_slot(w) {
+                    new.uid = self.next_uid;
+                    self.next_uid += 1;
+                    let got = new.spec.file();
+                    self.hdd[i] = new;
+                    self.say(LogKind::Loot, format!("traded {gave} for {got}."));
+                }
+            }
+            ChoiceEffect::Sell { per_ram } => {
+                let Some(i) = slot else { return Ok(()) };
+                let price = self.sale_price(i, per_ram);
+                let gone = self.hdd.remove(i);
+                self.deck.credits += price;
+                self.say(
+                    LogKind::Loot,
+                    format!("sold {} for {price}¢.", gone.spec.file()),
+                );
+            }
+            ChoiceEffect::Contract => {
+                if let Some(mut k) = self.roll_contract(false) {
+                    k.status = ContractStatus::Active;
+                    self.say(
+                        LogKind::Good,
+                        format!("contract taken: {}", self.contract_line(&k)),
+                    );
+                    self.contracts.push(k);
+                }
+            }
+            ChoiceEffect::Pay { cost, get } => {
+                self.deck.credits -= cost;
+                self.say(LogKind::Info, format!("paid {cost}¢."));
+                self.grant(get);
+            }
+            ChoiceEffect::Gamble { pct, win, lose } => {
+                if self.rng.chance(pct) {
+                    self.say(LogKind::Good, "it pays off.");
+                    self.grant(win);
+                } else {
+                    self.say(LogKind::Bad, "it was a trap.");
+                    self.penalize(lose);
+                }
+            }
+            ChoiceEffect::Fight { ice, reward } => {
+                if let Some(ix) = self.data.ice.iter().position(|i| i.id == ice) {
+                    self.encounter = None;
+                    self.start_combat(e.node, ix);
+                    if let Some(c) = self.combat.as_mut() {
+                        c.bonus = Some(reward);
+                    }
+                    return Ok(());
+                }
+            }
+        }
+        let result = self.log[mark..].to_vec();
+        if let Some(enc) = self.encounter.as_mut() {
+            enc.done = true;
+            enc.result = result;
+        }
+        Ok(())
+    }
+
+    fn penalize(&mut self, p: Penalty) {
+        match p {
+            Penalty::Trace(n) => {
+                self.deck.trace += n;
+                self.say(LogKind::Bad, format!("trace +{n}"));
+                self.check_trace();
+            }
+            Penalty::Damage(n) => {
+                self.deck.integrity = self.deck.integrity.saturating_sub(n);
+                self.say(LogKind::Bad, format!("deck takes {n} damage"));
+                if self.deck.integrity == 0 {
+                    self.phase = Phase::Flatlined;
+                    self.say(LogKind::Bad, "!! deck integrity zero. FLATLINE.");
+                }
+            }
+        }
+    }
+
+    /// The choice that walks away, for bots and the escape key.
+    pub fn leave_choice(&self) -> Option<usize> {
+        let e = self.encounter.as_ref()?;
+        self.data.events[e.event]
+            .choices
+            .iter()
+            .position(|c| c.effect == ChoiceEffect::Leave)
+    }
+
+    // ---- contracts -----------------------------------------------------------
+
+    /// ICE nodes ahead that nobody has a contract on yet.
+    fn contract_targets(&self) -> Vec<usize> {
+        let reach = self.net.reachable_from(self.at);
+        let taken = |n: usize| {
+            self.contracts
+                .iter()
+                .chain(&self.bbs_jobs)
+                .any(|k| k.node == n && k.status != ContractStatus::Failed)
+        };
+        self.net
+            .nodes
+            .iter()
+            .filter(|n| reach[n.id] && n.id != self.at && !n.cleared)
+            .filter(|n| matches!(n.kind, NodeKind::Ice | NodeKind::BlackIce))
+            .filter(|n| !taken(n.id))
+            .map(|n| n.id)
+            .collect()
+    }
+
+    fn roll_contract(&mut self, offered: bool) -> Option<Contract> {
+        let targets = self.contract_targets();
+        if targets.is_empty() {
+            return None;
+        }
+        let node = targets[self.rng.below(targets.len())];
+        let t = &self.data.contracts[self.rng.below(self.data.contracts.len())];
+        let (client, brief) = (
+            t.client.clone(),
+            t.brief.replace("{host}", &self.net.nodes[node].name),
+        );
+        let n = &self.net.nodes[node];
+        let mult = if n.kind == NodeKind::BlackIce {
+            CONTRACT_BLACK_MULT
+        } else {
+            1
+        };
+        let reward = self.rng.range(CONTRACT_REWARD_MIN, CONTRACT_REWARD_MAX) * mult
+            + CONTRACT_PER_LAYER * n.layer as u32;
+        let ghost = self.rng.chance(CONTRACT_GHOST_PCT).then(|| {
+            let cap = (self.deck.trace + CONTRACT_GHOST_MARGIN).min(TRACE_MAX - 1);
+            (cap, reward * CONTRACT_GHOST_BONUS_PCT / 100)
+        });
+        let status = if offered {
+            ContractStatus::Offered
+        } else {
+            ContractStatus::Active
+        };
+        Some(Contract {
+            client,
+            brief,
+            node,
+            reward,
+            ghost,
+            status,
+        })
+    }
+
+    /// One-line summary of a contract for logs.
+    pub fn contract_line(&self, k: &Contract) -> String {
+        let n = &self.net.nodes[k.node];
+        let ghost = k.ghost.map_or(String::new(), |(cap, b)| {
+            format!(" +{b}¢ if trace <= {cap}%")
+        });
+        format!(
+            "derez {} [node {}] for {}, {}¢{ghost}",
+            n.name, n.id, k.client, k.reward
+        )
+    }
+
+    fn take_job(&mut self, job: usize) -> Result<(), String> {
+        if !self.at_bbs() {
+            return Err("the jobs board is on the BBS.".into());
+        }
+        let Some(k) = self.bbs_jobs.get(job) else {
+            return Err(format!("no job {}.", job + 1));
+        };
+        if k.status != ContractStatus::Offered {
+            return Err("that job's taken.".into());
+        }
+        let mut k = k.clone();
+        k.status = ContractStatus::Active;
+        self.bbs_jobs[job].status = ContractStatus::Active;
+        self.say(
+            LogKind::Good,
+            format!("contract taken: {}", self.contract_line(&k)),
+        );
+        self.contracts.push(k);
+        Ok(())
+    }
+
+    /// Pays out contracts on a node that just fell.
+    fn settle_contracts(&mut self, node: usize) {
+        let trace = self.deck.trace;
+        let mut pay = Vec::new();
+        for k in &mut self.contracts {
+            if k.node == node && k.status == ContractStatus::Active {
+                k.status = ContractStatus::Done;
+                let bonus = k
+                    .ghost
+                    .filter(|&(cap, _)| trace <= cap)
+                    .map_or(0, |(_, b)| b);
+                pay.push((k.client.clone(), k.reward, bonus));
+            }
+        }
+        for (client, reward, bonus) in pay {
+            self.deck.credits += reward + bonus;
+            self.say(
+                LogKind::Loot,
+                format!("contract complete. {client} pays {reward}¢."),
+            );
+            if bonus > 0 {
+                self.say(
+                    LogKind::Loot,
+                    format!("+ ghost bonus {bonus}¢. clean work."),
+                );
+            }
+        }
+    }
+
+    /// Fails active contracts whose target can no longer be reached.
+    fn void_unreachable_contracts(&mut self) {
+        let reach = self.net.reachable_from(self.at);
+        let mut lost = Vec::new();
+        for k in &mut self.contracts {
+            if k.status == ContractStatus::Active && !reach[k.node] {
+                k.status = ContractStatus::Failed;
+                lost.push(k.client.clone());
+            }
+        }
+        for client in lost {
+            self.say(
+                LogKind::Bad,
+                format!("contract void: {client}'s target is out of reach."),
+            );
+        }
     }
 
     /// Flatlines the runner if trace is maxed. Returns true if it did.
@@ -661,7 +1115,7 @@ impl Game {
                         format!("found {name}, but the hdd is full. discarded."),
                     );
                 } else {
-                    self.hdd.push(slot);
+                    self.add_slot(slot);
                     self.say(LogKind::Loot, format!("+ warez: {name}"));
                 }
             }
@@ -689,6 +1143,10 @@ impl Game {
             Drop::Fragment(n) => {
                 self.deck.fragments += n;
                 self.say(LogKind::Loot, format!("+ optimizer fragment x{n}"));
+            }
+            Drop::Scrub(n) => {
+                self.deck.trace = self.deck.trace.saturating_sub(n);
+                self.say(LogKind::Loot, format!("+ trace scrubbed by {n}"));
             }
             Drop::Nothing => self.say(LogKind::Sys, "nothing worth taking."),
         }

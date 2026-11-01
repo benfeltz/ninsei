@@ -4,7 +4,7 @@ A cyberspace hacking roguelike dressed up as a retro IDE. Rust + egui, with ambe
 
 ![network map, green phosphor](docs/shots/network-green.png)
 
-You jack in at a gateway and route through a layered network toward the exit. ICE nodes put up a fight, data vaults drop loot, and one BBS per network sells warez and deck mods for the credits you've stolen. Trace climbs with every hop and every combat turn. At 100% you're flatlined.
+You jack in at a gateway and route through a layered network toward the exit, FTL-style. ICE nodes put up a fight, data vaults drop loot, MSG nodes are encounters (fences, fixers, honeypots), and one BBS per network sells warez and deck mods for the credits you've stolen. Fixers hand out contracts to take systems down. Trace climbs with every hop and every combat turn. At 100% you're flatlined.
 
 ## Run it
 
@@ -25,6 +25,7 @@ On Linux you need the usual X11/Wayland libraries (`libxkbcommon-x11`, GL driver
 | `target.ice` | The ICE you're fighting: strength, next intent, run buttons |
 | `hexedit` | Open any program's binary and patch its bytes (see Crafting) |
 | `terminal` | Log and command line (`help`) |
+| `todo` | Your contracts, as an IDE TODO list: `[ ]` open, `[x]` paid, `[-]` failed |
 
 Tabs can be dragged, split and rearranged; **view → reset layout** puts them back.
 
@@ -34,6 +35,29 @@ Tabs can be dragged, split and rearranged; **view → reset layout** puts them b
 ## Combat
 
 Turn-based. Each turn you get your deck's CPU to spend running loaded warez; then the ICE does what its intent says (attack, trace or fortify) and your shields drop. Class breakers (decoder vs code gate, garrote vs sentry, crowbar vs barrier) hit their class for double and everything else for half. Stunned ICE adapts: it can't be stunned again the turn after. Loading a program mid-fight costs 1 CPU.
+
+## Encounters
+
+Routing into a **MSG** node opens a `talk` window with whoever's on the other end. Pick a numbered choice (or press its number); you can't move on until you answer, and every encounter has a way to walk away.
+
+![encounter](docs/shots/encounter.png)
+
+- **a fence** trades you a program for one of yours, or buys one (per GB of RAM, more for optimized code)
+- **a fixer** offers a contract
+- **an unsecured cache** might be payroll, might be a honeypot
+- **a runner in trouble** pays fragments if you fight off the Hunter pinning them
+- **a bent sysop** sells you a trace wipe
+- **a ROM construct** sells fragments, or offers to soup up your deck (or fry it)
+
+Events live in [`data/events.ron`](data/events.ron): text, choices and effects (`Trade`, `Sell`, `Contract`, `Pay`, `Gamble`, `Fight`, `Leave`).
+
+## Contracts
+
+A contract names an ICE node ahead: derez it and the client pays. Some carry a **ghost bonus**, paid only if your trace is at or under a cap when the target falls. The target is revealed on the map with crosshairs and a `$`, even through the fog. Because links only run forward, a contract fails the moment its target is out of reach.
+
+![contract target](docs/shots/contract.png)
+
+Get them from fixers on MSG nodes or from the BBS's **[J]obs board**, which posts fresh work each time you dial in. Clients and briefs live in [`data/contracts.ron`](data/contracts.ron).
 
 ## Crafting: the hex editor
 
@@ -73,6 +97,8 @@ Everything is data in [`data/`](data), compiled into the binary:
 - `warez.ron`: programs (RAM/CPU cost, effect)
 - `ice.ron`: ICE (class, strength, intent cycle; tier 2 is black ICE)
 - `loot.ron`: weighted loot tables for ICE, black ICE and vaults (credits, warez, upgrades, fragments)
+- `events.ron`: MSG-node encounters
+- `contracts.ron`: contract clients and briefs
 - `bbs/board.ron`: the BBS: bulletins, users, file areas, prices, stock per run
 - `bbs/splash.txt`: the splash art. Colours use Mystic/Renegade **pipe codes** (`|00`-`|15` foreground, `|16`-`|23` background); raw ANSI `ESC[...m` escapes work too, so `.ans` art from PabloDraw or Moebius can be pasted in.
 
@@ -86,4 +112,4 @@ crates/app/    ninsei: the egui + egui_dock shell. renders state, sends actions
 data/          content (RON + pipe-coded art)
 ```
 
-The core is deterministic (seeded SplitMix64), so a seed replays a run exactly. `cargo test` covers generation, combat, crafting rules, the BBS flow and screen sizes; `cargo run -p ninsei-core --example balance` plays 500 seeds with a dumb bot and prints the win rate.
+The core is deterministic (seeded SplitMix64), so a seed replays a run exactly. `cargo test` covers generation, combat, crafting, encounters, contracts, the BBS flow and screen sizes; `cargo run -p ninsei-core --example balance` plays 500 seeds with a dumb bot and prints the win rate.

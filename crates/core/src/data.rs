@@ -97,6 +97,8 @@ pub enum Drop {
     Repair(u32),
     /// Optimizer fragments, the hex-editor crafting material.
     Fragment(u32),
+    /// Lowers trace.
+    Scrub(u32),
     Nothing,
 }
 
@@ -163,6 +165,64 @@ pub struct BbsDef {
     pub splash: String,
 }
 
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Penalty {
+    Trace(u32),
+    Damage(u32),
+}
+
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+pub enum ChoiceEffect {
+    Leave,
+    /// Swap one of your programs for one picked from `pool` when the event spawns.
+    Trade {
+        pool: Vec<String>,
+    },
+    /// Sell a program for `per_ram` credits per GB of its ram cost.
+    Sell {
+        per_ram: u32,
+    },
+    /// Take a contract on a node ahead.
+    Contract,
+    Pay {
+        cost: u32,
+        get: Drop,
+    },
+    Gamble {
+        pct: u32,
+        win: Drop,
+        lose: Penalty,
+    },
+    /// Fight ICE `ice` here; `reward` on top of the usual loot.
+    Fight {
+        ice: String,
+        reward: Drop,
+    },
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct ChoiceDef {
+    pub label: String,
+    pub effect: ChoiceEffect,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct EventDef {
+    pub id: String,
+    /// Chat handle of whoever is talking.
+    pub from: String,
+    pub title: String,
+    pub text: Vec<String>,
+    pub choices: Vec<ChoiceDef>,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct ContractTemplate {
+    pub client: String,
+    /// `{host}` becomes the target's hostname.
+    pub brief: String,
+}
+
 /// The raw text of every data file.
 #[derive(Clone, Copy, Debug)]
 pub struct Sources<'a> {
@@ -171,6 +231,8 @@ pub struct Sources<'a> {
     pub loot: &'a str,
     pub bbs: &'a str,
     pub splash: &'a str,
+    pub events: &'a str,
+    pub contracts: &'a str,
 }
 
 #[derive(Clone, Debug)]
@@ -179,6 +241,8 @@ pub struct Data {
     pub ice: Vec<IceDef>,
     pub loot: LootTables,
     pub bbs: BbsDef,
+    pub events: Vec<EventDef>,
+    pub contracts: Vec<ContractTemplate>,
 }
 
 impl Data {
@@ -190,6 +254,8 @@ impl Data {
             loot: include_str!("../../../data/loot.ron"),
             bbs: include_str!("../../../data/bbs/board.ron"),
             splash: include_str!("../../../data/bbs/splash.txt"),
+            events: include_str!("../../../data/events.ron"),
+            contracts: include_str!("../../../data/contracts.ron"),
         })
     }
 
@@ -201,6 +267,8 @@ impl Data {
             ice: ron::from_str(src.ice).map_err(|e| format!("ice.ron: {e}"))?,
             loot: ron::from_str(src.loot).map_err(|e| format!("loot.ron: {e}"))?,
             bbs,
+            events: ron::from_str(src.events).map_err(|e| format!("events.ron: {e}"))?,
+            contracts: ron::from_str(src.contracts).map_err(|e| format!("contracts.ron: {e}"))?,
         };
         data.validate()?;
         Ok(data)
@@ -256,6 +324,49 @@ impl Data {
                 }
                 if matches!(f.item, Drop::Nothing | Drop::Credits(..)) {
                     return Err(format!("bbs file `{}` sells nothing", f.file));
+                }
+            }
+        }
+        if self.contracts.is_empty() {
+            return Err("contracts.ron has no templates".into());
+        }
+        if self.events.is_empty() {
+            return Err("events.ron has no events".into());
+        }
+        for ev in &self.events {
+            if !ev.choices.iter().any(|c| c.effect == ChoiceEffect::Leave) {
+                return Err(format!("event `{}` has no Leave choice", ev.id));
+            }
+            for c in &ev.choices {
+                let drops: Vec<&Drop> = match &c.effect {
+                    ChoiceEffect::Pay { get, .. } => vec![get],
+                    ChoiceEffect::Gamble { win, .. } => vec![win],
+                    ChoiceEffect::Fight { reward, .. } => vec![reward],
+                    _ => Vec::new(),
+                };
+                for d in drops {
+                    if let Drop::Warez(id) = d
+                        && self.warez_ix(id).is_none()
+                    {
+                        return Err(format!("event `{}` names unknown warez `{id}`", ev.id));
+                    }
+                }
+                match &c.effect {
+                    ChoiceEffect::Trade { pool } => {
+                        if pool.is_empty() {
+                            return Err(format!("event `{}` trades from an empty pool", ev.id));
+                        }
+                        if let Some(id) = pool.iter().find(|id| self.warez_ix(id).is_none()) {
+                            return Err(format!("event `{}` trades unknown warez `{id}`", ev.id));
+                        }
+                    }
+                    ChoiceEffect::Fight { ice, .. } if !self.ice.iter().any(|i| &i.id == ice) => {
+                        return Err(format!("event `{}` fights unknown ICE `{ice}`", ev.id));
+                    }
+                    ChoiceEffect::Gamble { pct, .. } if *pct > 100 => {
+                        return Err(format!("event `{}` gambles at {pct}%", ev.id));
+                    }
+                    _ => {}
                 }
             }
         }

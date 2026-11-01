@@ -1,0 +1,8 @@
+// Contract templates. {host} is replaced with the target's hostname.
+[
+    (client: "Yamatai Dynamics", brief: "A rival lab keeps its prototype specs behind {host}. Burn it."),
+    (client: "Brightwater Mutual", brief: "{host} holds claim records we'd rather nobody audits. Make them go away."),
+    (client: "the Lazarus Clinic", brief: "Someone at {host} has our patient files. Derez the node, no copies."),
+    (client: "a voice with no handle", brief: "{host}. Don't ask why. Half up front was a joke; you get it all after."),
+    (client: "Chiba Freight Co-op", brief: "{host} reroutes our cargo manifests. Take it offline."),
+]

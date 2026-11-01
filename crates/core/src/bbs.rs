@@ -3,7 +3,7 @@
 //! [`Session::key`] takes single keypresses like a real board, [`Session::tick`] runs the modem clock.
 
 use crate::data::Drop;
-use crate::game::{Action, Game};
+use crate::game::{Action, ContractStatus, Game};
 use crate::tuning::{BBS_CPS, BBS_DIAL_SECS, BBS_HANGUP_SECS};
 
 /// Screen width in columns.
@@ -19,6 +19,7 @@ pub enum Screen {
     Bulletins,
     Bulletin(usize),
     Who,
+    Jobs,
     Areas,
     Area(usize),
     Download { area: usize, file: usize, t: f32 },
@@ -98,11 +99,13 @@ impl Session {
             Screen::Splash => vec![('\n', "continue".into())],
             Screen::Main => vec![
                 ('F', "files".into()),
+                ('J', "jobs".into()),
                 ('B', "bulletins".into()),
                 ('W', "who".into()),
                 ('G', "goodbye".into()),
             ],
             Screen::Bulletins => numbered(b.bulletins.len(), "Q"),
+            Screen::Jobs => numbered(game.bbs_jobs.len(), "Q"),
             Screen::Areas => numbered(b.areas.len(), "Q"),
             Screen::Area(a) => numbered(game.bbs_stock[a].len(), "Q"),
             Screen::Bulletin(_) | Screen::Who => vec![('Q', "back".into())],
@@ -119,6 +122,7 @@ impl Session {
             Screen::Splash => self.go(Screen::Main),
             Screen::Main => match k {
                 'F' => self.go(Screen::Areas),
+                'J' => self.go(Screen::Jobs),
                 'B' => self.go(Screen::Bulletins),
                 'W' => self.go(Screen::Who),
                 'G' | '\x1b' => self.go(Screen::Hangup { t: 0.0 }),
@@ -141,6 +145,17 @@ impl Session {
                     self.go(Screen::Main);
                 }
             }
+            Screen::Jobs => match digit {
+                Some(n) if (1..=game.bbs_jobs.len()).contains(&n) => {
+                    if game.bbs_jobs[n - 1].status == ContractStatus::Offered {
+                        self.status = Some("|10Job accepted. It's on your todo list.".into());
+                        return Outcome::Act(Action::TakeJob { job: n - 1 });
+                    }
+                    self.status = Some("|12That job's already taken.".into());
+                }
+                _ if back => self.go(Screen::Main),
+                _ => {}
+            },
             Screen::Areas => match digit {
                 Some(n) if (1..=game.data.bbs.areas.len()).contains(&n) => {
                     self.go(Screen::Area(n - 1))
@@ -202,6 +217,7 @@ impl Session {
                 out.push(String::new());
                 for (k, label, note) in [
                     ('F', "File Areas", "warez, utilities, deck mods"),
+                    ('J', "Jobs Board", "contracts. no names, just creds"),
                     ('B', "Bulletins", "read before you leech"),
                     ('W', "Who's Online", ""),
                     ('G', "Goodbye", "log off"),
@@ -261,6 +277,43 @@ impl Session {
                 ));
                 out.push(String::new());
                 out.push("   |07[|15Q|07] back".into());
+            }
+            Screen::Jobs => {
+                header(&mut out, &b.name, "JOBS BOARD");
+                out.push(String::new());
+                if game.bbs_jobs.is_empty() {
+                    out.push("   |08Nothing posted. Check back next time you dial in.".into());
+                }
+                for (i, k) in game.bbs_jobs.iter().enumerate() {
+                    let n = &game.net.nodes[k.node];
+                    let taken = k.status != ContractStatus::Offered;
+                    let (num, name) = if taken {
+                        ("|08", "|08")
+                    } else {
+                        ("|15", "|11")
+                    };
+                    out.push(format!(
+                        "   |09[{num}{}|09] {name}{:<24}|14{:>5}¢ |08target |07{} |08layer {}",
+                        i + 1,
+                        k.client,
+                        k.reward,
+                        n.name,
+                        n.layer
+                    ));
+                    let brief: String = k.brief.chars().take(68).collect();
+                    out.push(format!("       |07{brief}"));
+                    match (taken, k.ghost) {
+                        (true, _) => out.push("       |08[taken]".into()),
+                        (false, Some((cap, bonus))) => out.push(format!(
+                            "       |13ghost bonus |14+{bonus}¢ |13if trace stays at or under {cap}%"
+                        )),
+                        (false, None) => {}
+                    }
+                    out.push(String::new());
+                }
+                out.push(
+                    "   |07Take which? |09[|15#|09] |07or |09[|15Q|09]|07uit |09» |15_".into(),
+                );
             }
             Screen::Areas => {
                 header(&mut out, &b.name, "FILE AREAS");

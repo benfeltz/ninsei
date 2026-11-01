@@ -2,6 +2,7 @@
 
 mod bbs_view;
 mod crt;
+mod encounter_view;
 mod hexview;
 mod netmap;
 mod panes;
@@ -14,6 +15,7 @@ use ninsei_core::hexedit::HexBuffer;
 use ninsei_core::{Action, Command, Data, Game, LogKind, Phase, command::HELP, parse_command};
 
 use bbs_view::BbsView;
+use encounter_view::EncounterView;
 
 use panes::{Panes, Request, Tab};
 use theme::Phosphor;
@@ -55,7 +57,7 @@ fn default_layout() -> DockState<Tab> {
     let tree = dock.main_surface_mut();
     let [center, left] = tree.split_left(NodeIndex::root(), 0.27, vec![Tab::Deck]);
     tree.split_below(left, 0.42, vec![Tab::Warez]);
-    tree.split_below(center, 0.68, vec![Tab::Terminal]);
+    tree.split_below(center, 0.68, vec![Tab::Terminal, Tab::Todo]);
     dock
 }
 
@@ -70,6 +72,9 @@ struct App {
     last_at: usize,
     bbs: Option<BbsView>,
     hex: Option<HexBuffer>,
+    /// Uid of the program open in the hex editor, so trades and sales can't swap it underneath.
+    hex_uid: u32,
+    talk: EncounterView,
 }
 
 impl App {
@@ -81,6 +86,8 @@ impl App {
             last_at: game.at,
             bbs: None,
             hex: None,
+            hex_uid: 0,
+            talk: EncounterView::default(),
             last_phase: game.phase,
             game,
             dock: default_layout(),
@@ -160,6 +167,7 @@ impl App {
             return;
         };
         self.hex = Some(HexBuffer::open(slot, s.bin));
+        self.hex_uid = s.uid;
         if let Some(path) = self.dock.find_tab(&Tab::Hex) {
             let _ = self.dock.set_active_tab(path);
         }
@@ -169,6 +177,14 @@ impl App {
     /// becomes the new baseline, and a vanished slot closes the editor.
     fn sync_hex(&mut self) {
         let Some(h) = &mut self.hex else { return };
+        // Follow the program if the HDD reshuffled; close if it's gone.
+        match self.game.hdd.iter().position(|s| s.uid == self.hex_uid) {
+            Some(i) => h.slot = i,
+            None => {
+                self.hex = None;
+                return;
+            }
+        }
         match self.game.hdd.get(h.slot) {
             None => self.hex = None,
             Some(s) if h.buf == s.bin || !h.dirty() => h.committed(s.bin),
@@ -179,7 +195,8 @@ impl App {
     /// Hotkeys work whenever the terminal isn't taking typing.
     fn hotkeys(&mut self, ctx: &egui::Context) -> Vec<Request> {
         let hex_typing = ctx.memory(|m| m.has_focus(hexview::grid_id()));
-        if self.bbs.is_some() || hex_typing || ctx.egui_wants_keyboard_input() {
+        let talking = self.game.encounter.is_some();
+        if self.bbs.is_some() || talking || hex_typing || ctx.egui_wants_keyboard_input() {
             return Vec::new();
         }
         let mut out = Vec::new();
@@ -258,6 +275,7 @@ impl App {
             let (state, col) = match g.phase {
                 Phase::Exploring => ("● LINKED", pal.fg),
                 Phase::Combat => ("● ICE CONTACT", pal.bright),
+                Phase::Encounter => ("● INCOMING MSG", pal.bright),
                 Phase::Flatlined => ("○ FLATLINE", pal.bright),
                 Phase::JackedOut => ("○ OFFLINE", pal.dim),
             };
@@ -338,6 +356,10 @@ impl eframe::App for App {
         if !self.game.at_bbs() {
             self.bbs = None;
         }
+        for a in self.talk.show(&ctx, &self.game, &pal) {
+            self.game.apply(a);
+        }
+        self.sync_hex();
         if let Some(view) = &mut self.bbs {
             for o in view.show(&ctx, &self.game, &pal) {
                 match o {

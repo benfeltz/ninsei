@@ -27,6 +27,13 @@ fn main() {
                         }
                     }
                 }
+                Phase::Encounter => {
+                    let leave = g.leave_choice().unwrap();
+                    g.apply(Action::Choose {
+                        choice: leave,
+                        slot: None,
+                    });
+                }
                 _ => break,
             }
         }

@@ -1,11 +1,28 @@
 use ninsei_core::bbs::{COLS, Outcome, ROWS, Screen, Session};
 use ninsei_core::*;
 
+/// Routes the runner onto the BBS the honest way: hop by hop from the entry.
 fn game_at_bbs(seed: u64, credits: u32) -> Game {
     let mut g = Game::new(Data::builtin().unwrap(), seed);
     let bbs = g.net.bbs().expect("every network has a bbs");
-    g.at = bbs;
+    // Clear the way so the walk doesn't start fights or conversations.
+    for n in &mut g.net.nodes {
+        if n.id != bbs {
+            n.kind = NodeKind::Vault;
+            n.cleared = true;
+        }
+    }
+    while g.at != bbs {
+        let reach_bbs = |n: usize| g.net.reachable_from(n)[bbs];
+        let next = *g.net.nodes[g.at]
+            .links
+            .iter()
+            .find(|&&n| reach_bbs(n))
+            .unwrap();
+        g.apply(Action::Move(next));
+    }
     g.deck.credits = credits;
+    g.deck.trace = 0;
     g
 }
 
@@ -124,6 +141,7 @@ fn every_screen_fits_the_terminal() {
         Screen::Bulletins,
         Screen::Bulletin(0),
         Screen::Who,
+        Screen::Jobs,
         Screen::Areas,
         Screen::Area(0),
         Screen::Area(1),

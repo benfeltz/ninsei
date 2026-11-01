@@ -1,7 +1,7 @@
 //! The main editor pane: the network drawn as boxes and wires. Returns the node the player clicked.
 
 use egui::{Align2, Color32, FontFamily, FontId, Rect, Sense, Stroke, Ui, pos2, vec2};
-use ninsei_core::{Game, NodeKind, Phase};
+use ninsei_core::{ContractStatus, Game, NodeKind, Phase};
 
 use crate::theme::Palette;
 
@@ -29,8 +29,16 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         pos2(x, y)
     };
     // The BBS number is passed around; you always know where it is.
+    // Contract targets are revealed too: the client gave you the hostname.
+    let target = |id: usize| {
+        game.contracts
+            .iter()
+            .any(|k| k.node == id && k.status == ContractStatus::Active)
+    };
     let visible = |id: usize| {
-        net.nodes[id].layer <= here.layer + SIGHT || net.nodes[id].kind == NodeKind::Bbs
+        net.nodes[id].layer <= here.layer + SIGHT
+            || net.nodes[id].kind == NodeKind::Bbs
+            || target(id)
     };
     let reachable = game.reachable();
 
@@ -123,6 +131,28 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
             p.dim,
         );
 
+        if target(n.id) {
+            // Crosshair corners and a bounty tag.
+            let r2 = r.expand(4.0);
+            let k = 7.0;
+            let st = Stroke::new(1.5, p.bright);
+            for (c, dx, dy) in [
+                (r2.left_top(), 1.0, 1.0),
+                (r2.right_top(), -1.0, 1.0),
+                (r2.left_bottom(), 1.0, -1.0),
+                (r2.right_bottom(), -1.0, -1.0),
+            ] {
+                painter.line_segment([c, c + vec2(k * dx, 0.0)], st);
+                painter.line_segment([c, c + vec2(0.0, k * dy)], st);
+            }
+            painter.text(
+                r2.right_top() + vec2(3.0, -2.0),
+                Align2::LEFT_BOTTOM,
+                "$",
+                body.clone(),
+                p.bright,
+            );
+        }
         if n.id == game.at && game.phase == Phase::Exploring && blink {
             painter.text(
                 pos2(r.right() + 4.0, c.y),
@@ -147,6 +177,7 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
     let hint = match game.phase {
         Phase::Exploring => "click a lit node (or `jack <n>`) to route there",
         Phase::Combat => "ICE holds the line. break it in target.ice",
+        Phase::Encounter => "someone wants to talk",
         Phase::Flatlined => "FLATLINED. `newrun` to jack in again",
         Phase::JackedOut => "JACKED OUT. `newrun` to go deeper",
     };
@@ -167,6 +198,7 @@ fn kind_tag(kind: NodeKind) -> &'static str {
         NodeKind::BlackIce => "B.ICE",
         NodeKind::Vault => "DATA",
         NodeKind::Bbs => "BBS",
+        NodeKind::Contact => "MSG",
         NodeKind::Exit => "EXIT",
     }
 }

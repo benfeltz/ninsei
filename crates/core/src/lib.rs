@@ -14,8 +14,12 @@ pub mod tuning;
 
 pub use command::{Command, parse_command};
 pub use data::{
-    BbsDef, Data, Drop, Effect, IceClass, IceDef, Intent, Sources, WarezDef, WarezKind,
+    BbsDef, ChoiceEffect, Data, Drop, Effect, IceClass, IceDef, Intent, Penalty, Sources, WarezDef,
+    WarezKind,
 };
-pub use game::{Action, Combat, Deck, Game, LogKind, LogLine, Phase, Slot, StockFile};
+pub use game::{
+    Action, Combat, Contract, ContractStatus, Deck, Encounter, Game, LogKind, LogLine, Phase, Slot,
+    StockFile,
+};
 pub use network::{Network, Node, NodeKind};
 pub use rng::Rng;

@@ -20,6 +20,8 @@ fn bad_loot_reference_is_rejected() {
         loot: &loot,
         bbs: include_str!("../../../data/bbs/board.ron"),
         splash: include_str!("../../../data/bbs/splash.txt"),
+        events: include_str!("../../../data/events.ron"),
+        contracts: include_str!("../../../data/contracts.ron"),
     })
     .unwrap_err();
     assert!(err.contains("nope"), "{err}");
@@ -107,6 +109,13 @@ fn autoplay(seed: u64) -> Game {
                     Some((i, _)) => g.apply(Action::Run(i)),
                     None => g.apply(Action::EndTurn),
                 }
+            }
+            Phase::Encounter => {
+                let leave = g.leave_choice().unwrap();
+                g.apply(Action::Choose {
+                    choice: leave,
+                    slot: None,
+                });
             }
             Phase::Flatlined | Phase::JackedOut => return g,
         }

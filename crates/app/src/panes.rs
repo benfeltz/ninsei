@@ -2,7 +2,7 @@
 
 use egui::{Color32, RichText, ScrollArea, Ui, WidgetText};
 use ninsei_core::hexedit::HexBuffer;
-use ninsei_core::{Action, Command, Effect, Game, LogKind, Phase, tuning};
+use ninsei_core::{Action, Command, ContractStatus, Effect, Game, LogKind, Phase, tuning};
 
 use crate::hexview;
 use crate::netmap;
@@ -16,6 +16,7 @@ pub enum Tab {
     Target,
     Hex,
     Terminal,
+    Todo,
 }
 
 pub enum Request {
@@ -70,6 +71,18 @@ impl egui_dock::TabViewer for Panes<'_> {
                 " hexedit "
             }
             Tab::Terminal => " terminal ",
+            Tab::Todo => {
+                let open = self
+                    .game
+                    .contracts
+                    .iter()
+                    .filter(|k| k.status == ContractStatus::Active)
+                    .count();
+                if open > 0 {
+                    return format!(" todo ({open}) ").into();
+                }
+                " todo "
+            }
         }
         .into()
     }
@@ -97,6 +110,7 @@ impl egui_dock::TabViewer for Panes<'_> {
             Tab::Target => self.target(ui),
             Tab::Hex => hexview::show(ui, self.game, self.hex, &self.pal, &mut self.out),
             Tab::Terminal => self.terminal(ui),
+            Tab::Todo => self.todo(ui),
         }
     }
 }
@@ -349,6 +363,13 @@ impl Panes<'_> {
                 }
                 return;
             }
+            Phase::Encounter => {
+                ui.label(
+                    RichText::new("incoming message. answer it in the talk window.")
+                        .color(p.bright),
+                );
+                return;
+            }
             Phase::Combat => {}
         }
         let Some(c) = &g.combat else { return };
@@ -429,6 +450,71 @@ impl Panes<'_> {
             .clicked()
         {
             self.act(Action::EndTurn);
+        }
+    }
+
+    /// Contracts as an IDE TODO list.
+    fn todo(&mut self, ui: &mut Ui) {
+        let g = self.game;
+        let p = self.pal;
+        if g.contracts.is_empty() {
+            ui.label(RichText::new("// no open contracts.").color(p.dim));
+            ui.label(
+                RichText::new("// fixers post on the BBS jobs board and hang around MSG nodes.")
+                    .color(p.dim),
+            );
+            return;
+        }
+        for k in g.contracts.iter().rev() {
+            let n = &g.net.nodes[k.node];
+            let (mark, col) = match k.status {
+                ContractStatus::Active => ("[ ]", p.fg),
+                ContractStatus::Done => ("[x]", p.dim),
+                ContractStatus::Failed => ("[-]", p.faint),
+                ContractStatus::Offered => ("[?]", p.dim),
+            };
+            ui.horizontal(|ui| {
+                ui.label(RichText::new(mark).color(col));
+                let text = RichText::new(format!(
+                    "TODO({}): derez {} [node {}, layer {}]",
+                    k.client, n.name, n.id, n.layer
+                ))
+                .color(col);
+                let text = if k.status == ContractStatus::Failed {
+                    text.strikethrough()
+                } else {
+                    text
+                };
+                ui.label(text);
+                ui.label(RichText::new(format!("{}¢", k.reward)).color(
+                    if k.status == ContractStatus::Active {
+                        p.bright
+                    } else {
+                        col
+                    },
+                ));
+                if let Some((cap, bonus)) = k.ghost {
+                    let ok = g.deck.trace <= cap;
+                    let note = format!(
+                        "+{bonus}¢ ghost if trace <= {cap}%{}",
+                        if ok { "" } else { " (blown)" }
+                    );
+                    ui.label(RichText::new(note).small().color(
+                        if ok && k.status == ContractStatus::Active {
+                            p.fg
+                        } else {
+                            p.dim
+                        },
+                    ));
+                }
+            });
+            if k.status == ContractStatus::Active {
+                ui.label(
+                    RichText::new(format!("      // {}", k.brief))
+                        .small()
+                        .color(p.dim),
+                );
+            }
         }
     }
 
