@@ -9,6 +9,9 @@ use crate::theme::Palette;
 #[derive(Default)]
 pub struct EncounterView {
     pub picking: Option<usize>,
+    /// The encounter (node, event) shown last frame. Keys typed in the frame a window opens
+    /// belong to whatever opened it (e.g. the `1` in `jack 1`), so that frame ignores input.
+    seen: Option<(usize, usize)>,
 }
 
 impl EncounterView {
@@ -16,30 +19,40 @@ impl EncounterView {
         let mut out = Vec::new();
         let Some(e) = &game.encounter else {
             self.picking = None;
+            self.seen = None;
             return out;
         };
         let ev = &game.data.events[e.event];
+        let id = (e.node, e.event);
+        let fresh = self.seen != Some(id);
+        self.seen = Some(id);
+        // The conversation owns the keyboard while it's open.
+        ctx.memory_mut(|m| m.stop_text_input());
 
         // Keys: digits choose (or pick a slot), enter closes, escape backs out.
-        let keys: Vec<char> = ctx.input(|i| {
-            i.events
-                .iter()
-                .filter_map(|ev| match ev {
-                    Event::Text(t) => t.chars().next(),
-                    Event::Key {
-                        key: Key::Enter,
-                        pressed: true,
-                        ..
-                    } => Some('\n'),
-                    Event::Key {
-                        key: Key::Escape,
-                        pressed: true,
-                        ..
-                    } => Some('\x1b'),
-                    _ => None,
-                })
-                .collect()
-        });
+        let keys: Vec<char> = if fresh {
+            Vec::new()
+        } else {
+            ctx.input(|i| {
+                i.events
+                    .iter()
+                    .filter_map(|ev| match ev {
+                        Event::Text(t) => t.chars().next(),
+                        Event::Key {
+                            key: Key::Enter,
+                            pressed: true,
+                            ..
+                        } => Some('\n'),
+                        Event::Key {
+                            key: Key::Escape,
+                            pressed: true,
+                            ..
+                        } => Some('\x1b'),
+                        _ => None,
+                    })
+                    .collect()
+            })
+        };
         for k in keys {
             if e.done {
                 if k == '\n' || k == '\x1b' {

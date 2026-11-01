@@ -20,6 +20,7 @@ use encounter_view::EncounterView;
 use panes::{Panes, Request, Tab};
 use theme::Phosphor;
 
+#[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result {
     let data = match Data::builtin() {
         Ok(d) => d,
@@ -46,10 +47,71 @@ fn main() -> eframe::Result {
     )
 }
 
+/// Web entry point: mounts the game on the page's `<canvas id="ninsei">`.
+/// A seed can be shared in the URL: `.../#1a2b`.
+#[cfg(target_arch = "wasm32")]
+fn main() {
+    use wasm_bindgen::JsCast;
+
+    wasm_bindgen_futures::spawn_local(async {
+        let Some(document) = web_sys::window().and_then(|w| w.document()) else {
+            return;
+        };
+        let canvas = document
+            .get_element_by_id("ninsei")
+            .and_then(|e| e.dyn_into::<web_sys::HtmlCanvasElement>().ok());
+        let status = document.get_element_by_id("status");
+        let say = |msg: &str| {
+            if let Some(s) = &status {
+                s.set_text_content(Some(msg));
+            }
+        };
+        let Some(canvas) = canvas else {
+            say("no <canvas id=\"ninsei\"> on this page.");
+            return;
+        };
+        let data = match Data::builtin() {
+            Ok(d) => d,
+            Err(e) => {
+                say(&format!("bad game data: {e}"));
+                return;
+            }
+        };
+        let seed = web_sys::window()
+            .and_then(|w| w.location().hash().ok())
+            .and_then(|h| u64::from_str_radix(h.trim_start_matches('#'), 16).ok())
+            .unwrap_or_else(fresh_seed);
+        let started = eframe::WebRunner::new()
+            .start(
+                canvas,
+                eframe::WebOptions::default(),
+                Box::new(move |cc| Ok(Box::new(App::new(&cc.egui_ctx, data, seed)))),
+            )
+            .await;
+        match started {
+            Ok(()) => {
+                if let Some(s) = &status {
+                    s.remove();
+                }
+            }
+            Err(e) => say(&format!("NO CARRIER: {e:?}")),
+        }
+    });
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 fn fresh_seed() -> u64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map_or(0x5eed, |d| d.as_nanos() as u64)
+}
+
+/// The browser has no `SystemTime`; mix the clock with a random draw instead.
+#[cfg(target_arch = "wasm32")]
+fn fresh_seed() -> u64 {
+    let now = js_sys::Date::now() as u64;
+    let r = (js_sys::Math::random() * u32::MAX as f64) as u64;
+    (now << 20) ^ r
 }
 
 fn default_layout() -> DockState<Tab> {
@@ -324,7 +386,8 @@ impl eframe::App for App {
             pal,
             input: &mut self.input,
             focus_input: &mut self.focus_input,
-            bbs_open: self.bbs.is_some(),
+            // Any modal (BBS or talk) keeps the terminal from grabbing focus.
+            bbs_open: self.bbs.is_some() || self.game.encounter.is_some(),
             hex: &mut self.hex,
             out: Vec::new(),
         };

@@ -6,7 +6,11 @@ A cyberspace hacking roguelike dressed up as a retro IDE. Rust + egui, with ambe
 
 You jack in at a gateway and route through a layered network toward the exit, FTL-style. ICE nodes put up a fight, data vaults drop loot, MSG nodes are encounters (fences, fixers, honeypots), and one BBS per network sells warez and deck mods for the credits you've stolen. Fixers hand out contracts to take systems down. Trace climbs with every hop and every combat turn. At 100% you're flatlined.
 
-## Run it
+## Play it
+
+In the browser: **https://benfeltz.github.io/ninsei/** (share a seed with `#1a2b` on the end of the URL).
+
+Natively:
 
 ```bash
 cargo run -p ninsei            # random seed
@@ -14,6 +18,19 @@ cargo run -p ninsei -- 1a2b    # fixed seed (hex)
 ```
 
 On Linux you need the usual X11/Wayland libraries (`libxkbcommon-x11`, GL drivers).
+
+### Web build
+
+The same app compiles to WebAssembly and renders through WebGL.
+
+```bash
+rustup target add wasm32-unknown-unknown
+cargo install wasm-bindgen-cli --version 0.2.130 --locked   # must match wasm-bindgen in Cargo.lock
+scripts/build-web.sh                                        # -> dist/
+python3 -m http.server -d dist 8000                         # http://localhost:8000
+```
+
+Every push to `main` builds `dist/` and publishes it to GitHub Pages (`.github/workflows/pages.yml`). One-time setup: repo **Settings → Pages → Source: GitHub Actions**.
 
 ## The IDE
 

@@ -1263,7 +1263,11 @@ dependencies = [
  "eframe",
  "egui",
  "egui_dock",
+ "js-sys",
  "ninsei-core",
+ "wasm-bindgen",
+ "wasm-bindgen-futures",
+ "web-sys",
 ]
 
 [[package]]
