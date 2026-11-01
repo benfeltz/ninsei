@@ -163,8 +163,8 @@ impl App {
         let mut boot = vec![
             "ninsei Workbench 1.3".to_string(),
             String::new(),
-            "Double-click JackIn to dial a random network,".to_string(),
-            "or type `jackin` here. `help` for more.".to_string(),
+            "Open CarrierTerm and dial a network,".to_string(),
+            "or type `phonebook` here. `help` for more.".to_string(),
         ];
         // A missing or unreadable save starts a fresh hub; it never stops the game.
         let save = match cc.storage.and_then(|s| s.get_string(SAVE_KEY)) {
@@ -187,6 +187,8 @@ impl App {
         // Stash binaries are signed with a key that belongs to this save.
         let mut save = save;
         let keyed = save.ensure_key(fresh_seed());
+        // A new save starts with a handful of numbers to dial.
+        let keyed = save.ensure_phonebook(&data, fresh_seed()) || keyed;
         let phosphor = Phosphor::from_name(&save.phosphor).unwrap_or(Phosphor::Amber);
         theme::apply(&cc.egui_ctx, &phosphor.palette());
         let game = Game::new(data.clone(), first_seed.unwrap_or(0));
@@ -228,11 +230,17 @@ impl App {
         self.save_dirty = true;
     }
 
-    /// Starts a run on a fresh network, behind the desktop as it drags away.
-    fn jack_in(&mut self, seed: Option<u64>) {
+    /// Dials a phonebook entry: the run starts behind the desktop as it drags away.
+    fn dial(&mut self, entry: u32, seed: Option<u64>) {
         let seed = seed.or(self.first_seed.take()).unwrap_or_else(fresh_seed);
         // The loadout and RIG come along; stash programs taken leave the stash.
-        self.game = self.save.jack_in(&self.data, &self.data.rig, seed);
+        match self.save.dial(&self.data, entry, seed) {
+            Ok(g) => self.game = g,
+            Err(e) => {
+                self.wb.say(format!("NO CARRIER: {e}"));
+                return;
+            }
+        }
         self.save_dirty = true;
         self.keep.clear();
         self.last_at = self.game.at;
@@ -294,7 +302,7 @@ impl App {
                 .map_or(String::new(), |_| "Scrapped.".to_string())),
             WbOut::Patch(id, bin) => self.save.patch(id, &bin),
             WbOut::Optimize(id) => self.save.optimize(id),
-            WbOut::JackIn(_) | WbOut::Theme(_) | WbOut::Crt => return,
+            WbOut::Dial(..) | WbOut::Theme(_) | WbOut::Crt => return,
         };
         match result {
             Ok(msg) => {
@@ -505,6 +513,16 @@ impl App {
                 Phase::JackedOut => ("○ OFFLINE", pal.dim),
             };
             ui.label(RichText::new(state).color(col));
+            if let Some(site) = &g.site {
+                let traits = if site.traits.is_empty() {
+                    String::new()
+                } else {
+                    format!(" · {}", site.traits.join(", "))
+                };
+                ui.label(
+                    RichText::new(format!("{} T{}{traits}", site.name, site.tier)).color(pal.fg),
+                );
+            }
             ui.label(
                 RichText::new(format!(
                     "{}  layer {}/{}",
@@ -563,8 +581,8 @@ impl eframe::App for App {
                 });
             for o in outs {
                 match o {
-                    WbOut::JackIn(seed) if live => self.jack_in(seed),
-                    WbOut::JackIn(_) => {}
+                    WbOut::Dial(entry, seed) if live => self.dial(entry, seed),
+                    WbOut::Dial(..) => {}
                     WbOut::Theme(name) => {
                         if let Some(p) = Phosphor::from_name(&name) {
                             self.set_phosphor(&ctx, p);

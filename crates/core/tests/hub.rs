@@ -87,13 +87,15 @@ fn screen_drags_in_and_out() {
 }
 
 #[test]
-fn every_tool_has_an_icon_and_only_some_are_installed() {
+fn every_tool_has_an_icon_and_works() {
     let d = data();
     for t in Tool::ALL {
         assert!(d.icons.iter().any(|i| i.tool == t));
     }
-    assert!(Tool::Shell.installed() && Tool::Rig.installed() && Tool::HexEd.installed());
-    assert!(!Tool::Terminal.installed(), "the phonebook comes in #6");
+    assert!(
+        Tool::ALL.iter().all(|t| t.installed()),
+        "every tool works now"
+    );
 }
 
 #[test]
@@ -115,20 +117,22 @@ fn shell_commands() {
     let d = data();
     let s = Save::default();
     let run = |l: &str| hub::shell(l, &s, &d.icons);
-    assert_eq!(run("jackin").1, ShellEffect::JackIn(None));
-    assert_eq!(run("jackin 1a2b").1, ShellEffect::JackIn(Some(0x1a2b)));
-    assert_eq!(run("jackin zz").1, ShellEffect::None);
+    assert_eq!(
+        run("jackin").1,
+        ShellEffect::None,
+        "jackin now points at dial"
+    );
+    assert_eq!(
+        run("dial 1").1,
+        ShellEffect::None,
+        "an empty phonebook has nothing to dial"
+    );
     assert_eq!(run("run shell").1, ShellEffect::Open(Tool::Shell));
     assert_eq!(run("RUN RIG").1, ShellEffect::Open(Tool::Rig));
     assert!(run("run nope").0[0].contains("not found"));
     assert_eq!(run("theme green").1, ShellEffect::Theme("green".into()));
     assert_eq!(run("echo  hello there").0, vec!["hello there".to_string()]);
-    assert!(
-        run("dir")
-            .0
-            .iter()
-            .any(|l| l.contains("Terminal") && l.contains("not installed"))
-    );
+    assert!(run("dir").0.iter().any(|l| l.contains("CarrierTerm")));
     assert!(run("info").0.iter().any(|l| l.starts_with("runs")));
     assert!(run("frobnicate").0[0].contains("Unknown command"));
     assert_eq!(run("   ").1, ShellEffect::None);

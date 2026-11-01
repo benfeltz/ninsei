@@ -38,7 +38,8 @@ fn font() -> FontId {
 /// What the desktop asks the app to do.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum WbOut {
-    JackIn(Option<u64>),
+    /// Dial a phonebook entry (and jack in), with an optional seed.
+    Dial(u32, Option<u64>),
     Theme(String),
     Crt,
     Buy(Upgrade),
@@ -52,6 +53,8 @@ pub enum WbOut {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Kind {
     Shell,
+    /// CarrierTerm: the phonebook.
+    Terminal,
     Rig,
     Stash,
     HexEd,
@@ -70,6 +73,7 @@ impl Win {
     fn title(&self) -> String {
         match self.kind {
             Kind::Shell => "NinShell".into(),
+            Kind::Terminal => "CarrierTerm 1.0: Dialing Directory".into(),
             Kind::Rig => "RIG: deck shop".into(),
             Kind::Stash => "STASH".into(),
             Kind::HexEd => "HexEd".into(),
@@ -88,7 +92,22 @@ pub struct Workbench {
     focus_shell: bool,
     /// The stash program open in HexEd: its id and the working buffer.
     pub(crate) hex: Option<(u32, HexBuffer)>,
+    /// Phonebook entry highlighted in CarrierTerm.
+    pub(crate) term_sel: Option<u32>,
+    /// A dial in progress: the modem handshake before jacking in.
+    pub(crate) dialing: Option<Dialing>,
 }
+
+/// The modem handshake that plays before a dial jacks you in.
+#[derive(Clone, Copy, Debug)]
+pub(crate) struct Dialing {
+    pub entry: u32,
+    pub seed: Option<u64>,
+    pub t: f32,
+}
+
+/// Seconds of handshake before the screen drags off.
+pub(crate) const DIAL_SECS: f32 = 2.2;
 
 impl Workbench {
     pub fn new(boot: Vec<String>) -> Self {
@@ -100,6 +119,8 @@ impl Workbench {
             shell_input: String::new(),
             focus_shell: true,
             hex: None,
+            term_sel: None,
+            dialing: None,
         };
         wb.open(Tool::Shell);
         wb
@@ -121,11 +142,12 @@ impl Workbench {
     /// Opens (or raises) a tool's window. Tools not installed yet get a requester.
     fn open(&mut self, tool: Tool) {
         let kind = match tool {
+            t if !t.installed() => Kind::Requester(t),
+            Tool::Terminal => Kind::Terminal,
             Tool::Shell => Kind::Shell,
             Tool::Rig => Kind::Rig,
             Tool::Stash => Kind::Stash,
             Tool::HexEd => Kind::HexEd,
-            other => Kind::Requester(other),
         };
         if let Some(i) = self.wins.iter().position(|w| w.kind == kind) {
             let w = self.wins.remove(i);
@@ -133,6 +155,7 @@ impl Workbench {
         } else {
             let (pos, size) = match kind {
                 Kind::Shell => (pos2(150.0, 300.0), vec2(600.0, 280.0)),
+                Kind::Terminal => (pos2(170.0, 40.0), vec2(720.0, 440.0)),
                 Kind::Rig => (pos2(170.0, 50.0), vec2(620.0, 330.0)),
                 Kind::Stash => (pos2(210.0, 80.0), vec2(640.0, 380.0)),
                 Kind::HexEd => (pos2(130.0, 36.0), vec2(800.0, 500.0)),
@@ -179,6 +202,15 @@ impl Workbench {
         self.sync_hex(save);
         let icons = &data.icons;
         let mut out = Vec::new();
+        // The handshake runs on its own clock, then hands over to the jack-in drag.
+        if live && let Some(d) = &mut self.dialing {
+            d.t += ui.input(|i| i.stable_dt).min(0.1);
+            if d.t >= DIAL_SECS {
+                out.push(WbOut::Dial(d.entry, d.seed));
+                self.dialing = None;
+            }
+            ui.ctx().request_repaint();
+        }
         let screen = ui.ctx().content_rect().translate(vec2(0.0, offset));
         let painter = ui.painter_at(screen);
         let at = |p: Pos2| screen.min + p.to_vec2();
@@ -234,7 +266,16 @@ impl Workbench {
                 vec2(cell.width(), 16.0),
             );
             if selected {
-                painter.rect_filled(label.shrink2(vec2(4.0, 0.0)), 0.0, WHITE);
+                // Highlight exactly as wide as the name, however long it is.
+                let w = painter
+                    .layout_no_wrap(icon.label.clone(), font(), BLUE)
+                    .size()
+                    .x;
+                painter.rect_filled(
+                    Rect::from_center_size(label.center(), vec2(w + 8.0, label.height())),
+                    0.0,
+                    WHITE,
+                );
             }
             painter.text(
                 label.center(),
@@ -256,7 +297,7 @@ impl Workbench {
                 self.last_click = Some((icon.tool, now));
                 if double {
                     self.last_click = None;
-                    self.activate(icon.tool, &mut out);
+                    self.activate(icon.tool);
                 }
             }
         }
@@ -266,6 +307,7 @@ impl Workbench {
         let mut close = None;
         let n = self.wins.len();
         let mut pending_edit = None;
+        let mut pending_dial = None;
         for i in 0..n {
             let top = i + 1 == n;
             let (kind, pos, size) = (self.wins[i].kind, self.wins[i].pos, self.wins[i].size);
@@ -333,7 +375,7 @@ impl Workbench {
             );
             match kind {
                 Kind::Shell => self.shell(ui, content, icons, save, live && top, &mut out),
-                Kind::Rig | Kind::Stash | Kind::HexEd => {
+                Kind::Rig | Kind::Stash | Kind::HexEd | Kind::Terminal => {
                     let mut child = ui.new_child(
                         egui::UiBuilder::new()
                             .max_rect(content)
@@ -345,13 +387,25 @@ impl Workbench {
                         child.disable();
                     }
                     let mut edit = None;
+                    let mut dial = None;
                     match kind {
+                        Kind::Terminal => hubtools::carrierterm(
+                            &mut child,
+                            data,
+                            save,
+                            &mut self.term_sel,
+                            self.dialing.as_ref(),
+                            &mut dial,
+                        ),
                         Kind::Rig => hubtools::rig(&mut child, data, save, &mut out),
                         Kind::Stash => hubtools::stash(&mut child, data, save, &mut out, &mut edit),
                         _ => hubtools::hexed(&mut child, save, &mut self.hex, &mut out, &mut edit),
                     }
                     if edit.is_some() {
                         pending_edit = edit;
+                    }
+                    if dial.is_some() {
+                        pending_dial = dial;
                     }
                 }
                 Kind::Requester(tool) => {
@@ -366,7 +420,9 @@ impl Workbench {
                 }
             }
         }
-        if let Some(id) = pending_edit {
+        if let Some(id) = pending_dial {
+            self.start_dial(id, None);
+        } else if let Some(id) = pending_edit {
             self.edit(id, save);
         } else if let Some(i) = close {
             if i < self.wins.len() {
@@ -382,11 +438,19 @@ impl Workbench {
         out
     }
 
-    fn activate(&mut self, tool: Tool, out: &mut Vec<WbOut>) {
-        match tool {
-            Tool::JackIn => out.push(WbOut::JackIn(None)),
-            other => self.open(other),
-        }
+    fn activate(&mut self, tool: Tool) {
+        self.open(tool);
+    }
+
+    /// Starts the modem handshake for a phonebook entry, in the CarrierTerm window.
+    pub fn start_dial(&mut self, entry: u32, seed: Option<u64>) {
+        self.term_sel = Some(entry);
+        self.dialing = Some(Dialing {
+            entry,
+            seed,
+            t: 0.0,
+        });
+        self.open(Tool::Terminal);
     }
 
     fn shell(
@@ -447,8 +511,8 @@ impl Workbench {
             }
             match effect {
                 ShellEffect::None => {}
-                ShellEffect::JackIn(seed) => out.push(WbOut::JackIn(seed)),
-                ShellEffect::Open(t) => self.activate(t, out),
+                ShellEffect::Dial(entry, seed) => self.start_dial(entry, seed),
+                ShellEffect::Open(t) => self.activate(t),
                 ShellEffect::Theme(t) => out.push(WbOut::Theme(t)),
                 ShellEffect::Crt => out.push(WbOut::Crt),
                 ShellEffect::Clear => self.shell_lines.clear(),

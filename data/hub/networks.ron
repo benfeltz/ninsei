@@ -1,0 +1,49 @@
+// Networks you can dial from CarrierTerm.
+//
+// tiers:     size, ICE strength and pay for each tier; `traits` is how many traits it rolls (min, max).
+// traits:    what makes a network play differently. Effects:
+//              IceClass(Barrier | CodeGate | Sentry)  most ICE is this class
+//              BlackIce(n)   +n weight for black ICE nodes
+//              NoBbs         no BBS on this network
+//              Trace(pct)    trace gain is pct% of normal
+//              Chatty(n)     +n weight for MSG nodes
+//              VaultRich(n)  +n weight for data vaults
+//              Pay(pct)      credits are pct% of normal (stacks with the tier)
+// companies: names and lines of business for phonebook entries.
+(
+    tiers: [
+        (tier: 1, label: "LAN",      mid_layers: 4, ice_bonus: 0, pay_pct: 80,  traits: (0, 1)),
+        (tier: 2, label: "CORP",     mid_layers: 5, ice_bonus: 4, pay_pct: 130, traits: (1, 2)),
+        (tier: 3, label: "MEGACORP", mid_layers: 6, ice_bonus: 9, pay_pct: 200, traits: (2, 2)),
+    ],
+    traits: [
+        (id: "sentry_heavy",   label: "sentry-heavy",    blurb: "Sentries patrol everything. Bring a garrote.",   effect: IceClass(Sentry)),
+        (id: "barrier_heavy",  label: "barrier-heavy",   blurb: "Walls on walls. Bring a crowbar.",              effect: IceClass(Barrier)),
+        (id: "codegate_heavy", label: "code-gate-heavy", blurb: "Everything's behind a gate. Bring a decoder.",  effect: IceClass(CodeGate)),
+        (id: "black_ice",      label: "black ice",       blurb: "Someone here plays rough.",                     effect: BlackIce(22)),
+        (id: "no_bbs",         label: "no BBS",          blurb: "No board on this net. No rest stop.",           effect: NoBbs),
+        (id: "graveyard",      label: "graveyard shift", blurb: "Skeleton crew watching. Trace -25%.",           effect: Trace(75)),
+        (id: "night_shift",    label: "night shift",     blurb: "Wide awake and bored. Trace +25%.",             effect: Trace(125)),
+        (id: "chatty",         label: "chatty",          blurb: "Lots of people on the line.",                   effect: Chatty(20)),
+        (id: "vault_rich",     label: "vault-rich",      blurb: "Data everywhere, lightly guarded.",             effect: VaultRich(20)),
+        (id: "skint",          label: "skint",           blurb: "Nothing worth stealing. Credits -30%.",         effect: Pay(70)),
+    ],
+    companies: [
+        (name: "Ono Drycleaning",      business: "laundry"),
+        (name: "Kowloon Noodle Co.",   business: "food"),
+        (name: "Brightwater Mutual",   business: "insurance"),
+        (name: "Yamatai Dynamics",     business: "robotics"),
+        (name: "Lazarus Clinic",       business: "medical"),
+        (name: "Chiba Freight Co-op",  business: "logistics"),
+        (name: "Hollow Pines Credit",  business: "banking"),
+        (name: "Saito Pharmaceutical", business: "pharma"),
+        (name: "Glasswing Media",      business: "news"),
+        (name: "Redline Couriers",     business: "delivery"),
+        (name: "Mirrorshade Optics",   business: "optics"),
+        (name: "Tessier Holdings",     business: "real estate"),
+        (name: "Northgate Penal",      business: "prisons"),
+        (name: "Kestrel Aerospace",    business: "defense"),
+        (name: "Velvet Static",        business: "nightclub"),
+        (name: "Ironbark Utilities",   business: "power grid"),
+    ],
+)

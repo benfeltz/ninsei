@@ -1,7 +1,7 @@
 //! The network you traverse: a layered graph from an entry node to an exit node,
 //! Slay-the-Spire style. Links only go forward, one layer at a time.
 
-use crate::data::Data;
+use crate::data::{Data, IceClass};
 use crate::rng::Rng;
 use crate::tuning::*;
 
@@ -55,9 +55,15 @@ pub struct Network {
 }
 
 impl Network {
+    /// A network with default parameters.
     pub fn generate(rng: &mut Rng, data: &Data) -> Self {
+        Self::generate_with(rng, data, &NetParams::default())
+    }
+
+    /// A network shaped by `p`: tier size, trait biases.
+    pub fn generate_with(rng: &mut Rng, data: &Data, p: &NetParams) -> Self {
         let mut widths = vec![1];
-        for _ in 0..NET_MID_LAYERS {
+        for _ in 0..p.mid_layers.max(BBS_LAYER) {
             widths.push(rng.range(NET_MIN_WIDTH as u32, NET_MAX_WIDTH as u32) as usize);
         }
         widths.push(1);
@@ -73,11 +79,11 @@ impl Network {
                 } else if layer == last {
                     NodeKind::Exit
                 } else {
-                    pick_kind(rng, layer)
+                    pick_kind(rng, layer, p)
                 };
                 let ice = match kind {
-                    NodeKind::Ice => pick_ice(rng, data, 1),
-                    NodeKind::BlackIce => pick_ice(rng, data, 2),
+                    NodeKind::Ice => pick_ice(rng, data, 1, p.ice_bias),
+                    NodeKind::BlackIce => pick_ice(rng, data, 2, p.ice_bias),
                     _ => None,
                 };
                 let id = nodes.len();
@@ -96,11 +102,13 @@ impl Network {
             layers.push(ids);
         }
 
-        // One BBS per network, on a fixed layer.
-        let bbs = layers[BBS_LAYER][rng.below(layers[BBS_LAYER].len())];
-        nodes[bbs].kind = NodeKind::Bbs;
-        nodes[bbs].ice = None;
-        nodes[bbs].name = hostname(rng, NodeKind::Bbs);
+        if p.bbs {
+            // One BBS per network, on a fixed layer.
+            let bbs = layers[BBS_LAYER][rng.below(layers[BBS_LAYER].len())];
+            nodes[bbs].kind = NodeKind::Bbs;
+            nodes[bbs].ice = None;
+            nodes[bbs].name = hostname(rng, NodeKind::Bbs);
+        }
 
         for l in 0..last {
             let (from, to) = (&layers[l], &layers[l + 1]);
@@ -170,17 +178,17 @@ fn scale_lane(lane: usize, from: usize, to: usize) -> usize {
     (lane * (to - 1) + (from - 1) / 2) / (from - 1)
 }
 
-fn pick_kind(rng: &mut Rng, layer: usize) -> NodeKind {
+fn pick_kind(rng: &mut Rng, layer: usize, p: &NetParams) -> NodeKind {
     let black = if layer >= BLACK_ICE_MIN_LAYER {
-        NODE_WEIGHT_BLACK_ICE
+        NODE_WEIGHT_BLACK_ICE + p.black_bonus
     } else {
         0
     };
     match rng.weighted([
         NODE_WEIGHT_ICE,
-        NODE_WEIGHT_VAULT,
+        NODE_WEIGHT_VAULT + p.vault_bonus,
         black,
-        NODE_WEIGHT_CONTACT,
+        NODE_WEIGHT_CONTACT + p.contact_bonus,
     ]) {
         Some(1) => NodeKind::Vault,
         Some(2) => NodeKind::BlackIce,
@@ -189,11 +197,50 @@ fn pick_kind(rng: &mut Rng, layer: usize) -> NodeKind {
     }
 }
 
-fn pick_ice(rng: &mut Rng, data: &Data, tier: u32) -> Option<usize> {
+fn pick_ice(rng: &mut Rng, data: &Data, tier: u32, bias: Option<IceClass>) -> Option<usize> {
     let pool: Vec<usize> = (0..data.ice.len())
         .filter(|&i| data.ice[i].tier == tier)
         .collect();
+    // A biased network mostly runs ICE of its favourite class.
+    if let Some(class) = bias {
+        let favoured: Vec<usize> = pool
+            .iter()
+            .copied()
+            .filter(|&i| data.ice[i].class == class)
+            .collect();
+        if !favoured.is_empty() && rng.chance(ICE_BIAS_PCT) {
+            return Some(favoured[rng.below(favoured.len())]);
+        }
+    }
     (!pool.is_empty()).then(|| pool[rng.below(pool.len())])
+}
+
+/// Knobs network generation takes: a tier's size and its traits' biases.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct NetParams {
+    /// Layers between the entry and the exit (at least `BBS_LAYER`).
+    pub mid_layers: usize,
+    /// Extra weight for black ICE, vaults and MSG nodes.
+    pub black_bonus: u32,
+    pub vault_bonus: u32,
+    pub contact_bonus: u32,
+    /// ICE class this network favours.
+    pub ice_bias: Option<IceClass>,
+    /// Whether the network has its one BBS.
+    pub bbs: bool,
+}
+
+impl Default for NetParams {
+    fn default() -> Self {
+        Self {
+            mid_layers: NET_MID_LAYERS,
+            black_bonus: 0,
+            vault_bonus: 0,
+            contact_bonus: 0,
+            ice_bias: None,
+            bbs: true,
+        }
+    }
 }
 
 fn hostname(rng: &mut Rng, kind: NodeKind) -> String {
