@@ -1,0 +1,13 @@
+// ICE: intrusion countermeasures. Each one cycles through its intents in order.
+// Attack(n) damages your deck, Trace(n) raises trace, Fortify(n) adds strength.
+// tier 1 = ordinary ICE, tier 2 = black ICE.
+[
+    (id: "icewall",    name: "Ice Wall",   class: Barrier,  tier: 1, strength: 14, intents: [Fortify(3), Attack(3)]),
+    (id: "bulwark",    name: "Bulwark",    class: Barrier,  tier: 1, strength: 18, intents: [Fortify(4), Attack(4), Attack(3)]),
+    (id: "enigma",     name: "Enigma",     class: CodeGate, tier: 1, strength: 12, intents: [Trace(6), Attack(3)]),
+    (id: "tollbooth",  name: "Tollbooth",  class: CodeGate, tier: 1, strength: 15, intents: [Trace(8), Fortify(2), Attack(4)]),
+    (id: "rototurret", name: "Rototurret", class: Sentry,   tier: 1, strength: 11, intents: [Attack(5), Attack(4)]),
+    (id: "hunter",     name: "Hunter",     class: Sentry,   tier: 1, strength: 13, intents: [Trace(4), Attack(6)]),
+    (id: "archer",     name: "Archer",     class: Sentry,   tier: 2, strength: 22, intents: [Attack(7), Trace(6), Attack(5)]),
+    (id: "hydra",      name: "Hydra",      class: CodeGate, tier: 2, strength: 26, intents: [Trace(10), Attack(6), Fortify(4)]),
+]

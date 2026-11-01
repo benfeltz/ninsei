@@ -1,0 +1,55 @@
+// The one BBS for now. Each run stocks `stock` random files per area.
+// Text fields take Mystic-style pipe colour codes: |00-|15 foreground, |16-|23 background.
+(
+    name: "THE NEON GUTTER",
+    sysop: "m0th",
+    phone: "555-0199",
+    baud: 14400,
+    bulletins: [
+        (title: "READ THIS FIRST", body: [
+            "|15Rules of the Gutter:",
+            "|07 1. Don't leech. Upload or pay creds.",
+            "|07 2. Don't post corp addresses. You know why.",
+            "|07 3. If a sysop asks who you are, you're nobody.",
+            "",
+            "|08-- m0th",
+        ]),
+        (title: "BLACK ICE ADVISORY", body: [
+            "|12!! |15Hydra builds spotted on corp backbones.",
+            "|07Trace climbs fast. Bring a scrubber or bring a lawyer.",
+            "|07Code gates fold to a decoder, sentries to a garrote.",
+        ]),
+        (title: "NEW IN THE FILE AREAS", body: [
+            "|07Fresh TORCH build in icebreakers. Mil-spec, eats RAM.",
+            "|07Deck mods restocked. OCLOCK.EXE is unstable. Enjoy.",
+        ]),
+    ],
+    users: [
+        (handle: "m0th",      location: "Ninsei",       doing: "Sysop chat"),
+        (handle: "c4se",      location: "Chiba",        doing: "Downloading"),
+        (handle: "ratz",      location: "Night City",   doing: "Reading bulletins"),
+        (handle: "zero_kool", location: "Hamburg",      doing: "Door game: TradeWars"),
+    ],
+    areas: [
+        (name: "ICEBREAKERS", stock: 3, files: [
+            (file: "DECODR22.ZIP", item: Warez("decoder"),  price: 70,  desc: "Decoder v2.2 - code gate cracker"),
+            (file: "GARROT11.ZIP", item: Warez("garrote"),  price: 70,  desc: "Garrote 1.1 - sentry killer"),
+            (file: "CRWBAR30.ZIP", item: Warez("crowbar"),  price: 70,  desc: "Crowbar 3.0 - barrier fracter"),
+            (file: "WYRM_V2.ARJ",  item: Warez("wyrm"),     price: 130, desc: "Wyrm v2 - self-replicating breaker"),
+            (file: "TORCH.LZH",    item: Warez("torch"),    price: 260, desc: "TORCH mil-spec. [RAM HOG]"),
+        ]),
+        (name: "DEFENSE & UTILITIES", stock: 3, files: [
+            (file: "FIREWL.ZIP",   item: Warez("firewall"), price: 50,  desc: "Firewall - absorbs damage"),
+            (file: "MIRROR9.ZIP",  item: Warez("mirror"),   price: 180, desc: "Mirror 9 - heavy reflective shell"),
+            (file: "PATCH13.ZIP",  item: Warez("patch"),    price: 40,  desc: "Patch 1.3 - integrity repair"),
+            (file: "SCRUB.ARJ",    item: Warez("scrubber"), price: 90,  desc: "Scrubber - wipes your trail"),
+            (file: "LAGSPK.ZIP",   item: Warez("lagspike"), price: 150, desc: "LagSpike - freezes ICE one turn"),
+        ]),
+        (name: "DECK MODS", stock: 3, files: [
+            (file: "RAMDBL.EXE",   item: Ram(2),            price: 140, desc: "RAM doubler. +2 GB"),
+            (file: "OCLOCK.EXE",   item: Cpu(1),            price: 220, desc: "Overclock. +1 cpu cycle"),
+            (file: "HDDX.EXE",     item: Hdd(2),            price: 90,  desc: "Disk compressor. +2 slots"),
+            (file: "NANOFIX.EXE",  item: Repair(8),         price: 60,  desc: "Nanite fix. +8 integrity"),
+        ]),
+    ],
+)

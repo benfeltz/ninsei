@@ -1,0 +1,11 @@
+[package]
+name = "ninsei-core"
+description = "Pure game rules for ninsei: network generation, combat, loot. No UI."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde.workspace = true
+ron.workspace = true

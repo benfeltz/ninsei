@@ -1,0 +1,16 @@
+// Warez: the programs on your deck.
+// ram = cost to keep it loaded, cpu = cost to run it once.
+// A breaker with `vs` hits ICE of that class for double damage.
+[
+    (id: "icepick",  name: "IcePick",   kind: Breaker, ram: 2, cpu: 1, effect: Break(power: 3, vs: None),           blurb: "Generic breaker. Chips at anything."),
+    (id: "decoder",  name: "Decoder",   kind: Breaker, ram: 2, cpu: 1, effect: Break(power: 4, vs: Some(CodeGate)), blurb: "Cracks code gates wide open."),
+    (id: "garrote",  name: "Garrote",   kind: Breaker, ram: 2, cpu: 1, effect: Break(power: 4, vs: Some(Sentry)),   blurb: "Strangles sentries mid-sweep."),
+    (id: "crowbar",  name: "Crowbar",   kind: Breaker, ram: 2, cpu: 1, effect: Break(power: 4, vs: Some(Barrier)),  blurb: "Pries barriers apart."),
+    (id: "wyrm",     name: "Wyrm",      kind: Breaker, ram: 3, cpu: 2, effect: Break(power: 6, vs: None),           blurb: "Self-replicating breaker."),
+    (id: "torch",    name: "Torch",     kind: Breaker, ram: 4, cpu: 2, effect: Break(power: 9, vs: None),           blurb: "Military-grade. Burns hot."),
+    (id: "firewall", name: "Firewall",  kind: Shield,  ram: 2, cpu: 1, effect: Shield(5),                           blurb: "Absorbs incoming damage this turn."),
+    (id: "mirror",   name: "Mirror",    kind: Shield,  ram: 3, cpu: 2, effect: Shield(10),                          blurb: "Reflective shell. Heavy but solid."),
+    (id: "patch",    name: "Patch",     kind: Utility, ram: 1, cpu: 1, effect: Repair(3),                           blurb: "Restores deck integrity."),
+    (id: "scrubber", name: "Scrubber",  kind: Utility, ram: 2, cpu: 1, effect: Scrub(6),                            blurb: "Wipes your trail. Lowers trace."),
+    (id: "lagspike", name: "LagSpike",  kind: Utility, ram: 3, cpu: 2, effect: Stun,                                blurb: "ICE skips its next action."),
+]

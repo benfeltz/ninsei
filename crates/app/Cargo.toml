@@ -1,0 +1,13 @@
+[package]
+name = "ninsei"
+description = "Cyberspace hacking roguelike dressed as a retro IDE."
+edition.workspace = true
+version.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+ninsei-core.workspace = true
+eframe.workspace = true
+egui.workspace = true
+egui_dock.workspace = true
