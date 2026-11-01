@@ -1,6 +1,6 @@
 # ninsei
 
-A cyberspace hacking roguelike dressed up as a retro IDE. Rust + egui, with amber, green, ice and plasma themes (plus Workbench 1.3 for the desktop) and a CRT filter.
+A cyberspace hacking roguelike dressed up as a retro IDE. Rust + egui, with amber, green, ice, plasma and Workbench 1.3 themes and a CRT filter.
 
 ![network map, green phosphor](docs/shots/network-green.png)
 
@@ -34,22 +34,23 @@ Every push to `main` builds `dist/` and publishes it to GitHub Pages (`.github/w
 
 ## Home: the Workbench
 
-Between runs you're on your own machine: a Workbench 1.3-style desktop. By default it's on the same monitor as your runs (amber, green, ...); switch it to the classic four-colour Workbench in **Prefs**. Open **CarrierTerm**, pick a number from your phonebook and dial it: the modem handshakes, then the desktop drags down like an Amiga screen to reveal the run behind it. Reach the exit and you jack out home; flatline and the deck crashes first.
+Between runs you're on your own machine: a Workbench 1.3-style desktop, on the same monitor as your runs. One theme colours both; pick it in **Prefs**. Open **CarrierTerm**, pick a number from your phonebook and dial it: the modem handshakes, then the desktop drags down like an Amiga screen to reveal the run behind it. Reach the exit and you jack out home; flatline and the deck crashes first.
 
 ![the hub](docs/shots/hub.png)
 ![jacking in](docs/shots/hub-jackin.png)
 
-- **NinShell**: `help`, `dir`, `phonebook`, `dial <n> [seed]`, `ranges`, `wardial <range>`, `run <tool>`, `info`, `theme <id>`, `desktop <id|match>`, `crt`, `echo`, `clear`
-- **Prefs**: the desktop theme (or "match run theme"), the run theme and the CRT, with colour swatches
+- **NinShell**: `help`, `dir`, `phonebook`, `dial <n> [seed]`, `ranges`, `wardial <range>`, `run <tool>`, `info`, `theme <id>`, `crt`, `echo`, `clear`
+- **Prefs**: the theme (desktop and runs alike) and the CRT, with colour swatches
 - Windows drag by their title bar; the close gadget is top left, the depth gadget top right
 - Everything below saves automatically: a file on desktop, local storage in the browser
 
 ### Themes
 
-Themes live in [`data/themes.ron`](data/themes.ron): six colours each, flagged for runs, the desktop, or both. To add one, add an entry; Prefs, the `theme`/`desktop` commands and the IDE's theme menu pick it up.
+One theme colours everything: the desktop and your runs. Themes live in [`data/themes.ron`](data/themes.ron), six colours each. To add one, add an entry; Prefs, the `theme` command and the IDE's theme menu pick it up.
 
 ![prefs](docs/shots/prefs.png)
 ![plasma desktop](docs/shots/hub-plasma.png)
+![a run in Workbench colours](docs/shots/run-workbench.png)
 
 ### Choosing a network: CarrierTerm
 

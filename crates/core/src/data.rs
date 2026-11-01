@@ -255,10 +255,6 @@ impl ThemeColors {
 pub struct ThemeDef {
     pub id: String,
     pub label: String,
-    /// Usable for a run's IDE.
-    pub run: bool,
-    /// Usable for the hub desktop.
-    pub desktop: bool,
     pub colors: ThemeColors,
 }
 
@@ -521,12 +517,6 @@ impl Data {
             if self.themes[..i].iter().any(|o| o.id == t.id) {
                 return Err(format!("theme `{}` is listed twice", t.id));
             }
-            if t.id == crate::hub::MATCH_RUN_THEME {
-                return Err(format!("`{}` is reserved", t.id));
-            }
-            if !t.run && !t.desktop {
-                return Err(format!("theme `{}` isn't usable anywhere", t.id));
-            }
             if let Some(bad) = t.colors.all().into_iter().find(|c| rgb(c).is_none()) {
                 return Err(format!(
                     "theme `{}` has a bad colour `{bad}` (want #rrggbb)",
@@ -535,8 +525,8 @@ impl Data {
             }
         }
         match self.theme(crate::hub::DEFAULT_RUN_THEME) {
-            Some(t) if t.run => Ok(()),
-            _ => Err(format!(
+            Some(_) => Ok(()),
+            None => Err(format!(
                 "the default run theme `{}` must exist",
                 crate::hub::DEFAULT_RUN_THEME
             )),

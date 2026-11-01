@@ -5,7 +5,6 @@
 
 use egui::{RichText, Ui, Visuals};
 use ninsei_core::hexedit::HexBuffer;
-use ninsei_core::hub::MATCH_RUN_THEME;
 use ninsei_core::hub::{Answer, Save, ScanResult, Upgrade};
 use ninsei_core::tuning::HEAT_MAX;
 use ninsei_core::{Data, binary, tuning};
@@ -567,7 +566,7 @@ pub fn wardial(
     });
 }
 
-/// Prefs: the desktop theme, the run theme and the CRT. Themes come from `data/themes.ron`.
+/// Prefs: the theme (desktop and runs alike) and the CRT. Themes come from `data/themes.ron`.
 pub fn prefs(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
     let swatch = |ui: &mut Ui, t: &ninsei_core::data::ThemeDef| {
         let p = Palette::from_def(t);
@@ -579,35 +578,10 @@ pub fn prefs(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
             }
         });
     };
-    ui.label(RichText::new("DESKTOP THEME").color(ink()).strong());
-    let run_label = data
-        .theme(&save.phosphor)
-        .map_or(save.phosphor.clone(), |t| t.label.clone());
-    ui.horizontal(|ui| {
-        if ui
-            .radio(
-                save.desktop == MATCH_RUN_THEME,
-                format!("match run theme ({run_label})"),
-            )
-            .clicked()
-        {
-            out.push(WbOut::SetDesktop(MATCH_RUN_THEME.into()));
-        }
-    });
-    for t in data.themes.iter().filter(|t| t.desktop) {
-        ui.horizontal(|ui| {
-            if ui
-                .radio(save.desktop == t.id, format!("{:<16}", t.label))
-                .clicked()
-            {
-                out.push(WbOut::SetDesktop(t.id.clone()));
-            }
-            swatch(ui, t);
-        });
-    }
-    ui.add_space(8.0);
-    ui.label(RichText::new("RUN THEME").color(ink()).strong());
-    for t in data.themes.iter().filter(|t| t.run) {
+    ui.label(RichText::new("THEME").color(ink()).strong());
+    ui.label(dim("One theme for everything: this desktop and your runs."));
+    ui.add_space(2.0);
+    for t in &data.themes {
         ui.horizontal(|ui| {
             if ui
                 .radio(save.phosphor == t.id, format!("{:<16}", t.label))

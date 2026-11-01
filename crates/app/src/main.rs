@@ -202,8 +202,8 @@ impl App {
         // A new save starts with a handful of numbers to dial.
         let keyed = save.ensure_phonebook(&data, fresh_seed()) || keyed;
         let run_theme = match data.theme(&save.phosphor) {
-            Some(t) if t.run => t.id.clone(),
-            _ => DEFAULT_RUN_THEME.to_string(),
+            Some(t) => t.id.clone(),
+            None => DEFAULT_RUN_THEME.to_string(),
         };
         let pal = data
             .theme(&run_theme)
@@ -239,7 +239,7 @@ impl App {
 
     /// Switches the run theme. Returns false for an unknown or desktop-only theme.
     fn set_run_theme(&mut self, ctx: &egui::Context, id: &str) -> bool {
-        let Some(t) = self.data.theme(id).filter(|t| t.run) else {
+        let Some(t) = self.data.theme(id) else {
             return false;
         };
         self.pal = Palette::from_def(t);
@@ -359,7 +359,7 @@ impl App {
                 }
                 Err(e) => Err(e),
             },
-            WbOut::Dial(..) | WbOut::Theme(_) | WbOut::Crt | WbOut::SetDesktop(_) => return,
+            WbOut::Dial(..) | WbOut::Theme(_) | WbOut::Crt => return,
         };
         match result {
             Ok(msg) => {
@@ -444,13 +444,7 @@ impl App {
                     let label = self.run_theme_label();
                     self.game.say(LogKind::Sys, format!("theme: {label}"));
                 } else {
-                    let ids: Vec<String> = self
-                        .data
-                        .themes
-                        .iter()
-                        .filter(|t| t.run)
-                        .map(|t| t.id.clone())
-                        .collect();
+                    let ids: Vec<String> = self.data.themes.iter().map(|t| t.id.clone()).collect();
                     self.game.say(
                         LogKind::Sys,
                         format!("err: no run theme `{name}`. try {}.", ids.join(", ")),
@@ -558,7 +552,6 @@ impl App {
                     .data
                     .themes
                     .iter()
-                    .filter(|t| t.run)
                     .map(|t| (t.id.clone(), t.label.clone()))
                     .collect();
                 for (id, label) in themes {
@@ -639,13 +632,8 @@ impl eframe::App for App {
 
         // The desktop: on its own while home, dragging during the transitions.
         if !matches!(self.screen, Screen::Run | Screen::Crash) {
-            // Load the desktop's palette from its theme (falling back to the run theme).
-            let desk = self
-                .data
-                .theme(self.save.desktop_theme())
-                .filter(|t| t.desktop)
-                .or_else(|| self.data.theme(&self.run_theme));
-            if let Some(t) = desk {
+            // One theme colours everything: load the desktop's palette from it.
+            if let Some(t) = self.data.theme(&self.run_theme) {
                 workbench::set_desk(workbench::Desk::from_def(t));
             }
             let offset = self.screen.drag() * ctx.content_rect().height();
@@ -666,12 +654,8 @@ impl eframe::App for App {
                     WbOut::Theme(name) => {
                         if self.set_run_theme(&ctx, &name) {
                             let label = self.run_theme_label();
-                            self.wb.say(format!("run theme: {label}"));
+                            self.wb.say(format!("theme: {label}"));
                         }
-                    }
-                    WbOut::SetDesktop(id) => {
-                        self.save.desktop = id;
-                        self.save_dirty = true;
                     }
                     WbOut::Crt => {
                         self.toggle_crt();

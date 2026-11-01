@@ -1,7 +1,7 @@
-//! Themes are data: runs and the desktop pick from `data/themes.ron`.
+//! Themes are data (`data/themes.ron`), and one theme colours the desktop and runs alike.
 
 use ninsei_core::data::rgb;
-use ninsei_core::hub::{self, DEFAULT_RUN_THEME, MATCH_RUN_THEME, Save, ShellEffect};
+use ninsei_core::hub::{self, DEFAULT_RUN_THEME, Save, ShellEffect};
 use ninsei_core::*;
 
 fn data() -> Data {
@@ -32,8 +32,7 @@ fn the_shipped_themes() {
         let t = d.theme(id).unwrap_or_else(|| panic!("missing {id}"));
         assert!(t.colors.all().iter().all(|c| rgb(c).is_some()));
     }
-    assert!(d.theme("workbench").unwrap().desktop && !d.theme("workbench").unwrap().run);
-    assert!(d.theme(DEFAULT_RUN_THEME).unwrap().run);
+    assert!(d.theme(DEFAULT_RUN_THEME).is_some());
 }
 
 #[test]
@@ -45,43 +44,31 @@ fn rgb_parses_hex() {
 }
 
 #[test]
-fn the_desktop_matches_the_run_theme_by_default() {
-    let mut s = Save::default();
-    assert_eq!(s.desktop, MATCH_RUN_THEME);
-    assert_eq!(s.desktop_theme(), DEFAULT_RUN_THEME);
-    s.phosphor = "green".into();
-    assert_eq!(s.desktop_theme(), "green");
-    s.desktop = "workbench".into();
-    assert_eq!(s.desktop_theme(), "workbench");
+fn one_setting_for_everything() {
+    let s = Save::default();
+    assert_eq!(s.phosphor, DEFAULT_RUN_THEME);
     let old = Save::load("(version: 1, phosphor: \"ice\")").unwrap();
-    assert_eq!(
-        old.desktop_theme(),
-        "ice",
-        "old saves follow their run theme"
-    );
+    assert_eq!(old.phosphor, "ice", "older saves keep their theme");
 }
 
 #[test]
-fn shell_theme_commands_know_the_data() {
+fn shell_theme_command_knows_the_data() {
     let d = data();
     let s = Save::default();
     let run = |l: &str| hub::shell(l, &s, &d);
     assert_eq!(run("theme plasma").1, ShellEffect::Theme("plasma".into()));
     assert_eq!(
         run("theme workbench").1,
-        ShellEffect::None,
-        "workbench is desktop-only"
+        ShellEffect::Theme("workbench".into()),
+        "every theme works everywhere"
     );
+    assert_eq!(run("theme nope").1, ShellEffect::None);
+    assert!(run("theme").0[0].contains("workbench"));
     assert_eq!(
         run("desktop workbench").1,
-        ShellEffect::Desktop("workbench".into())
+        ShellEffect::None,
+        "there's no separate desktop setting"
     );
-    assert_eq!(
-        run("desktop match").1,
-        ShellEffect::Desktop(MATCH_RUN_THEME.into())
-    );
-    assert_eq!(run("desktop nope").1, ShellEffect::None);
-    assert!(run("desktop").0[0].contains("workbench"));
 }
 
 #[test]
@@ -90,22 +77,20 @@ fn a_new_theme_is_one_entry() {
         .trim_end()
         .trim_end_matches(']')
         .to_string()
-        + r##"    (id: "paper", label: "paper white", run: true, desktop: true,
+        + r##"    (id: "paper", label: "paper white",
      colors: (bg: "#101010", panel: "#181818", faint: "#404040", dim: "#909090", fg: "#e8e8e0", bright: "#ffffff")),
 ]"##;
     let d = parse_with(&extra).unwrap();
-    assert!(d.theme("paper").is_some_and(|t| t.run && t.desktop));
+    assert!(d.theme("paper").is_some());
 }
 
 #[test]
 fn bad_themes_are_caught() {
     let base = include_str!("../../../data/themes.ron");
     let bad_colour = base.replacen("#ffb000", "orange", 1);
+    let no_default = base.replacen("id: \"amber\"", "id: \"umber\"", 1);
+    assert!(parse_with(&no_default).unwrap_err().contains("default"));
     assert!(parse_with(&bad_colour).unwrap_err().contains("bad colour"));
-    let nowhere = base.replacen("run: false, desktop: true", "run: false, desktop: false", 1);
-    assert!(parse_with(&nowhere).unwrap_err().contains("usable"));
     let dupe = base.replacen("id: \"green\"", "id: \"amber\"", 1);
     assert!(parse_with(&dupe).unwrap_err().contains("twice"));
-    let reserved = base.replacen("id: \"green\"", "id: \"match\"", 1);
-    assert!(parse_with(&reserved).unwrap_err().contains("reserved"));
 }

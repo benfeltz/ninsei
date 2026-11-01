@@ -120,8 +120,6 @@ pub enum WbOut {
     Dial(u32, Option<u64>),
     /// Wardial a range (by id).
     Scan(String),
-    /// Set the desktop theme (by id, or `match`).
-    SetDesktop(String),
     Theme(String),
     Crt,
     Buy(Upgrade),
@@ -657,7 +655,6 @@ impl Workbench {
             match effect {
                 ShellEffect::None => {}
                 ShellEffect::Dial(entry, seed) => self.start_dial(entry, seed),
-                ShellEffect::Desktop(id) => out.push(WbOut::SetDesktop(id)),
                 ShellEffect::Scan(range) => {
                     self.term_tab = TermTab::WarDial;
                     self.range_sel = Some(range.clone());
