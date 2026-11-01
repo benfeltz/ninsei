@@ -34,15 +34,27 @@ Every push to `main` builds `dist/` and publishes it to GitHub Pages (`.github/w
 
 ## Home: the Workbench
 
-Between runs you're on your own machine: a Workbench 1.3-style desktop, four colours and all. Double-click **JackIn** to dial a network (or type `jackin` in the **NinShell**), and the desktop drags down like an Amiga screen to reveal the run behind it. Reach the exit and you jack out home; flatline and the deck crashes first.
+Between runs you're on your own machine: a Workbench 1.3-style desktop, four colours and all. Open **CarrierTerm**, pick a number from your phonebook and dial it: the modem handshakes, then the desktop drags down like an Amiga screen to reveal the run behind it. Reach the exit and you jack out home; flatline and the deck crashes first.
 
 ![the hub](docs/shots/hub.png)
 ![jacking in](docs/shots/hub-jackin.png)
 
-- **NinShell**: `help`, `dir`, `jackin [seed]`, `run <tool>`, `info`, `theme`, `crt`, `echo`, `clear`
+- **NinShell**: `help`, `dir`, `phonebook`, `dial <n> [seed]`, `run <tool>`, `info`, `theme`, `crt`, `echo`, `clear`
 - Windows drag by their title bar; the close gadget is top left, the depth gadget top right
-- **Terminal** (the phonebook) is coming in #6: for now it asks you to insert its disk
 - Everything below saves automatically: a file on desktop, local storage in the browser
+
+### Choosing a network: CarrierTerm
+
+Your phonebook starts with a handful of numbers, mostly small LANs. Each entry tells you what you're walking into:
+
+- **Tier**: LAN, CORP or MEGACORP. Bigger networks, tougher ICE, better pay.
+- **Traits**: *sentry-heavy* / *barrier-heavy* / *code-gate-heavy* (plan your breakers), *black ice*, *no BBS*, *graveyard shift* (trace -25%), *night shift* (+25%), *chatty*, *vault-rich*, *skint*.
+- **Heat**: every run on a network heats it up (stronger ICE, faster trace); it cools while you hit other numbers.
+
+Every dial is a fresh layout with the same personality. Tiers, traits and companies live in [`data/hub/networks.ron`](data/hub/networks.ron).
+
+![carrierterm](docs/shots/carrierterm.png)
+![dialing](docs/shots/dialing.png)
 
 ### What you keep
 
@@ -156,4 +168,4 @@ crates/app/    ninsei: the egui + egui_dock shell. renders state, sends actions
 data/          content (RON + pipe-coded art)
 ```
 
-The core is deterministic (seeded SplitMix64), so a seed replays a run exactly. `cargo test` covers generation, combat, crafting, encounters, contracts, the BBS flow and screen sizes; `cargo run -p ninsei-core --example balance` plays 500 seeds with a dumb bot and prints the win rate.
+The core is deterministic (seeded SplitMix64), so a seed replays a run exactly. `cargo test` covers generation, combat, crafting, encounters, contracts, the BBS flow and screen sizes; `cargo run -p ninsei-core --example balance` plays 500 seeds with a dumb bot on the default network and on each tier, and prints the win rates.

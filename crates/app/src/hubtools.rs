@@ -1,15 +1,17 @@
-//! The hub's tool windows: RIG (deck shop), STASH (programs and loadout) and HexEd.
+//! The hub's tool windows: CarrierTerm (phonebook), RIG (deck shop), STASH (programs and
+//! loadout) and HexEd.
 //! They draw from the save and report what you clicked as [`WbOut`]s; the app applies those
 //! through `Save`'s methods in core.
 
 use egui::{Color32, RichText, Ui, Visuals};
 use ninsei_core::hexedit::HexBuffer;
 use ninsei_core::hub::{Save, Upgrade};
+use ninsei_core::tuning::HEAT_MAX;
 use ninsei_core::{Data, binary, tuning};
 
 use crate::hexview::{self, HexCtx, HexOut};
 use crate::theme::Palette;
-use crate::workbench::{BLACK, BLUE, ORANGE, WHITE, WbOut};
+use crate::workbench::{BLACK, BLUE, DIAL_SECS, Dialing, ORANGE, WHITE, WbOut};
 
 /// Restyles egui widgets in the 1.3 palette: blue fields, white ink, orange when pressed.
 pub fn wb_visuals(v: &mut Visuals) {
@@ -256,4 +258,142 @@ pub fn hexed(
     if close {
         *hex = None;
     }
+}
+
+/// CarrierTerm: a Telix-style dialing directory. Pick a number, see what you're walking into, dial.
+pub fn carrierterm(
+    ui: &mut Ui,
+    data: &Data,
+    save: &Save,
+    sel: &mut Option<u32>,
+    dialing: Option<&Dialing>,
+    dial: &mut Option<u32>,
+) {
+    let mono = |t: String, c| RichText::new(t).monospace().color(c);
+    if let Some(d) = dialing {
+        let Some(e) = save.entry(d.entry) else { return };
+        ui.label(
+            RichText::new(format!("Dialing {}", e.name))
+                .color(ORANGE)
+                .strong(),
+        );
+        ui.add_space(6.0);
+        let script = [
+            (0.0, "ATZ".to_string(), WHITE),
+            (0.15, "OK".to_string(), WHITE),
+            (0.35, format!("ATDT {}", e.number), WHITE),
+            (0.8, "~~ RING ~~".to_string(), WHITE),
+            (1.3, "~~ RING ~~".to_string(), WHITE),
+            (1.7, "CONNECT 2400/ARQ".to_string(), ORANGE),
+            (2.0, "CARRIER DETECTED. JACKING IN...".to_string(), ORANGE),
+        ];
+        for (at, line, col) in script {
+            if d.t >= at {
+                ui.label(mono(line, col));
+            }
+        }
+        let frac = (d.t / DIAL_SECS).clamp(0.0, 1.0);
+        let cells = 40;
+        let on = (frac * cells as f32) as usize;
+        ui.add_space(6.0);
+        ui.label(mono(
+            format!("[{}{}]", "█".repeat(on), "░".repeat(cells - on)),
+            ORANGE,
+        ));
+        return;
+    }
+    if save.phonebook.is_empty() {
+        ui.label(dim("The phonebook is empty."));
+        return;
+    }
+    if sel.is_none_or(|id| save.entry(id).is_none()) {
+        *sel = save.phonebook.first().map(|e| e.id);
+    }
+
+    ui.label(mono(
+        format!(
+            "{:<3} {:<9} {:<22} {:<5} {}",
+            "#", "NUMBER", "NAME", "TIER", "HEAT"
+        ),
+        WHITE,
+    ));
+    egui::ScrollArea::vertical()
+        .max_height(150.0)
+        .show(ui, |ui| {
+            for (i, e) in save.phonebook.iter().enumerate() {
+                let tier = "▪".repeat(e.tier as usize);
+                let heat: String = (0..HEAT_MAX)
+                    .map(|h| if h < e.heat { '█' } else { '░' })
+                    .collect();
+                let line = format!(
+                    "{:<3} {:<9} {:<22} {:<5} {heat}",
+                    i + 1,
+                    e.number,
+                    e.name,
+                    tier
+                );
+                let on = *sel == Some(e.id);
+                let r = ui.selectable_label(on, mono(line, if on { BLACK } else { WHITE }));
+                if r.clicked() {
+                    *sel = Some(e.id);
+                }
+                if r.double_clicked() {
+                    *dial = Some(e.id);
+                }
+            }
+        });
+    ui.add_space(6.0);
+
+    let Some(e) = sel.and_then(|id| save.entry(id)) else {
+        return;
+    };
+    let (net, mods) = Save::site_params(data, e);
+    let tier = data
+        .networks
+        .tier(e.tier)
+        .map_or("?".to_string(), |t| t.label.clone());
+    ui.label(
+        RichText::new(format!("{}  ·  {}", e.name, e.business))
+            .color(ORANGE)
+            .strong(),
+    );
+    ui.label(mono(
+        format!(
+            "TIER {} {tier}  ·  {} layers  ·  ICE +{}  ·  pay {}%  ·  trace {}%",
+            e.tier,
+            net.mid_layers + 2,
+            mods.ice_bonus,
+            mods.pay_pct,
+            mods.trace_pct
+        ),
+        WHITE,
+    ));
+    if e.traits.is_empty() {
+        ui.label(dim("  no known quirks"));
+    }
+    for t in &e.traits {
+        if let Some(def) = data.networks.trait_def(t) {
+            ui.horizontal(|ui| {
+                ui.label(
+                    RichText::new(format!("  {}", def.label))
+                        .color(WHITE)
+                        .strong(),
+                );
+                ui.label(dim(&def.blurb));
+            });
+        }
+    }
+    if e.heat > 0 {
+        ui.label(dim(format!(
+            "  heat {}/{HEAT_MAX} from {} run(s): their ICE and trace are up.",
+            e.heat, e.runs
+        )));
+    }
+    ui.add_space(6.0);
+    ui.horizontal(|ui| {
+        if ui.button(format!(" Dial {} ", e.number)).clicked() {
+            *dial = Some(e.id);
+        }
+        ui.label(dim("double-click a number to dial it"));
+    });
 }

@@ -2,7 +2,7 @@
 
 use crate::binary::{self, Bin, Spec};
 use crate::data::{ChoiceEffect, Data, Drop, Effect, Intent, LootTable, Penalty};
-use crate::network::{Network, NodeKind};
+use crate::network::{NetParams, Network, NodeKind};
 use crate::rng::Rng;
 use crate::tuning::*;
 
@@ -62,6 +62,58 @@ pub struct Kit {
     /// Programs to install: (factory origin, binary). Re-signed with the run's key on the way in.
     /// Empty means the starter programs.
     pub programs: Vec<(usize, Bin)>,
+    /// Network shape: tier size and trait biases.
+    pub net: NetParams,
+    pub mods: RunMods,
+    /// The phonebook entry being run, if dialed from home.
+    pub site: Option<Site>,
+}
+
+/// Run-wide modifiers from the network's tier, traits and heat.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct RunMods {
+    /// Extra strength on every ICE.
+    pub ice_bonus: u32,
+    /// Trace gain, percent of normal.
+    pub trace_pct: u32,
+    /// Credit drops and contract pay, percent of normal.
+    pub pay_pct: u32,
+}
+
+impl Default for RunMods {
+    fn default() -> Self {
+        Self {
+            ice_bonus: 0,
+            trace_pct: 100,
+            pay_pct: 100,
+        }
+    }
+}
+
+impl RunMods {
+    /// Scales a trace gain, never below 1 for a gain of 1 or more.
+    pub fn trace(self, n: u32) -> u32 {
+        if n == 0 {
+            0
+        } else {
+            ((n * self.trace_pct + 50) / 100).max(1)
+        }
+    }
+
+    pub fn pay(self, n: u32) -> u32 {
+        (n * self.pay_pct + 50) / 100
+    }
+}
+
+/// Which network a run is on, for the status bar and for booking heat.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Site {
+    /// Phonebook entry id.
+    pub entry: u32,
+    pub name: String,
+    pub tier: u32,
+    /// Trait labels.
+    pub traits: Vec<String>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -200,6 +252,8 @@ pub struct Game {
     /// Events already seen this run, so MSG nodes don't repeat while others remain.
     pub events_seen: Vec<usize>,
     pub next_uid: u32,
+    pub mods: RunMods,
+    pub site: Option<Site>,
 }
 
 impl Game {
@@ -211,7 +265,7 @@ impl Game {
     /// A run with a kit from home: RIG bonuses and the chosen loadout.
     pub fn start(data: Data, seed: u64, kit: &Kit) -> Self {
         let mut rng = Rng::new(seed);
-        let net = Network::generate(&mut rng, &data);
+        let net = Network::generate_with(&mut rng, &data, &kit.net);
         let bbs_stock = data
             .bbs
             .areas
@@ -257,6 +311,8 @@ impl Game {
             encounter: None,
             events_seen: Vec::new(),
             next_uid: 1,
+            mods: kit.mods,
+            site: kit.site.clone(),
         };
         let programs: Vec<(usize, Bin)> = if kit.programs.is_empty() {
             START_WAREZ
@@ -402,7 +458,7 @@ impl Game {
         self.at = to;
         self.hops += 1;
         self.encounter = None;
-        self.deck.trace += TRACE_PER_HOP;
+        self.deck.trace += self.mods.trace(TRACE_PER_HOP);
         let node = self.net.nodes[to].clone();
         self.say(
             LogKind::Info,
@@ -455,7 +511,9 @@ impl Game {
 
     fn start_combat(&mut self, node: usize, ice: usize) {
         let def = &self.data.ice[ice];
-        let strength = def.strength + ICE_STRENGTH_PER_LAYER * self.net.nodes[node].layer as u32;
+        let strength = def.strength
+            + ICE_STRENGTH_PER_LAYER * self.net.nodes[node].layer as u32
+            + self.mods.ice_bonus;
         let (name, class) = (def.name.clone(), def.class.label());
         self.combat = Some(Combat {
             node,
@@ -559,6 +617,7 @@ impl Game {
     }
 
     fn end_turn(&mut self) -> Result<(), String> {
+        let mods = self.mods;
         let Some(c) = self.combat.as_mut() else {
             return Err("no fight in progress.".into());
         };
@@ -585,6 +644,7 @@ impl Game {
                     lines.push((LogKind::Bad, format!("{name} hits for {dmg}{note}")));
                 }
                 Intent::Trace(n) => {
+                    let n = mods.trace(n);
                     self.deck.trace += n;
                     lines.push((LogKind::Bad, format!("{name} traces +{n}")));
                 }
@@ -599,7 +659,7 @@ impl Game {
         c.shield = 0;
         c.cpu = self.deck.cpu_max;
         c.turn += 1;
-        self.deck.trace += TRACE_PER_COMBAT_TURN;
+        self.deck.trace += mods.trace(TRACE_PER_COMBAT_TURN);
         for (k, t) in lines {
             self.say(k, t);
         }
@@ -807,6 +867,7 @@ impl Game {
     fn penalize(&mut self, p: Penalty) {
         match p {
             Penalty::Trace(n) => {
+                let n = self.mods.trace(n);
                 self.deck.trace += n;
                 self.say(LogKind::Bad, format!("trace +{n}"));
                 self.check_trace();
@@ -938,6 +999,7 @@ impl Game {
             }
         }
         for (client, reward, bonus) in pay {
+            let (reward, bonus) = (self.mods.pay(reward), self.mods.pay(bonus));
             self.deck.credits += reward + bonus;
             self.say(
                 LogKind::Loot,
@@ -1167,7 +1229,7 @@ impl Game {
                 }
             }
             Drop::Credits(lo, hi) => {
-                let n = self.rng.range(lo, hi);
+                let n = self.mods.pay(self.rng.range(lo, hi));
                 self.deck.credits += n;
                 self.say(LogKind::Loot, format!("+ {n}¢"));
             }

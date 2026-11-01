@@ -3,25 +3,7 @@
 // Every row of an icon must be the same width. `label` is the text under the icon;
 // `tool` is what double-clicking opens.
 [
-    (label: "JackIn", tool: JackIn, pixels: [
-        "................",
-        "....kkkkkkkk....",
-        "...kwwwwwwwwk...",
-        "..kwwkkkkkkwwk..",
-        "..kwkoooooookwk.",
-        "..kwkoooooookwk.",
-        "..kwkoookoookwk.",
-        "..kwkoookoookwk.",
-        "..kwkoooooookwk.",
-        "..kwwkkkkkkwwk..",
-        "...kwwwwwwwwk...",
-        "....kkkkkkkk....",
-        ".......kk.......",
-        ".......kk.......",
-        "....kkkkkkkk....",
-        "................",
-    ]),
-    (label: "Terminal", tool: Terminal, pixels: [
+    (label: "CarrierTerm", tool: Terminal, pixels: [
         "................",
         ".kkkkkkkkkkkkkk.",
         ".kwwwwwwwwwwwwk.",

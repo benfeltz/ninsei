@@ -10,7 +10,7 @@ Cyberspace hacking roguelike styled as a retro IDE. Rust workspace: `crates/core
 | Tests | `cargo test --workspace` |
 | Lint | `cargo clippy --workspace --all-targets` (keep it warning-free) |
 | Format | `cargo fmt --all` |
-| Balance probe | `cargo run -p ninsei-core --example balance` |
+| Balance probe | `cargo run -p ninsei-core --example balance` (default network and each tier) |
 | Web build | `scripts/build-web.sh` (needs the wasm32 target and `wasm-bindgen-cli` matching Cargo.lock) |
 | Web lint | `cargo clippy -p ninsei --target wasm32-unknown-unknown` |
 
@@ -34,5 +34,6 @@ Features and bugs come in as GitHub issues (forms in `.github/ISSUE_TEMPLATE/`).
 - **A modal owns the keyboard.** Windows that take keys (BBS, talk) ignore input on the frame they open and call `stop_text_input` so the terminal can't eat their keys.
 - **Programs are tracked by `Slot::uid`, not index**, wherever the UI holds on to one across frames: trades and sales reshuffle the HDD.
 - **Two signing keys.** In a run, binaries are signed with the run's key (`Game::key`); in the stash, with the save's key (`Save::key`). Programs are re-sealed whenever they cross between home and a run (`Save::kit`/`Game::start` on the way in, `Save::record` on the way out); nothing else may re-sign a binary except optimize.
+- **Networks are data.** Tiers, traits and companies live in `data/hub/networks.ron` (`NetworksDef::validate`). A trait is a `TraitEffect` that `Save::site_params` turns into `NetParams` (generation) or `RunMods` (ICE strength, trace %, pay %); add new effects there, not as special cases in the run. Default `NetParams` must keep generating the same networks for the same seed.
 - **Run vs home.** In a run, `Action::Patch`/`Optimize` only work at a BBS (`Game::compile_blocker`). Hub tool windows (`hubtools.rs`) never touch the save directly: they emit `WbOut`s that the app applies through `Save`'s methods.
 - **A program's stats come from its 32-byte binary** (`crates/core/src/binary.rs`), never from `WarezDef` after creation. A slot never holds an invalid binary: `Action::Patch` runs `binary::check` first. Every factory program must fit the budget rule; `Data::validate` enforces it.

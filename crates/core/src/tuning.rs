@@ -28,6 +28,8 @@ pub const NODE_WEIGHT_ICE: u32 = 50;
 pub const NODE_WEIGHT_VAULT: u32 = 18;
 pub const NODE_WEIGHT_BLACK_ICE: u32 = 16;
 pub const NODE_WEIGHT_CONTACT: u32 = 18;
+/// Chance (percent) a network with an ICE-class bias picks ICE of that class.
+pub const ICE_BIAS_PCT: u32 = 60;
 /// Black ICE only appears from this layer on.
 pub const BLACK_ICE_MIN_LAYER: usize = 3;
 /// ICE gets this much extra strength per layer deep.
@@ -85,3 +87,13 @@ pub const DEADMAN_PCT: u32 = 10;
 pub const HUB_DRAG_SECS: f32 = 0.9;
 /// Pixel-art colour codes allowed in desktop icons.
 pub const HUB_PALETTE_CHARS: &str = ".wkob";
+
+/// Phonebook: tiers of the numbers a new save starts with.
+pub const PHONEBOOK_START: &[u32] = &[1, 1, 1, 1, 2];
+/// Heat: added to a network each run on it, removed from every other network.
+pub const HEAT_PER_RUN: u32 = 2;
+pub const HEAT_COOL: u32 = 1;
+pub const HEAT_MAX: u32 = 6;
+/// Per point of heat: extra ICE strength, extra trace gain (percent).
+pub const HEAT_ICE: u32 = 1;
+pub const HEAT_TRACE_PCT: u32 = 5;

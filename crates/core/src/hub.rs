@@ -4,11 +4,14 @@
 use serde::{Deserialize, Serialize};
 
 use crate::binary::{self, Bin};
-use crate::data::Data;
-use crate::game::{Game, Kit, Phase};
+use crate::data::{Data, IceClass};
+use crate::game::{Game, Kit, Phase, RunMods, Site};
+use crate::network::NetParams;
+use crate::rng::Rng;
 use crate::tuning::{
-    DEADMAN_PCT, FRAGMENTS_PER_OPT, HUB_DRAG_SECS, HUB_PALETTE_CHARS, MAX_OPT, START_HDD,
-    START_WAREZ, STASH_BASE_SLOTS,
+    BBS_LAYER, DEADMAN_PCT, FRAGMENTS_PER_OPT, HEAT_COOL, HEAT_ICE, HEAT_MAX, HEAT_PER_RUN,
+    HEAT_TRACE_PCT, HUB_DRAG_SECS, HUB_PALETTE_CHARS, MAX_OPT, NET_MID_LAYERS, PHONEBOOK_START,
+    START_HDD, START_WAREZ, STASH_BASE_SLOTS,
 };
 
 /// Bump when the save's shape changes incompatibly.
@@ -19,8 +22,7 @@ pub const SAVE_KEY: &str = "ninsei.save";
 /// What double-clicking a desktop icon opens.
 #[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Tool {
-    /// Temporary until the phonebook lands: jack into a fresh random network.
-    JackIn,
+    /// CarrierTerm: the phonebook you dial networks from.
     Terminal,
     Rig,
     Stash,
@@ -29,8 +31,7 @@ pub enum Tool {
 }
 
 impl Tool {
-    pub const ALL: [Tool; 6] = [
-        Tool::JackIn,
+    pub const ALL: [Tool; 5] = [
         Tool::Terminal,
         Tool::Rig,
         Tool::Stash,
@@ -40,13 +41,12 @@ impl Tool {
 
     /// Tools that work yet. The rest ask you to insert their disk.
     pub fn installed(self) -> bool {
-        !matches!(self, Tool::Terminal)
+        true
     }
 
     /// Volume name for the "insert volume" requester.
     pub fn volume(self) -> &'static str {
         match self {
-            Tool::JackIn => "JackIn",
             Tool::Terminal => "CarrierTerm",
             Tool::Rig => "RIG",
             Tool::Stash => "STASH",
@@ -91,6 +91,100 @@ impl IconDef {
         }
         Ok(())
     }
+}
+
+/// A network tier: size, ICE strength and pay (`data/hub/networks.ron`).
+#[derive(Deserialize, Clone, Debug)]
+pub struct TierDef {
+    pub tier: u32,
+    pub label: String,
+    pub mid_layers: usize,
+    pub ice_bonus: u32,
+    pub pay_pct: u32,
+    /// How many traits a network of this tier rolls: (min, max).
+    pub traits: (u32, u32),
+}
+
+/// What a trait does to a network.
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum TraitEffect {
+    IceClass(IceClass),
+    BlackIce(u32),
+    NoBbs,
+    Trace(u32),
+    Chatty(u32),
+    VaultRich(u32),
+    Pay(u32),
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct TraitDef {
+    pub id: String,
+    pub label: String,
+    pub blurb: String,
+    pub effect: TraitEffect,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct CompanyDef {
+    pub name: String,
+    pub business: String,
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct NetworksDef {
+    pub tiers: Vec<TierDef>,
+    pub traits: Vec<TraitDef>,
+    pub companies: Vec<CompanyDef>,
+}
+
+impl NetworksDef {
+    pub fn tier(&self, t: u32) -> Option<&TierDef> {
+        self.tiers.iter().find(|d| d.tier == t)
+    }
+
+    pub fn trait_def(&self, id: &str) -> Option<&TraitDef> {
+        self.traits.iter().find(|d| d.id == id)
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        for t in 1..=3 {
+            let d = self.tier(t).ok_or_else(|| format!("no tier {t}"))?;
+            if d.mid_layers < BBS_LAYER {
+                return Err(format!("tier {t} needs at least {BBS_LAYER} middle layers"));
+            }
+            if d.traits.0 > d.traits.1 {
+                return Err(format!("tier {t} trait range is backwards"));
+            }
+        }
+        for (i, t) in self.traits.iter().enumerate() {
+            if self.traits[..i].iter().any(|o| o.id == t.id) {
+                return Err(format!("trait `{}` is listed twice", t.id));
+            }
+        }
+        if self.companies.len() < PHONEBOOK_START.len() * 2 {
+            return Err("too few companies for a phonebook".into());
+        }
+        Ok(())
+    }
+}
+
+/// A number in your phonebook.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Entry {
+    pub id: u32,
+    pub name: String,
+    pub business: String,
+    /// `555-0142` style.
+    pub number: String,
+    pub tier: u32,
+    /// Trait ids.
+    pub traits: Vec<String>,
+    /// How hot this network is from recent runs (0 to `HEAT_MAX`).
+    #[serde(default)]
+    pub heat: u32,
+    #[serde(default)]
+    pub runs: u32,
 }
 
 /// A RIG upgrade line.
@@ -282,6 +376,11 @@ pub struct Save {
     pub next_item: u32,
     #[serde(default)]
     pub loadout: Loadout,
+    /// Numbers you can dial.
+    #[serde(default)]
+    pub phonebook: Vec<Entry>,
+    #[serde(default)]
+    pub next_entry: u32,
 }
 
 fn default_phosphor() -> String {
@@ -309,6 +408,8 @@ impl Default for Save {
             stash: Vec::new(),
             next_item: 0,
             loadout: Loadout::default(),
+            phonebook: Vec::new(),
+            next_entry: 0,
         }
     }
 }
@@ -344,6 +445,149 @@ impl Save {
             return true;
         }
         false
+    }
+
+    /// Fills an empty phonebook with a few starter numbers. Returns true if it did.
+    pub fn ensure_phonebook(&mut self, data: &Data, seed: u64) -> bool {
+        if !self.phonebook.is_empty() {
+            return false;
+        }
+        let mut rng = Rng::new(seed ^ 0x5EED_B00C);
+        for &tier in PHONEBOOK_START {
+            self.add_number(data, &mut rng, tier);
+        }
+        true
+    }
+
+    /// Adds a fresh number of `tier` with a company not already in the book.
+    pub fn add_number(&mut self, data: &Data, rng: &mut Rng, tier: u32) -> Option<u32> {
+        let nets = &data.networks;
+        let free: Vec<&CompanyDef> = nets
+            .companies
+            .iter()
+            .filter(|c| !self.phonebook.iter().any(|e| e.name == c.name))
+            .collect();
+        if free.is_empty() {
+            return None;
+        }
+        let company = free[rng.below(free.len())];
+        let number = loop {
+            let n = format!("555-{:04}", rng.range(0, 9999));
+            if !self.phonebook.iter().any(|e| e.number == n) {
+                break n;
+            }
+        };
+        let (lo, hi) = nets.tier(tier).map_or((0, 0), |t| t.traits);
+        let want = rng.range(lo, hi) as usize;
+        let mut pool: Vec<&TraitDef> = nets.traits.iter().collect();
+        let mut traits = Vec::new();
+        while traits.len() < want && !pool.is_empty() {
+            let t = pool.swap_remove(rng.below(pool.len()));
+            // One ICE-class bias and one trace shift per network, or they'd cancel out.
+            let clash = |e: TraitEffect| {
+                traits.iter().any(|id: &String| {
+                    nets.trait_def(id).is_some_and(|d| {
+                        std::mem::discriminant(&d.effect) == std::mem::discriminant(&e)
+                    })
+                })
+            };
+            if !clash(t.effect) {
+                traits.push(t.id.clone());
+            }
+        }
+        let id = self.next_entry;
+        self.next_entry += 1;
+        self.phonebook.push(Entry {
+            id,
+            name: company.name.clone(),
+            business: company.business.clone(),
+            number,
+            tier,
+            traits,
+            heat: 0,
+            runs: 0,
+        });
+        Some(id)
+    }
+
+    pub fn entry(&self, id: u32) -> Option<&Entry> {
+        self.phonebook.iter().find(|e| e.id == id)
+    }
+
+    /// Finds an entry by its 1-based position in the book or by its number.
+    pub fn lookup(&self, what: &str) -> Option<&Entry> {
+        if let Ok(n) = what.parse::<usize>()
+            && n >= 1
+        {
+            return self.phonebook.get(n - 1);
+        }
+        self.phonebook.iter().find(|e| e.number == what)
+    }
+
+    /// The network shape and run modifiers an entry dials into, heat included.
+    pub fn site_params(data: &Data, e: &Entry) -> (NetParams, RunMods) {
+        let nets = &data.networks;
+        let tier = nets.tier(e.tier);
+        let mut p = NetParams {
+            mid_layers: tier.map_or(NET_MID_LAYERS, |t| t.mid_layers),
+            ..NetParams::default()
+        };
+        let mut m = RunMods {
+            ice_bonus: tier.map_or(0, |t| t.ice_bonus) + HEAT_ICE * e.heat,
+            trace_pct: 100 + HEAT_TRACE_PCT * e.heat,
+            pay_pct: tier.map_or(100, |t| t.pay_pct),
+        };
+        for id in &e.traits {
+            match nets.trait_def(id).map(|d| d.effect) {
+                Some(TraitEffect::IceClass(c)) => p.ice_bias = Some(c),
+                Some(TraitEffect::BlackIce(n)) => p.black_bonus += n,
+                Some(TraitEffect::NoBbs) => p.bbs = false,
+                Some(TraitEffect::Trace(pct)) => m.trace_pct = m.trace_pct * pct / 100,
+                Some(TraitEffect::Chatty(n)) => p.contact_bonus += n,
+                Some(TraitEffect::VaultRich(n)) => p.vault_bonus += n,
+                Some(TraitEffect::Pay(pct)) => m.pay_pct = m.pay_pct * pct / 100,
+                None => {}
+            }
+        }
+        (p, m)
+    }
+
+    /// Dials a phonebook entry: a run on that network with your loadout and RIG.
+    pub fn dial(&mut self, data: &Data, entry: u32, seed: u64) -> Result<Game, String> {
+        let e = self
+            .entry(entry)
+            .ok_or("no such number in the phonebook.")?
+            .clone();
+        let (net, mods) = Self::site_params(data, &e);
+        let mut kit = self.kit(data, &data.rig);
+        kit.net = net;
+        kit.mods = mods;
+        let labels = e
+            .traits
+            .iter()
+            .filter_map(|t| data.networks.trait_def(t).map(|d| d.label.clone()))
+            .collect();
+        kit.site = Some(Site {
+            entry: e.id,
+            name: e.name.clone(),
+            tier: e.tier,
+            traits: labels,
+        });
+        let taken: Vec<u32> = self.loadout.stash.drain(..).collect();
+        self.stash.retain(|s| !taken.contains(&s.id));
+        Ok(Game::start(data.clone(), seed, &kit))
+    }
+
+    /// Heat after a run on `entry`: it heats up, every other number cools down.
+    fn heat_up(&mut self, entry: u32) {
+        for e in &mut self.phonebook {
+            if e.id == entry {
+                e.runs += 1;
+                e.heat = (e.heat + HEAT_PER_RUN).min(HEAT_MAX);
+            } else {
+                e.heat = e.heat.saturating_sub(HEAT_COOL);
+            }
+        }
     }
 
     pub fn stash_cap(&self, defs: &[UpgradeDef]) -> u32 {
@@ -496,6 +740,9 @@ impl Save {
             hdd: self.rig.bonus(Upgrade::Hdd, defs),
             integrity: self.rig.bonus(Upgrade::Integrity, defs),
             programs,
+            net: NetParams::default(),
+            mods: RunMods::default(),
+            site: None,
         }
     }
 
@@ -522,6 +769,9 @@ impl Save {
             _ => return None,
         };
         self.runs += 1;
+        if let Some(site) = &game.site {
+            self.heat_up(site.entry);
+        }
         let credits = game.deck.credits;
         let mut kept = Vec::new();
         let banked = match end {
@@ -648,7 +898,8 @@ impl Screen {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ShellEffect {
     None,
-    JackIn(Option<u64>),
+    /// Dial a phonebook entry (by id), with an optional seed.
+    Dial(u32, Option<u64>),
     Open(Tool),
     Theme(String),
     Crt,
@@ -668,7 +919,8 @@ pub fn shell(line: &str, save: &Save, icons: &[IconDef]) -> (Vec<String>, ShellE
             lines(&[
                 "dir              list the desktop",
                 "run <tool>       open a tool (jackin, shell, ...)",
-                "jackin [seed]    jack into a network (hex seed optional)",
+                "phonebook        list numbers you can dial",
+                "dial <n> [seed]  dial entry n (or a number) and jack in",
                 "info             your record",
                 "theme <name>     run phosphor: amber | green | ice",
                 "crt              toggle scanlines in runs",
@@ -710,18 +962,52 @@ pub fn shell(line: &str, save: &Save, icons: &[IconDef]) -> (Vec<String>, ShellE
             ],
             ShellEffect::None,
         ),
-        "jackin" | "jack" | "dial" => match arg {
-            None => (vec!["dialing...".into()], ShellEffect::JackIn(None)),
-            Some(s) => {
-                match u64::from_str_radix(s.trim_start_matches("0x").trim_start_matches('#'), 16) {
-                    Ok(seed) => (
-                        vec![format!("dialing seed {seed:x}...")],
-                        ShellEffect::JackIn(Some(seed)),
-                    ),
-                    Err(_) => (vec![format!("`{s}` is not a hex seed.")], ShellEffect::None),
-                }
+        "phonebook" | "pb" => {
+            if save.phonebook.is_empty() {
+                return (vec!["the phonebook is empty.".into()], ShellEffect::None);
             }
-        },
+            let out = save
+                .phonebook
+                .iter()
+                .enumerate()
+                .map(|(i, e)| {
+                    format!(
+                        "{:>2}  {}  {:<22} T{}  heat {}",
+                        i + 1,
+                        e.number,
+                        e.name,
+                        e.tier,
+                        e.heat
+                    )
+                })
+                .collect();
+            (out, ShellEffect::None)
+        }
+        "dial" | "atdt" => {
+            let Some(what) = arg else {
+                return (
+                    vec!["dial what? try `phonebook`.".into()],
+                    ShellEffect::None,
+                );
+            };
+            let Some(e) = save.lookup(what) else {
+                return (
+                    vec![format!("{what}: no such number in the phonebook.")],
+                    ShellEffect::None,
+                );
+            };
+            let seed = words
+                .next()
+                .and_then(|s| u64::from_str_radix(s.trim_start_matches("0x"), 16).ok());
+            (
+                vec![format!("ATDT {}", e.number)],
+                ShellEffect::Dial(e.id, seed),
+            )
+        }
+        "jackin" => (
+            vec!["networks are dialed now: `phonebook`, then `dial <n>`.".into()],
+            ShellEffect::None,
+        ),
         "run" | "open" => {
             let Some(name) = arg else {
                 return (vec!["run what? try `dir`.".into()], ShellEffect::None);
