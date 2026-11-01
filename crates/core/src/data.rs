@@ -233,6 +233,7 @@ pub struct Sources<'a> {
     pub splash: &'a str,
     pub events: &'a str,
     pub contracts: &'a str,
+    pub icons: &'a str,
 }
 
 #[derive(Clone, Debug)]
@@ -243,6 +244,8 @@ pub struct Data {
     pub bbs: BbsDef,
     pub events: Vec<EventDef>,
     pub contracts: Vec<ContractTemplate>,
+    /// Workbench desktop icons.
+    pub icons: Vec<crate::hub::IconDef>,
 }
 
 impl Data {
@@ -256,6 +259,7 @@ impl Data {
             splash: include_str!("../../../data/bbs/splash.txt"),
             events: include_str!("../../../data/events.ron"),
             contracts: include_str!("../../../data/contracts.ron"),
+            icons: include_str!("../../../data/hub/icons.ron"),
         })
     }
 
@@ -269,6 +273,7 @@ impl Data {
             bbs,
             events: ron::from_str(src.events).map_err(|e| format!("events.ron: {e}"))?,
             contracts: ron::from_str(src.contracts).map_err(|e| format!("contracts.ron: {e}"))?,
+            icons: ron::from_str(src.icons).map_err(|e| format!("hub/icons.ron: {e}"))?,
         };
         data.validate()?;
         Ok(data)
@@ -327,6 +332,7 @@ impl Data {
                 }
             }
         }
+        crate::hub::IconDef::validate(&self.icons).map_err(|e| format!("hub/icons.ron: {e}"))?;
         if self.contracts.is_empty() {
             return Err("contracts.ron has no templates".into());
         }

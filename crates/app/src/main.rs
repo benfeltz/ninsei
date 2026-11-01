@@ -1,17 +1,20 @@
 //! ninsei: a cyberspace hacking roguelike dressed as a retro IDE.
 
 mod bbs_view;
+mod crash;
 mod crt;
 mod encounter_view;
 mod hexview;
 mod netmap;
 mod panes;
 mod theme;
+mod workbench;
 
 use egui::{Key, RichText};
 use egui_dock::{DockArea, DockState, NodeIndex};
 use ninsei_core::bbs::Outcome;
 use ninsei_core::hexedit::HexBuffer;
+use ninsei_core::hub::{RunEnd, RunReport, SAVE_KEY, Save, Screen};
 use ninsei_core::{Action, Command, Data, Game, LogKind, Phase, command::HELP, parse_command};
 
 use bbs_view::BbsView;
@@ -19,6 +22,7 @@ use encounter_view::EncounterView;
 
 use panes::{Panes, Request, Tab};
 use theme::Phosphor;
+use workbench::{WbOut, Workbench};
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result {
@@ -36,14 +40,14 @@ fn main() -> eframe::Result {
             .with_min_inner_size([900.0, 560.0]),
         ..Default::default()
     };
+    // A hex seed on the command line is used for the first dial.
     let seed = std::env::args()
         .nth(1)
-        .and_then(|s| u64::from_str_radix(&s, 16).ok())
-        .unwrap_or_else(fresh_seed);
+        .and_then(|s| u64::from_str_radix(&s, 16).ok());
     eframe::run_native(
         "ninsei",
         options,
-        Box::new(move |cc| Ok(Box::new(App::new(&cc.egui_ctx, data, seed)))),
+        Box::new(move |cc| Ok(Box::new(App::new(cc, data, seed)))),
     )
 }
 
@@ -79,13 +83,12 @@ fn main() {
         };
         let seed = web_sys::window()
             .and_then(|w| w.location().hash().ok())
-            .and_then(|h| u64::from_str_radix(h.trim_start_matches('#'), 16).ok())
-            .unwrap_or_else(fresh_seed);
+            .and_then(|h| u64::from_str_radix(h.trim_start_matches('#'), 16).ok());
         let started = eframe::WebRunner::new()
             .start(
                 canvas,
                 eframe::WebOptions::default(),
-                Box::new(move |cc| Ok(Box::new(App::new(&cc.egui_ctx, data, seed)))),
+                Box::new(move |cc| Ok(Box::new(App::new(cc, data, seed)))),
             )
             .await;
         match started {
@@ -124,6 +127,19 @@ fn default_layout() -> DockState<Tab> {
 }
 
 struct App {
+    data: Data,
+    save: Save,
+    /// The save changed and should be written this frame.
+    save_dirty: bool,
+    screen: Screen,
+    wb: Workbench,
+    /// The current run, once booked (exit or flatline).
+    booked: Option<RunReport>,
+    /// The run ended in a flatline: the crash screen sits behind the returning desktop.
+    crashed: bool,
+    /// Seed from the command line or URL, used for the first dial.
+    first_seed: Option<u64>,
+    /// The run. Between runs this is the last one, or a placeholder before the first.
     game: Game,
     dock: DockState<Tab>,
     phosphor: Phosphor,
@@ -140,11 +156,44 @@ struct App {
 }
 
 impl App {
-    fn new(ctx: &egui::Context, data: Data, seed: u64) -> Self {
-        let phosphor = Phosphor::Amber;
-        theme::apply(ctx, &phosphor.palette());
-        let game = Game::new(data, seed);
+    fn new(cc: &eframe::CreationContext<'_>, data: Data, first_seed: Option<u64>) -> Self {
+        let mut boot = vec![
+            "ninsei Workbench 1.3".to_string(),
+            String::new(),
+            "Double-click JackIn to dial a random network,".to_string(),
+            "or type `jackin` here. `help` for more.".to_string(),
+        ];
+        // A missing or unreadable save starts a fresh hub; it never stops the game.
+        let save = match cc.storage.and_then(|s| s.get_string(SAVE_KEY)) {
+            None => Save::default(),
+            Some(text) => match Save::load(&text) {
+                Ok(s) => {
+                    let plural = if s.runs == 1 { "" } else { "s" };
+                    boot.push(format!("Welcome back. {} run{plural} on record.", s.runs));
+                    s
+                }
+                Err(e) => {
+                    boot.push(format!("Save unreadable ({e}). Starting fresh."));
+                    Save::default()
+                }
+            },
+        };
+        if let Some(seed) = first_seed {
+            boot.push(format!("Seed {seed:x} queued for your first dial."));
+        }
+        let phosphor = Phosphor::from_name(&save.phosphor).unwrap_or(Phosphor::Amber);
+        theme::apply(&cc.egui_ctx, &phosphor.palette());
+        let game = Game::new(data.clone(), first_seed.unwrap_or(0));
         Self {
+            crt: save.crt,
+            data,
+            save,
+            save_dirty: false,
+            screen: Screen::Hub,
+            wb: Workbench::new(boot),
+            booked: None,
+            crashed: false,
+            first_seed,
             last_at: game.at,
             bbs: None,
             hex: None,
@@ -154,7 +203,6 @@ impl App {
             game,
             dock: default_layout(),
             phosphor,
-            crt: true,
             input: String::new(),
             focus_input: true,
         }
@@ -163,6 +211,61 @@ impl App {
     fn set_phosphor(&mut self, ctx: &egui::Context, p: Phosphor) {
         self.phosphor = p;
         theme::apply(ctx, &p.palette());
+        self.save.phosphor = p.name().to_string();
+        self.save_dirty = true;
+    }
+
+    fn toggle_crt(&mut self) {
+        self.crt = !self.crt;
+        self.save.crt = self.crt;
+        self.save_dirty = true;
+    }
+
+    /// Starts a run on a fresh network, behind the desktop as it drags away.
+    fn jack_in(&mut self, seed: Option<u64>) {
+        let seed = seed.or(self.first_seed.take()).unwrap_or_else(fresh_seed);
+        self.game = Game::new(self.data.clone(), seed);
+        self.last_at = self.game.at;
+        self.last_phase = self.game.phase;
+        self.bbs = None;
+        self.hex = None;
+        self.talk = EncounterView::default();
+        self.input.clear();
+        self.focus_input = true;
+        self.booked = None;
+        self.crashed = false;
+        if let Some(path) = self.dock.find_tab(&Tab::Network) {
+            let _ = self.dock.set_active_tab(path);
+        }
+        self.screen = Screen::JackIn { t: 0.0 };
+    }
+
+    /// Books the run in the save once it's over (exit or flatline).
+    fn book(&mut self) {
+        if self.booked.is_none()
+            && let Some(r) = self.save.record(&self.game)
+        {
+            self.booked = Some(r);
+            self.save_dirty = true;
+            let line = match r.end {
+                RunEnd::Exit => format!(
+                    "Jacked out clean with {}¢ after {} hops.",
+                    r.credits, r.hops
+                ),
+                RunEnd::Flatline => {
+                    format!("Flatlined after {} hops. Lost {}¢.", r.hops, r.credits)
+                }
+            };
+            self.wb.say(line);
+        }
+    }
+
+    /// Back to the desktop: it drags up over the run.
+    fn go_home(&mut self) {
+        self.book();
+        self.bbs = None;
+        self.wb.focus();
+        self.screen = Screen::JackOut { t: 0.0 };
     }
 
     fn handle(&mut self, ctx: &egui::Context, req: Request) {
@@ -170,6 +273,12 @@ impl App {
             Request::OpenBbs => {
                 if self.game.at_bbs() {
                     self.bbs = Some(BbsView::new());
+                }
+                return;
+            }
+            Request::GoHome => {
+                if matches!(self.game.phase, Phase::JackedOut | Phase::Flatlined) {
+                    self.go_home();
                 }
                 return;
             }
@@ -194,8 +303,18 @@ impl App {
             }
         };
         match cmd {
+            // New runs start at home now, by dialing from the desktop.
+            Command::Game(Action::NewRun(_)) | Command::NewRun => {
+                if self.game.phase == Phase::JackedOut {
+                    self.go_home();
+                } else {
+                    self.game.say(
+                        LogKind::Sys,
+                        "err: new runs start at home. reach the exit first.",
+                    );
+                }
+            }
             Command::Game(a) => self.game.apply(a),
-            Command::NewRun => self.game.apply(Action::NewRun(fresh_seed())),
             Command::Hex(slot) => self.open_hex(slot),
             Command::Help => {
                 for l in HELP {
@@ -204,7 +323,7 @@ impl App {
             }
             Command::Clear => self.game.log.clear(),
             Command::Crt => {
-                self.crt = !self.crt;
+                self.toggle_crt();
                 let state = if self.crt { "on" } else { "off" };
                 self.game.say(LogKind::Sys, format!("crt {state}"));
             }
@@ -295,9 +414,6 @@ impl App {
         egui::MenuBar::new().ui(ui, |ui| {
             ui.label(RichText::new("▌ninsei").color(pal.bright).strong());
             ui.menu_button("run", |ui| {
-                if ui.button("new run").clicked() {
-                    out.push(Request::Cmd(Command::NewRun));
-                }
                 if ui.button("end turn   [space]").clicked() {
                     out.push(Request::Cmd(Command::Game(Action::EndTurn)));
                 }
@@ -361,10 +477,97 @@ impl App {
 }
 
 impl eframe::App for App {
-    fn ui(&mut self, ui: &mut egui::Ui, _frame: &mut eframe::Frame) {
+    fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
         let pal = self.phosphor.palette();
-        let mut requests = self.hotkeys(&ctx);
+        let dt = ctx.input(|i| i.stable_dt).min(0.1);
+        self.screen = self.screen.tick(dt);
+
+        if self.screen.shows_run() {
+            if self.crashed {
+                let clicked = crash::show(ui, self.booked.as_ref());
+                if clicked && self.screen == Screen::Crash {
+                    self.go_home();
+                }
+            } else {
+                self.run_ui(ui, &ctx, &pal);
+            }
+            // A flatline books the run and crashes the deck.
+            if self.screen == Screen::Run && self.game.phase == Phase::Flatlined && !self.crashed {
+                self.book();
+                self.bbs = None;
+                self.crashed = true;
+                self.screen = Screen::Crash;
+            }
+        }
+
+        // The desktop: on its own while home, dragging during the transitions.
+        if !matches!(self.screen, Screen::Run | Screen::Crash) {
+            let offset = self.screen.drag() * ctx.content_rect().height();
+            let live = self.screen.hub_live();
+            let mut outs = Vec::new();
+            egui::Area::new(egui::Id::new("workbench"))
+                .order(egui::Order::Foreground)
+                .movable(false)
+                .fixed_pos(egui::pos2(0.0, 0.0))
+                .show(&ctx, |ui| {
+                    ui.set_min_size(ctx.content_rect().size());
+                    outs = self.wb.show(ui, &self.data.icons, &self.save, offset, live);
+                });
+            for o in outs {
+                match o {
+                    WbOut::JackIn(seed) if live => self.jack_in(seed),
+                    WbOut::JackIn(_) => {}
+                    WbOut::Theme(name) => {
+                        if let Some(p) = Phosphor::from_name(&name) {
+                            self.set_phosphor(&ctx, p);
+                        }
+                    }
+                    WbOut::Crt => {
+                        self.toggle_crt();
+                        self.wb
+                            .say(format!("crt {}", if self.crt { "on" } else { "off" }));
+                    }
+                }
+            }
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        }
+
+        if self.crt {
+            crt::paint(&ctx, &pal);
+        } else if self.game.phase == Phase::Exploring {
+            // Keep the cursor blinking.
+            ctx.request_repaint_after(std::time::Duration::from_millis(500));
+        }
+        if self.screen != Screen::Hub && self.screen != Screen::Run {
+            ctx.request_repaint();
+        }
+
+        if self.save_dirty
+            && let Some(storage) = frame.storage_mut()
+        {
+            storage.set_string(SAVE_KEY, self.save.to_text());
+            storage.flush();
+            self.save_dirty = false;
+        }
+    }
+
+    fn save(&mut self, storage: &mut dyn eframe::Storage) {
+        storage.set_string(SAVE_KEY, self.save.to_text());
+    }
+}
+
+impl App {
+    /// The run's IDE: menu, status bar, dock panes and the run's modal windows.
+    fn run_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, pal: &theme::Palette) {
+        let pal = *pal;
+        let ctx = ctx.clone();
+        // Keys only drive the run once it's fully on screen.
+        let mut requests = if self.screen == Screen::Run {
+            self.hotkeys(&ctx)
+        } else {
+            Vec::new()
+        };
 
         egui::Panel::top("menu")
             .frame(
@@ -451,13 +654,6 @@ impl eframe::App for App {
                 let _ = self.dock.set_active_tab(path);
             }
             self.last_phase = self.game.phase;
-        }
-
-        if self.crt {
-            crt::paint(&ctx, &pal);
-        } else if self.game.phase == Phase::Exploring {
-            // Keep the cursor blinking.
-            ctx.request_repaint_after(std::time::Duration::from_millis(500));
         }
     }
 }

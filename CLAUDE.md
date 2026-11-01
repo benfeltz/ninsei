@@ -25,7 +25,9 @@ Features and bugs come in as GitHub issues (forms in `.github/ISSUE_TEMPLATE/`).
 - **Core never imports egui.** Rules, generation, BBS navigation and ANSI parsing live in `ninsei-core` and are tested headlessly. The app sends `Action`s to `Game::apply` and renders state; panes push requests and never mutate the game while drawing.
 - **Content lives in `data/`, never in code.** Add warez/ICE/loot/BBS files there; `Data::validate` must catch any bad cross-reference.
 - **Balance numbers live in `crates/core/src/tuning.rs`.** After changing them, run the balance probe; the `runs_always_end` test fails if a dumb bot always or never wins.
-- **Every colour comes from the phosphor `Palette`** (`crates/app/src/theme.rs`). The BBS window is the one exception: it shows true CGA colours unless switched to phosphor.
+- **Every colour comes from the phosphor `Palette`** (`crates/app/src/theme.rs`) inside a run. Two exceptions: the BBS window shows true CGA colours unless switched to phosphor, and the hub desktop (`crates/app/src/workbench.rs`) uses its own four-colour 1.3 palette.
+- **Saves never break.** The hub's save (`crates/core/src/hub.rs`) is one versioned RON document. New fields get `#[serde(default)]` so old saves still load; bump `SAVE_VERSION` only for incompatible changes. An unreadable save starts a fresh hub, never a crash.
+- **The hub's rules live in core** (`hub.rs`: save, screen flow, Shell commands); `workbench.rs` and `crash.rs` only draw and route input. Desktop icons are pixel art in `data/hub/icons.ron`.
 - **BBS screens are pipe-coded text, max 78x24**, enforced by `every_screen_fits_the_terminal`.
 - **Every encounter needs a `Leave` choice** (`Data::validate`), and `every_choice_in_every_event_resolves` must keep passing: no choice may leave the runner stuck in `Phase::Encounter`.
 - **The app runs native and in the browser.** No `std::time::SystemTime`, threads, files or `std::process` in code the web build reaches; gate native-only code with `#[cfg(not(target_arch = "wasm32"))]`.

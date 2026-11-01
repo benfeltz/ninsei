@@ -8,13 +8,13 @@ You jack in at a gateway and route through a layered network toward the exit, FT
 
 ## Play it
 
-In the browser: **https://benfeltz.github.io/ninsei/** (share a seed with `#1a2b` on the end of the URL).
+In the browser: **https://benfeltz.github.io/ninsei/** (put a seed on the end, like `#1a2b`, and your first dial uses it).
 
 Natively:
 
 ```bash
 cargo run -p ninsei            # random seed
-cargo run -p ninsei -- 1a2b    # fixed seed (hex)
+cargo run -p ninsei -- 1a2b    # first dial uses this seed (hex)
 ```
 
 On Linux you need the usual X11/Wayland libraries (`libxkbcommon-x11`, GL drivers).
@@ -31,6 +31,20 @@ python3 -m http.server -d dist 8000                         # http://localhost:8
 ```
 
 Every push to `main` builds `dist/` and publishes it to GitHub Pages (`.github/workflows/pages.yml`). One-time setup: repo **Settings → Pages → Source: GitHub Actions**.
+
+## Home: the Workbench
+
+Between runs you're on your own machine: a Workbench 1.3-style desktop, four colours and all. Double-click **JackIn** to dial a network (or type `jackin` in the **NinShell**), and the desktop drags down like an Amiga screen to reveal the run behind it. Reach the exit and you jack out home; flatline and the deck crashes first.
+
+![the hub](docs/shots/hub.png)
+![jacking in](docs/shots/hub-jackin.png)
+
+- **NinShell**: `help`, `dir`, `jackin [seed]`, `run <tool>`, `info`, `theme`, `crt`, `echo`, `clear`
+- Windows drag by their title bar; the close gadget is top left, the depth gadget top right
+- **Terminal**, **RIG**, **STASH** and **HexEd** are coming (#5, #6): for now they ask you to insert their disk
+- Your record and settings save automatically: a file on desktop, local storage in the browser
+
+![crash](docs/shots/crash.png)
 
 ## The IDE
 

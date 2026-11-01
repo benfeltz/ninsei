@@ -23,6 +23,8 @@ pub enum Request {
     Cmd(Command),
     /// Dial the BBS on this node.
     OpenBbs,
+    /// The run's over: back to the desktop.
+    GoHome,
     /// Open HDD slot `n` in the hex editor.
     OpenHex(usize),
     CloseHex,
@@ -327,8 +329,8 @@ impl Panes<'_> {
                         .color(p.dim),
                 );
                 ui.add_space(8.0);
-                if ui.button(" newrun ").clicked() {
-                    self.out.push(Request::Cmd(Command::NewRun));
+                if ui.button(" jack out: home ").clicked() {
+                    self.out.push(Request::GoHome);
                 }
                 return;
             }
