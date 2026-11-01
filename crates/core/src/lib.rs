@@ -22,5 +22,5 @@ pub use game::{
     Action, Combat, Contract, ContractStatus, Deck, Encounter, Game, Kit, LogKind, LogLine, Phase,
     RunMods, Site, Slot, StockFile,
 };
-pub use network::{NetParams, Network, Node, NodeKind};
+pub use network::{NetParams, Network, Node, NodeKind, Shape};
 pub use rng::Rng;

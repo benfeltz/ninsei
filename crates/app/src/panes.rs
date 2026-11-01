@@ -343,7 +343,9 @@ impl Panes<'_> {
             }
             Phase::Exploring => {
                 let n = &g.net.nodes[g.at];
-                ui.label(RichText::new(format!("{}  [{}]", n.name, n.kind.label())).color(p.fg));
+                ui.label(
+                    RichText::new(format!("{}  [{}]", n.name, g.node_label(g.at))).color(p.fg),
+                );
                 if g.at_bbs() {
                     let b = &g.data.bbs;
                     ui.label(
@@ -364,7 +366,7 @@ impl Panes<'_> {
                 for &to in g.reachable() {
                     let t = &g.net.nodes[to];
                     if ui
-                        .button(format!("jack {to}  {}  [{}]", t.name, t.kind.label()))
+                        .button(format!("jack {to}  {}  [{}]", t.name, g.node_label(to)))
                         .clicked()
                     {
                         self.act(Action::Move(to));
@@ -522,7 +524,7 @@ impl Panes<'_> {
             return;
         }
         for k in g.contracts.iter().rev() {
-            let n = &g.net.nodes[k.node];
+            let n = &g.root().nodes[k.node];
             let (mark, col) = match k.status {
                 ContractStatus::Active => ("[ ]", p.fg),
                 ContractStatus::Done => ("[x]", p.dim),

@@ -359,9 +359,14 @@ pub fn carrierterm(
     );
     ui.label(mono(
         format!(
-            "TIER {} {tier}  ·  {} layers  ·  ICE +{}  ·  pay {}%  ·  trace {}%",
+            "TIER {} {tier}  ·  {} layers{}  ·  ICE +{}  ·  pay {}%  ·  trace {}%",
             e.tier,
             net.mid_layers + 2,
+            match net.subnets {
+                0 => String::new(),
+                1 => "  ·  1 subnet".to_string(),
+                n => format!("  ·  {n} subnets"),
+            },
             mods.ice_bonus,
             mods.pay_pct,
             mods.trace_pct

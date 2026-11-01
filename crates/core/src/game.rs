@@ -116,6 +116,14 @@ pub struct Site {
     pub traits: Vec<String>,
 }
 
+/// The network the runner dived out of while they're inside a subnet.
+#[derive(Clone, Debug)]
+pub struct Outer {
+    pub net: Network,
+    /// The subnet node they went in through; the subnet's exit brings them back here.
+    pub node: usize,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ContractStatus {
     /// Posted on a jobs board, not taken.
@@ -235,9 +243,14 @@ pub struct Game {
     pub rng: Rng,
     pub deck: Deck,
     pub hdd: Vec<Slot>,
+    /// The network the runner is on: the main one, or a subnet while inside one.
     pub net: Network,
-    /// Node the runner is on.
+    /// Node the runner is on, in `net`.
     pub at: usize,
+    /// The main network, set aside while the runner is inside a subnet.
+    pub outer: Option<Box<Outer>>,
+    /// What the main network was generated from; subnets take their shape from it.
+    pub params: NetParams,
     pub combat: Option<Combat>,
     pub phase: Phase,
     pub log: Vec<LogLine>,
@@ -297,6 +310,8 @@ impl Game {
         };
         let mut game = Self {
             at: net.entry(),
+            outer: None,
+            params: kit.net.clone(),
             data,
             seed,
             rng,
@@ -394,6 +409,34 @@ impl Game {
         Some(ice.intents[c.intent_ix % ice.intents.len()])
     }
 
+    /// The main network, even while inside a subnet. Contracts point into it.
+    pub fn root(&self) -> &Network {
+        self.outer.as_ref().map_or(&self.net, |o| &o.net)
+    }
+
+    /// Where the runner stands in the main network: inside a subnet, its subnet node.
+    pub fn root_at(&self) -> usize {
+        self.outer.as_ref().map_or(self.at, |o| o.node)
+    }
+
+    pub fn in_subnet(&self) -> bool {
+        self.outer.is_some()
+    }
+
+    /// What a node on the current network is called in the UI: a subnet's exit is its uplink.
+    pub fn node_label(&self, node: usize) -> &'static str {
+        match self.net.nodes[node].kind {
+            NodeKind::Exit if self.in_subnet() => "UPLINK",
+            kind => kind.label(),
+        }
+    }
+
+    /// How deep a node is for ICE strength: a subnet counts from its door's layer.
+    fn depth(&self, node: usize) -> u32 {
+        let base = self.outer.as_ref().map_or(0, |o| o.net.nodes[o.node].layer);
+        (base + self.net.nodes[node].layer) as u32
+    }
+
     /// Nodes the runner may move to right now.
     pub fn reachable(&self) -> &[usize] {
         if self.phase == Phase::Exploring {
@@ -463,9 +506,10 @@ impl Game {
         self.encounter = None;
         self.deck.trace += self.mods.trace(TRACE_PER_HOP);
         let node = self.net.nodes[to].clone();
+        let label = self.node_label(to);
         self.say(
             LogKind::Info,
-            format!("> routing to {} [{}]", node.name, node.kind.label()),
+            format!("> routing to {} [{label}]", node.name),
         );
         if self.check_trace() {
             return Ok(());
@@ -495,6 +539,12 @@ impl Game {
                 self.net.nodes[to].cleared = true;
                 self.start_encounter(to);
             }
+            NodeKind::Subnet if !node.cleared && self.outer.is_none() => {
+                self.dive(to);
+            }
+            NodeKind::Exit if self.outer.is_some() => {
+                self.surface();
+            }
             NodeKind::Exit => {
                 self.net.nodes[to].cleared = true;
                 self.phase = Phase::JackedOut;
@@ -512,11 +562,34 @@ impl Game {
         Ok(())
     }
 
+    /// Drops through subnet node `node` into the private network behind it.
+    fn dive(&mut self, node: usize) {
+        let sub = Network::subnet(self.seed, node, &self.data, &self.params);
+        let name = self.net.nodes[node].name.clone();
+        let net = std::mem::replace(&mut self.net, sub);
+        self.outer = Some(Box::new(Outer { net, node }));
+        self.at = self.net.entry();
+        self.say(
+            LogKind::Info,
+            format!("subnet {name}: dropping into a private segment. its exit uplinks back here."),
+        );
+    }
+
+    /// Takes the subnet's exit back up to its door in the main network.
+    fn surface(&mut self) {
+        let Some(o) = self.outer.take() else { return };
+        self.net = o.net;
+        self.at = o.node;
+        self.net.nodes[o.node].cleared = true;
+        let name = self.net.nodes[o.node].name.clone();
+        self.say(LogKind::Good, format!("uplink: back out at {name}."));
+    }
+
     fn start_combat(&mut self, node: usize, ice: usize) {
-        let def = &self.data.ice[ice];
-        let strength = def.strength
-            + ICE_STRENGTH_PER_LAYER * self.net.nodes[node].layer as u32
+        let strength = self.data.ice[ice].strength
+            + ICE_STRENGTH_PER_LAYER * self.depth(node)
             + self.mods.ice_bonus;
+        let def = &self.data.ice[ice];
         let (name, class) = (def.name.clone(), def.class.label());
         self.combat = Some(Combat {
             node,
@@ -616,7 +689,10 @@ impl Game {
             self.say(LogKind::Good, "as promised:");
             self.grant(b);
         }
-        self.settle_contracts(c.node);
+        // Contracts target the main network; a subnet's node ids mean nothing to them.
+        if self.outer.is_none() {
+            self.settle_contracts(c.node);
+        }
     }
 
     fn end_turn(&mut self) -> Result<(), String> {
@@ -899,17 +975,17 @@ impl Game {
 
     /// ICE nodes ahead that nobody has a contract on yet.
     fn contract_targets(&self) -> Vec<usize> {
-        let reach = self.net.reachable_from(self.at);
+        let (net, at) = (self.root(), self.root_at());
+        let reach = net.reachable_from(at);
         let taken = |n: usize| {
             self.contracts
                 .iter()
                 .chain(&self.bbs_jobs)
                 .any(|k| k.node == n && k.status != ContractStatus::Failed)
         };
-        self.net
-            .nodes
+        net.nodes
             .iter()
-            .filter(|n| reach[n.id] && n.id != self.at && !n.cleared)
+            .filter(|n| reach[n.id] && n.id != at && !n.cleared)
             .filter(|n| matches!(n.kind, NodeKind::Ice | NodeKind::BlackIce))
             .filter(|n| !taken(n.id))
             .map(|n| n.id)
@@ -925,16 +1001,17 @@ impl Game {
         let t = &self.data.contracts[self.rng.below(self.data.contracts.len())];
         let (client, brief) = (
             t.client.clone(),
-            t.brief.replace("{host}", &self.net.nodes[node].name),
+            t.brief.replace("{host}", &self.root().nodes[node].name),
         );
-        let n = &self.net.nodes[node];
+        let n = &self.root().nodes[node];
         let mult = if n.kind == NodeKind::BlackIce {
             CONTRACT_BLACK_MULT
         } else {
             1
         };
+        let layer = n.layer as u32;
         let reward = self.rng.range(CONTRACT_REWARD_MIN, CONTRACT_REWARD_MAX) * mult
-            + CONTRACT_PER_LAYER * n.layer as u32;
+            + CONTRACT_PER_LAYER * layer;
         let ghost = self.rng.chance(CONTRACT_GHOST_PCT).then(|| {
             let cap = (self.deck.trace + CONTRACT_GHOST_MARGIN).min(TRACE_MAX - 1);
             (cap, reward * CONTRACT_GHOST_BONUS_PCT / 100)
@@ -956,7 +1033,7 @@ impl Game {
 
     /// One-line summary of a contract for logs.
     pub fn contract_line(&self, k: &Contract) -> String {
-        let n = &self.net.nodes[k.node];
+        let n = &self.root().nodes[k.node];
         let ghost = k.ghost.map_or(String::new(), |(cap, b)| {
             format!(" +{b}¢ if trace <= {cap}%")
         });
@@ -1019,7 +1096,7 @@ impl Game {
 
     /// Fails active contracts whose target can no longer be reached.
     fn void_unreachable_contracts(&mut self) {
-        let reach = self.net.reachable_from(self.at);
+        let reach = self.root().reachable_from(self.root_at());
         let mut lost = Vec::new();
         for k in &mut self.contracts {
             if k.status == ContractStatus::Active && !reach[k.node] {

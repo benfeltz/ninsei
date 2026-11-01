@@ -1,6 +1,7 @@
 // Networks you can dial from CarrierTerm.
 //
-// tiers:     size, ICE strength and pay for each tier; `traits` is how many traits it rolls (min, max).
+// tiers:     size, ICE strength and pay for each tier; `traits` is how many traits it rolls (min, max);
+//            `subnets` is how many subnet nodes it has (doors to a small private network and back).
 // traits:    what makes a network play differently. Effects:
 //              IceClass(Barrier | CodeGate | Sentry)  most ICE is this class
 //              BlackIce(n)   +n weight for black ICE nodes
@@ -9,12 +10,17 @@
 //              Chatty(n)     +n weight for MSG nodes
 //              VaultRich(n)  +n weight for data vaults
 //              Pay(pct)      credits are pct% of normal (stacks with the tier)
+//              Shape(min_width, max_width, links, choke)
+//                            topology: middle layers are min..=max nodes wide, `links`% chance of
+//                            an extra cross link per node, every `choke`th layer is one guarded
+//                            node (0 = none; never the BBS layer). Default is (2, 4, 35, 0).
+//              Subnets(n)    +n subnet nodes
 // companies: names and lines of business for phonebook entries.
 (
     tiers: [
-        (tier: 1, label: "LAN",      mid_layers: 4, ice_bonus: 0, pay_pct: 80,  traits: (0, 1)),
-        (tier: 2, label: "CORP",     mid_layers: 5, ice_bonus: 4, pay_pct: 130, traits: (1, 2)),
-        (tier: 3, label: "MEGACORP", mid_layers: 6, ice_bonus: 9, pay_pct: 200, traits: (2, 2)),
+        (tier: 1, label: "LAN",      mid_layers: 4, ice_bonus: 0, pay_pct: 80,  traits: (0, 1), subnets: 0),
+        (tier: 2, label: "CORP",     mid_layers: 5, ice_bonus: 4, pay_pct: 130, traits: (1, 2), subnets: 1),
+        (tier: 3, label: "MEGACORP", mid_layers: 6, ice_bonus: 9, pay_pct: 200, traits: (2, 2), subnets: 1),
     ],
     traits: [
         (id: "sentry_heavy",   label: "sentry-heavy",    blurb: "Sentries patrol everything. Bring a garrote.",   effect: IceClass(Sentry)),
@@ -26,6 +32,10 @@
         (id: "night_shift",    label: "night shift",     blurb: "Wide awake and bored. Trace +25%.",             effect: Trace(125)),
         (id: "chatty",         label: "chatty",          blurb: "Lots of people on the line.",                   effect: Chatty(20)),
         (id: "vault_rich",     label: "vault-rich",      blurb: "Data everywhere, lightly guarded.",             effect: VaultRich(20)),
+        (id: "mesh",           label: "mesh",            blurb: "Wide open, routes everywhere. Pick your fights.",       effect: Shape((min_width: 3, max_width: 5, links: 75, choke: 0))),
+        (id: "chokepoints",    label: "chokepoints",     blurb: "Every other hop funnels through one guarded box.",      effect: Shape((min_width: 2, max_width: 4, links: 35, choke: 2))),
+        (id: "daisy_chain",    label: "daisy chain",     blurb: "Long thin lines. No way around anything.",              effect: Shape((min_width: 1, max_width: 2, links: 15, choke: 0))),
+        (id: "segmented",      label: "segmented",       blurb: "Private segments behind every door. Vaults inside.",    effect: Subnets(1)),
         (id: "skint",          label: "skint",           blurb: "Nothing worth stealing. Credits -30%.",         effect: Pay(70)),
     ],
     companies: [
