@@ -5,7 +5,7 @@
 
 use egui::{Color32, RichText, Ui, Visuals};
 use ninsei_core::hexedit::HexBuffer;
-use ninsei_core::hub::{Save, Upgrade};
+use ninsei_core::hub::{Answer, Save, ScanResult, Upgrade};
 use ninsei_core::tuning::HEAT_MAX;
 use ninsei_core::{Data, binary, tuning};
 
@@ -395,5 +395,162 @@ pub fn carrierterm(
             *dial = Some(e.id);
         }
         ui.label(dim("double-click a number to dial it"));
+    });
+}
+
+/// Finds listed beside the scan grid.
+const MAX_FINDS_SHOWN: usize = 8;
+
+/// Seconds a scan's grid takes to fill in.
+pub const SCAN_FILL_SECS: f32 = 2.5;
+
+/// WarDial: scan a known range, 100 numbers at a time, and watch the grid fill in.
+pub fn wardial(
+    ui: &mut Ui,
+    data: &Data,
+    save: &Save,
+    sel: &mut Option<String>,
+    scan: Option<&(ScanResult, f32)>,
+    out: &mut Vec<WbOut>,
+) {
+    let mono = |t: String, c| RichText::new(t).monospace().color(c);
+    if sel.as_ref().is_none_or(|r| !save.knows_range(r)) {
+        *sel = save.ranges.first().map(|k| k.id.clone());
+    }
+    ui.horizontal(|ui| {
+        ui.label(
+            RichText::new(format!("bank {}¢", save.bank))
+                .color(ORANGE)
+                .strong(),
+        );
+        if save.telco_heat > 0 {
+            ui.label(
+                RichText::new(format!(
+                    "telco heat {}: your next call is watched",
+                    save.telco_heat
+                ))
+                .color(ORANGE),
+            );
+        }
+    });
+    ui.add_space(2.0);
+    for k in &save.ranges {
+        let Some(r) = data.exchanges.iter().find(|r| r.id == k.id) else {
+            continue;
+        };
+        let line = format!(
+            "{:<9} {:<20} {:>3}/{:<3} {:>3}¢",
+            r.pattern(),
+            r.label,
+            save.scanned_in(&r.id),
+            r.blocks(),
+            r.cost
+        );
+        let on = sel.as_deref() == Some(r.id.as_str());
+        ui.horizontal(|ui| {
+            if ui
+                .selectable_label(on, mono(line, if on { BLACK } else { WHITE }))
+                .clicked()
+            {
+                *sel = Some(r.id.clone());
+            }
+            ui.label(dim(format!("from {}", k.source)));
+        });
+    }
+    if let Some(r) = sel
+        .as_ref()
+        .and_then(|id| data.exchanges.iter().find(|r| &r.id == id))
+    {
+        let left = r.blocks() as usize - save.scanned_in(&r.id).min(r.blocks() as usize);
+        let can = left > 0 && save.bank >= r.cost;
+        ui.add_space(4.0);
+        ui.horizontal(|ui| {
+            if ui
+                .add_enabled(
+                    can,
+                    egui::Button::new(format!(" Scan {} ({}¢) ", r.pattern(), r.cost)),
+                )
+                .clicked()
+            {
+                out.push(WbOut::Scan(r.id.clone()));
+            }
+            let note = if left == 0 {
+                "tapped out"
+            } else {
+                "100 numbers a scan"
+            };
+            ui.label(dim(note));
+        });
+    }
+    ui.add_space(4.0);
+    let Some((res, t)) = scan else {
+        ui.label(dim("Narrower ranges hit more often. Find them in vaults, BBS text files and on the street."));
+        return;
+    };
+    let shown = ((t / SCAN_FILL_SECS) * res.cells.len() as f32).ceil() as usize;
+    let pattern = data
+        .exchanges
+        .iter()
+        .find(|r| r.id == res.range)
+        .map_or(res.range.clone(), |r| r.pattern());
+    ui.label(mono(
+        format!("scan {pattern}  block {:02}", res.block),
+        WHITE,
+    ));
+    ui.horizontal(|ui| {
+        ui.vertical(|ui| {
+            for (row, chunk) in res.cells.chunks(10).enumerate() {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 0.0;
+                    ui.label(mono(format!("{:02} ", row * 10), WHITE));
+                    for (i, (_, a)) in chunk.iter().enumerate() {
+                        let k = row * 10 + i;
+                        let (g, c) = if k >= shown {
+                            ('░', BLUE.gamma_multiply(1.6))
+                        } else {
+                            let c = match a {
+                                Answer::Carrier { .. } | Answer::Trap => ORANGE,
+                                _ => WHITE,
+                            };
+                            (a.glyph(), c)
+                        };
+                        ui.label(mono(format!("{g} "), c));
+                    }
+                });
+            }
+        });
+        ui.add_space(12.0);
+        ui.vertical(|ui| {
+            ui.label(dim(". voice   - busy   F fax"));
+            ui.label(dim("C CARRIER   ! TRAP"));
+            ui.add_space(4.0);
+            // The latest finds; earlier ones are already in the phonebook.
+            let finds: Vec<&(String, Answer)> = res
+                .cells
+                .iter()
+                .take(shown)
+                .filter(|(_, a)| matches!(a, Answer::Carrier { .. } | Answer::Trap))
+                .collect();
+            if finds.len() > MAX_FINDS_SHOWN {
+                ui.label(dim(format!(
+                    "+{} more above",
+                    finds.len() - MAX_FINDS_SHOWN
+                )));
+            }
+            for (number, a) in finds
+                .iter()
+                .skip(finds.len().saturating_sub(MAX_FINDS_SHOWN))
+            {
+                if let Answer::Carrier { entry, new } = a {
+                    let who = save
+                        .entry(*entry)
+                        .map_or("?".to_string(), |e| format!("{} T{}", e.name, e.tier));
+                    let tag = if *new { "-> phonebook" } else { "(known)" };
+                    ui.label(mono(format!("{number} CARRIER {who} {tag}"), ORANGE));
+                } else {
+                    ui.label(mono(format!("{number} TRAP: telco is listening"), ORANGE));
+                }
+            }
+        });
     });
 }

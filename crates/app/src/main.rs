@@ -15,7 +15,7 @@ use egui::{Key, RichText};
 use egui_dock::{DockArea, DockState, NodeIndex};
 use ninsei_core::bbs::Outcome;
 use ninsei_core::hexedit::HexBuffer;
-use ninsei_core::hub::{RunEnd, RunReport, SAVE_KEY, Save, Screen};
+use ninsei_core::hub::{Answer, RunEnd, RunReport, SAVE_KEY, Save, Screen};
 use ninsei_core::{Action, Command, Data, Game, LogKind, Phase, command::HELP, parse_command};
 
 use bbs_view::BbsView;
@@ -285,6 +285,10 @@ impl App {
                     r.hops, r.banked, r.credits
                 )),
             }
+            if !r.learned.is_empty() {
+                self.wb
+                    .say(format!("New phone ranges: {}", r.learned.join(", ")));
+            }
             self.booked = Some(r);
         }
     }
@@ -302,6 +306,27 @@ impl App {
                 .map_or(String::new(), |_| "Scrapped.".to_string())),
             WbOut::Patch(id, bin) => self.save.patch(id, &bin),
             WbOut::Optimize(id) => self.save.optimize(id),
+            WbOut::Scan(range) => match self.save.wardial(&self.data, &range) {
+                Ok(res) => {
+                    let new = res
+                        .cells
+                        .iter()
+                        .filter(|(_, a)| matches!(a, Answer::Carrier { new: true, .. }))
+                        .count();
+                    let traps = res
+                        .cells
+                        .iter()
+                        .filter(|(_, a)| matches!(a, Answer::Trap))
+                        .count();
+                    let msg = format!(
+                        "Wardialed block {:02}: {new} new carrier(s), {traps} trap(s). -{}¢",
+                        res.block, res.cost
+                    );
+                    self.wb.show_scan(res);
+                    Ok(msg)
+                }
+                Err(e) => Err(e),
+            },
             WbOut::Dial(..) | WbOut::Theme(_) | WbOut::Crt => return,
         };
         match result {

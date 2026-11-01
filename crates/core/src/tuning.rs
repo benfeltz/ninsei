@@ -97,3 +97,8 @@ pub const HEAT_MAX: u32 = 6;
 /// Per point of heat: extra ICE strength, extra trace gain (percent).
 pub const HEAT_ICE: u32 = 1;
 pub const HEAT_TRACE_PCT: u32 = 5;
+
+/// Wardialer: numbers per scan, the range everyone knows, extra trace per tripped trap (percent).
+pub const WARDIAL_BLOCK: u32 = 100;
+pub const LOCAL_RANGE: &str = "local";
+pub const TRAP_TRACE_PCT: u32 = 5;

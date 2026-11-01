@@ -39,7 +39,7 @@ Between runs you're on your own machine: a Workbench 1.3-style desktop, four col
 ![the hub](docs/shots/hub.png)
 ![jacking in](docs/shots/hub-jackin.png)
 
-- **NinShell**: `help`, `dir`, `phonebook`, `dial <n> [seed]`, `run <tool>`, `info`, `theme`, `crt`, `echo`, `clear`
+- **NinShell**: `help`, `dir`, `phonebook`, `dial <n> [seed]`, `ranges`, `wardial <range>`, `run <tool>`, `info`, `theme`, `crt`, `echo`, `clear`
 - Windows drag by their title bar; the close gadget is top left, the depth gadget top right
 - Everything below saves automatically: a file on desktop, local storage in the browser
 
@@ -55,6 +55,14 @@ Every dial is a fresh layout with the same personality. Tiers, traits and compan
 
 ![carrierterm](docs/shots/carrierterm.png)
 ![dialing](docs/shots/dialing.png)
+
+### Finding numbers: WarDial
+
+CarrierTerm's **WarDial** tab scans a number range you know, 100 numbers at a time, and the grid fills in as the modem chews through them: `.` voice, `-` busy, `F` fax, `C` **carrier** (straight into your phonebook), `!` **trap** (the telco is listening: your next call runs hotter). Each scan costs a phone bill.
+
+You always know the wide, sparse local exchange (`555-xxxx`). Better targets live on **tighter ranges**: a corp's lines (`555-7xxx`), then its core (`555-77xx`), where carriers are dense and mostly CORP or MEGACORP. You learn ranges from hints: data vaults and black ICE drop them, BBS **TEXTFILES** sell them, and a phone phreak on the street trades them. Hints you find come home even if you flatline. Ranges live in [`data/hub/exchanges.ron`](data/hub/exchanges.ron).
+
+![wardial](docs/shots/wardial.png)
 
 ### What you keep
 
@@ -156,6 +164,7 @@ Everything is data in [`data/`](data), compiled into the binary:
 - `events.ron`: MSG-node encounters
 - `contracts.ron`: contract clients and briefs
 - `bbs/board.ron`: the BBS: bulletins, users, file areas, prices, stock per run
+- `hub/`: desktop icons, RIG upgrades, network tiers/traits/companies, wardial ranges
 - `bbs/splash.txt`: the splash art. Colours use Mystic/Renegade **pipe codes** (`|00`-`|15` foreground, `|16`-`|23` background); raw ANSI `ESC[...m` escapes work too, so `.ans` art from PabloDraw or Moebius can be pasted in.
 
 `Data::validate` cross-checks the files (every id a table names must exist), and the tests run it.

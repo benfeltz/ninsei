@@ -475,6 +475,7 @@ fn transfer_secs(game: &Game, area: usize, file: usize) -> f32 {
 fn drop_tag(item: &Drop) -> &'static str {
     match item {
         Drop::Warez(_) => "",
+        Drop::Hint(_) => " |10[TXT]",
         _ => " |13[MOD]",
     }
 }

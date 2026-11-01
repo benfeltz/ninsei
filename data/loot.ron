@@ -20,6 +20,9 @@
         (weight: 8,  drop: Cpu(1)),
         (weight: 8,  drop: Hdd(2)),
         (weight: 14, drop: Fragment(2)),
+        (weight: 6,  drop: Hint("kestrel")),
+        (weight: 4,  drop: Hint("yamatai_core")),
+        (weight: 4,  drop: Hint("brightwater_core")),
     ]),
     vault: (rolls: 1, entries: [
         (weight: 30, drop: Credits(40, 120)),
@@ -29,5 +32,8 @@
         (weight: 10, drop: Warez("wyrm")),
         (weight: 20, drop: Repair(8)),
         (weight: 14, drop: Fragment(1)),
+        (weight: 8,  drop: Hint("brightwater")),
+        (weight: 6,  drop: Hint("yamatai")),
+        (weight: 6,  drop: Hint("saito")),
     ]),
 )

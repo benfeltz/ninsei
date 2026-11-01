@@ -254,6 +254,8 @@ pub struct Game {
     pub next_uid: u32,
     pub mods: RunMods,
     pub site: Option<Site>,
+    /// Number ranges learned this run (exchange ids). They come home even on a flatline.
+    pub hints: Vec<String>,
 }
 
 impl Game {
@@ -312,6 +314,7 @@ impl Game {
             events_seen: Vec::new(),
             next_uid: 1,
             mods: kit.mods,
+            hints: Vec::new(),
             site: kit.site.clone(),
         };
         let programs: Vec<(usize, Bin)> = if kit.programs.is_empty() {
@@ -1252,6 +1255,18 @@ impl Game {
             Drop::Fragment(n) => {
                 self.deck.fragments += n;
                 self.say(LogKind::Loot, format!("+ optimizer fragment x{n}"));
+            }
+            Drop::Hint(range) => {
+                let label = self
+                    .data
+                    .exchanges
+                    .iter()
+                    .find(|r| r.id == range)
+                    .map_or(range.clone(), |r| format!("{} ({})", r.label, r.pattern()));
+                if !self.hints.contains(&range) {
+                    self.hints.push(range);
+                }
+                self.say(LogKind::Loot, format!("+ phone range: {label}"));
             }
             Drop::Scrub(n) => {
                 self.deck.trace = self.deck.trace.saturating_sub(n);

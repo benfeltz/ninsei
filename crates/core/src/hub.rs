@@ -10,8 +10,8 @@ use crate::network::NetParams;
 use crate::rng::Rng;
 use crate::tuning::{
     BBS_LAYER, DEADMAN_PCT, FRAGMENTS_PER_OPT, HEAT_COOL, HEAT_ICE, HEAT_MAX, HEAT_PER_RUN,
-    HEAT_TRACE_PCT, HUB_DRAG_SECS, HUB_PALETTE_CHARS, MAX_OPT, NET_MID_LAYERS, PHONEBOOK_START,
-    START_HDD, START_WAREZ, STASH_BASE_SLOTS,
+    HEAT_TRACE_PCT, HUB_DRAG_SECS, HUB_PALETTE_CHARS, LOCAL_RANGE, MAX_OPT, NET_MID_LAYERS,
+    PHONEBOOK_START, START_HDD, START_WAREZ, STASH_BASE_SLOTS, TRAP_TRACE_PCT, WARDIAL_BLOCK,
 };
 
 /// Bump when the save's shape changes incompatibly.
@@ -185,6 +185,132 @@ pub struct Entry {
     pub heat: u32,
     #[serde(default)]
     pub runs: u32,
+}
+
+/// A range of phone numbers the wardialer can scan (`data/hub/exchanges.ron`).
+#[derive(Deserialize, Clone, Debug)]
+pub struct RangeDef {
+    pub id: String,
+    pub label: String,
+    /// Known digits, e.g. `555-` or `555-77`.
+    pub prefix: String,
+    /// Company whose lines these are.
+    pub owner: Option<String>,
+    pub carrier_pct: u32,
+    pub trap_pct: u32,
+    /// Weights for a carrier's tier: (LAN, CORP, MEGACORP).
+    pub tiers: (u32, u32, u32),
+    /// Credits per scan.
+    pub cost: u32,
+}
+
+/// A full number is `555-` and four digits.
+const NUMBER_LEN: usize = 8;
+
+impl RangeDef {
+    /// Digits still unknown.
+    pub fn free_digits(&self) -> usize {
+        NUMBER_LEN - self.prefix.len()
+    }
+
+    /// `555-77xx` style.
+    pub fn pattern(&self) -> String {
+        format!("{}{}", self.prefix, "x".repeat(self.free_digits()))
+    }
+
+    /// 100-number blocks in the range.
+    pub fn blocks(&self) -> u32 {
+        10u32.pow(self.free_digits().saturating_sub(2) as u32)
+    }
+
+    /// The numbers in block `b`.
+    pub fn numbers(&self, b: u32) -> Vec<String> {
+        let w = self.free_digits();
+        (0..WARDIAL_BLOCK)
+            .map(|i| format!("{}{:0w$}", self.prefix, b * WARDIAL_BLOCK + i))
+            .collect()
+    }
+
+    pub fn validate(ranges: &[RangeDef], nets: &NetworksDef) -> Result<(), String> {
+        if !ranges.iter().any(|r| r.id == LOCAL_RANGE) {
+            return Err(format!("no `{LOCAL_RANGE}` range"));
+        }
+        for (i, r) in ranges.iter().enumerate() {
+            if ranges[..i].iter().any(|o| o.id == r.id) {
+                return Err(format!("range `{}` is listed twice", r.id));
+            }
+            let digits_ok =
+                r.prefix.starts_with("555-") && r.prefix[4..].chars().all(|c| c.is_ascii_digit());
+            if !digits_ok || !(2..=4).contains(&r.free_digits()) {
+                return Err(format!(
+                    "range `{}` prefix must be 555- plus 0-2 digits",
+                    r.id
+                ));
+            }
+            if let Some(o) = &r.owner
+                && !nets.companies.iter().any(|c| &c.name == o)
+            {
+                return Err(format!("range `{}` belongs to unknown company `{o}`", r.id));
+            }
+            if r.tiers.0 + r.tiers.1 + r.tiers.2 == 0 || r.carrier_pct + r.trap_pct > 100 {
+                return Err(format!("range `{}` has bad odds", r.id));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// A range you know, and how you learned it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct KnownRange {
+    pub id: String,
+    pub source: String,
+}
+
+fn local_range() -> Vec<KnownRange> {
+    vec![KnownRange {
+        id: LOCAL_RANGE.into(),
+        source: "the phone book".into(),
+    }]
+}
+
+/// What a dialed number answered with.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Answer {
+    Voice,
+    Busy,
+    NoAnswer,
+    Fax,
+    /// A modem: the phonebook entry it went into, and whether it's new.
+    Carrier {
+        entry: u32,
+        new: bool,
+    },
+    /// The telco is watching this line.
+    Trap,
+}
+
+impl Answer {
+    /// One character for the scan grid.
+    pub fn glyph(&self) -> char {
+        match self {
+            Answer::Voice => '.',
+            Answer::Busy => '-',
+            Answer::NoAnswer => ' ',
+            Answer::Fax => 'F',
+            Answer::Carrier { .. } => 'C',
+            Answer::Trap => '!',
+        }
+    }
+}
+
+/// One wardial scan.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ScanResult {
+    pub range: String,
+    pub block: u32,
+    pub cells: Vec<(String, Answer)>,
+    pub cost: u32,
 }
 
 /// A RIG upgrade line.
@@ -381,6 +507,15 @@ pub struct Save {
     pub phonebook: Vec<Entry>,
     #[serde(default)]
     pub next_entry: u32,
+    /// Number ranges you know (the wardialer scans these).
+    #[serde(default = "local_range")]
+    pub ranges: Vec<KnownRange>,
+    /// Blocks already wardialed, as `range:block`.
+    #[serde(default)]
+    pub scanned: Vec<String>,
+    /// Traps tripped since the last dial: extra trace on the next run.
+    #[serde(default)]
+    pub telco_heat: u32,
 }
 
 fn default_phosphor() -> String {
@@ -410,6 +545,9 @@ impl Default for Save {
             loadout: Loadout::default(),
             phonebook: Vec::new(),
             next_entry: 0,
+            ranges: local_range(),
+            scanned: Vec::new(),
+            telco_heat: 0,
         }
     }
 }
@@ -461,21 +599,44 @@ impl Save {
 
     /// Adds a fresh number of `tier` with a company not already in the book.
     pub fn add_number(&mut self, data: &Data, rng: &mut Rng, tier: u32) -> Option<u32> {
+        self.add_entry(data, rng, tier, None, None)
+    }
+
+    /// Adds an entry. `owner` pins the company (a wardialed corp range); `number` pins the number.
+    pub fn add_entry(
+        &mut self,
+        data: &Data,
+        rng: &mut Rng,
+        tier: u32,
+        owner: Option<&str>,
+        number: Option<String>,
+    ) -> Option<u32> {
         let nets = &data.networks;
-        let free: Vec<&CompanyDef> = nets
-            .companies
-            .iter()
-            .filter(|c| !self.phonebook.iter().any(|e| e.name == c.name))
-            .collect();
-        if free.is_empty() {
-            return None;
-        }
-        let company = free[rng.below(free.len())];
-        let number = loop {
-            let n = format!("555-{:04}", rng.range(0, 9999));
-            if !self.phonebook.iter().any(|e| e.number == n) {
-                break n;
+        let company = match owner {
+            Some(name) => nets.companies.iter().find(|c| c.name == name)?,
+            None => {
+                let free: Vec<&CompanyDef> = nets
+                    .companies
+                    .iter()
+                    .filter(|c| !self.phonebook.iter().any(|e| e.name == c.name))
+                    .collect();
+                let pool: Vec<&CompanyDef> = if free.is_empty() {
+                    nets.companies.iter().collect()
+                } else {
+                    free
+                };
+                pool[rng.below(pool.len())]
             }
+        };
+        let number = match number {
+            Some(n) if !self.phonebook.iter().any(|e| e.number == n) => n,
+            Some(_) => return None,
+            None => loop {
+                let n = format!("555-{:04}", rng.range(0, 9999));
+                if !self.phonebook.iter().any(|e| e.number == n) {
+                    break n;
+                }
+            },
         };
         let (lo, hi) = nets.tier(tier).map_or((0, 0), |t| t.traits);
         let want = rng.range(lo, hi) as usize;
@@ -558,7 +719,10 @@ impl Save {
             .entry(entry)
             .ok_or("no such number in the phonebook.")?
             .clone();
-        let (net, mods) = Self::site_params(data, &e);
+        let (net, mut mods) = Self::site_params(data, &e);
+        // Tripped traps mean the telco is listening on this call.
+        mods.trace_pct += TRAP_TRACE_PCT * self.telco_heat;
+        self.telco_heat = 0;
         let mut kit = self.kit(data, &data.rig);
         kit.net = net;
         kit.mods = mods;
@@ -588,6 +752,110 @@ impl Save {
                 e.heat = e.heat.saturating_sub(HEAT_COOL);
             }
         }
+    }
+
+    pub fn knows_range(&self, id: &str) -> bool {
+        self.ranges.iter().any(|r| r.id == id)
+    }
+
+    /// Learns a range. Returns false if it was already known.
+    pub fn learn_range(&mut self, id: &str, source: &str) -> bool {
+        if self.knows_range(id) {
+            return false;
+        }
+        self.ranges.push(KnownRange {
+            id: id.into(),
+            source: source.into(),
+        });
+        true
+    }
+
+    /// Blocks of a range already scanned.
+    pub fn scanned_in(&self, range: &str) -> usize {
+        let key = format!("{range}:");
+        self.scanned.iter().filter(|s| s.starts_with(&key)).count()
+    }
+
+    /// Dials one unscanned 100-number block of a known range. The phone bill comes out of the bank.
+    /// The same block always answers the same way: a number is what it is.
+    pub fn wardial(&mut self, data: &Data, range: &str) -> Result<ScanResult, String> {
+        let def = data
+            .exchanges
+            .iter()
+            .find(|r| r.id == range)
+            .ok_or("no such range.")?
+            .clone();
+        if !self.knows_range(range) {
+            return Err(format!("you don't know any {} numbers yet.", def.label));
+        }
+        let open: Vec<u32> = (0..def.blocks())
+            .filter(|b| !self.scanned.contains(&format!("{range}:{b}")))
+            .collect();
+        if open.is_empty() {
+            return Err(format!(
+                "{} is tapped out. every number's been dialed.",
+                def.pattern()
+            ));
+        }
+        if self.bank < def.cost {
+            return Err(format!(
+                "the phone bill for a scan is {}¢. you have {}¢.",
+                def.cost, self.bank
+            ));
+        }
+        let mut pick = Rng::new(self.key ^ self.scanned.len() as u64 ^ 0xD1A1);
+        let block = open[pick.below(open.len())];
+        self.bank -= def.cost;
+        self.scanned.push(format!("{range}:{block}"));
+
+        let id_hash = range
+            .bytes()
+            .fold(0u64, |h, b| h.wrapping_mul(31).wrapping_add(u64::from(b)));
+        let mut rng = Rng::new(
+            self.key ^ id_hash.rotate_left(17) ^ u64::from(block).wrapping_mul(0x9E37_79B9),
+        );
+        let mut cells = Vec::new();
+        for number in def.numbers(block) {
+            let roll = rng.range(1, 100);
+            let answer = if roll <= def.carrier_pct {
+                if let Some(e) = self.phonebook.iter().find(|e| e.number == number) {
+                    Answer::Carrier {
+                        entry: e.id,
+                        new: false,
+                    }
+                } else {
+                    let w = [def.tiers.0, def.tiers.1, def.tiers.2];
+                    let tier = rng.weighted(w).map_or(1, |i| i as u32 + 1);
+                    match self.add_entry(
+                        data,
+                        &mut rng,
+                        tier,
+                        def.owner.as_deref(),
+                        Some(number.clone()),
+                    ) {
+                        Some(entry) => Answer::Carrier { entry, new: true },
+                        None => Answer::NoAnswer,
+                    }
+                }
+            } else if roll <= def.carrier_pct + def.trap_pct {
+                self.telco_heat += 1;
+                Answer::Trap
+            } else {
+                match rng.range(1, 100) {
+                    1..=6 => Answer::Fax,
+                    7..=22 => Answer::Busy,
+                    23..=55 => Answer::NoAnswer,
+                    _ => Answer::Voice,
+                }
+            };
+            cells.push((number, answer));
+        }
+        Ok(ScanResult {
+            range: range.into(),
+            block,
+            cells,
+            cost: def.cost,
+        })
     }
 
     pub fn stash_cap(&self, defs: &[UpgradeDef]) -> u32 {
@@ -772,6 +1040,17 @@ impl Save {
         if let Some(site) = &game.site {
             self.heat_up(site.entry);
         }
+        // What you learned stays in your head, deck or no deck.
+        let source = game
+            .site
+            .as_ref()
+            .map_or("a run".to_string(), |s| s.name.clone());
+        let learned: Vec<String> = game
+            .hints
+            .iter()
+            .filter(|h| self.learn_range(h, &format!("found on {source}")))
+            .cloned()
+            .collect();
         let credits = game.deck.credits;
         let mut kept = Vec::new();
         let banked = match end {
@@ -819,6 +1098,7 @@ impl Save {
             hops: game.hops,
             seed: game.seed,
             kept,
+            learned,
         })
     }
 }
@@ -840,6 +1120,8 @@ pub struct RunReport {
     pub seed: u64,
     /// Files of the programs stashed on the way out.
     pub kept: Vec<String>,
+    /// Phone ranges learned on the run.
+    pub learned: Vec<String>,
 }
 
 /// Which machine is on screen, and the drags between them.
@@ -900,6 +1182,8 @@ pub enum ShellEffect {
     None,
     /// Dial a phonebook entry (by id), with an optional seed.
     Dial(u32, Option<u64>),
+    /// Wardial a range (by id).
+    Scan(String),
     Open(Tool),
     Theme(String),
     Crt,
@@ -921,6 +1205,8 @@ pub fn shell(line: &str, save: &Save, icons: &[IconDef]) -> (Vec<String>, ShellE
                 "run <tool>       open a tool (jackin, shell, ...)",
                 "phonebook        list numbers you can dial",
                 "dial <n> [seed]  dial entry n (or a number) and jack in",
+                "ranges           number ranges you know",
+                "wardial <range>  scan 100 numbers of a range",
                 "info             your record",
                 "theme <name>     run phosphor: amber | green | ice",
                 "crt              toggle scanlines in runs",
@@ -1004,6 +1290,28 @@ pub fn shell(line: &str, save: &Save, icons: &[IconDef]) -> (Vec<String>, ShellE
                 ShellEffect::Dial(e.id, seed),
             )
         }
+        "ranges" => {
+            let out = save
+                .ranges
+                .iter()
+                .map(|k| format!("{:<18} from {}", k.id, k.source))
+                .collect();
+            (out, ShellEffect::None)
+        }
+        "wardial" | "scan" => match arg {
+            Some(r) if save.knows_range(r) => (
+                vec![format!("scanning {r}...")],
+                ShellEffect::Scan(r.into()),
+            ),
+            Some(r) => (
+                vec![format!("{r}: you don't know that range. try `ranges`.")],
+                ShellEffect::None,
+            ),
+            None => (
+                vec!["wardial which range? try `ranges`.".into()],
+                ShellEffect::None,
+            ),
+        },
         "jackin" => (
             vec!["networks are dialed now: `phonebook`, then `dial <n>`.".into()],
             ShellEffect::None,
