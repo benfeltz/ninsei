@@ -216,6 +216,9 @@ pub struct EventDef {
     pub title: String,
     pub text: Vec<String>,
     pub choices: Vec<ChoiceDef>,
+    /// Speaks l33t: text, title and choice labels go through `leet::translate`.
+    #[serde(default)]
+    pub leet: bool,
 }
 
 #[derive(Deserialize, Clone, Debug)]

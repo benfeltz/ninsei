@@ -39,7 +39,7 @@ Between runs you're on your own machine: a Workbench 1.3-style desktop, on the s
 ![the hub](docs/shots/hub.png)
 ![jacking in](docs/shots/hub-jackin.png)
 
-- **NinShell**: `help`, `dir`, `phonebook`, `dial <n> [seed]`, `ranges`, `wardial <range>`, `run <tool>`, `info`, `theme <id>`, `crt`, `echo`, `clear`
+- **NinShell**: `help`, `dir`, `phonebook`, `dial <n> [seed]`, `ranges`, `wardial <range>`, `run <tool>`, `info`, `theme <id>`, `crt`, `echo`, `leet <text>`, `clear`
 - **Prefs**: the theme (desktop and runs alike) and the CRT, with colour swatches
 - Windows drag by their title bar; the close gadget is top left, the depth gadget top right
 - Everything below saves automatically: a file on desktop, local storage in the browser
@@ -122,7 +122,7 @@ Routing into a **MSG** node opens a `talk` window with whoever's on the other en
 - **a bent sysop** sells you a trace wipe
 - **a ROM construct** sells fragments, or offers to soup up your deck (or fry it)
 
-Events live in [`data/events.ron`](data/events.ron): text, choices and effects (`Trade`, `Sell`, `Contract`, `Pay`, `Gamble`, `Fight`, `Leave`).
+Add `leet: true` to an event and it speaks l33t too (the phone phreak does). Events live in [`data/events.ron`](data/events.ron): text, choices and effects (`Trade`, `Sell`, `Contract`, `Pay`, `Gamble`, `Fight`, `Leave`).
 
 ## Contracts
 
@@ -158,7 +158,9 @@ Click a byte (or tab into the ASCII column) to type over it; arrows move, `ctrl+
 
 ## The BBS
 
-Landing on the `BBS` node dials **THE NEON GUTTER**: modem handshake, an ANSI splash, then a real single-key BBS: `[F]`iles, `[B]`ulletins, `[W]`ho's online, `[G]`oodbye. File areas list today's stock. Pick a number to start a Zmodem download, and the credits come off when the transfer completes. **display** flips between true 16-colour ANSI and the current phosphor.
+Landing on the `BBS` node dials **THE NEON GUTTER**: modem handshake, an ANSI splash, then a real single-key BBS: `[F]`iles, `[B]`ulletins, `[W]`ho's online, `[G]`oodbye. File areas list today's stock. Pick a number to start a Zmodem download, and the credits come off when the transfer completes. **display** flips between true 16-colour ANSI and the current phosphor. The board speaks l33t (`F1l3 4r34z`, `Rul3z 0f th3 Gutt3r`); hotkeys, filenames and numbers stay readable.
+
+![bbs in l33t](docs/shots/bbs-l33t.png)
 
 ![bbs splash](docs/shots/bbs-splash.png)
 ![bbs file area](docs/shots/bbs-download.png)

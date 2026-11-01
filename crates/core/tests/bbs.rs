@@ -179,3 +179,77 @@ fn pipe_codes_and_sgr_parse() {
         vec![(14, 0, "hi"), (14, 1, " "), (9, 1, "red"), (7, 0, "x|9")]
     );
 }
+
+#[test]
+fn the_board_speaks_l33t() {
+    use ninsei_core::leet::translate as l33t;
+    assert_eq!(l33t("Rules of the Gutter"), "Rul3z 0f th3 Gutt3r");
+    assert_eq!(
+        l33t("   |09[|15F|09] |11File Areas"),
+        "   |09[|15F|09] |11F1l3 4r34z"
+    );
+    assert_eq!(l33t("Download [#] or [Q]uit"), "D0wnl04d [#] 0r [Q]u1t");
+    assert_eq!(
+        l33t("|10Transfer complete. DECODR22.ZIP received."),
+        "|10Tr4nsf3r c0mpl3t3. DECODR22.ZIP r3c31v3d."
+    );
+    assert_eq!(
+        l33t("Press [ENTER] to continue"),
+        "Pr3zz [ENTER] t0 c0nt1nu3"
+    );
+    assert_eq!(l33t("70¢ 555-0199"), "70¢ 555-0199");
+    let line = "|07Read which? |09[|15#|09] |07or |09[|15Q|09]|07uit |09» |15_";
+    assert_eq!(
+        ansi::visible_len(&l33t(line)),
+        ansi::visible_len(line),
+        "same width"
+    );
+}
+
+#[test]
+fn bbs_screens_are_l33t_but_the_modem_and_splash_are_not() {
+    let g = game_at_bbs(4, 100);
+    let main = Session {
+        screen: Screen::Main,
+        status: None,
+    }
+    .render(&g);
+    assert!(main.iter().any(|l| l.contains("F1l3 4r34z")), "{main:?}");
+    let splash = Session {
+        screen: Screen::Splash,
+        status: None,
+    }
+    .render(&g);
+    assert!(splash.iter().any(|l| ansi::plain(l).contains("SysOp")));
+    let dial = Session {
+        screen: Screen::Dialing { t: 9.0 },
+        status: None,
+    }
+    .render(&g);
+    assert!(dial.iter().any(|l| l.contains("CONNECT")));
+}
+
+#[test]
+fn the_translator_is_for_everyone() {
+    let d = Data::builtin().unwrap();
+    let s = ninsei_core::hub::Save::default();
+    let (out, _) = ninsei_core::hub::shell("leet hello world", &s, &d);
+    assert_eq!(out, vec!["h3ll0 w0rld".to_string()]);
+
+    // An event with `leet: true` speaks it, placeholders filled first.
+    let mut g = Game::new(d.clone(), 3);
+    let to = g.net.nodes[g.at].links[0];
+    g.net.nodes[to].kind = NodeKind::Contact;
+    g.net.nodes[to].cleared = false;
+    g.apply(Action::Move(to));
+    let ev = d.events.iter().position(|e| e.id == "lineman").unwrap();
+    g.encounter.as_mut().unwrap().event = ev;
+    assert!(d.events[ev].leet);
+    let label = g.fill(&d.events[ev].choices[0].label, Some(0));
+    assert_eq!(label, "P4y 40¢ f0r 4 r4ng3");
+    assert_eq!(g.encounter_title(), "4 ph0n3 phr34k");
+    // Events without the flag are left alone.
+    let plain = d.events.iter().position(|e| !e.leet).unwrap();
+    g.encounter.as_mut().unwrap().event = plain;
+    assert_eq!(g.encounter_title(), d.events[plain].title);
+}

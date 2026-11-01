@@ -29,6 +29,7 @@ Features and bugs come in as GitHub issues (forms in `.github/ISSUE_TEMPLATE/`).
 - **Saves never break.** The hub's save (`crates/core/src/hub.rs`) is one versioned RON document. New fields get `#[serde(default)]` so old saves still load; bump `SAVE_VERSION` only for incompatible changes. An unreadable save starts a fresh hub, never a crash.
 - **The hub's rules live in core** (`hub.rs`: save, screen flow, Shell commands); `workbench.rs` and `crash.rs` only draw and route input. Desktop icons are pixel art in `data/hub/icons.ron`.
 - **BBS screens are pipe-coded text, max 78x24**, enforced by `every_screen_fits_the_terminal`.
+- **l33t goes through one translator** (`crates/core/src/leet.rs`, `leet::translate`). It's one character in, one out, so layouts keep their width; it leaves pipe codes, digits, bracketed hotkeys and 8.3 filenames alone. The BBS applies it to every screen but the splash and the modem lines; an event opts in with `leet: true`.
 - **Every encounter needs a `Leave` choice** (`Data::validate`), and `every_choice_in_every_event_resolves` must keep passing: no choice may leave the runner stuck in `Phase::Encounter`.
 - **The app runs native and in the browser.** No `std::time::SystemTime`, threads, files or `std::process` in code the web build reaches; gate native-only code with `#[cfg(not(target_arch = "wasm32"))]`.
 - **A modal owns the keyboard.** Windows that take keys (BBS, talk) ignore input on the frame they open and call `stop_text_input` so the terminal can't eat their keys.

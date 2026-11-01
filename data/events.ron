@@ -1,5 +1,6 @@
 // Encounters on MSG nodes, FTL-style. Every event needs a `Leave` choice so you can always walk away.
 // Labels may use {offer} (the program on offer), {per_ram}, {cost}.
+// `leet: true` makes an event speak l33t: its title, text and choice labels are translated.
 // Choice effects:
 //   Leave
 //   Trade(pool: [...])              swap one of your programs for one picked from `pool`
@@ -42,6 +43,7 @@
         id: "lineman",
         from: "ph0ne_ph1l",
         title: "a phone phreak",
+        leet: true,
         text: [
             "hey. you're on a line I rerouted, so we're friends now.",
             "I know which exchanges the corps hide their modems on.",

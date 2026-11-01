@@ -420,6 +420,13 @@ impl Session {
             out.push(format!("   {s}"));
         }
         out.truncate(ROWS);
+        // The board speaks 31337. The modem (dialing, hang-up) and the splash art don't.
+        if !matches!(
+            self.screen,
+            Screen::Dialing { .. } | Screen::Hangup { .. } | Screen::Splash
+        ) {
+            out = out.iter().map(|l| crate::leet::translate(l)).collect();
+        }
         out
     }
 }
