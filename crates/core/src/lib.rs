@@ -8,6 +8,7 @@ pub mod command;
 pub mod data;
 pub mod game;
 pub mod hexedit;
+pub mod hub;
 pub mod network;
 pub mod rng;
 pub mod tuning;

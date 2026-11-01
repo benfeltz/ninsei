@@ -26,6 +26,15 @@ impl Phosphor {
         }
     }
 
+    /// Name used in the save and the `theme` command.
+    pub fn name(self) -> &'static str {
+        match self {
+            Phosphor::Amber => "amber",
+            Phosphor::Green => "green",
+            Phosphor::Ice => "ice",
+        }
+    }
+
     pub fn from_name(name: &str) -> Option<Self> {
         match name {
             "amber" | "p3" => Some(Phosphor::Amber),
