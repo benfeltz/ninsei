@@ -1,0 +1,95 @@
+// Encounters on MSG nodes, FTL-style. Every event needs a `Leave` choice so you can always walk away.
+// Labels may use {offer} (the program on offer), {per_ram}, {cost}.
+// Choice effects:
+//   Leave
+//   Trade(pool: [...])              swap one of your programs for one picked from `pool`
+//   Sell(per_ram: n)                sell a program for n credits per GB of its ram cost
+//   Contract                        take a contract on a node ahead
+//   Pay(cost: n, get: <drop>)
+//   Gamble(pct: n, win: <drop>, lose: Trace(n) | Damage(n))
+//   Fight(ice: "<id>", reward: <drop>)
+[
+    (
+        id: "fence",
+        from: "kurtz",
+        title: "a fence",
+        text: [
+            "you've got the look of someone carrying.",
+            "I deal in software. no logs, no questions, no refunds.",
+            "today I've got a clean copy of {offer}. straight swap for one of yours.",
+        ],
+        choices: [
+            (label: "Trade a program for {offer}", effect: Trade(pool: ["decoder", "garrote", "crowbar", "wyrm", "mirror", "scrubber", "lagspike", "torch"])),
+            (label: "Sell a program ({per_ram}¢ per GB of ram)", effect: Sell(per_ram: 20)),
+            (label: "Not today", effect: Leave),
+        ],
+    ),
+    (
+        id: "fixer",
+        from: "anon",
+        title: "a fixer",
+        text: [
+            "handle doesn't matter. the money does.",
+            "there's a system further in that a client wants gone.",
+            "derez it and the creds hit your account. interested?",
+        ],
+        choices: [
+            (label: "Take the contract", effect: Contract),
+            (label: "Pass", effect: Leave),
+        ],
+    ),
+    (
+        id: "honeypot",
+        from: "cache.sys",
+        title: "an unsecured cache",
+        text: [
+            "a payroll cache, wide open. no ICE on the door.",
+            "it's either the luckiest break of your life or a honeypot.",
+        ],
+        choices: [
+            (label: "Grab it (55%)", effect: Gamble(pct: 55, win: Credits(90, 180), lose: Trace(18))),
+            (label: "Walk away", effect: Leave),
+        ],
+    ),
+    (
+        id: "pinned",
+        from: "case_",
+        title: "a runner in trouble",
+        text: [
+            "help. a hunter's got me pinned in this node, my deck's smoking.",
+            "pull its attention and I'll pay you in fragments. I swear.",
+        ],
+        choices: [
+            (label: "Draw the Hunter off (fight)", effect: Fight(ice: "hunter", reward: Fragment(2))),
+            (label: "Not my problem", effect: Leave),
+        ],
+    ),
+    (
+        id: "sysop",
+        from: "sysop_7",
+        title: "a bent sysop",
+        text: [
+            "I see you. relax. the corp doesn't pay me enough to care.",
+            "{cost}¢ and I lose some of your trace logs.",
+        ],
+        choices: [
+            (label: "Pay {cost}¢ (trace -20)", effect: Pay(cost: 60, get: Scrub(20))),
+            (label: "Decline", effect: Leave),
+        ],
+    ),
+    (
+        id: "construct",
+        from: "ROM",
+        title: "a ROM construct",
+        text: [
+            "...a dead cowboy's mind on a chip. it laughs, and it isn't a laugh.",
+            "\"for {cost}¢ I'll tell you how to shave your code.\"",
+            "\"or let me into your deck. I'll make it faster. probably.\"",
+        ],
+        choices: [
+            (label: "Pay {cost}¢ for an optimizer fragment", effect: Pay(cost: 50, get: Fragment(1))),
+            (label: "Let it into your deck (50%: +1 cpu, or 6 damage)", effect: Gamble(pct: 50, win: Cpu(1), lose: Damage(6))),
+            (label: "Pull the chip", effect: Leave),
+        ],
+    ),
+]

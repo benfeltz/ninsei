@@ -1,0 +1,33 @@
+// Loot tables: each roll picks one entry by weight.
+(
+    ice: (rolls: 1, entries: [
+        (weight: 30, drop: Credits(20, 60)),
+        (weight: 12, drop: Warez("decoder")),
+        (weight: 12, drop: Warez("garrote")),
+        (weight: 12, drop: Warez("crowbar")),
+        (weight: 8,  drop: Warez("scrubber")),
+        (weight: 6,  drop: Warez("wyrm")),
+        (weight: 10, drop: Repair(5)),
+        (weight: 9,  drop: Fragment(1)),
+        (weight: 10, drop: Nothing),
+    ]),
+    black_ice: (rolls: 2, entries: [
+        (weight: 20, drop: Credits(80, 200)),
+        (weight: 10, drop: Warez("torch")),
+        (weight: 10, drop: Warez("mirror")),
+        (weight: 10, drop: Warez("lagspike")),
+        (weight: 12, drop: Ram(2)),
+        (weight: 8,  drop: Cpu(1)),
+        (weight: 8,  drop: Hdd(2)),
+        (weight: 14, drop: Fragment(2)),
+    ]),
+    vault: (rolls: 1, entries: [
+        (weight: 30, drop: Credits(40, 120)),
+        (weight: 15, drop: Ram(1)),
+        (weight: 10, drop: Hdd(1)),
+        (weight: 15, drop: Warez("scrubber")),
+        (weight: 10, drop: Warez("wyrm")),
+        (weight: 20, drop: Repair(8)),
+        (weight: 14, drop: Fragment(1)),
+    ]),
+)

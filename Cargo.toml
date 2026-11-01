@@ -1,0 +1,26 @@
+[workspace]
+resolver = "3"
+members = ["crates/core", "crates/app"]
+
+[workspace.package]
+edition = "2024"
+version = "0.0.1"
+license = "MIT"
+rust-version = "1.95"
+
+[workspace.dependencies]
+ninsei-core = { path = "crates/core" }
+serde = { version = "1", features = ["derive"] }
+ron = "0.12"
+eframe = { version = "0.36", default-features = false, features = ["default_fonts", "glow", "wayland", "x11"] }
+egui = "0.36"
+egui_dock = "0.21"
+
+[profile.dev.package."*"]
+opt-level = 2
+
+# Smaller, faster web builds.
+[profile.release]
+lto = true
+codegen-units = 1
+opt-level = 2
