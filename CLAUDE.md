@@ -16,6 +16,10 @@ Cyberspace hacking roguelike styled as a retro IDE. Rust workspace: `crates/core
 
 CI (`.github/workflows/ci.yml`) runs fmt, clippy (native and wasm) and tests on every push; `pages.yml` deploys the web build on pushes to `main`.
 
+## Working from issues
+
+Features and bugs come in as GitHub issues (forms in `.github/ISSUE_TEMPLATE/`). One issue per PR; the PR body says `Closes #N` so merging closes it. Read the issue and its comments first, and ask in chat if it's ambiguous. Don't comment on issues unless asked. Bug reports carry a seed: replay it before fixing.
+
 ## Rules
 
 - **Core never imports egui.** Rules, generation, BBS navigation and ANSI parsing live in `ninsei-core` and are tested headlessly. The app sends `Action`s to `Game::apply` and renders state; panes push requests and never mutate the game while drawing.

@@ -1,0 +1,53 @@
+name: Feature request
+description: Something new for ninsei, or a change to how it plays.
+title: "[feature] "
+labels: [enhancement]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What do you want?
+      description: One or two sentences is plenty.
+      placeholder: "A second BBS with its own ANSI art and a black-market file area."
+    validations:
+      required: true
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Network & runs
+        - Combat & ICE
+        - Warez & hex editor
+        - BBS
+        - Encounters & contracts
+        - IDE, UI & themes
+        - Web & build
+        - Other
+    validations:
+      required: true
+  - type: textarea
+    id: feel
+    attributes:
+      label: How should it feel in a run?
+      description: The fantasy, the moment you're after. References are great ("like FTL's ...", "like a real 90s BBS ...").
+      placeholder: "Finding a rare board should feel like stumbling into somewhere you shouldn't be."
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: Rules, numbers, text, art, edge cases, anything you've already decided.
+  - type: dropdown
+    id: size
+    attributes:
+      label: Rough size
+      options:
+        - Small tweak
+        - New feature
+        - Big system
+        - Not sure
+  - type: textarea
+    id: careful
+    attributes:
+      label: Anything it mustn't break or change?
+      placeholder: "Keep the BBS keyboard-only feel."

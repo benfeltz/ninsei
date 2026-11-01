@@ -1,0 +1,41 @@
+name: Bug report
+description: Something broken, wrong or weird.
+title: "[bug] "
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: Screenshots help a lot (paste them right in).
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: What did you expect?
+  - type: textarea
+    id: steps
+    attributes:
+      label: How do I make it happen?
+      description: The seed is at the top of deck.sys (or after the # in the web URL). With the seed and the steps, a run replays exactly.
+      placeholder: |
+        seed 1a2b
+        1. jack 1 (MSG node)
+        2. pick [2]
+        3. ...
+  - type: dropdown
+    id: where
+    attributes:
+      label: Where
+      options:
+        - Web (GitHub Pages)
+        - Desktop (cargo run)
+        - Both
+    validations:
+      required: true
+  - type: input
+    id: browser
+    attributes:
+      label: Browser / OS
+      placeholder: "Safari 19 on macOS"
