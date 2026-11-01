@@ -1,12 +1,18 @@
 //! The hub desktop: a Workbench 1.3-style screen with pixel-art icons, draggable windows,
-//! a Shell, and "insert volume" requesters for tools that aren't installed yet.
+//! a Shell, the RIG / STASH / HexEd tools (see `hubtools`), and "insert volume" requesters
+//! for tools that aren't installed yet.
 //! All drawn by hand into one area so the whole screen can be dragged off a run.
 
 use egui::{
     Align2, Color32, FontFamily, FontId, Id, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2, pos2,
     vec2,
 };
-use ninsei_core::hub::{self, IconDef, Save, ShellEffect, Tool};
+use ninsei_core::Data;
+use ninsei_core::binary::Bin;
+use ninsei_core::hexedit::HexBuffer;
+use ninsei_core::hub::{self, IconDef, Save, ShellEffect, Tool, Upgrade};
+
+use crate::hubtools;
 
 /// The 1.3 palette: four colours, that's all you got.
 pub const BLUE: Color32 = Color32::from_rgb(0x00, 0x55, 0xAA);
@@ -35,11 +41,20 @@ pub enum WbOut {
     JackIn(Option<u64>),
     Theme(String),
     Crt,
+    Buy(Upgrade),
+    ToggleStarter(String),
+    ToggleStash(u32),
+    Scrap(u32),
+    Patch(u32, Bin),
+    Optimize(u32),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Kind {
     Shell,
+    Rig,
+    Stash,
+    HexEd,
     /// "Please insert volume X in any drive".
     Requester(Tool),
 }
@@ -55,6 +70,9 @@ impl Win {
     fn title(&self) -> String {
         match self.kind {
             Kind::Shell => "NinShell".into(),
+            Kind::Rig => "RIG: deck shop".into(),
+            Kind::Stash => "STASH".into(),
+            Kind::HexEd => "HexEd".into(),
             Kind::Requester(_) => "System Request".into(),
         }
     }
@@ -68,6 +86,8 @@ pub struct Workbench {
     shell_lines: Vec<String>,
     shell_input: String,
     focus_shell: bool,
+    /// The stash program open in HexEd: its id and the working buffer.
+    pub(crate) hex: Option<(u32, HexBuffer)>,
 }
 
 impl Workbench {
@@ -79,6 +99,7 @@ impl Workbench {
             shell_lines: boot,
             shell_input: String::new(),
             focus_shell: true,
+            hex: None,
         };
         wb.open(Tool::Shell);
         wb
@@ -99,10 +120,12 @@ impl Workbench {
 
     /// Opens (or raises) a tool's window. Tools not installed yet get a requester.
     fn open(&mut self, tool: Tool) {
-        let kind = if tool == Tool::Shell {
-            Kind::Shell
-        } else {
-            Kind::Requester(tool)
+        let kind = match tool {
+            Tool::Shell => Kind::Shell,
+            Tool::Rig => Kind::Rig,
+            Tool::Stash => Kind::Stash,
+            Tool::HexEd => Kind::HexEd,
+            other => Kind::Requester(other),
         };
         if let Some(i) = self.wins.iter().position(|w| w.kind == kind) {
             let w = self.wins.remove(i);
@@ -110,6 +133,9 @@ impl Workbench {
         } else {
             let (pos, size) = match kind {
                 Kind::Shell => (pos2(150.0, 300.0), vec2(600.0, 280.0)),
+                Kind::Rig => (pos2(170.0, 50.0), vec2(620.0, 330.0)),
+                Kind::Stash => (pos2(210.0, 80.0), vec2(640.0, 380.0)),
+                Kind::HexEd => (pos2(130.0, 36.0), vec2(800.0, 500.0)),
                 Kind::Requester(_) => (pos2(260.0, 150.0), vec2(330.0, 150.0)),
             };
             self.wins.push(Win { kind, pos, size });
@@ -121,14 +147,37 @@ impl Workbench {
 
     /// Draws the whole screen into `ui`, dragged down by `offset` pixels.
     /// Only takes input when `live`.
+    /// Opens a stash program in HexEd.
+    pub fn edit(&mut self, id: u32, save: &Save) {
+        if let Some(bin) = save.item(id).and_then(|i| i.bin()) {
+            self.hex = Some((id, HexBuffer::open(0, bin)));
+            self.open(Tool::HexEd);
+        }
+    }
+
+    /// Keeps the HexEd buffer in step with the stash: a successful write or an optimize
+    /// becomes the baseline, and a scrapped program closes the editor.
+    fn sync_hex(&mut self, save: &Save) {
+        let Some((id, h)) = &mut self.hex else { return };
+        match save.item(*id).and_then(|i| i.bin()) {
+            None => self.hex = None,
+            Some(bin) if h.buf == bin || !h.dirty() => h.committed(bin),
+            Some(_) => {}
+        }
+    }
+
+    /// Draws the whole screen into `ui`, dragged down by `offset` pixels.
+    /// Only takes input when `live`.
     pub fn show(
         &mut self,
         ui: &mut Ui,
-        icons: &[IconDef],
+        data: &Data,
         save: &Save,
         offset: f32,
         live: bool,
     ) -> Vec<WbOut> {
+        self.sync_hex(save);
+        let icons = &data.icons;
         let mut out = Vec::new();
         let screen = ui.ctx().content_rect().translate(vec2(0.0, offset));
         let painter = ui.painter_at(screen);
@@ -216,6 +265,7 @@ impl Workbench {
         let mut raise = None;
         let mut close = None;
         let n = self.wins.len();
+        let mut pending_edit = None;
         for i in 0..n {
             let top = i + 1 == n;
             let (kind, pos, size) = (self.wins[i].kind, self.wins[i].pos, self.wins[i].size);
@@ -283,6 +333,27 @@ impl Workbench {
             );
             match kind {
                 Kind::Shell => self.shell(ui, content, icons, save, live && top, &mut out),
+                Kind::Rig | Kind::Stash | Kind::HexEd => {
+                    let mut child = ui.new_child(
+                        egui::UiBuilder::new()
+                            .max_rect(content)
+                            .layout(egui::Layout::top_down(egui::Align::Min)),
+                    );
+                    child.set_clip_rect(content);
+                    hubtools::wb_visuals(child.visuals_mut());
+                    if !live {
+                        child.disable();
+                    }
+                    let mut edit = None;
+                    match kind {
+                        Kind::Rig => hubtools::rig(&mut child, data, save, &mut out),
+                        Kind::Stash => hubtools::stash(&mut child, data, save, &mut out, &mut edit),
+                        _ => hubtools::hexed(&mut child, save, &mut self.hex, &mut out, &mut edit),
+                    }
+                    if edit.is_some() {
+                        pending_edit = edit;
+                    }
+                }
                 Kind::Requester(tool) => {
                     if let Some(action) = requester(ui, &painter, content, tool, live, wid) {
                         match action {
@@ -295,7 +366,9 @@ impl Workbench {
                 }
             }
         }
-        if let Some(i) = close {
+        if let Some(id) = pending_edit {
+            self.edit(id, save);
+        } else if let Some(i) = close {
             if i < self.wins.len() {
                 self.wins.remove(i);
             }

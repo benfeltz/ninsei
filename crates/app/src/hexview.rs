@@ -1,13 +1,14 @@
-//! The `hexedit` pane: a byte grid with an ASCII column, a field inspector and the linker's verdict.
-//! Edits live in a [`HexBuffer`]; writing it back is a `Patch` request the app applies after drawing.
+//! The hex editor: a byte grid with an ASCII column, a field inspector and the linker's verdict.
+//! [`editor`] works on any [`HexBuffer`] and reports what you asked for; [`show_run`] wires it to a
+//! run's HDD (the `hexedit` pane), and the hub's HexEd window wires it to the stash.
 
 use egui::{
     Align2, Color32, Event, EventFilter, FontFamily, FontId, Id, Key, Rect, RichText, Sense,
     Stroke, Ui, pos2, vec2,
 };
-use ninsei_core::binary::{self, Field, LEN};
+use ninsei_core::binary::{self, Bin, Field, LEN};
 use ninsei_core::hexedit::{HexBuffer, ROW};
-use ninsei_core::{Action, Command, Effect, Game, Phase, tuning};
+use ninsei_core::{Action, Command, Effect, Game, tuning};
 
 use crate::panes::Request;
 use crate::theme::Palette;
@@ -30,7 +31,29 @@ fn field_color(f: Field, p: &Palette) -> Color32 {
     }
 }
 
-pub fn show(
+/// What the editor is working on.
+pub struct HexCtx {
+    /// File name shown in the header.
+    pub file: String,
+    /// Key the binary is signed with.
+    pub key: u64,
+    /// Fragments available for optimizing.
+    pub fragments: u32,
+    /// The program's current opt level.
+    pub opt: u32,
+    /// Why writing is off right now, if it is.
+    pub locked: Option<String>,
+}
+
+/// What the editor asks for.
+pub enum HexOut {
+    Write(Bin),
+    Optimize,
+    Close,
+}
+
+/// The run's `hexedit` pane: edits a program on the HDD, compiling only at a BBS.
+pub fn show_run(
     ui: &mut Ui,
     game: &Game,
     hex: &mut Option<HexBuffer>,
@@ -45,32 +68,50 @@ pub fn show(
         *hex = None;
         return;
     };
-    let fighting = game.phase == Phase::Combat;
+    let cx = HexCtx {
+        file: format!("{}  [slot {}]", slot.spec.file(), h.slot),
+        key: game.key(),
+        fragments: game.deck.fragments,
+        opt: slot.spec.opt,
+        locked: game.compile_blocker().map(str::to_string),
+    };
+    let slot_ix = h.slot;
+    for o in editor(ui, h, &cx, p) {
+        out.push(match o {
+            HexOut::Write(bin) => Request::Cmd(Command::Game(Action::Patch { slot: slot_ix, bin })),
+            HexOut::Optimize => Request::Cmd(Command::Game(Action::Optimize { slot: slot_ix })),
+            HexOut::Close => Request::CloseHex,
+        });
+    }
+}
 
+/// The editor itself: header, grid, inspector, verdict and buttons.
+pub fn editor(ui: &mut Ui, h: &mut HexBuffer, cx: &HexCtx, p: &Palette) -> Vec<HexOut> {
+    let mut out = Vec::new();
+    let locked = cx.locked.is_some();
     ui.horizontal(|ui| {
-        ui.label(RichText::new(format!("{}  [slot {}]", slot.spec.file(), h.slot)).color(p.bright));
+        ui.label(RichText::new(&cx.file).color(p.bright));
         if h.dirty() {
             ui.label(RichText::new("● modified").color(p.bright));
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             if ui.small_button("close").clicked() {
-                out.push(Request::CloseHex);
+                out.push(HexOut::Close);
             }
             let mode = if h.ascii { "ASCII" } else { "HEX" };
             ui.label(
-                RichText::new(format!("mode {mode} [tab]  frags {}", game.deck.fragments))
-                    .color(p.dim),
+                RichText::new(format!("mode {mode} [tab]  frags {}", cx.fragments)).color(p.dim),
             );
         });
     });
     ui.add_space(4.0);
 
-    grid(ui, h, p, out);
+    grid(ui, h, p);
     ui.add_space(6.0);
-    inspector(ui, game, h, p);
+    inspector(ui, cx.key, h, p);
     ui.add_space(4.0);
 
-    let verdict = binary::check(&h.buf, game.key());
+    let verdict = binary::check(&h.buf, cx.key);
     match &verdict {
         Ok(spec) => {
             let st = if h.dirty() {
@@ -96,15 +137,12 @@ pub fn show(
     }
     ui.add_space(4.0);
     ui.horizontal(|ui| {
-        let can_write = h.dirty() && verdict.is_ok() && !fighting;
+        let can_write = h.dirty() && verdict.is_ok() && !locked;
         if ui
             .add_enabled(can_write, egui::Button::new(" write [ctrl+s] "))
             .clicked()
         {
-            out.push(Request::Cmd(Command::Game(Action::Patch {
-                slot: h.slot,
-                bin: h.buf,
-            })));
+            out.push(HexOut::Write(h.buf));
         }
         if ui
             .add_enabled(h.dirty(), egui::Button::new(" revert "))
@@ -113,31 +151,30 @@ pub fn show(
             h.revert();
         }
         let can_opt = !h.dirty()
-            && !fighting
-            && game.deck.fragments >= tuning::FRAGMENTS_PER_OPT
-            && slot.spec.opt < tuning::MAX_OPT;
+            && !locked
+            && cx.fragments >= tuning::FRAGMENTS_PER_OPT
+            && cx.opt < tuning::MAX_OPT;
         let opt = ui
             .add_enabled(
                 can_opt,
                 egui::Button::new(format!(" optimize (-{} frag) ", tuning::FRAGMENTS_PER_OPT)),
             )
-            .on_disabled_hover_text("needs a fragment and an unmodified buffer, outside combat");
+            .on_disabled_hover_text("needs a fragment and an unmodified buffer");
         if opt.clicked() {
-            out.push(Request::Cmd(Command::Game(Action::Optimize {
-                slot: h.slot,
-            })));
-        }
-        if fighting {
-            ui.label(RichText::new("read-only during combat").color(p.dim));
+            out.push(HexOut::Optimize);
         }
     });
+    if let Some(why) = &cx.locked {
+        ui.label(RichText::new(format!("read-only: {why}")).color(p.dim));
+    }
 
     if ui.memory(|m| m.has_focus(grid_id())) {
-        keys(ui, h, out, verdict.is_ok() && !fighting);
+        keys(ui, h, &mut out, verdict.is_ok() && !locked);
     }
+    out
 }
 
-fn grid(ui: &mut Ui, h: &mut HexBuffer, p: &Palette, out: &mut Vec<Request>) {
+fn grid(ui: &mut Ui, h: &mut HexBuffer, p: &Palette) {
     let font = FontId::new(FONT, FontFamily::Monospace);
     let cw = ui.ctx().fonts_mut(|f| f.glyph_width(&font, '0'));
     let off_w = cw * 8.0;
@@ -336,10 +373,9 @@ fn grid(ui: &mut Ui, h: &mut HexBuffer, p: &Palette, out: &mut Vec<Request>) {
             h.ascii = ascii;
         }
     }
-    let _ = out;
 }
 
-fn keys(ui: &mut Ui, h: &mut HexBuffer, out: &mut Vec<Request>, can_write: bool) {
+fn keys(ui: &mut Ui, h: &mut HexBuffer, out: &mut Vec<HexOut>, can_write: bool) {
     let events = ui.input(|i| i.events.clone());
     for e in events {
         match e {
@@ -356,10 +392,7 @@ fn keys(ui: &mut Ui, h: &mut HexBuffer, out: &mut Vec<Request>, can_write: bool)
             } => match key {
                 Key::S if modifiers.command => {
                     if h.dirty() && can_write {
-                        out.push(Request::Cmd(Command::Game(Action::Patch {
-                            slot: h.slot,
-                            bin: h.buf,
-                        })));
+                        out.push(HexOut::Write(h.buf));
                     }
                 }
                 Key::ArrowLeft | Key::Backspace => h.step(-1),
@@ -381,14 +414,14 @@ fn keys(ui: &mut Ui, h: &mut HexBuffer, out: &mut Vec<Request>, can_write: bool)
 }
 
 /// Decodes the buffer field by field, valid or not, so you can see what your bytes mean.
-fn inspector(ui: &mut Ui, game: &Game, h: &mut HexBuffer, p: &Palette) {
+fn inspector(ui: &mut Ui, key: u64, h: &mut HexBuffer, p: &Palette) {
     let b = h.buf;
     let name: String = b[binary::OFF_NAME..binary::OFF_NAME + binary::NAME_LEN]
         .iter()
         .take_while(|&&c| c != 0)
         .map(|&c| if c.is_ascii_graphic() { c as char } else { '?' })
         .collect();
-    let sig_ok = binary::read_sig(&b) == binary::signature(game.key(), b[binary::OFF_OPT]);
+    let sig_ok = binary::read_sig(&b) == binary::signature(key, b[binary::OFF_OPT]);
     let sum = binary::checksum(&b);
     let rows: Vec<(usize, &str, String)> = vec![
         (

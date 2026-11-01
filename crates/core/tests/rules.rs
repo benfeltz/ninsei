@@ -23,6 +23,7 @@ fn bad_loot_reference_is_rejected() {
         events: include_str!("../../../data/events.ron"),
         contracts: include_str!("../../../data/contracts.ron"),
         icons: include_str!("../../../data/hub/icons.ron"),
+        rig: include_str!("../../../data/hub/rig.ron"),
     })
     .unwrap_err();
     assert!(err.contains("nope"), "{err}");

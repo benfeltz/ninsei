@@ -5,6 +5,7 @@ mod crash;
 mod crt;
 mod encounter_view;
 mod hexview;
+mod hubtools;
 mod netmap;
 mod panes;
 mod theme;
@@ -131,6 +132,8 @@ struct App {
     save: Save,
     /// The save changed and should be written this frame.
     save_dirty: bool,
+    /// Programs (by uid) picked to keep when jacking out at the exit.
+    keep: Vec<u32>,
     screen: Screen,
     wb: Workbench,
     /// The current run, once booked (exit or flatline).
@@ -181,6 +184,9 @@ impl App {
         if let Some(seed) = first_seed {
             boot.push(format!("Seed {seed:x} queued for your first dial."));
         }
+        // Stash binaries are signed with a key that belongs to this save.
+        let mut save = save;
+        let keyed = save.ensure_key(fresh_seed());
         let phosphor = Phosphor::from_name(&save.phosphor).unwrap_or(Phosphor::Amber);
         theme::apply(&cc.egui_ctx, &phosphor.palette());
         let game = Game::new(data.clone(), first_seed.unwrap_or(0));
@@ -188,7 +194,8 @@ impl App {
             crt: save.crt,
             data,
             save,
-            save_dirty: false,
+            save_dirty: keyed,
+            keep: Vec::new(),
             screen: Screen::Hub,
             wb: Workbench::new(boot),
             booked: None,
@@ -224,7 +231,10 @@ impl App {
     /// Starts a run on a fresh network, behind the desktop as it drags away.
     fn jack_in(&mut self, seed: Option<u64>) {
         let seed = seed.or(self.first_seed.take()).unwrap_or_else(fresh_seed);
-        self.game = Game::new(self.data.clone(), seed);
+        // The loadout and RIG come along; stash programs taken leave the stash.
+        self.game = self.save.jack_in(&self.data, &self.data.rig, seed);
+        self.save_dirty = true;
+        self.keep.clear();
         self.last_at = self.game.at;
         self.last_phase = self.game.phase;
         self.bbs = None;
@@ -242,21 +252,58 @@ impl App {
 
     /// Books the run in the save once it's over (exit or flatline).
     fn book(&mut self) {
-        if self.booked.is_none()
-            && let Some(r) = self.save.record(&self.game)
-        {
-            self.booked = Some(r);
+        if self.booked.is_some() {
+            return;
+        }
+        let keep: Vec<usize> = self
+            .keep
+            .iter()
+            .filter_map(|uid| self.game.hdd.iter().position(|s| s.uid == *uid))
+            .collect();
+        if let Some(r) = self.save.record(&self.game, &keep, &self.data.rig) {
             self.save_dirty = true;
-            let line = match r.end {
-                RunEnd::Exit => format!(
-                    "Jacked out clean with {}¢ after {} hops.",
-                    r.credits, r.hops
-                ),
-                RunEnd::Flatline => {
-                    format!("Flatlined after {} hops. Lost {}¢.", r.hops, r.credits)
+            match r.end {
+                RunEnd::Exit => {
+                    self.wb.say(format!(
+                        "Jacked out after {} hops. Banked {}¢.",
+                        r.hops, r.banked
+                    ));
+                    if !r.kept.is_empty() {
+                        self.wb.say(format!("Stashed: {}", r.kept.join(", ")));
+                    }
                 }
-            };
-            self.wb.say(line);
+                RunEnd::Flatline => self.wb.say(format!(
+                    "Flatlined after {} hops. Dead man's switch saved {} of {}¢.",
+                    r.hops, r.banked, r.credits
+                )),
+            }
+            self.booked = Some(r);
+        }
+    }
+
+    /// Applies a hub tool's request to the save and reports the result in the Shell.
+    fn home_action(&mut self, o: WbOut) {
+        let rig = self.data.rig.clone();
+        let result = match o {
+            WbOut::Buy(u) => self.save.buy(&rig, u),
+            WbOut::ToggleStarter(id) => self.save.toggle_starter(&rig, &id).map(|()| String::new()),
+            WbOut::ToggleStash(id) => self.save.toggle_stash(&rig, id).map(|()| String::new()),
+            WbOut::Scrap(id) => Ok(self
+                .save
+                .scrap(id)
+                .map_or(String::new(), |_| "Scrapped.".to_string())),
+            WbOut::Patch(id, bin) => self.save.patch(id, &bin),
+            WbOut::Optimize(id) => self.save.optimize(id),
+            WbOut::JackIn(_) | WbOut::Theme(_) | WbOut::Crt => return,
+        };
+        match result {
+            Ok(msg) => {
+                if !msg.is_empty() {
+                    self.wb.say(msg);
+                }
+                self.save_dirty = true;
+            }
+            Err(e) => self.wb.say(format!("Error: {e}")),
         }
     }
 
@@ -512,7 +559,7 @@ impl eframe::App for App {
                 .fixed_pos(egui::pos2(0.0, 0.0))
                 .show(&ctx, |ui| {
                     ui.set_min_size(ctx.content_rect().size());
-                    outs = self.wb.show(ui, &self.data.icons, &self.save, offset, live);
+                    outs = self.wb.show(ui, &self.data, &self.save, offset, live);
                 });
             for o in outs {
                 match o {
@@ -528,6 +575,7 @@ impl eframe::App for App {
                         self.wb
                             .say(format!("crt {}", if self.crt { "on" } else { "off" }));
                     }
+                    other => self.home_action(other),
                 }
             }
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
@@ -592,6 +640,9 @@ impl App {
             // Any modal (BBS or talk) keeps the terminal from grabbing focus.
             bbs_open: self.bbs.is_some() || self.game.encounter.is_some(),
             hex: &mut self.hex,
+            keep: &mut self.keep,
+            keep_room: (self.save.stash_cap(&self.data.rig) as usize)
+                .saturating_sub(self.save.stash.len()),
             out: Vec::new(),
         };
         egui::CentralPanel::default()

@@ -39,6 +39,10 @@ pub struct Panes<'a> {
     pub focus_input: &'a mut bool,
     pub bbs_open: bool,
     pub hex: &'a mut Option<HexBuffer>,
+    /// Programs (by uid) picked to keep at the exit.
+    pub keep: &'a mut Vec<u32>,
+    /// Free stash slots at home: how many programs can be kept.
+    pub keep_room: usize,
     pub out: Vec<Request>,
 }
 
@@ -110,7 +114,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                 }
             }
             Tab::Target => self.target(ui),
-            Tab::Hex => hexview::show(ui, self.game, self.hex, &self.pal, &mut self.out),
+            Tab::Hex => hexview::show_run(ui, self.game, self.hex, &self.pal, &mut self.out),
             Tab::Terminal => self.terminal(ui),
             Tab::Todo => self.todo(ui),
         }
@@ -329,6 +333,9 @@ impl Panes<'_> {
                         .color(p.dim),
                 );
                 ui.add_space(8.0);
+                if g.phase == Phase::JackedOut {
+                    self.keep_picker(ui);
+                }
                 if ui.button(" jack out: home ").clicked() {
                     self.out.push(Request::GoHome);
                 }
@@ -453,6 +460,53 @@ impl Panes<'_> {
         {
             self.act(Action::EndTurn);
         }
+    }
+
+    /// At the exit: pick which programs come home to the stash.
+    fn keep_picker(&mut self, ui: &mut Ui) {
+        let g = self.game;
+        let p = self.pal;
+        let room = self.keep_room;
+        self.keep.retain(|uid| g.hdd.iter().any(|s| s.uid == *uid));
+        ui.label(
+            RichText::new(format!(
+                "keep for the stash: picked {} of {room}",
+                self.keep.len()
+            ))
+            .color(p.bright),
+        );
+        if room == 0 {
+            ui.label(
+                RichText::new("the stash is full. scrap something at home to make room.")
+                    .color(p.dim),
+            );
+        }
+        for s in &g.hdd {
+            let mut on = self.keep.contains(&s.uid);
+            let opt = if s.spec.opt > 0 {
+                format!(" O{}", s.spec.opt)
+            } else {
+                String::new()
+            };
+            let label = format!("{}{opt}  {}", s.spec.file(), s.spec.effect.describe());
+            let full = !on && self.keep.len() >= room;
+            if ui
+                .add_enabled(!full, egui::Checkbox::new(&mut on, label))
+                .changed()
+            {
+                if on {
+                    self.keep.push(s.uid);
+                } else {
+                    self.keep.retain(|u| *u != s.uid);
+                }
+            }
+        }
+        ui.label(
+            RichText::new("anything not kept is left behind.")
+                .small()
+                .color(p.dim),
+        );
+        ui.add_space(6.0);
     }
 
     /// Contracts as an IDE TODO list.

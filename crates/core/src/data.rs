@@ -234,6 +234,7 @@ pub struct Sources<'a> {
     pub events: &'a str,
     pub contracts: &'a str,
     pub icons: &'a str,
+    pub rig: &'a str,
 }
 
 #[derive(Clone, Debug)]
@@ -246,6 +247,8 @@ pub struct Data {
     pub contracts: Vec<ContractTemplate>,
     /// Workbench desktop icons.
     pub icons: Vec<crate::hub::IconDef>,
+    /// RIG deck-shop upgrades.
+    pub rig: Vec<crate::hub::UpgradeDef>,
 }
 
 impl Data {
@@ -260,6 +263,7 @@ impl Data {
             events: include_str!("../../../data/events.ron"),
             contracts: include_str!("../../../data/contracts.ron"),
             icons: include_str!("../../../data/hub/icons.ron"),
+            rig: include_str!("../../../data/hub/rig.ron"),
         })
     }
 
@@ -274,6 +278,7 @@ impl Data {
             events: ron::from_str(src.events).map_err(|e| format!("events.ron: {e}"))?,
             contracts: ron::from_str(src.contracts).map_err(|e| format!("contracts.ron: {e}"))?,
             icons: ron::from_str(src.icons).map_err(|e| format!("hub/icons.ron: {e}"))?,
+            rig: ron::from_str(src.rig).map_err(|e| format!("hub/rig.ron: {e}"))?,
         };
         data.validate()?;
         Ok(data)
@@ -333,6 +338,7 @@ impl Data {
             }
         }
         crate::hub::IconDef::validate(&self.icons).map_err(|e| format!("hub/icons.ron: {e}"))?;
+        crate::hub::UpgradeDef::validate(&self.rig).map_err(|e| format!("hub/rig.ron: {e}"))?;
         if self.contracts.is_empty() {
             return Err("contracts.ron has no templates".into());
         }

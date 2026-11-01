@@ -43,14 +43,18 @@ fn older_saves_missing_fields_still_load() {
 fn finished_runs_are_booked() {
     let mut save = Save::default();
     let mut g = Game::new(data(), 9);
-    assert_eq!(save.record(&g), None, "a live run isn't booked");
+    assert_eq!(
+        save.record(&g, &[], &data().rig),
+        None,
+        "a live run isn't booked"
+    );
     g.deck.credits = 150;
     g.phase = Phase::JackedOut;
-    let r = save.record(&g).unwrap();
+    let r = save.record(&g, &[], &data().rig).unwrap();
     assert_eq!((r.end, r.credits, r.seed), (RunEnd::Exit, 150, 9));
     g.phase = Phase::Flatlined;
     g.deck.credits = 900;
-    save.record(&g);
+    save.record(&g, &[], &data().rig);
     assert_eq!(
         (save.runs, save.exits, save.flatlines, save.best_haul),
         (2, 1, 1, 150)
@@ -88,8 +92,8 @@ fn every_tool_has_an_icon_and_only_some_are_installed() {
     for t in Tool::ALL {
         assert!(d.icons.iter().any(|i| i.tool == t));
     }
-    assert!(Tool::Shell.installed() && Tool::JackIn.installed());
-    assert!(!Tool::Rig.installed());
+    assert!(Tool::Shell.installed() && Tool::Rig.installed() && Tool::HexEd.installed());
+    assert!(!Tool::Terminal.installed(), "the phonebook comes in #6");
 }
 
 #[test]
@@ -123,7 +127,7 @@ fn shell_commands() {
         run("dir")
             .0
             .iter()
-            .any(|l| l.contains("RIG") && l.contains("not installed"))
+            .any(|l| l.contains("Terminal") && l.contains("not installed"))
     );
     assert!(run("info").0.iter().any(|l| l.starts_with("runs")));
     assert!(run("frobnicate").0[0].contains("Unknown command"));

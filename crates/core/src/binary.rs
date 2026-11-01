@@ -202,6 +202,24 @@ pub fn budget(cpu: u32, ram: u32, opt: u32) -> u32 {
     BUDGET_PER_CPU * cpu + ram / BUDGET_RAM_DIV + BUDGET_PER_OPT * opt
 }
 
+/// Hex text for saving a binary.
+pub fn to_hex(b: &Bin) -> String {
+    b.iter().map(|x| format!("{x:02x}")).collect()
+}
+
+/// Parses hex text back into a binary (exactly 32 bytes).
+pub fn from_hex(s: &str) -> Option<Bin> {
+    let s = s.trim();
+    if s.len() != LEN * 2 || !s.is_ascii() {
+        return None;
+    }
+    let mut b = [0u8; LEN];
+    for (i, byte) in b.iter_mut().enumerate() {
+        *byte = u8::from_str_radix(&s[i * 2..i * 2 + 2], 16).ok()?;
+    }
+    Some(b)
+}
+
 /// Validates a binary. On failure, every fault is listed, most basic first.
 pub fn check(b: &Bin, key: u64) -> Result<Spec, Vec<String>> {
     let mut faults = Vec::new();

@@ -52,6 +52,18 @@ pub struct Combat {
     pub bonus: Option<Drop>,
 }
 
+/// What the runner brings into a run: deck bonuses from the RIG and the programs on the HDD.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Kit {
+    pub ram: u32,
+    pub cpu: u32,
+    pub hdd: u32,
+    pub integrity: u32,
+    /// Programs to install: (factory origin, binary). Re-signed with the run's key on the way in.
+    /// Empty means the starter programs.
+    pub programs: Vec<(usize, Bin)>,
+}
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ContractStatus {
     /// Posted on a jobs board, not taken.
@@ -191,7 +203,13 @@ pub struct Game {
 }
 
 impl Game {
+    /// A run with the starter deck and starter programs.
     pub fn new(data: Data, seed: u64) -> Self {
+        Self::start(data, seed, &Kit::default())
+    }
+
+    /// A run with a kit from home: RIG bonuses and the chosen loadout.
+    pub fn start(data: Data, seed: u64, kit: &Kit) -> Self {
         let mut rng = Rng::new(seed);
         let net = Network::generate(&mut rng, &data);
         let bbs_stock = data
@@ -212,11 +230,11 @@ impl Game {
             })
             .collect();
         let deck = Deck {
-            cpu_max: START_CPU,
-            ram_max: START_RAM,
-            hdd_max: START_HDD,
-            integrity: START_INTEGRITY,
-            integrity_max: START_INTEGRITY,
+            cpu_max: START_CPU + kit.cpu,
+            ram_max: START_RAM + kit.ram,
+            hdd_max: START_HDD + kit.hdd,
+            integrity: START_INTEGRITY + kit.integrity,
+            integrity_max: START_INTEGRITY + kit.integrity,
             trace: 0,
             credits: 0,
             fragments: 0,
@@ -240,12 +258,30 @@ impl Game {
             events_seen: Vec::new(),
             next_uid: 1,
         };
-        for id in START_WAREZ {
-            if let Some(w) = game.data.warez_ix(id)
-                && let Some(mut slot) = game.factory_slot(w)
-            {
-                slot.loaded = game.ram_used() + slot.spec.ram <= game.deck.ram_max;
-                game.add_slot(slot);
+        let programs: Vec<(usize, Bin)> = if kit.programs.is_empty() {
+            START_WAREZ
+                .iter()
+                .filter_map(|id| game.data.warez_ix(id))
+                .filter_map(|w| game.factory_slot(w).map(|s| (w, s.bin)))
+                .collect()
+        } else {
+            kit.programs.clone()
+        };
+        for (w, mut bin) in programs {
+            if game.hdd.len() as u32 >= game.deck.hdd_max || w >= game.data.warez.len() {
+                break;
+            }
+            // Home binaries carry home's signature; the run signs its own.
+            binary::seal(&mut bin, game.key());
+            if let Ok(spec) = binary::check(&bin, game.key()) {
+                let loaded = game.ram_used() + spec.ram <= game.deck.ram_max;
+                game.add_slot(Slot {
+                    uid: 0,
+                    warez: w,
+                    loaded,
+                    bin,
+                    spec,
+                });
             }
         }
         game.say(LogKind::Sys, format!("ninsei v0.0.1 // seed {seed:016x}"));
@@ -1029,9 +1065,20 @@ impl Game {
         Ok(())
     }
 
-    fn patch(&mut self, slot: usize, bin: Bin) -> Result<(), String> {
+    /// Why the hex editor can't write right now, if it can't. In a run you need a BBS's compiler.
+    pub fn compile_blocker(&self) -> Option<&'static str> {
         if self.phase == Phase::Combat {
-            return Err("can't recompile mid-fight. the ICE won't wait.".into());
+            Some("can't recompile mid-fight. the ICE won't wait.")
+        } else if !self.at_bbs() {
+            Some("no compiler out here. connect to a BBS, or wait till you're home.")
+        } else {
+            None
+        }
+    }
+
+    fn patch(&mut self, slot: usize, bin: Bin) -> Result<(), String> {
+        if let Some(why) = self.compile_blocker() {
+            return Err(why.into());
         }
         let s = self.slot(slot)?;
         let spec = binary::check(&bin, self.key())
@@ -1063,8 +1110,8 @@ impl Game {
     }
 
     fn optimize(&mut self, slot: usize) -> Result<(), String> {
-        if self.phase == Phase::Combat {
-            return Err("can't optimize mid-fight.".into());
+        if let Some(why) = self.compile_blocker() {
+            return Err(why.into());
         }
         let s = self.slot(slot)?;
         if s.spec.opt >= MAX_OPT {
