@@ -8,6 +8,7 @@
         (weight: 8,  drop: Warez("scrubber")),
         (weight: 6,  drop: Warez("wyrm")),
         (weight: 10, drop: Repair(5)),
+        (weight: 9,  drop: Fragment(1)),
         (weight: 10, drop: Nothing),
     ]),
     black_ice: (rolls: 2, entries: [
@@ -18,6 +19,7 @@
         (weight: 12, drop: Ram(2)),
         (weight: 8,  drop: Cpu(1)),
         (weight: 8,  drop: Hdd(2)),
+        (weight: 14, drop: Fragment(2)),
     ]),
     vault: (rolls: 1, entries: [
         (weight: 30, drop: Credits(40, 120)),
@@ -26,5 +28,6 @@
         (weight: 15, drop: Warez("scrubber")),
         (weight: 10, drop: Warez("wyrm")),
         (weight: 20, drop: Repair(8)),
+        (weight: 14, drop: Fragment(1)),
     ]),
 )

@@ -3,9 +3,11 @@
 
 pub mod ansi;
 pub mod bbs;
+pub mod binary;
 pub mod command;
 pub mod data;
 pub mod game;
+pub mod hexedit;
 pub mod network;
 pub mod rng;
 pub mod tuning;

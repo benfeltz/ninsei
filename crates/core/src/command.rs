@@ -12,6 +12,8 @@ pub enum Command {
     Crt,
     /// New run on a fresh seed the app picks.
     NewRun,
+    /// Open HDD slot `n` in the hex editor.
+    Hex(usize),
 }
 
 pub const HELP: &[&str] = &[
@@ -20,6 +22,8 @@ pub const HELP: &[&str] = &[
     "jack <node>     move to a linked node       (j)",
     "load <slot>     load a program into ram",
     "unload <slot>   free its ram",
+    "hex <slot>      open a program in the hex editor",
+    "opt <slot>      spend a fragment: +budget",
     "newrun [seed]   start a new run",
     "theme <name>    amber | green | ice",
     "crt             toggle scanlines",
@@ -50,6 +54,8 @@ pub fn parse_command(line: &str) -> Result<Command, String> {
             )),
             None => Command::NewRun,
         },
+        "hex" | "hexedit" | "xxd" => Command::Hex(num("slot")?),
+        "opt" | "optimize" => Command::Game(Action::Optimize { slot: num("slot")? }),
         "help" | "?" | "man" => Command::Help,
         "clear" | "cls" => Command::Clear,
         "theme" => Command::Theme(arg.ok_or("`theme` needs a name.")?.to_ascii_lowercase()),

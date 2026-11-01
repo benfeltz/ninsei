@@ -43,3 +43,17 @@ pub const BBS_CPS: f32 = 42_000.0;
 
 /// Lines of terminal history kept.
 pub const LOG_LIMIT: usize = 400;
+
+/// Hex-editor crafting. A program's effect cost must fit in
+/// `BUDGET_PER_CPU * cpu + ram / BUDGET_RAM_DIV + BUDGET_PER_OPT * opt`.
+pub const BUDGET_PER_CPU: u32 = 3;
+pub const BUDGET_RAM_DIV: u32 = 2;
+pub const BUDGET_PER_OPT: u32 = 2;
+/// Flat budget cost of a stun.
+pub const COST_STUN: u32 = 7;
+pub const MAX_POWER: u32 = 40;
+pub const MAX_CPU: u32 = 9;
+pub const MAX_RAM: u32 = 16;
+pub const MAX_OPT: u32 = 5;
+/// Optimizer fragments consumed per opt level.
+pub const FRAGMENTS_PER_OPT: u32 = 1;

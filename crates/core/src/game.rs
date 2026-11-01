@@ -1,5 +1,6 @@
 //! Run state and the rules that change it. The app only ever calls [`Game::apply`].
 
+use crate::binary::{self, Bin, Spec};
 use crate::data::{Data, Drop, Effect, Intent, LootTable};
 use crate::network::{Network, NodeKind};
 use crate::rng::Rng;
@@ -14,14 +15,20 @@ pub struct Deck {
     pub integrity_max: u32,
     pub trace: u32,
     pub credits: u32,
+    /// Optimizer fragments: the crafting material that raises a program's opt level.
+    pub fragments: u32,
 }
 
 /// One program on the HDD. Loaded programs occupy RAM and can be run.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Slot {
-    /// Index into `Data::warez`.
+    /// The factory program this binary started as (index into `Data::warez`), for its blurb.
     pub warez: usize,
     pub loaded: bool,
+    /// The program itself. Edit it in the hex editor with [`Action::Patch`].
+    pub bin: Bin,
+    /// What `bin` decodes to. Kept in step with `bin`; a slot never holds an invalid binary.
+    pub spec: Spec,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -36,6 +43,8 @@ pub struct Combat {
     pub cpu: u32,
     pub shield: u32,
     pub stunned: bool,
+    /// ICE that just shook off a stun can't be stunned again this turn.
+    pub stun_immune: bool,
     pub turn: u32,
 }
 
@@ -77,6 +86,15 @@ pub struct StockFile {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Action {
+    /// Write an edited binary over the program in HDD slot `slot`. Refused unless it checks out.
+    Patch {
+        slot: usize,
+        bin: Bin,
+    },
+    /// Spend fragments to raise a program's opt level (and budget), re-signing it.
+    Optimize {
+        slot: usize,
+    },
     /// Buy file `file` in BBS area `area` (indices into `Game::bbs_stock`).
     Buy {
         area: usize,
@@ -141,6 +159,7 @@ impl Game {
             integrity_max: START_INTEGRITY,
             trace: 0,
             credits: 0,
+            fragments: 0,
         };
         let mut game = Self {
             at: net.entry(),
@@ -157,9 +176,11 @@ impl Game {
             bbs_stock,
         };
         for id in START_WAREZ {
-            if let Some(w) = game.data.warez_ix(id) {
-                let loaded = game.ram_used() + game.data.warez[w].ram <= game.deck.ram_max;
-                game.hdd.push(Slot { warez: w, loaded });
+            if let Some(w) = game.data.warez_ix(id)
+                && let Some(mut slot) = game.factory_slot(w)
+            {
+                slot.loaded = game.ram_used() + slot.spec.ram <= game.deck.ram_max;
+                game.hdd.push(slot);
             }
         }
         game.say(LogKind::Sys, format!("ninsei v0.0.1 // seed {seed:016x}"));
@@ -177,8 +198,25 @@ impl Game {
         self.hdd
             .iter()
             .filter(|s| s.loaded)
-            .map(|s| self.data.warez[s.warez].ram)
+            .map(|s| s.spec.ram)
             .sum()
+    }
+
+    /// The key binaries are signed with this run.
+    pub fn key(&self) -> u64 {
+        self.seed
+    }
+
+    /// A fresh, sealed copy of factory program `w`.
+    pub fn factory_slot(&self, w: usize) -> Option<Slot> {
+        let bin = binary::encode(&self.data.warez[w], self.key());
+        let spec = binary::check(&bin, self.key()).ok()?;
+        Some(Slot {
+            warez: w,
+            loaded: false,
+            bin,
+            spec,
+        })
     }
 
     /// The next thing the current ICE will do, if fighting.
@@ -231,6 +269,8 @@ impl Game {
             Action::Unload(slot) => self.unload(slot),
             Action::EndTurn => self.end_turn(),
             Action::Buy { area, file } => self.buy(area, file),
+            Action::Patch { slot, bin } => self.patch(slot, bin),
+            Action::Optimize { slot } => self.optimize(slot),
         }
     }
 
@@ -299,6 +339,7 @@ impl Game {
             cpu: self.deck.cpu_max,
             shield: 0,
             stunned: false,
+            stun_immune: false,
             turn: 1,
         });
         self.phase = Phase::Combat;
@@ -311,13 +352,13 @@ impl Game {
     fn slot(&self, slot: usize) -> Result<Slot, String> {
         self.hdd
             .get(slot)
-            .copied()
+            .cloned()
             .ok_or_else(|| format!("no program in slot {slot}."))
     }
 
     fn run(&mut self, slot: usize) -> Result<(), String> {
         let s = self.slot(slot)?;
-        let w = self.data.warez[s.warez].clone();
+        let w = s.spec;
         if !s.loaded {
             return Err(format!("{} is not loaded.", w.name));
         }
@@ -327,17 +368,20 @@ impl Game {
         if c.cpu < w.cpu {
             return Err(format!("{} needs {} cpu, {} left.", w.name, w.cpu, c.cpu));
         }
+        if w.effect == Effect::Stun && c.stun_immune {
+            return Err("the ICE has adapted to lag. a stun won't land this turn.".into());
+        }
         c.cpu -= w.cpu;
         match w.effect {
             Effect::Break { power, vs } => {
                 let class = self.data.ice[c.ice].class;
-                let hit = if vs == Some(class) { power * 2 } else { power };
-                c.strength = c.strength.saturating_sub(hit);
-                let crit = if vs == Some(class) {
-                    " (class match x2)"
-                } else {
-                    ""
+                // Specialised breakers double against their class and halve against the rest.
+                let (hit, crit) = match vs {
+                    Some(v) if v == class => (power * 2, " (class match x2)"),
+                    Some(_) => (power / 2, " (wrong class /2)"),
+                    None => (power, ""),
                 };
+                c.strength = c.strength.saturating_sub(hit);
                 self.say(LogKind::Good, format!("{} breaks {hit}{crit}", w.name));
                 if self.combat.as_ref().is_some_and(|c| c.strength == 0) {
                     self.win_combat();
@@ -389,8 +433,10 @@ impl Game {
         let intent = def.intents[c.intent_ix % def.intents.len()];
         let name = def.name.clone();
         let mut lines = Vec::new();
+        c.stun_immune = false;
         if c.stunned {
             c.stunned = false;
+            c.stun_immune = true;
             lines.push((LogKind::Good, format!("{name} is lagged and does nothing.")));
         } else {
             match intent {
@@ -448,13 +494,15 @@ impl Game {
 
     fn load(&mut self, slot: usize) -> Result<(), String> {
         let s = self.slot(slot)?;
-        let w = &self.data.warez[s.warez];
-        let name = w.name.clone();
+        let name = s.spec.name.clone();
         if s.loaded {
             return Err(format!("{name} is already loaded."));
         }
-        if self.ram_used() + w.ram > self.deck.ram_max {
-            return Err(format!("not enough ram for {name} ({} needed).", w.ram));
+        if self.ram_used() + s.spec.ram > self.deck.ram_max {
+            return Err(format!(
+                "not enough ram for {name} ({} needed).",
+                s.spec.ram
+            ));
         }
         if let Some(c) = self.combat.as_mut() {
             if c.cpu < COMBAT_LOAD_CPU {
@@ -469,7 +517,7 @@ impl Game {
 
     fn unload(&mut self, slot: usize) -> Result<(), String> {
         let s = self.slot(slot)?;
-        let name = self.data.warez[s.warez].name.clone();
+        let name = s.spec.name.clone();
         if !s.loaded {
             return Err(format!("{name} is not loaded."));
         }
@@ -527,6 +575,69 @@ impl Game {
         Ok(())
     }
 
+    fn patch(&mut self, slot: usize, bin: Bin) -> Result<(), String> {
+        if self.phase == Phase::Combat {
+            return Err("can't recompile mid-fight. the ICE won't wait.".into());
+        }
+        let s = self.slot(slot)?;
+        let spec = binary::check(&bin, self.key())
+            .map_err(|f| format!("link failed: {}", f.join("; ")))?;
+        let others = self.ram_used() - if s.loaded { s.spec.ram } else { 0 };
+        let still_fits = others + spec.ram <= self.deck.ram_max;
+        let old = s.spec.file();
+        let new = spec.file();
+        let target = &mut self.hdd[slot];
+        target.bin = bin;
+        target.spec = spec;
+        let unloaded = target.loaded && !still_fits;
+        if unloaded {
+            target.loaded = false;
+        }
+        let renamed = if old == new {
+            String::new()
+        } else {
+            format!(" (was {old})")
+        };
+        self.say(LogKind::Good, format!("wrote {new}{renamed}. link ok."));
+        if unloaded {
+            self.say(
+                LogKind::Sys,
+                format!("{new} no longer fits in ram. unloaded."),
+            );
+        }
+        Ok(())
+    }
+
+    fn optimize(&mut self, slot: usize) -> Result<(), String> {
+        if self.phase == Phase::Combat {
+            return Err("can't optimize mid-fight.".into());
+        }
+        let s = self.slot(slot)?;
+        if s.spec.opt >= MAX_OPT {
+            return Err(format!("{} is fully optimized.", s.spec.file()));
+        }
+        if self.deck.fragments < FRAGMENTS_PER_OPT {
+            return Err(format!(
+                "optimizing needs {FRAGMENTS_PER_OPT} fragment(s). you have {}.",
+                self.deck.fragments
+            ));
+        }
+        let mut bin = s.bin;
+        bin[binary::OFF_OPT] += 1;
+        binary::seal(&mut bin, self.key());
+        let spec = binary::check(&bin, self.key()).map_err(|f| f.join("; "))?;
+        self.deck.fragments -= FRAGMENTS_PER_OPT;
+        let msg = format!(
+            "{} optimized to O{} (+{BUDGET_PER_OPT} budget).",
+            spec.file(),
+            spec.opt
+        );
+        self.hdd[slot].bin = bin;
+        self.hdd[slot].spec = spec;
+        self.say(LogKind::Good, msg);
+        Ok(())
+    }
+
     fn roll_loot(&mut self, table: &LootTable) {
         for _ in 0..table.rolls {
             let Some(i) = self.rng.weighted(table.entries.iter().map(|e| e.weight)) else {
@@ -540,20 +651,17 @@ impl Game {
     fn grant(&mut self, drop: Drop) {
         match drop {
             Drop::Warez(id) => {
-                let Some(w) = self.data.warez_ix(&id) else {
+                let Some(slot) = self.data.warez_ix(&id).and_then(|w| self.factory_slot(w)) else {
                     return;
                 };
-                let name = self.data.warez[w].name.clone();
+                let name = slot.spec.name.clone();
                 if self.hdd.len() as u32 >= self.deck.hdd_max {
                     self.say(
                         LogKind::Sys,
                         format!("found {name}, but the hdd is full. discarded."),
                     );
                 } else {
-                    self.hdd.push(Slot {
-                        warez: w,
-                        loaded: false,
-                    });
+                    self.hdd.push(slot);
                     self.say(LogKind::Loot, format!("+ warez: {name}"));
                 }
             }
@@ -577,6 +685,10 @@ impl Game {
             Drop::Repair(n) => {
                 self.deck.integrity = (self.deck.integrity + n).min(self.deck.integrity_max);
                 self.say(LogKind::Loot, format!("+ repair kit: +{n} integrity"));
+            }
+            Drop::Fragment(n) => {
+                self.deck.fragments += n;
+                self.say(LogKind::Loot, format!("+ optimizer fragment x{n}"));
             }
             Drop::Nothing => self.say(LogKind::Sys, "nothing worth taking."),
         }

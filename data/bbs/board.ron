@@ -22,6 +22,8 @@
         (title: "NEW IN THE FILE AREAS", body: [
             "|07Fresh TORCH build in icebreakers. Mil-spec, eats RAM.",
             "|07Deck mods restocked. OCLOCK.EXE is unstable. Enjoy.",
+            "|07New area: OPTIMIZERS. Fragments raise a binary's opt level.",
+            "|07Pro tip: |15hex <slot>|07 opens your warez. Mind the checksum.",
         ]),
     ],
     users: [
@@ -50,6 +52,11 @@
             (file: "OCLOCK.EXE",   item: Cpu(1),            price: 220, desc: "Overclock. +1 cpu cycle"),
             (file: "HDDX.EXE",     item: Hdd(2),            price: 90,  desc: "Disk compressor. +2 slots"),
             (file: "NANOFIX.EXE",  item: Repair(8),         price: 60,  desc: "Nanite fix. +8 integrity"),
+        ]),
+        (name: "OPTIMIZERS", stock: 2, files: [
+            (file: "OPTFRAG.ZIP",  item: Fragment(1),       price: 70,  desc: "Optimizer fragment. +2 budget"),
+            (file: "OPTPAK.ARJ",   item: Fragment(3),       price: 180, desc: "Fragment pack x3"),
+            (file: "SIGKIT.ZIP",   item: Fragment(2),       price: 130, desc: "Signed fragments x2"),
         ]),
     ],
 )

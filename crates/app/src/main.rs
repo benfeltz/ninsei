@@ -2,6 +2,7 @@
 
 mod bbs_view;
 mod crt;
+mod hexview;
 mod netmap;
 mod panes;
 mod theme;
@@ -9,6 +10,7 @@ mod theme;
 use egui::{Key, RichText};
 use egui_dock::{DockArea, DockState, NodeIndex};
 use ninsei_core::bbs::Outcome;
+use ninsei_core::hexedit::HexBuffer;
 use ninsei_core::{Action, Command, Data, Game, LogKind, Phase, command::HELP, parse_command};
 
 use bbs_view::BbsView;
@@ -49,7 +51,7 @@ fn fresh_seed() -> u64 {
 }
 
 fn default_layout() -> DockState<Tab> {
-    let mut dock = DockState::new(vec![Tab::Network, Tab::Target]);
+    let mut dock = DockState::new(vec![Tab::Network, Tab::Target, Tab::Hex]);
     let tree = dock.main_surface_mut();
     let [center, left] = tree.split_left(NodeIndex::root(), 0.27, vec![Tab::Deck]);
     tree.split_below(left, 0.42, vec![Tab::Warez]);
@@ -67,6 +69,7 @@ struct App {
     last_phase: Phase,
     last_at: usize,
     bbs: Option<BbsView>,
+    hex: Option<HexBuffer>,
 }
 
 impl App {
@@ -77,6 +80,7 @@ impl App {
         Self {
             last_at: game.at,
             bbs: None,
+            hex: None,
             last_phase: game.phase,
             game,
             dock: default_layout(),
@@ -100,6 +104,14 @@ impl App {
                 }
                 return;
             }
+            Request::OpenHex(slot) => {
+                self.open_hex(slot);
+                return;
+            }
+            Request::CloseHex => {
+                self.hex = None;
+                return;
+            }
             Request::Cmd(c) => c,
             Request::Line(line) => {
                 self.game.say(LogKind::Sys, format!("$ {line}"));
@@ -115,6 +127,7 @@ impl App {
         match cmd {
             Command::Game(a) => self.game.apply(a),
             Command::NewRun => self.game.apply(Action::NewRun(fresh_seed())),
+            Command::Hex(slot) => self.open_hex(slot),
             Command::Help => {
                 for l in HELP {
                     self.game.say(LogKind::Sys, *l);
@@ -140,9 +153,33 @@ impl App {
         }
     }
 
+    fn open_hex(&mut self, slot: usize) {
+        let Some(s) = self.game.hdd.get(slot) else {
+            self.game
+                .say(LogKind::Sys, format!("err: no program in slot {slot}."));
+            return;
+        };
+        self.hex = Some(HexBuffer::open(slot, s.bin));
+        if let Some(path) = self.dock.find_tab(&Tab::Hex) {
+            let _ = self.dock.set_active_tab(path);
+        }
+    }
+
+    /// Keeps the open buffer in step with the game: a successful write or an optimize
+    /// becomes the new baseline, and a vanished slot closes the editor.
+    fn sync_hex(&mut self) {
+        let Some(h) = &mut self.hex else { return };
+        match self.game.hdd.get(h.slot) {
+            None => self.hex = None,
+            Some(s) if h.buf == s.bin || !h.dirty() => h.committed(s.bin),
+            Some(_) => {}
+        }
+    }
+
     /// Hotkeys work whenever the terminal isn't taking typing.
     fn hotkeys(&mut self, ctx: &egui::Context) -> Vec<Request> {
-        if self.bbs.is_some() || ctx.egui_wants_keyboard_input() {
+        let hex_typing = ctx.memory(|m| m.has_focus(hexview::grid_id()));
+        if self.bbs.is_some() || hex_typing || ctx.egui_wants_keyboard_input() {
             return Vec::new();
         }
         let mut out = Vec::new();
@@ -270,6 +307,7 @@ impl eframe::App for App {
             input: &mut self.input,
             focus_input: &mut self.focus_input,
             bbs_open: self.bbs.is_some(),
+            hex: &mut self.hex,
             out: Vec::new(),
         };
         egui::CentralPanel::default()
@@ -288,6 +326,7 @@ impl eframe::App for App {
         for r in requests {
             self.handle(&ctx, r);
         }
+        self.sync_hex();
 
         // Landing on a BBS dials it; leaving (or dying) drops the line.
         if self.game.at != self.last_at {

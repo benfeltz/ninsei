@@ -100,7 +100,7 @@ fn autoplay(seed: u64) -> Game {
             Phase::Combat => {
                 let cpu = g.combat.as_ref().unwrap().cpu;
                 let pick = g.hdd.iter().enumerate().find(|(_, s)| {
-                    let w = &g.data.warez[s.warez];
+                    let w = &s.spec;
                     s.loaded && w.cpu <= cpu && matches!(w.effect, Effect::Break { .. })
                 });
                 match pick {

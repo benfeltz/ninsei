@@ -1,8 +1,10 @@
 //! The dock tabs. Panes only read the game and push [`Request`]s; the app applies them after drawing.
 
 use egui::{Color32, RichText, ScrollArea, Ui, WidgetText};
-use ninsei_core::{Action, Command, Effect, Game, LogKind, Phase, WarezKind, tuning};
+use ninsei_core::hexedit::HexBuffer;
+use ninsei_core::{Action, Command, Effect, Game, LogKind, Phase, tuning};
 
+use crate::hexview;
 use crate::netmap;
 use crate::theme::Palette;
 
@@ -12,6 +14,7 @@ pub enum Tab {
     Warez,
     Network,
     Target,
+    Hex,
     Terminal,
 }
 
@@ -19,6 +22,9 @@ pub enum Request {
     Cmd(Command),
     /// Dial the BBS on this node.
     OpenBbs,
+    /// Open HDD slot `n` in the hex editor.
+    OpenHex(usize),
+    CloseHex,
     /// A raw line typed into the terminal.
     Line(String),
 }
@@ -29,6 +35,7 @@ pub struct Panes<'a> {
     pub input: &'a mut String,
     pub focus_input: &'a mut bool,
     pub bbs_open: bool,
+    pub hex: &'a mut Option<HexBuffer>,
     pub out: Vec<Request>,
 }
 
@@ -56,6 +63,12 @@ impl egui_dock::TabViewer for Panes<'_> {
                 }
                 " target.ice "
             }
+            Tab::Hex => {
+                if self.hex.as_ref().is_some_and(HexBuffer::dirty) {
+                    return " hexedit ● ".into();
+                }
+                " hexedit "
+            }
             Tab::Terminal => " terminal ",
         }
         .into()
@@ -82,6 +95,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                 }
             }
             Tab::Target => self.target(ui),
+            Tab::Hex => hexview::show(ui, self.game, self.hex, &self.pal, &mut self.out),
             Tab::Terminal => self.terminal(ui),
         }
     }
@@ -181,6 +195,7 @@ impl Panes<'_> {
         }
         ui.add_space(6.0);
         ui.label(RichText::new(format!("CRED   {}¢", d.credits)).color(p.fg));
+        ui.label(RichText::new(format!("FRAGS  {}", d.fragments)).color(p.fg));
         ui.label(RichText::new(format!("HOPS   {}", g.hops)).color(p.dim));
     }
 
@@ -202,20 +217,26 @@ impl Panes<'_> {
             let mut any = false;
             for (i, s) in g.hdd.iter().enumerate().filter(|(_, s)| s.loaded == loaded) {
                 any = true;
-                let w = &g.data.warez[s.warez];
+                let w = &s.spec;
+                let blurb = &g.data.warez[s.warez].blurb;
                 ui.horizontal(|ui| {
                     ui.add_space(12.0);
-                    let icon = match w.kind {
-                        WarezKind::Breaker => "⚔",
-                        WarezKind::Shield => "◘",
-                        WarezKind::Utility => "⚙",
+                    let icon = match w.effect {
+                        Effect::Break { .. } => "⚔",
+                        Effect::Shield(_) => "◘",
+                        _ => "⚙",
                     };
-                    let name = RichText::new(format!("[{i}] {icon} {}.exe", w.id))
+                    let opt = if w.opt > 0 {
+                        format!(" O{}", w.opt)
+                    } else {
+                        String::new()
+                    };
+                    let name = RichText::new(format!("[{i}] {icon} {}{opt}", w.file()))
                         .color(if loaded { p.fg } else { p.dim });
                     ui.label(name).on_hover_text(format!(
                         "{}\n{}\nram {}  cpu {}  {}",
                         w.name,
-                        w.blurb,
+                        blurb,
                         w.ram,
                         w.cpu,
                         w.effect.describe()
@@ -226,6 +247,13 @@ impl Panes<'_> {
                             .color(p.dim),
                     );
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui
+                            .small_button("hex")
+                            .on_hover_text("open in hexedit")
+                            .clicked()
+                        {
+                            self.out.push(Request::OpenHex(i));
+                        }
                         if loaded {
                             if ui.small_button("unload").clicked() {
                                 self.act(Action::Unload(i));
@@ -372,7 +400,7 @@ impl Panes<'_> {
         ui.separator();
         ui.horizontal_wrapped(|ui| {
             for (i, s) in g.hdd.iter().enumerate().filter(|(_, s)| s.loaded) {
-                let w = &g.data.warez[s.warez];
+                let w = &s.spec;
                 let class_hit =
                     matches!(w.effect, Effect::Break { vs: Some(v), .. } if v == ice.class);
                 let label = format!(

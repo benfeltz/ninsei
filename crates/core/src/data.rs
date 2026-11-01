@@ -95,6 +95,8 @@ pub enum Drop {
     Cpu(u32),
     Hdd(u32),
     Repair(u32),
+    /// Optimizer fragments, the hex-editor crafting material.
+    Fragment(u32),
     Nothing,
 }
 
@@ -255,6 +257,17 @@ impl Data {
                 if matches!(f.item, Drop::Nothing | Drop::Credits(..)) {
                     return Err(format!("bbs file `{}` sells nothing", f.file));
                 }
+            }
+        }
+        // Every factory program must be a legal binary, or the hex editor's rules lie.
+        for w in &self.warez {
+            let bin = crate::binary::encode(w, 0);
+            if let Err(f) = crate::binary::check(&bin, 0) {
+                return Err(format!(
+                    "warez `{}` breaks the binary rules: {}",
+                    w.id,
+                    f.join("; ")
+                ));
             }
         }
         for id in crate::tuning::START_WAREZ {
