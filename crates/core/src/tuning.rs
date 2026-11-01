@@ -76,6 +76,11 @@ pub const BBS_JOBS: usize = 2;
 /// Selling programs: extra credits per opt level on top of the per-GB price.
 pub const SELL_PER_OPT: u32 = 25;
 
+/// Hub: stash slots before any RIG upgrade.
+pub const STASH_BASE_SLOTS: u32 = 2;
+/// Hub: share of a run's credits the dead man's switch wires home on a flatline (percent).
+pub const DEADMAN_PCT: u32 = 10;
+
 /// Hub: seconds the Workbench screen takes to drag off (or back over) a run.
 pub const HUB_DRAG_SECS: f32 = 0.9;
 /// Pixel-art colour codes allowed in desktop icons.

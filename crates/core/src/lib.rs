@@ -19,8 +19,8 @@ pub use data::{
     WarezKind,
 };
 pub use game::{
-    Action, Combat, Contract, ContractStatus, Deck, Encounter, Game, LogKind, LogLine, Phase, Slot,
-    StockFile,
+    Action, Combat, Contract, ContractStatus, Deck, Encounter, Game, Kit, LogKind, LogLine, Phase,
+    Slot, StockFile,
 };
 pub use network::{Network, Node, NodeKind};
 pub use rng::Rng;

@@ -41,8 +41,21 @@ Between runs you're on your own machine: a Workbench 1.3-style desktop, four col
 
 - **NinShell**: `help`, `dir`, `jackin [seed]`, `run <tool>`, `info`, `theme`, `crt`, `echo`, `clear`
 - Windows drag by their title bar; the close gadget is top left, the depth gadget top right
-- **Terminal**, **RIG**, **STASH** and **HexEd** are coming (#5, #6): for now they ask you to insert their disk
-- Your record and settings save automatically: a file on desktop, local storage in the browser
+- **Terminal** (the phonebook) is coming in #6: for now it asks you to insert its disk
+- Everything below saves automatically: a file on desktop, local storage in the browser
+
+### What you keep
+
+Runs are for taking things; home is for building. **Reach the exit** and the run's credits and fragments are banked, and you pick programs to keep in your stash. **Flatline** and you lose it all, except the 10% your dead man's switch wires out.
+
+- **RIG**: spend banked credits on permanent upgrades: RAM, CPU, HDD, integrity, stash slots. Each level costs more than the last ([`data/hub/rig.ron`](data/hub/rig.ron)).
+- **STASH**: programs you kept (2 slots to start) and your loadout for the next run. The four starter programs are always free. Stash programs you take into a run leave the stash: they come back only if you do.
+- **HexEd**: the hex editor, at home, on your stash, with banked fragments to optimize. In a run you can only compile while connected to a BBS.
+
+![rig](docs/shots/rig.png)
+![stash](docs/shots/stash.png)
+![hexed at home](docs/shots/hexed-home.png)
+![keeping programs at the exit](docs/shots/exit-keep.png)
 
 ![crash](docs/shots/crash.png)
 
@@ -112,7 +125,7 @@ The linker refuses to write a binary unless it checks out:
 - **Checksum.** Fixing it is your job; the inspector shows the computed value.
 - **Signature.** The opt level is signed with a per-run key, so you can't just type a bigger number. **Optimizer fragments** (loot, or the BBS's OPTIMIZERS area) raise it properly. A program at the same opt level carries a valid signature you can copy, if you're clever.
 
-Click a byte (or tab into the ASCII column) to type over it; arrows move, `ctrl+s` writes, `esc` releases the keyboard. No recompiling mid-fight.
+Click a byte (or tab into the ASCII column) to type over it; arrows move, `ctrl+s` writes, `esc` releases the keyboard. At home, HexEd works on your stash; in a run, the compiler is only available while you're connected to a BBS.
 
 ## The BBS
 

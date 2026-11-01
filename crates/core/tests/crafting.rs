@@ -4,8 +4,12 @@ use ninsei_core::binary::{
 use ninsei_core::hexedit::HexBuffer;
 use ninsei_core::*;
 
+/// A run parked on a BBS: in a run, the hex editor only compiles there.
 fn game() -> Game {
-    Game::new(Data::builtin().unwrap(), 0xBEEF)
+    let mut g = Game::new(Data::builtin().unwrap(), 0xBEEF);
+    let here = g.at;
+    g.net.nodes[here].kind = NodeKind::Bbs;
+    g
 }
 
 fn slot_of(g: &Game, id: &str) -> usize {
