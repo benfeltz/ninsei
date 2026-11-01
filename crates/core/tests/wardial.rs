@@ -232,6 +232,7 @@ fn a_hint_at_a_missing_range_is_caught() {
         rig: include_str!("../../../data/hub/rig.ron"),
         networks: include_str!("../../../data/hub/networks.ron"),
         exchanges: include_str!("../../../data/hub/exchanges.ron"),
+        themes: include_str!("../../../data/themes.ron"),
     })
     .unwrap_err();
     assert!(err.contains("atlantis"), "{err}");
@@ -241,7 +242,7 @@ fn a_hint_at_a_missing_range_is_caught() {
 fn shell_ranges_and_wardial() {
     let d = data();
     let s = save(0);
-    let run = |l: &str| hub::shell(l, &s, &d.icons);
+    let run = |l: &str| hub::shell(l, &s, &d);
     assert_eq!(run("ranges").0.len(), 1);
     assert_eq!(run("wardial local").1, ShellEffect::Scan("local".into()));
     assert_eq!(run("wardial kestrel").1, ShellEffect::None);

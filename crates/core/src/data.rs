@@ -225,6 +225,49 @@ pub struct ContractTemplate {
     pub brief: String,
 }
 
+/// A theme's six colours, as `#rrggbb`.
+#[derive(Deserialize, Clone, Debug)]
+pub struct ThemeColors {
+    pub bg: String,
+    pub panel: String,
+    pub faint: String,
+    pub dim: String,
+    pub fg: String,
+    pub bright: String,
+}
+
+impl ThemeColors {
+    /// The six colours in role order: bg, panel, faint, dim, fg, bright.
+    pub fn all(&self) -> [&str; 6] {
+        [
+            &self.bg,
+            &self.panel,
+            &self.faint,
+            &self.dim,
+            &self.fg,
+            &self.bright,
+        ]
+    }
+}
+
+/// A colour theme (`data/themes.ron`).
+#[derive(Deserialize, Clone, Debug)]
+pub struct ThemeDef {
+    pub id: String,
+    pub label: String,
+    pub colors: ThemeColors,
+}
+
+/// Parses `#rrggbb`.
+pub fn rgb(hex: &str) -> Option<[u8; 3]> {
+    let h = hex.strip_prefix('#')?;
+    if h.len() != 6 || !h.is_ascii() {
+        return None;
+    }
+    let c = |i: usize| u8::from_str_radix(&h[i..i + 2], 16).ok();
+    Some([c(0)?, c(2)?, c(4)?])
+}
+
 /// The raw text of every data file.
 #[derive(Clone, Copy, Debug)]
 pub struct Sources<'a> {
@@ -239,6 +282,7 @@ pub struct Sources<'a> {
     pub rig: &'a str,
     pub networks: &'a str,
     pub exchanges: &'a str,
+    pub themes: &'a str,
 }
 
 #[derive(Clone, Debug)]
@@ -257,6 +301,8 @@ pub struct Data {
     pub networks: crate::hub::NetworksDef,
     /// Number ranges the wardialer scans.
     pub exchanges: Vec<crate::hub::RangeDef>,
+    /// Colour themes for runs and the desktop.
+    pub themes: Vec<ThemeDef>,
 }
 
 impl Data {
@@ -274,6 +320,7 @@ impl Data {
             rig: include_str!("../../../data/hub/rig.ron"),
             networks: include_str!("../../../data/hub/networks.ron"),
             exchanges: include_str!("../../../data/hub/exchanges.ron"),
+            themes: include_str!("../../../data/themes.ron"),
         })
     }
 
@@ -292,6 +339,7 @@ impl Data {
             networks: ron::from_str(src.networks).map_err(|e| format!("hub/networks.ron: {e}"))?,
             exchanges: ron::from_str(src.exchanges)
                 .map_err(|e| format!("hub/exchanges.ron: {e}"))?,
+            themes: ron::from_str(src.themes).map_err(|e| format!("themes.ron: {e}"))?,
         };
         data.validate()?;
         Ok(data)
@@ -355,6 +403,8 @@ impl Data {
         self.networks
             .validate()
             .map_err(|e| format!("hub/networks.ron: {e}"))?;
+        self.validate_themes()
+            .map_err(|e| format!("themes.ron: {e}"))?;
         crate::hub::RangeDef::validate(&self.exchanges, &self.networks)
             .map_err(|e| format!("hub/exchanges.ron: {e}"))?;
         // Every hint anywhere must name a range that exists.
@@ -456,6 +506,31 @@ impl Data {
             }
         }
         Ok(())
+    }
+
+    pub fn theme(&self, id: &str) -> Option<&ThemeDef> {
+        self.themes.iter().find(|t| t.id == id)
+    }
+
+    fn validate_themes(&self) -> Result<(), String> {
+        for (i, t) in self.themes.iter().enumerate() {
+            if self.themes[..i].iter().any(|o| o.id == t.id) {
+                return Err(format!("theme `{}` is listed twice", t.id));
+            }
+            if let Some(bad) = t.colors.all().into_iter().find(|c| rgb(c).is_none()) {
+                return Err(format!(
+                    "theme `{}` has a bad colour `{bad}` (want #rrggbb)",
+                    t.id
+                ));
+            }
+        }
+        match self.theme(crate::hub::DEFAULT_RUN_THEME) {
+            Some(_) => Ok(()),
+            None => Err(format!(
+                "the default run theme `{}` must exist",
+                crate::hub::DEFAULT_RUN_THEME
+            )),
+        }
     }
 
     pub fn warez_ix(&self, id: &str) -> Option<usize> {

@@ -8,17 +8,95 @@ use egui::{
     vec2,
 };
 use ninsei_core::Data;
+use ninsei_core::data::ThemeDef;
+use std::cell::Cell;
+
+use crate::theme::Palette;
 use ninsei_core::binary::Bin;
 use ninsei_core::hexedit::HexBuffer;
 use ninsei_core::hub::{self, IconDef, Save, ScanResult, ShellEffect, Tool, Upgrade};
 
 use crate::hubtools;
 
-/// The 1.3 palette: four colours, that's all you got.
-pub const BLUE: Color32 = Color32::from_rgb(0x00, 0x55, 0xAA);
-pub const WHITE: Color32 = Color32::from_rgb(0xFF, 0xFF, 0xFF);
-pub const BLACK: Color32 = Color32::from_rgb(0x00, 0x00, 0x22);
-pub const ORANGE: Color32 = Color32::from_rgb(0xFF, 0x88, 0x00);
+/// The desktop's colours. Like the Amiga's palette registers: set once a frame from the desktop
+/// theme ([`set_desk`]) and read by everything that draws the hub.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Desk {
+    /// The screen behind the windows.
+    pub screen: Color32,
+    /// Window frames, title bars, text.
+    pub ink: Color32,
+    /// Darkest tone: shadows, gadget outlines.
+    pub shadow: Color32,
+    /// Selections and highlights.
+    pub accent: Color32,
+    /// Secondary text.
+    pub muted: Color32,
+    /// Fill inside icons and unlit cells.
+    pub fill: Color32,
+}
+
+impl Desk {
+    /// Workbench 1.3, used until the first theme is set.
+    pub const WORKBENCH: Desk = Desk {
+        screen: Color32::from_rgb(0x00, 0x55, 0xAA),
+        ink: Color32::from_rgb(0xFF, 0xFF, 0xFF),
+        shadow: Color32::from_rgb(0x00, 0x00, 0x22),
+        accent: Color32::from_rgb(0xFF, 0x88, 0x00),
+        muted: Color32::from_rgb(0xAA, 0xCC, 0xFF),
+        fill: Color32::from_rgb(0x00, 0x55, 0xAA),
+    };
+
+    /// A theme's six colours, mapped onto the desktop's roles.
+    pub fn from_def(t: &ThemeDef) -> Desk {
+        let p = Palette::from_def(t);
+        Desk {
+            screen: p.panel,
+            ink: p.fg,
+            shadow: p.bg,
+            accent: p.bright,
+            muted: p.dim,
+            fill: p.faint,
+        }
+    }
+}
+
+thread_local! {
+    static DESK: Cell<Desk> = const { Cell::new(Desk::WORKBENCH) };
+}
+
+/// Loads the desktop's palette registers.
+pub fn set_desk(d: Desk) {
+    DESK.with(|c| c.set(d));
+}
+
+fn desk() -> Desk {
+    DESK.with(Cell::get)
+}
+
+pub fn backdrop() -> Color32 {
+    desk().screen
+}
+
+pub fn ink() -> Color32 {
+    desk().ink
+}
+
+pub fn shadow() -> Color32 {
+    desk().shadow
+}
+
+pub fn accent() -> Color32 {
+    desk().accent
+}
+
+pub fn muted() -> Color32 {
+    desk().muted
+}
+
+pub fn fill() -> Color32 {
+    desk().fill
+}
 
 const FONT: f32 = 14.0;
 const TITLE_H: f32 = 20.0;
@@ -57,6 +135,7 @@ enum Kind {
     Shell,
     /// CarrierTerm: the phonebook.
     Terminal,
+    Prefs,
     Rig,
     Stash,
     HexEd,
@@ -75,6 +154,7 @@ impl Win {
     fn title(&self) -> String {
         match self.kind {
             Kind::Shell => "NinShell".into(),
+            Kind::Prefs => "Prefs".into(),
             Kind::Terminal => "CarrierTerm 1.0: Dialing Directory".into(),
             Kind::Rig => "RIG: deck shop".into(),
             Kind::Stash => "STASH".into(),
@@ -161,6 +241,7 @@ impl Workbench {
         let kind = match tool {
             t if !t.installed() => Kind::Requester(t),
             Tool::Terminal => Kind::Terminal,
+            Tool::Prefs => Kind::Prefs,
             Tool::Shell => Kind::Shell,
             Tool::Rig => Kind::Rig,
             Tool::Stash => Kind::Stash,
@@ -173,6 +254,7 @@ impl Workbench {
             let (pos, size) = match kind {
                 Kind::Shell => (pos2(150.0, 300.0), vec2(600.0, 280.0)),
                 Kind::Terminal => (pos2(170.0, 40.0), vec2(720.0, 440.0)),
+                Kind::Prefs => (pos2(260.0, 56.0), vec2(560.0, 420.0)),
                 Kind::Rig => (pos2(170.0, 50.0), vec2(620.0, 330.0)),
                 Kind::Stash => (pos2(210.0, 80.0), vec2(640.0, 380.0)),
                 Kind::HexEd => (pos2(130.0, 36.0), vec2(800.0, 500.0)),
@@ -239,12 +321,12 @@ impl Workbench {
         let at = |p: Pos2| screen.min + p.to_vec2();
 
         // Screen and its title bar.
-        painter.rect_filled(screen, 0.0, BLUE);
+        painter.rect_filled(screen, 0.0, backdrop());
         let bar = Rect::from_min_size(screen.min, vec2(screen.width(), SCREEN_BAR_H));
-        painter.rect_filled(bar, 0.0, WHITE);
+        painter.rect_filled(bar, 0.0, ink());
         painter.line_segment(
             [bar.left_bottom(), bar.right_bottom()],
-            Stroke::new(1.0, BLACK),
+            Stroke::new(1.0, shadow()),
         );
         let title = format!(
             "ninsei Workbench 1.3   runs {}  exits {}  flatlines {}   best {}¢",
@@ -255,7 +337,7 @@ impl Workbench {
             Align2::LEFT_CENTER,
             title,
             font(),
-            BLUE,
+            backdrop(),
         );
         depth_gadget(
             &painter,
@@ -291,13 +373,13 @@ impl Workbench {
             if selected {
                 // Highlight exactly as wide as the name, however long it is.
                 let w = painter
-                    .layout_no_wrap(icon.label.clone(), font(), BLUE)
+                    .layout_no_wrap(icon.label.clone(), font(), backdrop())
                     .size()
                     .x;
                 painter.rect_filled(
                     Rect::from_center_size(label.center(), vec2(w + 8.0, label.height())),
                     0.0,
-                    WHITE,
+                    ink(),
                 );
             }
             painter.text(
@@ -305,7 +387,7 @@ impl Workbench {
                 Align2::CENTER_CENTER,
                 &icon.label,
                 font(),
-                if selected { BLUE } else { WHITE },
+                if selected { backdrop() } else { ink() },
             );
             let hit = art.union(label);
             let r = ui.interact(
@@ -397,8 +479,8 @@ impl Workbench {
                 rect.max - vec2(BORDER + 4.0, BORDER + 4.0),
             );
             match kind {
-                Kind::Shell => self.shell(ui, content, icons, save, live && top, &mut out),
-                Kind::Rig | Kind::Stash | Kind::HexEd | Kind::Terminal => {
+                Kind::Shell => self.shell(ui, content, data, save, live && top, &mut out),
+                Kind::Rig | Kind::Stash | Kind::HexEd | Kind::Terminal | Kind::Prefs => {
                     let mut child = ui.new_child(
                         egui::UiBuilder::new()
                             .max_rect(content)
@@ -450,6 +532,7 @@ impl Workbench {
                             }
                         }
                         Kind::Rig => hubtools::rig(&mut child, data, save, &mut out),
+                        Kind::Prefs => hubtools::prefs(&mut child, data, save, &mut out),
                         Kind::Stash => hubtools::stash(&mut child, data, save, &mut out, &mut edit),
                         _ => hubtools::hexed(&mut child, save, &mut self.hex, &mut out, &mut edit),
                     }
@@ -517,7 +600,7 @@ impl Workbench {
         &mut self,
         ui: &mut Ui,
         rect: Rect,
-        icons: &[IconDef],
+        data: &Data,
         save: &Save,
         focused: bool,
         out: &mut Vec<WbOut>,
@@ -532,7 +615,7 @@ impl Workbench {
                 Align2::LEFT_TOP,
                 line,
                 font(),
-                WHITE,
+                ink(),
             );
         }
         let prompt = "1.Workbench:> ";
@@ -543,7 +626,7 @@ impl Workbench {
                 Align2::LEFT_TOP,
                 prompt,
                 font(),
-                ORANGE,
+                accent(),
             )
             .width();
         let input_rect =
@@ -551,7 +634,7 @@ impl Workbench {
         let edit = egui::TextEdit::singleline(&mut self.shell_input)
             .frame(egui::Frame::NONE)
             .font(font())
-            .text_color(WHITE)
+            .text_color(ink())
             .desired_width(input_rect.width())
             .id(Id::new("wb-shell-input"));
         let resp = ui.put(input_rect, edit);
@@ -565,7 +648,7 @@ impl Workbench {
         if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
             let line = std::mem::take(&mut self.shell_input);
             self.say(format!("{prompt}{line}"));
-            let (lines, effect) = hub::shell(&line, save, icons);
+            let (lines, effect) = hub::shell(&line, save, data);
             for l in lines {
                 self.say(l);
             }
@@ -603,7 +686,7 @@ fn requester(
 ) -> Option<Req> {
     let lines = ["Please insert volume", tool.volume(), "in any drive"];
     for (k, l) in lines.iter().enumerate() {
-        let col = if k == 1 { ORANGE } else { WHITE };
+        let col = if k == 1 { accent() } else { ink() };
         painter.text(
             pos2(rect.center().x, rect.top() + 6.0 + k as f32 * 18.0),
             Align2::CENTER_TOP,
@@ -633,63 +716,66 @@ fn requester(
 
 /// A 1.3 push button: white box, black shadow edges, inverted while pressed.
 fn button(painter: &egui::Painter, r: Rect, label: &str, pressed: bool) {
-    let (fill, ink) = if pressed {
-        (ORANGE, BLACK)
+    let (face, text) = if pressed {
+        (accent(), shadow())
     } else {
-        (BLUE, WHITE)
+        (backdrop(), ink())
     };
-    painter.rect_filled(r, 0.0, fill);
+    painter.rect_filled(r, 0.0, face);
     painter.line_segment(
         [r.left_top(), r.right_top()],
-        Stroke::new(2.0, if pressed { BLACK } else { WHITE }),
+        Stroke::new(2.0, if pressed { shadow() } else { ink() }),
     );
     painter.line_segment(
         [r.left_top(), r.left_bottom()],
-        Stroke::new(2.0, if pressed { BLACK } else { WHITE }),
+        Stroke::new(2.0, if pressed { shadow() } else { ink() }),
     );
     painter.line_segment(
         [r.left_bottom(), r.right_bottom()],
-        Stroke::new(2.0, if pressed { WHITE } else { BLACK }),
+        Stroke::new(2.0, if pressed { ink() } else { shadow() }),
     );
     painter.line_segment(
         [r.right_top(), r.right_bottom()],
-        Stroke::new(2.0, if pressed { WHITE } else { BLACK }),
+        Stroke::new(2.0, if pressed { ink() } else { shadow() }),
     );
-    painter.text(r.center(), Align2::CENTER_CENTER, label, font(), ink);
+    painter.text(r.center(), Align2::CENTER_CENTER, label, font(), text);
 }
 
 /// Window chrome: white border, a title bar (striped when active), close and depth gadgets.
 fn window_frame(painter: &egui::Painter, rect: Rect, title: &str, active: bool) {
-    painter.rect_filled(rect, 0.0, BLUE);
-    painter.rect_stroke(rect, 0.0, Stroke::new(BORDER, WHITE), StrokeKind::Inside);
+    painter.rect_filled(rect, 0.0, backdrop());
+    painter.rect_stroke(rect, 0.0, Stroke::new(BORDER, ink()), StrokeKind::Inside);
     let bar = Rect::from_min_size(rect.min, vec2(rect.width(), TITLE_H));
-    painter.rect_filled(bar, 0.0, if active { WHITE } else { BLUE });
+    painter.rect_filled(bar, 0.0, if active { ink() } else { backdrop() });
     if active {
         // Horizontal pinstripes behind the title, the active-window tell.
         let mut y = bar.top() + 4.0;
         while y < bar.bottom() - 3.0 {
             painter.line_segment(
                 [pos2(bar.left() + 24.0, y), pos2(bar.right() - 30.0, y)],
-                Stroke::new(1.0, BLUE),
+                Stroke::new(1.0, backdrop()),
             );
             y += 3.0;
         }
     }
-    painter.rect_stroke(bar, 0.0, Stroke::new(BORDER, WHITE), StrokeKind::Inside);
-    let galley =
-        painter.layout_no_wrap(title.to_string(), font(), if active { BLUE } else { WHITE });
+    painter.rect_stroke(bar, 0.0, Stroke::new(BORDER, ink()), StrokeKind::Inside);
+    let galley = painter.layout_no_wrap(
+        title.to_string(),
+        font(),
+        if active { backdrop() } else { ink() },
+    );
     let tw = galley.size().x + 10.0;
     let tbox = Rect::from_min_size(bar.min + vec2(26.0, 2.0), vec2(tw, TITLE_H - 4.0));
-    painter.rect_filled(tbox, 0.0, if active { WHITE } else { BLUE });
-    painter.galley(tbox.min + vec2(5.0, 1.0), galley, WHITE);
+    painter.rect_filled(tbox, 0.0, if active { ink() } else { backdrop() });
+    painter.galley(tbox.min + vec2(5.0, 1.0), galley, ink());
     // Close gadget: a box with a dot.
     let c = Rect::from_min_size(bar.min + vec2(4.0, 3.0), vec2(16.0, 14.0));
-    painter.rect_filled(c, 0.0, WHITE);
-    painter.rect_stroke(c, 0.0, Stroke::new(1.0, BLACK), StrokeKind::Inside);
+    painter.rect_filled(c, 0.0, ink());
+    painter.rect_stroke(c, 0.0, Stroke::new(1.0, shadow()), StrokeKind::Inside);
     painter.rect_filled(
         Rect::from_center_size(c.center(), vec2(4.0, 4.0)),
         0.0,
-        BLACK,
+        shadow(),
     );
     depth_gadget(
         painter,
@@ -699,12 +785,12 @@ fn window_frame(painter: &egui::Painter, rect: Rect, title: &str, active: bool) 
 
 /// Two overlapping squares: back one outlined, front one filled.
 fn depth_gadget(painter: &egui::Painter, r: Rect) {
-    painter.rect_filled(r, 0.0, WHITE);
+    painter.rect_filled(r, 0.0, ink());
     let back = Rect::from_min_size(r.min + vec2(3.0, 2.0), vec2(11.0, 8.0));
     let front = Rect::from_min_size(r.min + vec2(8.0, 6.0), vec2(11.0, 8.0));
-    painter.rect_stroke(back, 0.0, Stroke::new(1.0, BLACK), StrokeKind::Inside);
-    painter.rect_filled(front, 0.0, ORANGE);
-    painter.rect_stroke(front, 0.0, Stroke::new(1.0, BLACK), StrokeKind::Inside);
+    painter.rect_stroke(back, 0.0, Stroke::new(1.0, shadow()), StrokeKind::Inside);
+    painter.rect_filled(front, 0.0, accent());
+    painter.rect_stroke(front, 0.0, Stroke::new(1.0, shadow()), StrokeKind::Inside);
 }
 
 /// Paints an icon's pixels. Selected icons draw in complement colours, as on the real thing.
@@ -712,10 +798,10 @@ fn draw_icon(painter: &egui::Painter, icon: &IconDef, at: Pos2, selected: bool) 
     for (y, row) in icon.pixels.iter().enumerate() {
         for (x, ch) in row.chars().enumerate() {
             let col = match (ch, selected) {
-                ('w', false) | ('k', true) => WHITE,
-                ('k', false) | ('w', true) => BLACK,
-                ('o', false) | ('b', true) => ORANGE,
-                ('b', false) | ('o', true) => BLUE,
+                ('w', false) | ('k', true) => ink(),
+                ('k', false) | ('w', true) => shadow(),
+                ('o', false) | ('b', true) => accent(),
+                ('b', false) | ('o', true) => fill(),
                 _ => continue,
             };
             let p = at + vec2(x as f32, y as f32) * ICON_SCALE;

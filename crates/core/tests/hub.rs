@@ -116,7 +116,7 @@ fn icon_validation_catches_ragged_art() {
 fn shell_commands() {
     let d = data();
     let s = Save::default();
-    let run = |l: &str| hub::shell(l, &s, &d.icons);
+    let run = |l: &str| hub::shell(l, &s, &d);
     assert_eq!(
         run("jackin").1,
         ShellEffect::None,

@@ -16,6 +16,9 @@ use crate::tuning::{
 
 /// Bump when the save's shape changes incompatibly.
 pub const SAVE_VERSION: u32 = 1;
+/// Run theme a new save starts with.
+pub const DEFAULT_RUN_THEME: &str = "amber";
+
 /// Storage key the app saves under.
 pub const SAVE_KEY: &str = "ninsei.save";
 
@@ -28,15 +31,18 @@ pub enum Tool {
     Stash,
     HexEd,
     Shell,
+    /// Prefs: themes and display settings.
+    Prefs,
 }
 
 impl Tool {
-    pub const ALL: [Tool; 5] = [
+    pub const ALL: [Tool; 6] = [
         Tool::Terminal,
         Tool::Rig,
         Tool::Stash,
         Tool::HexEd,
         Tool::Shell,
+        Tool::Prefs,
     ];
 
     /// Tools that work yet. The rest ask you to insert their disk.
@@ -52,6 +58,7 @@ impl Tool {
             Tool::Stash => "STASH",
             Tool::HexEd => "HexEd",
             Tool::Shell => "Shell",
+            Tool::Prefs => "Prefs",
         }
     }
 }
@@ -480,7 +487,7 @@ pub struct Save {
     /// Most credits carried out of a single run.
     #[serde(default)]
     pub best_haul: u32,
-    /// Phosphor theme name for runs (`amber`, `green`, `ice`).
+    /// Theme id (see `data/themes.ron`), for the desktop and runs alike.
     #[serde(default = "default_phosphor")]
     pub phosphor: String,
     #[serde(default = "default_crt")]
@@ -519,7 +526,7 @@ pub struct Save {
 }
 
 fn default_phosphor() -> String {
-    "amber".into()
+    DEFAULT_RUN_THEME.into()
 }
 
 fn default_crt() -> bool {
@@ -1185,13 +1192,15 @@ pub enum ShellEffect {
     /// Wardial a range (by id).
     Scan(String),
     Open(Tool),
+    /// Set the theme (by id): desktop and runs.
     Theme(String),
     Crt,
     Clear,
 }
 
 /// Runs one Shell line. Returns the lines to print and what to do.
-pub fn shell(line: &str, save: &Save, icons: &[IconDef]) -> (Vec<String>, ShellEffect) {
+pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect) {
+    let icons = &data.icons;
     let mut words = line.split_whitespace();
     let Some(cmd) = words.next() else {
         return (Vec::new(), ShellEffect::None);
@@ -1208,7 +1217,7 @@ pub fn shell(line: &str, save: &Save, icons: &[IconDef]) -> (Vec<String>, ShellE
                 "ranges           number ranges you know",
                 "wardial <range>  scan 100 numbers of a range",
                 "info             your record",
-                "theme <name>     run phosphor: amber | green | ice",
+                "theme <name>     colour theme, desktop and runs (see Prefs)",
                 "crt              toggle scanlines in runs",
                 "echo <text>      say something",
                 "clear            clear the window",
@@ -1325,11 +1334,18 @@ pub fn shell(line: &str, save: &Save, icons: &[IconDef]) -> (Vec<String>, ShellE
                 None => (vec![format!("{name}: object not found")], ShellEffect::None),
             }
         }
-        "theme" => match arg {
-            Some(t @ ("amber" | "green" | "ice")) => {
-                (vec![format!("phosphor: {t}")], ShellEffect::Theme(t.into()))
+        "theme" => match arg.and_then(|t| data.theme(t)) {
+            Some(t) => (
+                vec![format!("theme: {}", t.label)],
+                ShellEffect::Theme(t.id.clone()),
+            ),
+            None => {
+                let ids: Vec<&str> = data.themes.iter().map(|t| t.id.as_str()).collect();
+                (
+                    vec![format!("theme {}", ids.join(" | "))],
+                    ShellEffect::None,
+                )
             }
-            _ => (vec!["theme amber | green | ice".into()], ShellEffect::None),
         },
         "crt" => (Vec::new(), ShellEffect::Crt),
         "clear" | "cls" => (Vec::new(), ShellEffect::Clear),

@@ -176,7 +176,7 @@ fn dialing_brings_the_loadout() {
 #[test]
 fn shell_dials_by_position_or_number() {
     let (d, s) = book();
-    let run = |l: &str| hub::shell(l, &s, &d.icons);
+    let run = |l: &str| hub::shell(l, &s, &d);
     let second = &s.phonebook[1];
     assert_eq!(run("dial 2").1, ShellEffect::Dial(second.id, None));
     assert_eq!(

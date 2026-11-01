@@ -1,82 +1,13 @@
-//! Monochrome phosphor themes. Every colour on screen comes from one [`Palette`],
-//! so switching phosphor recolours the whole IDE at once.
+//! Colour themes for a run's IDE. Every colour on screen comes from one [`Palette`], built from
+//! a theme in `data/themes.ron`, so switching theme recolours the whole IDE at once.
+
+use ninsei_core::data::{ThemeDef, rgb};
 
 use egui::{
     Color32, Context, CornerRadius, FontFamily, FontId, Shadow, Stroke, TextStyle, Theme, Visuals,
 };
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Phosphor {
-    /// P3 amber, the classic terminal glow.
-    Amber,
-    /// P1 green.
-    Green,
-    /// Cold cyan, for black-ICE nights.
-    Ice,
-}
-
-impl Phosphor {
-    pub const ALL: [Phosphor; 3] = [Phosphor::Amber, Phosphor::Green, Phosphor::Ice];
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Phosphor::Amber => "amber (P3)",
-            Phosphor::Green => "green (P1)",
-            Phosphor::Ice => "ice (P4)",
-        }
-    }
-
-    /// Name used in the save and the `theme` command.
-    pub fn name(self) -> &'static str {
-        match self {
-            Phosphor::Amber => "amber",
-            Phosphor::Green => "green",
-            Phosphor::Ice => "ice",
-        }
-    }
-
-    pub fn from_name(name: &str) -> Option<Self> {
-        match name {
-            "amber" | "p3" => Some(Phosphor::Amber),
-            "green" | "p1" => Some(Phosphor::Green),
-            "ice" | "cyan" | "p4" => Some(Phosphor::Ice),
-            _ => None,
-        }
-    }
-
-    pub fn palette(self) -> Palette {
-        let hex = Color32::from_hex;
-        let c = |s: &str| hex(s).unwrap_or(Color32::WHITE);
-        match self {
-            Phosphor::Amber => Palette {
-                bg: c("#0b0700"),
-                panel: c("#120c02"),
-                faint: c("#3d2900"),
-                dim: c("#a36e00"),
-                fg: c("#ffb000"),
-                bright: c("#ffdc8a"),
-            },
-            Phosphor::Green => Palette {
-                bg: c("#010802"),
-                panel: c("#031006"),
-                faint: c("#0b3d18"),
-                dim: c("#1f9a42"),
-                fg: c("#33ff66"),
-                bright: c("#c2ffd2"),
-            },
-            Phosphor::Ice => Palette {
-                bg: c("#00070b"),
-                panel: c("#020e14"),
-                faint: c("#0b3346"),
-                dim: c("#2a8fb3"),
-                fg: c("#5fe1ff"),
-                bright: c("#d4f6ff"),
-            },
-        }
-    }
-}
-
-/// One phosphor, five intensities, from unlit glass to full glow.
+/// One theme, six intensities, from unlit glass to full glow.
 #[derive(Clone, Copy, Debug)]
 pub struct Palette {
     /// Deepest background: text fields, the network map.
@@ -91,6 +22,21 @@ pub struct Palette {
     pub fg: Color32,
     /// Highlights, damage, loot.
     pub bright: Color32,
+}
+
+impl Palette {
+    /// The palette for a theme from the data file.
+    pub fn from_def(t: &ThemeDef) -> Self {
+        let c = |h: &str| rgb(h).map_or(Color32::WHITE, |[r, g, b]| Color32::from_rgb(r, g, b));
+        Self {
+            bg: c(&t.colors.bg),
+            panel: c(&t.colors.panel),
+            faint: c(&t.colors.faint),
+            dim: c(&t.colors.dim),
+            fg: c(&t.colors.fg),
+            bright: c(&t.colors.bright),
+        }
+    }
 }
 
 pub const FONT_BODY: f32 = 14.0;
