@@ -15,6 +15,7 @@ use crate::theme::Palette;
 use ninsei_core::binary::Bin;
 use ninsei_core::hexedit::HexBuffer;
 use ninsei_core::hub::{self, IconDef, Save, ScanResult, ShellEffect, Tool, Upgrade};
+use ninsei_core::modem::Handshake;
 
 use crate::hubtools;
 
@@ -124,6 +125,8 @@ pub enum WbOut {
     /// Set the CRT display preset (by id).
     Display(String),
     Crt,
+    /// Modem sounds on/off.
+    Sound,
     Buy(Upgrade),
     ToggleStarter(String),
     ToggleStash(u32),
@@ -185,6 +188,8 @@ pub struct Workbench {
     pub(crate) scan: Option<(ScanResult, f32)>,
     /// A dial in progress: the modem handshake before jacking in.
     pub(crate) dialing: Option<Dialing>,
+    /// A dial that just started (phonebook entry id), for the app to play its handshake.
+    pub(crate) dial_started: Option<u32>,
 }
 
 /// CarrierTerm's two tabs.
@@ -202,9 +207,6 @@ pub(crate) struct Dialing {
     pub t: f32,
 }
 
-/// Seconds of handshake before the screen drags off.
-pub(crate) const DIAL_SECS: f32 = 2.2;
-
 impl Workbench {
     pub fn new(boot: Vec<String>) -> Self {
         let mut wb = Self {
@@ -220,6 +222,7 @@ impl Workbench {
             range_sel: None,
             scan: None,
             dialing: None,
+            dial_started: None,
         };
         wb.open(Tool::Shell);
         wb
@@ -306,7 +309,10 @@ impl Workbench {
         // The handshake runs on its own clock, then hands over to the jack-in drag.
         if live && let Some(d) = &mut self.dialing {
             d.t += ui.input(|i| i.stable_dt).min(0.1);
-            if d.t >= DIAL_SECS {
+            let secs = save
+                .entry(d.entry)
+                .map_or(0.0, |e| Handshake::new(&e.number).end);
+            if d.t >= secs {
                 out.push(WbOut::Dial(d.entry, d.seed));
                 self.dialing = None;
             }
@@ -595,6 +601,7 @@ impl Workbench {
             seed,
             t: 0.0,
         });
+        self.dial_started = Some(entry);
         self.open(Tool::Terminal);
     }
 
@@ -666,6 +673,7 @@ impl Workbench {
                 ShellEffect::Open(t) => self.activate(t),
                 ShellEffect::Theme(t) => out.push(WbOut::Theme(t)),
                 ShellEffect::Crt => out.push(WbOut::Crt),
+                ShellEffect::Sound => out.push(WbOut::Sound),
                 ShellEffect::Display(id) => out.push(WbOut::Display(id)),
                 ShellEffect::Clear => self.shell_lines.clear(),
             }

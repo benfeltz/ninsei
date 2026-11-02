@@ -224,6 +224,7 @@ fn bad_yields_and_fight_rewards_are_rejected() {
             networks: include_str!("../../../data/hub/networks.ron"),
             exchanges: include_str!("../../../data/hub/exchanges.ron"),
             themes: include_str!("../../../data/themes.ron"),
+            displays: include_str!("../../../data/displays.ron"),
         })
     };
     let ice = include_str!("../../../data/ice.ron");

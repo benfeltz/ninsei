@@ -9,6 +9,7 @@ mod hexview;
 mod hubtools;
 mod netmap;
 mod panes;
+mod sound;
 mod theme;
 mod workbench;
 
@@ -164,6 +165,10 @@ struct App {
     run_theme: String,
     pal: Palette,
     crt: bool,
+    /// Plays the modem handshake when you dial.
+    speaker: sound::Speaker,
+    /// Whether the BBS window was up last frame, to dial or drop the line's sound.
+    bbs_heard: bool,
     input: String,
     focus_input: bool,
     last_phase: Phase,
@@ -218,6 +223,8 @@ impl App {
         let game = Game::new(data.clone(), first_seed.unwrap_or(0));
         Self {
             crt: save.crt,
+            speaker: sound::Speaker::new(save.sound),
+            bbs_heard: false,
             data,
             save,
             save_dirty: keyed,
@@ -288,6 +295,30 @@ impl App {
         self.data
             .theme(&self.run_theme)
             .map_or(self.run_theme.clone(), |t| t.label.clone())
+    }
+
+    fn toggle_sound(&mut self) -> &'static str {
+        self.save.sound = !self.save.sound;
+        self.speaker.set_on(self.save.sound);
+        self.save_dirty = true;
+        if self.save.sound { "on" } else { "off" }
+    }
+
+    /// Starts the handshake sound when a dial begins, and cuts it when a BBS line drops.
+    fn sync_sound(&mut self) {
+        if let Some(id) = self.wb.dial_started.take()
+            && let Some(number) = self.save.entry(id).map(|e| e.number.clone())
+        {
+            self.speaker.dial(&number);
+        }
+        let open = self.bbs.is_some();
+        if open && !self.bbs_heard {
+            let phone = self.game.data.bbs.phone.clone();
+            self.speaker.dial(&phone);
+        } else if !open && self.bbs_heard {
+            self.speaker.stop();
+        }
+        self.bbs_heard = open;
     }
 
     fn toggle_crt(&mut self) {
@@ -393,7 +424,9 @@ impl App {
                 }
                 Err(e) => Err(e),
             },
-            WbOut::Dial(..) | WbOut::Theme(_) | WbOut::Crt | WbOut::Display(_) => return,
+            WbOut::Dial(..) | WbOut::Theme(_) | WbOut::Crt | WbOut::Sound | WbOut::Display(_) => {
+                return;
+            }
         };
         match result {
             Ok(msg) => {
@@ -472,6 +505,10 @@ impl App {
                 self.toggle_crt();
                 let state = if self.crt { "on" } else { "off" };
                 self.game.say(LogKind::Sys, format!("crt {state}"));
+            }
+            Command::Sound => {
+                let state = self.toggle_sound();
+                self.game.say(LogKind::Sys, format!("modem sounds {state}"));
             }
             Command::Theme(name) => {
                 if self.set_run_theme(ctx, &name) {
@@ -580,6 +617,14 @@ impl App {
                 if ui.button(crt).clicked() {
                     out.push(Request::Cmd(Command::Crt));
                 }
+                let sound = if self.save.sound {
+                    "[x] modem sounds"
+                } else {
+                    "[ ] modem sounds"
+                };
+                if ui.button(sound).clicked() {
+                    out.push(Request::Cmd(Command::Sound));
+                }
                 ui.separator();
                 let presets: Vec<(String, String)> = self
                     .data
@@ -666,6 +711,7 @@ impl eframe::App for App {
         let pal = self.pal;
         let dt = ctx.input(|i| i.stable_dt).min(0.1);
         self.screen = self.screen.tick(dt);
+        self.sync_sound();
 
         if self.screen.shows_run() {
             if self.crashed {
@@ -725,6 +771,10 @@ impl eframe::App for App {
                         self.toggle_crt();
                         self.wb
                             .say(format!("crt {}", if self.crt { "on" } else { "off" }));
+                    }
+                    WbOut::Sound => {
+                        let state = self.toggle_sound();
+                        self.wb.say(format!("modem sounds {state}"));
                     }
                     other => self.home_action(other),
                 }
