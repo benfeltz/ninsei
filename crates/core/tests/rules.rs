@@ -215,3 +215,18 @@ fn bad_yields_and_fight_rewards_are_rejected() {
     let hint = events.replace("Hint(\"yamatai\")])", "Hint(\"nowhere\")])");
     assert!(parse(ice, &hint).unwrap_err().contains("nowhere"));
 }
+
+#[test]
+fn every_completion_verb_is_a_command() {
+    for v in command::VERBS {
+        match parse_command(v) {
+            Ok(_) => {}
+            // Verbs that take an argument complain about it, not about the verb.
+            Err(e) => assert!(e.contains("needs") && !e.contains("unknown"), "{v}: {e}"),
+        }
+    }
+    for v in command::SLOT_VERBS {
+        assert!(command::VERBS.contains(v));
+        assert!(parse_command(&format!("{v} 0")).is_ok(), "{v} 0");
+    }
+}

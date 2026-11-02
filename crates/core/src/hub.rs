@@ -590,6 +590,9 @@ pub struct Save {
     /// Secondary panes bought (ids in `data/hub/panes.ron`).
     #[serde(default)]
     pub panes: Vec<String>,
+    /// The run terminal's command history, oldest first (capped at `command::HISTORY_KEEP`).
+    #[serde(default)]
+    pub term_history: Vec<String>,
 }
 
 /// A BBS whose number you know, and how you found it.
@@ -661,6 +664,7 @@ impl Default for Save {
             tiling: crate::desktop::Tiling::default(),
             tiling_help_seen: false,
             panes: Vec::new(),
+            term_history: Vec::new(),
         }
     }
 }

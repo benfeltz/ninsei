@@ -127,6 +127,14 @@ fn fresh_seed() -> u64 {
         .map_or(0x5eed, |d| d.as_nanos() as u64)
 }
 
+/// Sets `window.ninseiTyping` for `web/index.html`'s key filter.
+#[cfg(target_arch = "wasm32")]
+fn set_typing(on: bool) {
+    if let Some(w) = web_sys::window() {
+        let _ = js_sys::Reflect::set(&w, &"ninseiTyping".into(), &on.into());
+    }
+}
+
 /// The browser has no `SystemTime`; mix the clock with a random draw instead.
 #[cfg(target_arch = "wasm32")]
 fn fresh_seed() -> u64 {
@@ -204,7 +212,8 @@ struct App {
     speaker: sound::Speaker,
     /// Whether the BBS window was up last frame, to dial or drop the line's sound.
     bbs_heard: bool,
-    input: String,
+    /// The run terminal's command line (readline keys, history, completion).
+    term: ninsei_term::LineEditor,
     focus_input: bool,
     last_phase: Phase,
     last_at: usize,
@@ -298,12 +307,14 @@ impl App {
             run_theme,
             pal,
             crt_gl: CrtGl::new(),
-            input: String::new(),
+            term: ninsei_term::LineEditor::new(ninsei_core::command::HISTORY_KEEP),
             focus_input: true,
             layout_checked: 0.0,
             glitch: glitch::Glitch::default(),
         };
         me.load_layout();
+        let history = me.save.term_history.clone();
+        me.term.set_history(history);
         me
     }
 
@@ -472,7 +483,7 @@ impl App {
         self.bbs = None;
         self.hex = None;
         self.talk = EncounterView::default();
-        self.input.clear();
+        self.term.clear();
         self.focus_input = true;
         self.booked = None;
         self.crashed = false;
@@ -669,8 +680,12 @@ impl App {
                 self.add_pane(tab);
                 return;
             }
+            Request::Say(text) => {
+                self.game.say(LogKind::Sys, text);
+                return;
+            }
             Request::Type(text) => {
-                self.input = text;
+                self.term.set_text(&text);
                 self.focus_input = true;
                 return;
             }
@@ -696,6 +711,11 @@ impl App {
             Request::Cmd(c) => c,
             Request::Line(line) => {
                 self.game.say(LogKind::Sys, format!("$ {line}"));
+                // The history comes home with the save, so ↑ still knows your last commands.
+                if self.save.term_history != self.term.history() {
+                    self.save.term_history = self.term.history().to_vec();
+                    self.save_dirty = true;
+                }
                 match parse_command(&line) {
                     Ok(c) => c,
                     Err(e) => {
@@ -1016,6 +1036,10 @@ impl App {
 impl eframe::App for App {
     fn ui(&mut self, ui: &mut egui::Ui, frame: &mut eframe::Frame) {
         let ctx = ui.ctx().clone();
+        // Tell the page whether something is taking typing, so it can keep the browser's own
+        // Ctrl chords (Ctrl+R, Ctrl+L, ...) off a terminal (web/index.html).
+        #[cfg(target_arch = "wasm32")]
+        set_typing(ctx.egui_wants_keyboard_input());
         let pal = self.pal;
         let dt = ctx.input(|i| i.stable_dt).min(0.1);
         self.screen = self.screen.tick(dt);
@@ -1293,7 +1317,7 @@ impl App {
             deck: self.save.deck_def(&self.data).title(),
             chrome: self.save.firmware_def(&self.data).chrome,
             corrupt: self.glitch.corruption(),
-            input: &mut self.input,
+            term: &mut self.term,
             focus_input: &mut self.focus_input,
             // Any modal (BBS or talk) keeps the terminal from grabbing focus.
             bbs_open: self.bbs.is_some() || self.game.encounter.is_some(),
@@ -1442,6 +1466,16 @@ mod tests {
         assert_eq!(chrome::view(Chrome::Btop).combat_tab(), Tab::Network);
         assert_eq!(chrome::view(Chrome::Classic).combat_tab(), Tab::Target);
         assert_eq!(chrome::view(Chrome::Suite).combat_tab(), Tab::Target);
+    }
+
+    #[test]
+    fn the_page_blocks_exactly_the_terminal_chords() {
+        let html = include_str!("../../../web/index.html");
+        let keys: String = ninsei_term::keys::BROWSER_CTRL.iter().collect();
+        assert!(
+            html.contains(&format!("\"{keys}\".includes")),
+            "web/index.html should block {keys}"
+        );
     }
 
     #[test]

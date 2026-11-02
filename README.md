@@ -128,7 +128,7 @@ Runs are for taking things; home is for building. **Reach the exit** and the run
 | `network.map` | The run, as floating wireframes or a technical draft (below). Click a lit node to route there; nodes further than one layer ahead are fogged |
 | `target.ice` | The ICE you're fighting: strength, next intent, run buttons |
 | `hexedit` | Open any program's binary and patch its bytes (see Crafting) |
-| `terminal` | Log and command line (`help`) |
+| `terminal` | Log and command line (`help`). It's a real line editor: readline keys (`Ctrl+A`/`E`/`B`/`F`, `Alt+B`/`F`, `Ctrl+U`/`K`/`W`/`Y`), `↑`/`↓` history (kept in your save), `Ctrl+R` to search it, `Tab` to complete verbs, routes, slots and themes (twice to list them), `Ctrl+C` to drop the line and `Ctrl+L` to clear. In a browser, `Ctrl+W` belongs to the tab, so `Alt+Backspace` kills a word too |
 | `todo` | Your contracts, as an IDE TODO list: `[ ]` open, `[x]` paid, `[-]` failed |
 
 Tabs can be dragged, split and rearranged, and **your layout is saved** (one per deck firmware) and comes back next run. **view → add pane** adds secondary panes you own, which you can close again; **view → reset layout** goes back to the firmware's default.
@@ -318,6 +318,7 @@ Everything is data in [`data/`](data), compiled into the binary:
 
 ```
 crates/core/   ninsei-core: pure rules, no UI. network gen, combat, loot, warez binaries + hex buffer, BBS navigation, ANSI parsing
+crates/term/   ninsei-term: the terminals' line editor (readline keys, history, search, completion) and its egui widget
 crates/app/    ninsei: the egui + egui_dock shell. renders state, sends actions
 data/          content (RON + pipe-coded art)
 ```
