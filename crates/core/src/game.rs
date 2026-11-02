@@ -71,6 +71,8 @@ pub struct Kit {
     pub site: Option<Site>,
     /// The network's BBS: an index into `Data::boards` (0 is the default board).
     pub board: usize,
+    /// Jobs taken from a board at home for this network. They get their targets once it's built.
+    pub jobs: Vec<crate::hub::PendingJob>,
 }
 
 /// Run-wide modifiers from the network's tier, traits and heat.
@@ -263,6 +265,8 @@ pub struct Game {
     pub bbs_stock: Vec<Vec<StockFile>>,
     /// This network's BBS: an index into `Data::boards`. Read it through [`Game::bbs`].
     pub board: usize,
+    /// Whether the runner connected to the BBS: its number goes in the phonebook at home.
+    pub bbs_seen: bool,
     /// Contracts posted on the BBS jobs board, rolled when you connect.
     pub bbs_jobs: Vec<Contract>,
     /// Contracts you've taken, in every state.
@@ -292,22 +296,7 @@ impl Game {
         } else {
             0
         };
-        let bbs_stock = data.boards[board]
-            .areas
-            .iter()
-            .map(|a| {
-                let mut pool: Vec<usize> = (0..a.files.len()).collect();
-                let mut picked = Vec::new();
-                while picked.len() < a.stock as usize && !pool.is_empty() {
-                    picked.push(pool.swap_remove(rng.below(pool.len())));
-                }
-                picked.sort_unstable();
-                picked
-                    .into_iter()
-                    .map(|def| StockFile { def, bought: false })
-                    .collect()
-            })
-            .collect();
+        let bbs_stock = roll_stock(&data.boards[board], &mut rng);
         let deck = Deck {
             cpu_max: START_CPU + kit.cpu,
             ram_max: START_RAM + kit.ram,
@@ -334,6 +323,7 @@ impl Game {
             hops: 0,
             bbs_stock,
             board,
+            bbs_seen: false,
             bbs_jobs: Vec::new(),
             contracts: Vec::new(),
             encounter: None,
@@ -377,7 +367,34 @@ impl Game {
             format!("jacked in at {entry}. reach the exit before trace hits {TRACE_MAX}%."),
         );
         game.say(LogKind::Sys, "type `help` for commands.");
+        game.bring_jobs(&kit.jobs);
         game
+    }
+
+    /// Jobs taken at home: each gets a target node on this network, picked with its own RNG
+    /// so the run plays out the same with or without them. A job with no target is dropped.
+    fn bring_jobs(&mut self, jobs: &[crate::hub::PendingJob]) {
+        for (i, j) in jobs.iter().enumerate() {
+            let targets = self.contract_targets();
+            if targets.is_empty() {
+                continue;
+            }
+            let mut pick = Rng::new(self.seed ^ 0x10B5_0000 ^ i as u64);
+            let node = targets[pick.below(targets.len())];
+            let k = Contract {
+                client: j.client.clone(),
+                brief: j.brief.replace("{host}", &self.root().nodes[node].name),
+                node,
+                reward: j.reward,
+                ghost: j.ghost,
+                status: ContractStatus::Active,
+            };
+            self.say(
+                LogKind::Good,
+                format!("contract from home: {}", self.contract_line(&k)),
+            );
+            self.contracts.push(k);
+        }
     }
 
     pub fn ram_used(&self) -> u32 {
@@ -547,6 +564,14 @@ impl Game {
                 let b = self.bbs();
                 let line = format!("ATDT {} ... CONNECT {} to {}", b.phone, b.baud, b.name);
                 self.say(LogKind::Good, line);
+                if !self.bbs_seen {
+                    let note = format!(
+                        "{} noted. it'll be in your phonebook at home.",
+                        self.bbs().phone
+                    );
+                    self.say(LogKind::Info, note);
+                }
+                self.bbs_seen = true;
                 self.bbs_jobs = (0..BBS_JOBS)
                     .filter_map(|_| self.roll_contract(true))
                     .collect();
@@ -1419,4 +1444,23 @@ impl Game {
             Drop::Nothing => self.say(LogKind::Sys, "nothing worth taking."),
         }
     }
+}
+
+/// A board's listing for one visit: per area, `stock` files picked at random.
+pub fn roll_stock(def: &crate::data::BbsDef, rng: &mut Rng) -> Vec<Vec<StockFile>> {
+    def.areas
+        .iter()
+        .map(|a| {
+            let mut pool: Vec<usize> = (0..a.files.len()).collect();
+            let mut picked = Vec::new();
+            while picked.len() < a.stock as usize && !pool.is_empty() {
+                picked.push(pool.swap_remove(rng.below(pool.len())));
+            }
+            picked.sort_unstable();
+            picked
+                .into_iter()
+                .map(|def| StockFile { def, bought: false })
+                .collect()
+        })
+        .collect()
 }

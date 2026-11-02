@@ -121,6 +121,8 @@ pub enum WbOut {
     Dial(u32, Option<u64>),
     /// Wardial a range (by id).
     Scan(String),
+    /// Call a BBS from home (board id): it opens over the desktop.
+    Call(String),
     Theme(String),
     /// Set the CRT display preset (by id).
     Display(String),
@@ -536,6 +538,7 @@ impl Workbench {
                                     &mut self.term_sel,
                                     self.dialing.as_ref(),
                                     &mut dial,
+                                    &mut out,
                                 );
                             }
                         }
@@ -670,6 +673,7 @@ impl Workbench {
                     self.open(Tool::Terminal);
                     out.push(WbOut::Scan(range));
                 }
+                ShellEffect::Call(id) => out.push(WbOut::Call(id)),
                 ShellEffect::Open(t) => self.activate(t),
                 ShellEffect::Theme(t) => out.push(WbOut::Theme(t)),
                 ShellEffect::Crt => out.push(WbOut::Crt),

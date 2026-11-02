@@ -280,6 +280,7 @@ pub fn carrierterm(
     sel: &mut Option<u32>,
     dialing: Option<&Dialing>,
     dial: &mut Option<u32>,
+    out: &mut Vec<WbOut>,
 ) {
     let mono = |t: String, c| RichText::new(t).monospace().color(c);
     if let Some(d) = dialing {
@@ -323,6 +324,7 @@ pub fn carrierterm(
         ));
         return;
     }
+    boards(ui, data, save, out);
     if save.phonebook.is_empty() {
         ui.label(dim("The phonebook is empty."));
         return;
@@ -422,6 +424,27 @@ pub fn carrierterm(
         }
         ui.label(dim("double-click a number to dial it"));
     });
+}
+
+/// The BBSes you've found: call one and it opens over the desktop.
+fn boards(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
+    let known = save.known_boards(data);
+    if known.is_empty() {
+        return;
+    }
+    let mono = |t: String, c| RichText::new(t).monospace().color(c);
+    ui.label(RichText::new("BBS").color(ink()).strong());
+    for b in known {
+        let d = &data.boards[b];
+        ui.horizontal(|ui| {
+            ui.label(mono(format!("{:<9} {:<27}", d.phone, d.name), ink()));
+            ui.label(dim(format!("{}¢/call", d.call_cost)));
+            if ui.button(" Call ").clicked() {
+                out.push(WbOut::Call(d.id.clone()));
+            }
+        });
+    }
+    ui.add_space(6.0);
 }
 
 /// Finds listed beside the scan grid.
@@ -535,7 +558,9 @@ pub fn wardial(
                             ('░', fill())
                         } else {
                             let c = match a {
-                                Answer::Carrier { .. } | Answer::Trap => accent(),
+                                Answer::Carrier { .. } | Answer::Trap | Answer::Board { .. } => {
+                                    accent()
+                                }
                                 _ => ink(),
                             };
                             (a.glyph(), c)
@@ -548,14 +573,19 @@ pub fn wardial(
         ui.add_space(12.0);
         ui.vertical(|ui| {
             ui.label(dim(". voice   - busy   F fax"));
-            ui.label(dim("C CARRIER   ! TRAP"));
+            ui.label(dim("C CARRIER   ! TRAP   B BBS"));
             ui.add_space(4.0);
             // The latest finds; earlier ones are already in the phonebook.
             let finds: Vec<&(String, Answer)> = res
                 .cells
                 .iter()
                 .take(shown)
-                .filter(|(_, a)| matches!(a, Answer::Carrier { .. } | Answer::Trap))
+                .filter(|(_, a)| {
+                    matches!(
+                        a,
+                        Answer::Carrier { .. } | Answer::Trap | Answer::Board { .. }
+                    )
+                })
                 .collect();
             if finds.len() > MAX_FINDS_SHOWN {
                 ui.label(dim(format!(
@@ -573,6 +603,10 @@ pub fn wardial(
                         .map_or("?".to_string(), |e| format!("{} T{}", e.name, e.tier));
                     let tag = if *new { "-> phonebook" } else { "(known)" };
                     ui.label(mono(format!("{number} CARRIER {who} {tag}"), accent()));
+                } else if let Answer::Board { board, new } = a {
+                    let tag = if *new { "-> phonebook" } else { "(known)" };
+                    let name = data.boards.get(*board).map_or("?", |b| b.name.as_str());
+                    ui.label(mono(format!("{number} BBS {name} {tag}"), accent()));
                 } else {
                     ui.label(mono(format!("{number} TRAP: telco is listening"), accent()));
                 }

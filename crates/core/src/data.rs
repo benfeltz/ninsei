@@ -185,12 +185,19 @@ pub struct BbsDef {
     pub tiers: Vec<u32>,
     #[serde(default)]
     pub look: Look,
+    /// Phone bill for calling the board from home.
+    #[serde(default = "default_call_cost")]
+    pub call_cost: u32,
     pub bulletins: Vec<BulletinDef>,
     pub users: Vec<BbsUser>,
     pub areas: Vec<BbsAreaDef>,
     /// Pipe-coded splash art, from the board's `splash.txt`.
     #[serde(skip)]
     pub splash: String,
+}
+
+fn default_call_cost() -> u32 {
+    crate::tuning::BBS_CALL_COST
 }
 
 /// How the header bar across the top of every menu screen is drawn.

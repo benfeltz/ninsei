@@ -104,3 +104,26 @@ pub fn plain(line: &str) -> String {
         .map(|s| s.text)
         .collect()
 }
+
+/// Cuts a pipe-coded line to at most `cols` visible characters, keeping its colour codes.
+pub fn clip(line: &str, cols: usize) -> String {
+    if visible_len(line) <= cols {
+        return line.to_string();
+    }
+    let chars: Vec<char> = line.chars().collect();
+    let (mut out, mut seen, mut i) = (String::new(), 0, 0);
+    while i < chars.len() && seen < cols {
+        let code = chars[i] == '|'
+            && chars.get(i + 1).is_some_and(char::is_ascii_digit)
+            && chars.get(i + 2).is_some_and(char::is_ascii_digit);
+        if code {
+            out.extend(&chars[i..i + 3]);
+            i += 3;
+        } else {
+            out.push(chars[i]);
+            seen += 1;
+            i += 1;
+        }
+    }
+    out
+}

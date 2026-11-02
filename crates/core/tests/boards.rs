@@ -137,7 +137,12 @@ fn the_dial_log_names_the_board() {
     let to = g.net.nodes[g.at].links[0];
     g.net.nodes[to].kind = NodeKind::Bbs;
     g.apply(Action::Move(to));
-    let line = &g.log.last().unwrap().text;
+    let line = &g
+        .log
+        .iter()
+        .find(|l| l.text.contains("CONNECT"))
+        .unwrap()
+        .text;
     assert!(line.contains("CORPLINK EMPLOYEE SERVICES"), "{line}");
     assert!(line.contains("555-0100"), "{line}");
 }

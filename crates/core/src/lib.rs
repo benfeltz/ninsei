@@ -9,6 +9,7 @@ pub mod data;
 pub mod display;
 pub mod game;
 pub mod hexedit;
+pub mod home_bbs;
 pub mod hub;
 pub mod leet;
 pub mod modem;

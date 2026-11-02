@@ -22,6 +22,7 @@ use ninsei_core::{Action, Command, Data, Game, LogKind, Phase, command::HELP, pa
 
 use bbs_view::BbsView;
 use encounter_view::EncounterView;
+use ninsei_core::home_bbs::HomeCall;
 
 use crt_gl::CrtGl;
 use ninsei_core::display::{Effects, screen_to_content};
@@ -174,6 +175,8 @@ struct App {
     last_phase: Phase,
     last_at: usize,
     bbs: Option<BbsView>,
+    /// A BBS called from home, over the desktop.
+    home_bbs: Option<(BbsView, HomeCall)>,
     hex: Option<HexBuffer>,
     /// Uid of the program open in the hex editor, so trades and sales can't swap it underneath.
     hex_uid: u32,
@@ -236,6 +239,7 @@ impl App {
             first_seed,
             last_at: game.at,
             bbs: None,
+            home_bbs: None,
             hex: None,
             hex_uid: 0,
             talk: EncounterView::default(),
@@ -311,9 +315,13 @@ impl App {
         {
             self.speaker.dial(&number);
         }
-        let open = self.bbs.is_some();
+        let open = self.bbs.is_some() || self.home_bbs.is_some();
         if open && !self.bbs_heard {
-            let phone = self.game.bbs().phone.clone();
+            // A call from home dials that board's number; in a run, the network's board.
+            let phone = match &self.home_bbs {
+                Some((_, call)) => ninsei_core::bbs::Line::board(call).phone.clone(),
+                None => self.game.bbs().phone.clone(),
+            };
             self.speaker.dial(&phone);
         } else if !open && self.bbs_heard {
             self.speaker.stop();
@@ -339,6 +347,7 @@ impl App {
             }
         }
         self.save_dirty = true;
+        self.home_bbs = None;
         self.keep.clear();
         self.last_at = self.game.at;
         self.last_phase = self.game.phase;
@@ -386,7 +395,46 @@ impl App {
                 self.wb
                     .say(format!("New phone ranges: {}", r.learned.join(", ")));
             }
+            if !r.boards.is_empty() {
+                self.wb
+                    .say(format!("New BBS in CarrierTerm: {}", r.boards.join(", ")));
+            }
             self.booked = Some(r);
+        }
+    }
+
+    /// A board called from home: draws it, and applies downloads and jobs to the save.
+    fn home_bbs_ui(&mut self, ctx: &egui::Context, pal: &Palette) {
+        let Some((view, call)) = &mut self.home_bbs else {
+            return;
+        };
+        let outs = view.show(ctx, &*call, pal);
+        let board = call.board;
+        let rig = self.data.rig.clone();
+        for o in outs {
+            let result = match o {
+                Outcome::Act(ninsei_core::Action::Buy { area, file }) => {
+                    self.save.home_buy(&self.data, &rig, board, area, file)
+                }
+                Outcome::Act(ninsei_core::Action::TakeJob { job }) => {
+                    self.save.home_take(&self.data, board, job)
+                }
+                Outcome::Closed => {
+                    self.home_bbs = None;
+                    self.wb.say("NO CARRIER");
+                    return;
+                }
+                _ => continue,
+            };
+            self.save_dirty = true;
+            let fresh = self.save.home_call(&self.data, &rig, board);
+            if let Some((view, call)) = &mut self.home_bbs {
+                *call = fresh;
+                match result {
+                    Ok(msg) => self.wb.say(msg),
+                    Err(e) => view.session.status = Some(format!("|12{e}")),
+                }
+            }
         }
     }
 
@@ -424,6 +472,26 @@ impl App {
                 }
                 Err(e) => Err(e),
             },
+            WbOut::Call(id) => {
+                let Some(board) = self.data.board(&id) else {
+                    return;
+                };
+                let rig = self.data.rig.clone();
+                match self.save.call_board(&self.data, &rig, board) {
+                    Ok(call) => {
+                        let mut view = BbsView::new();
+                        view.order = egui::Order::Foreground;
+                        let d = &self.data.boards[board];
+                        let msg = format!(
+                            "CONNECT {} to {}. Phone bill -{}¢.",
+                            d.baud, d.name, d.call_cost
+                        );
+                        self.home_bbs = Some((view, call));
+                        Ok(msg)
+                    }
+                    Err(e) => Err(format!("NO CARRIER: {e}")),
+                }
+            }
             WbOut::Dial(..) | WbOut::Theme(_) | WbOut::Crt | WbOut::Sound | WbOut::Display(_) => {
                 return;
             }
@@ -778,6 +846,9 @@ impl eframe::App for App {
                     }
                     other => self.home_action(other),
                 }
+            }
+            if live {
+                self.home_bbs_ui(&ctx, &pal);
             }
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
         }

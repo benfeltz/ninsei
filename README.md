@@ -187,6 +187,19 @@ A phonebook number always reaches the same board: one of the boards for its tier
 ![dead sector splash](docs/shots/bbs-deadsector-splash.png)
 ![dead sector files](docs/shots/bbs-deadsector-areas.png)
 
+### Calling boards from home
+
+Connect to a board in a run and its number goes in CarrierTerm's phonebook, even if you flatline. Or wardial the local exchange: every board picks up on its own number and shows as `B` in the scan grid. Then call it from home (**Call** in CarrierTerm, or `dial 555-0666` in the Shell). It opens over the desktop in its own look, with the modem handshake, and costs a phone bill per call (`call_cost`).
+
+- **Files** cost bank credits. Warez go to the stash, textfiles teach their range, fragments go in the drawer. Deck mods need a live deck, so those only download in a run.
+- **Jobs** target networks already in your phonebook. A job you take waits on that number. Dial it, and the contract is on your todo list with a target on that network. If you don't finish it in that run, it's gone.
+- Listings and jobs are fixed until your next run, so calling again won't reroll them.
+- Patching and optimizing still need a BBS in a run.
+
+![boards in CarrierTerm](docs/shots/carrierterm-boards.png)
+![jobs from home](docs/shots/bbs-home-jobs.png)
+![a download from home](docs/shots/bbs-home-download.png)
+
 ### Adding a board
 
 A board is a folder: `data/bbs/<id>/board.ron` and `data/bbs/<id>/splash.txt`. The build finds every folder, so there's nothing to register. In `board.ron`:
@@ -194,6 +207,7 @@ A board is a folder: `data/bbs/<id>/board.ron` and `data/bbs/<id>/splash.txt`. T
 - `name`, `sysop`, `phone`, `baud`, `bulletins`, `users`, `areas` (files with prices, `stock` per run)
 - `tiers: [..]`: the network tiers it turns up on. Leave it empty for a board only a trait reaches (`Board("<id>")` in `hub/networks.ron`).
 - `look: (..)`: optional, every field defaults to the Gutter's. `header` (`Bar`, `Rule` or `Inverse`), CGA colours for `frame`, `bar`, `key`, `label`, `dim`, `text`, `money`, `ok`, `warn`, `aside`, plus `prompt`, `handle`, `software`, the main `menu` wording, the `goodbye` line and `leet`.
+- `call_cost`: the phone bill for calling it from home.
 - `default: true` on exactly one board (the Gutter).
 
 Splash art and bulletins use pipe codes (below), up to 78x24. `Data::validate` checks every board's warez, hints, tiers and colours, and the tests render every screen of every board to make sure it fits.
