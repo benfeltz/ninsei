@@ -32,16 +32,21 @@ python3 -m http.server -d dist 8000                         # http://localhost:8
 
 Every push to `main` builds `dist/` and publishes it to GitHub Pages (`.github/workflows/pages.yml`). One-time setup: repo **Settings → Pages → Source: GitHub Actions**.
 
-## Home: the Workbench
+## Home: your desktop
 
-Between runs you're on your own machine: a Workbench 1.3-style desktop, on the same monitor as your runs. One theme colours both; pick it in **Prefs**. Open **CarrierTerm**, pick a number from your phonebook and dial it: the modem handshakes, then the desktop drags down like an Amiga screen to reveal the run behind it. Reach the exit and you jack out home; flatline and the deck crashes first.
+Between runs you're on your own machine, on the same monitor as your runs. What the desktop looks like is up to the deck's OS: the Ono-Sendai runs **AnarchyOS**, a tiling desktop after Omarchy; the Hosaka runs **Desktop**, after Amiga Workbench 1.3. One theme colours the desktop and your runs; pick it in **Prefs**. Open **CarrierTerm**, pick a number from your phonebook and dial it: the modem handshakes, then the desktop drags down like an Amiga screen to reveal the run behind it. Reach the exit and you jack out home; flatline and the deck crashes first.
 
 ![the hub](docs/shots/hub.png)
 ![jacking in](docs/shots/hub-jackin.png)
 
 - **NinShell**: `help`, `dir`, `phonebook`, `dial <n> [seed]`, `ranges`, `wardial <range>`, `run <tool>`, `info`, `theme <id>`, `crt`, `monitor [id]`, `deck [id]`, `echo`, `leet <text>`, `clear`
 - **Prefs**: the theme (desktop and runs alike) with colour swatches, and the CRT display preset
-- Windows drag by their title bar; the close gadget is top left, the depth gadget top right
+- **Desktop**: windows drag by their title bar; the close gadget is top left, the depth gadget top right
+- **AnarchyOS**: tools open as tiles (a master on the left, a stack on the right) across workspaces, with a top bar. **Esc** is the leader key; then **Space** opens the launcher, **1-9** switches workspace, **Shift+1-9** sends the tile there, **h/l** moves focus, **Enter** swaps with the master, **x** closes, **?** shows the keys. The mouse works too.
+- **Add-ons** for each OS are sold in RIG: more workspaces, a fuzzy launcher that also runs Shell commands and a stats widget for AnarchyOS; a clock and a backdrop pattern for Desktop. They're data in [`data/hub/desktops.ron`](data/hub/desktops.ron).
+
+![AnarchyOS tiles](docs/shots/anarchy-tiles.png)
+![the launcher](docs/shots/anarchy-launcher.png)
 - Everything below saves automatically: a file on desktop, local storage in the browser
 
 ### Hardware: monitors and decks

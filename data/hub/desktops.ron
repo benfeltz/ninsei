@@ -1,0 +1,21 @@
+// Desktop add-ons: small upgrades for a desktop, bought in RIG (HARDWARE) with banked credits.
+// Each belongs to one desktop and does one thing:
+//   Workspaces(n)  +n workspaces on the tiling desktop (it starts with 3)
+//   Fuzzy          the launcher matches loosely and runs Shell commands too
+//   Stats          a run-record widget on the tiling desktop's bar
+//   Clock          an uptime clock and the bank on the Workbench's title bar
+//   Pattern        a dithered backdrop for the Workbench
+// A new add-on for an existing effect is just an entry here; a new kind of effect is a name in
+// `desktop::AddonEffect` plus the desktop that draws it.
+[
+    (id: "workspaces", desktop: Tiling,    name: "Workspace pack", price: 90,
+     blurb: "Two more workspaces. Spread out.",                       effect: Workspaces(2)),
+    (id: "fuzzy",      desktop: Tiling,    name: "fzf launcher",   price: 120,
+     blurb: "The launcher matches loosely and runs Shell commands.", effect: Fuzzy),
+    (id: "stats",      desktop: Tiling,    name: "Bar: run stats", price: 60,
+     blurb: "Runs, exits, flatlines and best haul on the bar.",       effect: Stats),
+    (id: "clock",      desktop: Workbench, name: "Clock & bank",   price: 50,
+     blurb: "An uptime clock and your bank on the title bar.",        effect: Clock),
+    (id: "pattern",    desktop: Workbench, name: "Backdrop pattern", price: 40,
+     blurb: "A dithered backdrop, like every 1.3 desktop ever.",      effect: Pattern),
+]

@@ -18,7 +18,7 @@ monitor (CRT preset) ─┼─> what you see
 deck ─> firmware ─────┘
            ├─ map      Iso | Draft             (the run's network view)
            ├─ chrome   Classic | ...           (how the run screen's panes are dressed)
-           ├─ desktop  Workbench | ...         (the overworld between runs)
+           ├─ desktop  Tiling | Workbench | ...  (the OS between runs: AnarchyOS, Desktop)
            └─ sounds   ono | hosaka | ...      (a sound pack in data/sounds/)
 ```
 
@@ -30,7 +30,7 @@ deck ─> firmware ─────┘
 |---|---|---|
 | `map` | `Iso`: wireframes over a glowing grid ✅ | `Draft`: a technical drawing ✅ |
 | `chrome` | `Btop`: boxed panes, gradient meters, dot graphs, waterfalls ✅ | productivity-suite panes: forms, spreadsheets, report charts (#37) |
-| `desktop` | a tiling desktop (#36) | `Workbench` ✅ |
+| `desktop` | `Tiling`: **AnarchyOS**, after Omarchy: tiles, workspaces, a top bar, a launcher ✅ | `Workbench`: **Desktop**, after Workbench 1.3 ✅ |
 | `sounds` | `ono`: harsh squares, noise bursts, chiptune arpeggios ✅ | `hosaka`: soft sine chimes, a polite ding, a tidy shutdown tune ✅ |
 | damage | screen glitches: tearing, RGB split, corrupted text ✅ | the same, plus corporate error dialogs (idea below) |
 
@@ -101,6 +101,8 @@ The two decks are a start. Each new one should be a new point of view, not a pal
 - **A military/ops deck:** tactical radar sweeps, contacts and bearings, NORAD war-room boards (*WarGames*, *DEFCON*).
 - **A scene deck, hand-built:** demoscene and cracktro energy, scrolling sine text, ANSI art everywhere, Amiga copper bars.
 - **A wetware/biotech deck:** organic, slow, breathing UI; signals as nerves; the network as an organism.
+
+**Adding an OS.** A deck's OS is its `desktop` part, and it gets a name (`Desktop::name`). It's built on the shared home (the Shell and the tools), so a new OS only decides how tools are arranged, how you move between them, and what the bar or menus show. Give it add-ons in `data/hub/desktops.ron` that fit its point of view: AnarchyOS sells workspaces and a fuzzy launcher, Desktop sells a clock and a backdrop.
 
 **Adding a deck**
 1. Write down its fantasy, feel, rules of thumb and comps here first.

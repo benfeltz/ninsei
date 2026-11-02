@@ -7,6 +7,7 @@ pub mod binary;
 pub mod command;
 pub mod cue;
 pub mod data;
+pub mod desktop;
 pub mod display;
 pub mod game;
 pub mod glitch;

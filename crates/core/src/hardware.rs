@@ -17,11 +17,26 @@ pub enum Chrome {
     Btop,
 }
 
-/// The overworld's look. A corporate desktop would be a new name here.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+/// The overworld's look. A new desktop is a new name here, a renderer in the app's
+/// `desktops` registry, and (optionally) add-ons in `data/hub/desktops.ron`.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub enum Desktop {
+    /// "Desktop", after Amiga Workbench 1.3: icons and windows you drag (the Hosaka).
     #[default]
     Workbench,
+    /// "AnarchyOS", after Omarchy: a keyboard-first tiling desktop with a top bar and a
+    /// launcher (the Ono-Sendai).
+    Tiling,
+}
+
+impl Desktop {
+    /// The OS's name, shown at boot, on the desktop and in Prefs.
+    pub fn name(self) -> &'static str {
+        match self {
+            Desktop::Workbench => "Desktop",
+            Desktop::Tiling => "AnarchyOS",
+        }
+    }
 }
 
 /// One UX version of a deck: which part it uses for each piece of the screen.
