@@ -468,6 +468,7 @@ pub struct Sources<'a> {
     pub icons: &'a str,
     pub netmap: &'a str,
     pub hardware: &'a str,
+    pub addons: &'a str,
     pub sounds: &'a [PackSrc<'a>],
     pub rig: &'a str,
     pub networks: &'a str,
@@ -489,6 +490,7 @@ impl Sources<'static> {
             icons: include_str!("../../../data/hub/icons.ron"),
             netmap: include_str!("../../../data/netmap.ron"),
             hardware: include_str!("../../../data/hub/hardware.ron"),
+            addons: include_str!("../../../data/hub/desktops.ron"),
             sounds: BUILTIN_SOUNDS,
             rig: include_str!("../../../data/hub/rig.ron"),
             networks: include_str!("../../../data/hub/networks.ron"),
@@ -514,6 +516,8 @@ pub struct Data {
     pub netmap: Vec<crate::netview::MapStyleDef>,
     /// Monitors and decks you can own.
     pub hardware: crate::hardware::HardwareDef,
+    /// Desktop add-ons you can buy.
+    pub addons: Vec<crate::desktop::AddonDef>,
     /// Sound packs: what each cue plays, one pack per file in `data/sounds/`.
     pub sounds: Vec<crate::cue::SoundPack>,
     /// RIG deck-shop upgrades.
@@ -555,6 +559,7 @@ impl Data {
             icons: ron::from_str(src.icons).map_err(|e| format!("hub/icons.ron: {e}"))?,
             netmap: ron::from_str(src.netmap).map_err(|e| format!("netmap.ron: {e}"))?,
             hardware: ron::from_str(src.hardware).map_err(|e| format!("hub/hardware.ron: {e}"))?,
+            addons: ron::from_str(src.addons).map_err(|e| format!("hub/desktops.ron: {e}"))?,
             sounds: src
                 .sounds
                 .iter()
@@ -645,6 +650,8 @@ impl Data {
         self.hardware
             .validate(self)
             .map_err(|e| format!("hub/hardware.ron: {e}"))?;
+        crate::desktop::AddonDef::validate(&self.addons)
+            .map_err(|e| format!("hub/desktops.ron: {e}"))?;
         if self.sounds.is_empty() {
             return Err("data/sounds/ has no sound packs".into());
         }

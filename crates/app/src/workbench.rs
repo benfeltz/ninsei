@@ -1,105 +1,16 @@
-//! The hub desktop: a Workbench 1.3-style screen with pixel-art icons, draggable windows,
-//! a Shell, the RIG / STASH / HexEd tools (see `hubtools`), and "insert volume" requesters
-//! for tools that aren't installed yet.
-//! All drawn by hand into one area so the whole screen can be dragged off a run.
+//! The Workbench 1.3 desktop (the Hosaka's): pixel-art icons, draggable windows, and
+//! "insert volume" requesters for tools that aren't installed yet. A front-end on `home`,
+//! which holds the Shell and the tools' state. All drawn by hand into one area so the whole
+//! screen can be dragged off a run.
 
-use egui::{
-    Align2, Color32, FontFamily, FontId, Id, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2, pos2,
-    vec2,
-};
-use ninsei_core::Data;
-use ninsei_core::data::ThemeDef;
-use std::cell::Cell;
+use egui::{Align2, Id, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2, pos2, vec2};
+use ninsei_core::desktop::AddonEffect;
+use ninsei_core::hardware::Desktop;
+use ninsei_core::hub::{IconDef, Tool};
 
-use crate::theme::Palette;
-use ninsei_core::binary::Bin;
-use ninsei_core::hexedit::HexBuffer;
-use ninsei_core::hub::{self, IconDef, Save, ScanResult, ShellEffect, Tool, Upgrade};
-use ninsei_core::modem::Handshake;
-
+use crate::home::{Cx, DesktopView, Home, WbOut, accent, backdrop, fill, font, ink, shadow};
 use crate::hubtools;
 
-/// The desktop's colours. Like the Amiga's palette registers: set once a frame from the desktop
-/// theme ([`set_desk`]) and read by everything that draws the hub.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Desk {
-    /// The screen behind the windows.
-    pub screen: Color32,
-    /// Window frames, title bars, text.
-    pub ink: Color32,
-    /// Darkest tone: shadows, gadget outlines.
-    pub shadow: Color32,
-    /// Selections and highlights.
-    pub accent: Color32,
-    /// Secondary text.
-    pub muted: Color32,
-    /// Fill inside icons and unlit cells.
-    pub fill: Color32,
-}
-
-impl Desk {
-    /// Workbench 1.3, used until the first theme is set.
-    pub const WORKBENCH: Desk = Desk {
-        screen: Color32::from_rgb(0x00, 0x55, 0xAA),
-        ink: Color32::from_rgb(0xFF, 0xFF, 0xFF),
-        shadow: Color32::from_rgb(0x00, 0x00, 0x22),
-        accent: Color32::from_rgb(0xFF, 0x88, 0x00),
-        muted: Color32::from_rgb(0xAA, 0xCC, 0xFF),
-        fill: Color32::from_rgb(0x00, 0x55, 0xAA),
-    };
-
-    /// A theme's six colours, mapped onto the desktop's roles.
-    pub fn from_def(t: &ThemeDef) -> Desk {
-        let p = Palette::from_def(t);
-        Desk {
-            screen: p.panel,
-            ink: p.fg,
-            shadow: p.bg,
-            accent: p.bright,
-            muted: p.dim,
-            fill: p.faint,
-        }
-    }
-}
-
-thread_local! {
-    static DESK: Cell<Desk> = const { Cell::new(Desk::WORKBENCH) };
-}
-
-/// Loads the desktop's palette registers.
-pub fn set_desk(d: Desk) {
-    DESK.with(|c| c.set(d));
-}
-
-fn desk() -> Desk {
-    DESK.with(Cell::get)
-}
-
-pub fn backdrop() -> Color32 {
-    desk().screen
-}
-
-pub fn ink() -> Color32 {
-    desk().ink
-}
-
-pub fn shadow() -> Color32 {
-    desk().shadow
-}
-
-pub fn accent() -> Color32 {
-    desk().accent
-}
-
-pub fn muted() -> Color32 {
-    desk().muted
-}
-
-pub fn fill() -> Color32 {
-    desk().fill
-}
-
-const FONT: f32 = 14.0;
 const TITLE_H: f32 = 20.0;
 const SCREEN_BAR_H: f32 = 22.0;
 /// Screen pixels per icon pixel.
@@ -108,42 +19,6 @@ const ICON_PITCH: f32 = 84.0;
 const BORDER: f32 = 2.0;
 /// Seconds between clicks that still count as a double-click.
 const DOUBLE_CLICK_SECS: f64 = 0.45;
-const SHELL_KEEP: usize = 200;
-
-fn font() -> FontId {
-    FontId::new(FONT, FontFamily::Monospace)
-}
-
-/// What the desktop asks the app to do.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub enum WbOut {
-    /// Dial a phonebook entry (and jack in), with an optional seed.
-    Dial(u32, Option<u64>),
-    /// Wardial a range (by id).
-    Scan(String),
-    /// Call a BBS from home (board id): it opens over the desktop.
-    Call(String),
-    Theme(String),
-    /// Plug in a monitor you own (by id).
-    Monitor(String),
-    /// Run with a deck you own (by id).
-    Deck(String),
-    /// Switch the deck's firmware (by id).
-    Firmware(String),
-    /// Damage glitches on, reduced or off.
-    Glitches(ninsei_core::glitch::Glitches),
-    /// Buy a monitor or deck in RIG.
-    BuyHardware(ninsei_core::hardware::Hardware),
-    Crt,
-    /// Modem sounds on/off.
-    Sound,
-    Buy(Upgrade),
-    ToggleStarter(String),
-    ToggleStash(u32),
-    Scrap(u32),
-    Patch(u32, Bin),
-    Optimize(u32),
-}
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Kind {
@@ -179,75 +54,20 @@ impl Win {
     }
 }
 
+/// The Workbench 1.3 desktop: icons down the left, windows you drag, raise and close.
 pub struct Workbench {
     /// Back to front: the last window is on top.
     wins: Vec<Win>,
     selected: Option<Tool>,
     last_click: Option<(Tool, f64)>,
-    shell_lines: Vec<String>,
-    shell_input: String,
-    focus_shell: bool,
-    /// The stash program open in HexEd: its id and the working buffer.
-    pub(crate) hex: Option<(u32, HexBuffer)>,
-    /// Phonebook entry highlighted in CarrierTerm.
-    pub(crate) term_sel: Option<u32>,
-    pub(crate) term_tab: TermTab,
-    /// Range highlighted in WarDial.
-    pub(crate) range_sel: Option<String>,
-    /// The last scan and how long it's been filling in.
-    pub(crate) scan: Option<(ScanResult, f32)>,
-    /// A dial in progress: the modem handshake before jacking in.
-    pub(crate) dialing: Option<Dialing>,
-    /// A dial that just started (phonebook entry id), for the app to play its handshake.
-    pub(crate) dial_started: Option<u32>,
-}
-
-/// CarrierTerm's two tabs.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub(crate) enum TermTab {
-    Phonebook,
-    WarDial,
-}
-
-/// The modem handshake that plays before a dial jacks you in.
-#[derive(Clone, Copy, Debug)]
-pub(crate) struct Dialing {
-    pub entry: u32,
-    pub seed: Option<u64>,
-    pub t: f32,
 }
 
 impl Workbench {
-    pub fn new(boot: Vec<String>) -> Self {
-        let mut wb = Self {
+    pub fn new() -> Self {
+        Self {
             wins: Vec::new(),
             selected: None,
             last_click: None,
-            shell_lines: boot,
-            shell_input: String::new(),
-            focus_shell: true,
-            hex: None,
-            term_sel: None,
-            term_tab: TermTab::Phonebook,
-            range_sel: None,
-            scan: None,
-            dialing: None,
-            dial_started: None,
-        };
-        wb.open(Tool::Shell);
-        wb
-    }
-
-    /// Gives the Shell the keyboard next time it's drawn.
-    pub fn focus(&mut self) {
-        self.focus_shell = true;
-    }
-
-    pub fn say(&mut self, line: impl Into<String>) {
-        self.shell_lines.push(line.into());
-        if self.shell_lines.len() > SHELL_KEEP {
-            let extra = self.shell_lines.len() - SHELL_KEEP;
-            self.shell_lines.drain(..extra);
         }
     }
 
@@ -277,69 +97,44 @@ impl Workbench {
             };
             self.wins.push(Win { kind, pos, size });
         }
-        if kind == Kind::Shell {
-            self.focus_shell = true;
-        }
     }
+}
 
+impl DesktopView for Workbench {
     /// Draws the whole screen into `ui`, dragged down by `offset` pixels.
     /// Only takes input when `live`.
-    /// Opens a stash program in HexEd.
-    pub fn edit(&mut self, id: u32, save: &Save) {
-        if let Some(bin) = save.item(id).and_then(|i| i.bin()) {
-            self.hex = Some((id, HexBuffer::open(0, bin)));
-            self.open(Tool::HexEd);
+    fn show(&mut self, ui: &mut Ui, home: &mut Home, cx: &Cx, out: &mut Vec<WbOut>) {
+        let (data, save, offset, live) = (cx.data, cx.save, cx.offset, cx.live);
+        home.prompt = "1.Desktop:> ";
+        for t in home.take_opens() {
+            self.open(t);
         }
-    }
-
-    /// Keeps the HexEd buffer in step with the stash: a successful write or an optimize
-    /// becomes the baseline, and a scrapped program closes the editor.
-    fn sync_hex(&mut self, save: &Save) {
-        let Some((id, h)) = &mut self.hex else { return };
-        match save.item(*id).and_then(|i| i.bin()) {
-            None => self.hex = None,
-            Some(bin) if h.buf == bin || !h.dirty() => h.committed(bin),
-            Some(_) => {}
-        }
-    }
-
-    /// Draws the whole screen into `ui`, dragged down by `offset` pixels.
-    /// Only takes input when `live`.
-    pub fn show(
-        &mut self,
-        ui: &mut Ui,
-        data: &Data,
-        save: &Save,
-        offset: f32,
-        live: bool,
-    ) -> Vec<WbOut> {
-        self.sync_hex(save);
         let icons = &data.icons;
-        let mut out = Vec::new();
-        // The handshake runs on its own clock, then hands over to the jack-in drag.
-        if live && let Some(d) = &mut self.dialing {
-            d.t += ui.input(|i| i.stable_dt).min(0.1);
-            let secs = save
-                .entry(d.entry)
-                .map_or(0.0, |e| Handshake::new(&e.number).end);
-            if d.t >= secs {
-                out.push(WbOut::Dial(d.entry, d.seed));
-                self.dialing = None;
-            }
-            ui.ctx().request_repaint();
-        }
-        if let Some((_, t)) = &mut self.scan
-            && *t < hubtools::SCAN_FILL_SECS
-        {
-            *t += ui.input(|i| i.stable_dt).min(0.1);
-            ui.ctx().request_repaint();
-        }
         let screen = ui.ctx().content_rect().translate(vec2(0.0, offset));
         let painter = ui.painter_at(screen);
         let at = |p: Pos2| screen.min + p.to_vec2();
 
         // Screen and its title bar.
         painter.rect_filled(screen, 0.0, backdrop());
+        let addon = |e| save.has_effect(data, Desktop::Workbench, e);
+        if addon(AddonEffect::Pattern) {
+            // The classic dithered backdrop: every other pixel, every other row.
+            let mut y = screen.top() + SCREEN_BAR_H;
+            let mut row = 0;
+            while y < screen.bottom() {
+                let mut x = screen.left() + if row % 2 == 0 { 0.0 } else { 3.0 };
+                while x < screen.right() {
+                    painter.rect_filled(
+                        Rect::from_min_size(pos2(x, y), vec2(1.5, 1.5)),
+                        0.0,
+                        fill(),
+                    );
+                    x += 6.0;
+                }
+                y += 3.0;
+                row += 1;
+            }
+        }
         let bar = Rect::from_min_size(screen.min, vec2(screen.width(), SCREEN_BAR_H));
         painter.rect_filled(bar, 0.0, ink());
         painter.line_segment(
@@ -347,7 +142,7 @@ impl Workbench {
             Stroke::new(1.0, shadow()),
         );
         let title = format!(
-            "ninsei Workbench 1.3   runs {}  exits {}  flatlines {}   best {}¢",
+            "ninsei Desktop 1.3   runs {}  exits {}  flatlines {}   best {}¢",
             save.runs, save.exits, save.flatlines, save.best_haul
         );
         painter.text(
@@ -357,6 +152,24 @@ impl Workbench {
             font(),
             backdrop(),
         );
+        if addon(AddonEffect::Clock) {
+            let up = ui.input(|i| i.time) as u64;
+            painter.text(
+                bar.right_center() - vec2(36.0, 0.0),
+                Align2::RIGHT_CENTER,
+                format!(
+                    "bank {}¢   {:02}:{:02}:{:02}",
+                    save.bank,
+                    up / 3600,
+                    up / 60 % 60,
+                    up % 60
+                ),
+                font(),
+                backdrop(),
+            );
+            ui.ctx()
+                .request_repaint_after(std::time::Duration::from_secs(1));
+        }
         depth_gadget(
             &painter,
             Rect::from_min_size(bar.right_top() + vec2(-26.0, 3.0), vec2(22.0, 16.0)),
@@ -420,7 +233,7 @@ impl Workbench {
                 self.last_click = Some((icon.tool, now));
                 if double {
                     self.last_click = None;
-                    self.activate(icon.tool);
+                    self.open(icon.tool);
                 }
             }
         }
@@ -429,8 +242,6 @@ impl Workbench {
         let mut raise = None;
         let mut close = None;
         let n = self.wins.len();
-        let mut pending_edit = None;
-        let mut pending_dial = None;
         for i in 0..n {
             let top = i + 1 == n;
             let (kind, pos, size) = (self.wins[i].kind, self.wins[i].pos, self.wins[i].size);
@@ -497,7 +308,7 @@ impl Workbench {
                 rect.max - vec2(BORDER + 4.0, BORDER + 4.0),
             );
             match kind {
-                Kind::Shell => self.shell(ui, content, data, save, live && top, &mut out),
+                Kind::Shell => home.shell(ui, content, data, save, live && top, out),
                 Kind::Rig | Kind::Stash | Kind::HexEd | Kind::Terminal | Kind::Prefs => {
                     let mut child = ui.new_child(
                         egui::UiBuilder::new()
@@ -509,64 +320,20 @@ impl Workbench {
                     if !live {
                         child.disable();
                     }
-                    let mut edit = None;
-                    let mut dial = None;
-                    match kind {
-                        Kind::Terminal => {
-                            if self.dialing.is_none() {
-                                child.horizontal(|ui| {
-                                    for (tab, label) in [
-                                        (TermTab::Phonebook, " Phonebook "),
-                                        (TermTab::WarDial, " WarDial "),
-                                    ] {
-                                        if ui
-                                            .selectable_label(self.term_tab == tab, label)
-                                            .clicked()
-                                        {
-                                            self.term_tab = tab;
-                                        }
-                                    }
-                                });
-                                child.separator();
-                            }
-                            if self.term_tab == TermTab::WarDial && self.dialing.is_none() {
-                                hubtools::wardial(
-                                    &mut child,
-                                    data,
-                                    save,
-                                    &mut self.range_sel,
-                                    self.scan.as_ref(),
-                                    &mut out,
-                                );
-                            } else {
-                                hubtools::carrierterm(
-                                    &mut child,
-                                    data,
-                                    save,
-                                    &mut self.term_sel,
-                                    self.dialing.as_ref(),
-                                    &mut dial,
-                                    &mut out,
-                                );
-                            }
-                        }
-                        Kind::Rig => hubtools::rig(&mut child, data, save, &mut out),
-                        Kind::Prefs => hubtools::prefs(&mut child, data, save, &mut out),
-                        Kind::Stash => hubtools::stash(&mut child, data, save, &mut out, &mut edit),
-                        _ => hubtools::hexed(&mut child, save, &mut self.hex, &mut out, &mut edit),
-                    }
-                    if edit.is_some() {
-                        pending_edit = edit;
-                    }
-                    if dial.is_some() {
-                        pending_dial = dial;
-                    }
+                    let tool = match kind {
+                        Kind::Terminal => Tool::Terminal,
+                        Kind::Rig => Tool::Rig,
+                        Kind::Prefs => Tool::Prefs,
+                        Kind::Stash => Tool::Stash,
+                        _ => Tool::HexEd,
+                    };
+                    home.tool_body(&mut child, tool, data, save, out);
                 }
                 Kind::Requester(tool) => {
                     if let Some(action) = requester(ui, &painter, content, tool, live, wid) {
                         match action {
                             Req::Retry => {
-                                self.say(format!("{}: still not installed.", tool.volume()))
+                                home.say(format!("{}: still not installed.", tool.volume()))
                             }
                             Req::Cancel => close = Some(i),
                         }
@@ -574,11 +341,7 @@ impl Workbench {
                 }
             }
         }
-        if let Some(id) = pending_dial {
-            self.start_dial(id, None);
-        } else if let Some(id) = pending_edit {
-            self.edit(id, save);
-        } else if let Some(i) = close {
+        if let Some(i) = close {
             if i < self.wins.len() {
                 self.wins.remove(i);
             }
@@ -588,109 +351,6 @@ impl Workbench {
         {
             let w = self.wins.remove(i);
             self.wins.push(w);
-        }
-        out
-    }
-
-    fn activate(&mut self, tool: Tool) {
-        self.open(tool);
-    }
-
-    /// Shows a finished scan filling in on the WarDial tab.
-    pub fn show_scan(&mut self, result: ScanResult) {
-        self.range_sel = Some(result.range.clone());
-        self.scan = Some((result, 0.0));
-        self.term_tab = TermTab::WarDial;
-    }
-
-    /// Starts the modem handshake for a phonebook entry, in the CarrierTerm window.
-    pub fn start_dial(&mut self, entry: u32, seed: Option<u64>) {
-        self.term_sel = Some(entry);
-        self.term_tab = TermTab::Phonebook;
-        self.dialing = Some(Dialing {
-            entry,
-            seed,
-            t: 0.0,
-        });
-        self.dial_started = Some(entry);
-        self.open(Tool::Terminal);
-    }
-
-    fn shell(
-        &mut self,
-        ui: &mut Ui,
-        rect: Rect,
-        data: &Data,
-        save: &Save,
-        focused: bool,
-        out: &mut Vec<WbOut>,
-    ) {
-        let painter = ui.painter_at(rect);
-        let row = FONT + 3.0;
-        let rows = ((rect.height() - row) / row).floor().max(0.0) as usize;
-        let start = self.shell_lines.len().saturating_sub(rows);
-        for (k, line) in self.shell_lines[start..].iter().enumerate() {
-            painter.text(
-                rect.min + vec2(0.0, k as f32 * row),
-                Align2::LEFT_TOP,
-                line,
-                font(),
-                ink(),
-            );
-        }
-        let prompt = "1.Workbench:> ";
-        let py = rect.min.y + (self.shell_lines.len() - start) as f32 * row;
-        let pw = painter
-            .text(
-                pos2(rect.min.x, py),
-                Align2::LEFT_TOP,
-                prompt,
-                font(),
-                accent(),
-            )
-            .width();
-        let input_rect =
-            Rect::from_min_max(pos2(rect.min.x + pw, py - 1.0), pos2(rect.max.x, py + row));
-        let edit = egui::TextEdit::singleline(&mut self.shell_input)
-            .frame(egui::Frame::NONE)
-            .font(font())
-            .text_color(ink())
-            .desired_width(input_rect.width())
-            .id(Id::new("wb-shell-input"));
-        let resp = ui.put(input_rect, edit);
-        if focused && self.focus_shell {
-            resp.request_focus();
-            self.focus_shell = false;
-        }
-        if resp.clicked() {
-            self.focus_shell = true;
-        }
-        if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-            let line = std::mem::take(&mut self.shell_input);
-            self.say(format!("{prompt}{line}"));
-            let (lines, effect) = hub::shell(&line, save, data);
-            for l in lines {
-                self.say(l);
-            }
-            match effect {
-                ShellEffect::None => {}
-                ShellEffect::Dial(entry, seed) => self.start_dial(entry, seed),
-                ShellEffect::Scan(range) => {
-                    self.term_tab = TermTab::WarDial;
-                    self.range_sel = Some(range.clone());
-                    self.open(Tool::Terminal);
-                    out.push(WbOut::Scan(range));
-                }
-                ShellEffect::Call(id) => out.push(WbOut::Call(id)),
-                ShellEffect::Open(t) => self.activate(t),
-                ShellEffect::Theme(t) => out.push(WbOut::Theme(t)),
-                ShellEffect::Crt => out.push(WbOut::Crt),
-                ShellEffect::Sound => out.push(WbOut::Sound),
-                ShellEffect::Monitor(id) => out.push(WbOut::Monitor(id)),
-                ShellEffect::Deck(id) => out.push(WbOut::Deck(id)),
-                ShellEffect::Clear => self.shell_lines.clear(),
-            }
-            self.focus_shell = true;
         }
     }
 }

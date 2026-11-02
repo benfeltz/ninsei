@@ -22,8 +22,8 @@ pub const DEFAULT_RUN_THEME: &str = "amber";
 /// Storage key the app saves under.
 pub const SAVE_KEY: &str = "ninsei.save";
 
-/// What double-clicking a desktop icon opens.
-#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
+/// A home tool: what a desktop icon, tile or launcher entry opens.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Tool {
     /// CarrierTerm: the phonebook you dial networks from.
     Terminal,
@@ -578,6 +578,15 @@ pub struct Save {
     /// Damage glitches: on, reduced or off.
     #[serde(default)]
     pub glitches: crate::glitch::Glitches,
+    /// Desktop add-ons bought (ids in `data/hub/desktops.ron`).
+    #[serde(default)]
+    pub addons: Vec<String>,
+    /// The tiling desktop's tiles and workspaces.
+    #[serde(default)]
+    pub tiling: crate::desktop::Tiling,
+    /// The tiling desktop's key help has been seen (it shows on first boot).
+    #[serde(default)]
+    pub tiling_help_seen: bool,
 }
 
 /// A BBS whose number you know, and how you found it.
@@ -645,6 +654,9 @@ impl Default for Save {
             firmware: String::new(),
             layouts: std::collections::BTreeMap::new(),
             glitches: crate::glitch::Glitches::On,
+            addons: Vec::new(),
+            tiling: crate::desktop::Tiling::default(),
+            tiling_help_seen: false,
         }
     }
 }

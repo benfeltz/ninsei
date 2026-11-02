@@ -11,8 +11,8 @@ use ninsei_core::tuning::HEAT_MAX;
 use ninsei_core::{Data, binary, tuning};
 
 use crate::hexview::{self, HexCtx, HexOut};
+use crate::home::{Dialing, WbOut, accent, backdrop, fill, ink, muted, shadow};
 use crate::theme::Palette;
-use crate::workbench::{Dialing, WbOut, accent, backdrop, fill, ink, muted, shadow};
 
 /// Restyles egui widgets in the 1.3 palette: blue fields, white ink, orange when pressed.
 pub fn wb_visuals(v: &mut Visuals) {
@@ -120,6 +120,8 @@ pub fn rig(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
         });
     ui.add_space(10.0);
     hardware_shop(ui, data, save, out);
+    ui.add_space(10.0);
+    addon_shop(ui, data, save, out);
     ui.add_space(6.0);
     ui.label(dim(
         "Credits come home when you reach the exit. Flatline and only the dead man's switch pays.",
@@ -180,6 +182,46 @@ fn hardware_shop(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
             }
         });
     ui.label(dim("New hardware plugs straight in. Swap in Prefs."));
+}
+
+/// RIG's ADD-ONS section: upgrades for the desktops your decks run.
+fn addon_shop(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
+    let desks: Vec<_> = save
+        .decks
+        .iter()
+        .filter_map(|d| data.hardware.deck(d))
+        .flat_map(|d| d.firmware.iter().map(|f| f.desktop))
+        .collect();
+    let items: Vec<_> = data
+        .addons
+        .iter()
+        .filter(|a| desks.contains(&a.desktop) && !save.has_addon(&a.id))
+        .collect();
+    ui.label(RichText::new("DESKTOP ADD-ONS").color(ink()).strong());
+    if items.is_empty() {
+        ui.label(dim("Nothing more for your desktops."));
+        return;
+    }
+    egui::Grid::new("addons")
+        .num_columns(4)
+        .spacing([14.0, 6.0])
+        .show(ui, |ui| {
+            for a in items {
+                ui.label(RichText::new(&a.name).color(ink()).strong())
+                    .on_hover_text(&a.blurb);
+                ui.label(dim(a.desktop.name()));
+                let can = save.bank >= a.price;
+                ui.label(RichText::new(format!("{}¢", a.price)).color(if can {
+                    ink()
+                } else {
+                    accent()
+                }));
+                if ui.add_enabled(can, egui::Button::new(" Buy ")).clicked() {
+                    out.push(WbOut::BuyAddon(a.id.clone()));
+                }
+                ui.end_row();
+            }
+        });
 }
 
 /// STASH: programs kept between runs, and what goes into the next one.
@@ -780,7 +822,11 @@ pub fn prefs(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
         ninsei_core::netview::MapView::Iso => "isometric wireframes",
         ninsei_core::netview::MapView::Draft => "technical draft",
     };
-    ui.label(dim(format!("  {}: network map as {map}", fw.label)));
+    ui.label(dim(format!(
+        "  {}: runs {}, network map as {map}",
+        fw.label,
+        fw.desktop.name()
+    )));
     ui.add_space(6.0);
     ui.label(dim(
         "New themes go in data/themes.ron, hardware in data/hub/hardware.ron.",

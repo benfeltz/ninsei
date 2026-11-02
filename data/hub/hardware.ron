@@ -10,7 +10,7 @@
 //   firmware  one or more UX versions, each built from named parts:
 //               map:     Iso (wireframes over a grid) | Draft (a flat technical drawing)
 //               chrome:  Classic | Btop (how the run screen's panes are dressed)
-//               desktop: Workbench (the overworld's look)
+//               desktop: Workbench | Tiling (the overworld's look)
 //               sounds:  a sound pack in data/sounds/ ("ono", "hosaka")
 //             The first is what the deck ships with. A new UX version is a new entry here.
 //   starter   exactly one deck is yours from the start
@@ -31,8 +31,8 @@
         (id: "onosendai", name: "Cyberspace VII", maker: "Ono-Sendai", price: 0, starter: true,
          blurb: "The cowboy's deck. Jacks you straight into the matrix: wireframes over a glowing grid.",
          firmware: [
-            (id: "7.0", label: "Cyberspace 7.0", map: Iso, chrome: Btop, desktop: Workbench, sounds: "ono"),
-            (id: "6.2", label: "Cyberspace 6.2 (classic panes)", map: Iso, chrome: Classic, desktop: Workbench, sounds: "ono"),
+            (id: "7.0", label: "Cyberspace 7.0", map: Iso, chrome: Btop, desktop: Tiling, sounds: "ono"),
+            (id: "6.2", label: "Cyberspace 6.2 (classic panes, Desktop)", map: Iso, chrome: Classic, desktop: Workbench, sounds: "ono"),
          ]),
         (id: "hosaka", name: "Executive 4", maker: "Hosaka", price: 650,
          blurb: "A corporate workstation. Sees the net as a plan: every node drafted, dimensioned and filed.",

@@ -8,6 +8,7 @@ mod crt_gl;
 mod encounter_view;
 mod glitch;
 mod hexview;
+mod home;
 mod hubtools;
 mod netmap;
 mod netmap_draft;
@@ -16,6 +17,7 @@ mod netpane;
 mod panes;
 mod sound;
 mod theme;
+mod tiling;
 mod workbench;
 
 use egui::{Key, RichText};
@@ -31,10 +33,10 @@ use ninsei_core::hardware::Chrome;
 use ninsei_core::home_bbs::HomeCall;
 
 use crt_gl::CrtGl;
+use home::{Desktops, Home, WbOut};
 use ninsei_core::display::{Effects, screen_to_content};
 use panes::{Panes, Request, Tab};
 use theme::Palette;
-use workbench::{WbOut, Workbench};
 
 #[cfg(not(target_arch = "wasm32"))]
 fn main() -> eframe::Result {
@@ -171,7 +173,9 @@ struct App {
     /// Programs (by uid) picked to keep when jacking out at the exit.
     keep: Vec<u32>,
     screen: Screen,
-    wb: Workbench,
+    /// Home's shared state (the Shell, CarrierTerm, HexEd) and every desktop that draws it.
+    home: Home,
+    desktops: Desktops,
     /// The current run, once booked (exit or flatline).
     booked: Option<RunReport>,
     /// The run ended in a flatline: the crash screen sits behind the returning desktop.
@@ -211,7 +215,7 @@ struct App {
 impl App {
     fn new(cc: &eframe::CreationContext<'_>, data: Data, first_seed: Option<u64>) -> Self {
         let mut boot = vec![
-            "ninsei Workbench 1.3".to_string(),
+            String::new(),
             String::new(),
             "Open CarrierTerm and dial a network,".to_string(),
             "or type `phonebook` here. `help` for more.".to_string(),
@@ -241,6 +245,11 @@ impl App {
         let keyed = save.ensure_phonebook(&data, fresh_seed()) || keyed;
         // Everyone starts with a deck and a monitor; a mono monitor picks the theme.
         let keyed = save.ensure_hardware(&data) || keyed;
+        boot[0] = format!(
+            "{} // {}",
+            save.firmware_def(&data).desktop.name(),
+            save.deck_def(&data).title()
+        );
         let run_theme = match data.theme(&save.phosphor) {
             Some(t) => t.id.clone(),
             None => DEFAULT_RUN_THEME.to_string(),
@@ -260,7 +269,8 @@ impl App {
             save_dirty: keyed,
             keep: Vec::new(),
             screen: Screen::Hub,
-            wb: Workbench::new(boot),
+            home: Home::new(boot),
+            desktops: Desktops::new(),
             booked: None,
             crashed: false,
             first_seed,
@@ -396,7 +406,7 @@ impl App {
 
     /// Starts the handshake sound when a dial begins, and cuts it when a BBS line drops.
     fn sync_sound(&mut self) {
-        if let Some(id) = self.wb.dial_started.take()
+        if let Some(id) = self.home.dial_started.take()
             && let Some(number) = self.save.entry(id).map(|e| e.number.clone())
         {
             self.speaker.dial(&number);
@@ -428,7 +438,7 @@ impl App {
         match self.save.dial(&self.data, entry, seed) {
             Ok(g) => self.game = g,
             Err(e) => {
-                self.wb.say(format!("NO CARRIER: {e}"));
+                self.home.say(format!("NO CARRIER: {e}"));
                 return;
             }
         }
@@ -464,25 +474,25 @@ impl App {
             self.save_dirty = true;
             match r.end {
                 RunEnd::Exit => {
-                    self.wb.say(format!(
+                    self.home.say(format!(
                         "Jacked out after {} hops. Banked {}¢.",
                         r.hops, r.banked
                     ));
                     if !r.kept.is_empty() {
-                        self.wb.say(format!("Stashed: {}", r.kept.join(", ")));
+                        self.home.say(format!("Stashed: {}", r.kept.join(", ")));
                     }
                 }
-                RunEnd::Flatline => self.wb.say(format!(
+                RunEnd::Flatline => self.home.say(format!(
                     "Flatlined after {} hops. Dead man's switch saved {} of {}¢.",
                     r.hops, r.banked, r.credits
                 )),
             }
             if !r.learned.is_empty() {
-                self.wb
+                self.home
                     .say(format!("New phone ranges: {}", r.learned.join(", ")));
             }
             if !r.boards.is_empty() {
-                self.wb
+                self.home
                     .say(format!("New BBS in CarrierTerm: {}", r.boards.join(", ")));
             }
             self.booked = Some(r);
@@ -507,7 +517,7 @@ impl App {
                 }
                 Outcome::Closed => {
                     self.home_bbs = None;
-                    self.wb.say("NO CARRIER");
+                    self.home.say("NO CARRIER");
                     return;
                 }
                 _ => continue,
@@ -517,7 +527,7 @@ impl App {
             if let Some((view, call)) = &mut self.home_bbs {
                 *call = fresh;
                 match result {
-                    Ok(msg) => self.wb.say(msg),
+                    Ok(msg) => self.home.say(msg),
                     Err(e) => view.session.status = Some(format!("|12{e}")),
                 }
             }
@@ -553,7 +563,7 @@ impl App {
                         "Wardialed block {:02}: {new} new carrier(s), {traps} trap(s). -{}¢",
                         res.block, res.cost
                     );
-                    self.wb.show_scan(res);
+                    self.home.show_scan(res);
                     Ok(msg)
                 }
                 Err(e) => Err(e),
@@ -583,6 +593,9 @@ impl App {
             | WbOut::Crt
             | WbOut::Sound
             | WbOut::Glitches(_)
+            | WbOut::HelpSeen
+            | WbOut::Tiling(_)
+            | WbOut::BuyAddon(_)
             | WbOut::Monitor(_)
             | WbOut::Deck(_)
             | WbOut::Firmware(_)
@@ -593,11 +606,11 @@ impl App {
         match result {
             Ok(msg) => {
                 if !msg.is_empty() {
-                    self.wb.say(msg);
+                    self.home.say(msg);
                 }
                 self.save_dirty = true;
             }
-            Err(e) => self.wb.say(format!("Error: {e}")),
+            Err(e) => self.home.say(format!("Error: {e}")),
         }
     }
 
@@ -605,7 +618,7 @@ impl App {
     fn go_home(&mut self) {
         self.book();
         self.bbs = None;
-        self.wb.focus();
+        self.home.focus();
         self.screen = Screen::JackOut { t: 0.0 };
     }
 
@@ -972,7 +985,7 @@ impl eframe::App for App {
         if !matches!(self.screen, Screen::Run | Screen::Crash) {
             // One theme colours everything: load the desktop's palette from it.
             if let Some(t) = self.data.theme(&self.run_theme) {
-                workbench::set_desk(workbench::Desk::from_def(t));
+                home::set_desk(home::Desk::from_def(t));
             }
             let offset = self.screen.drag() * ctx.content_rect().height();
             let live = self.screen.hub_live();
@@ -980,7 +993,7 @@ impl eframe::App for App {
             if live && ctx.input(|i| i.key_pressed(egui::Key::F8)) {
                 let msg = self.save.dev_credits();
                 self.save_dirty = true;
-                self.wb.say(msg);
+                self.home.say(msg);
             }
             let mut outs = Vec::new();
             egui::Area::new(egui::Id::new("workbench"))
@@ -989,45 +1002,62 @@ impl eframe::App for App {
                 .fixed_pos(egui::pos2(0.0, 0.0))
                 .show(&ctx, |ui| {
                     ui.set_min_size(ctx.content_rect().size());
-                    outs = self.wb.show(ui, &self.data, &self.save, offset, live);
+                    let desk = self.save.firmware_def(&self.data).desktop;
+                    let view = self.desktops.get(desk);
+                    outs = self
+                        .home
+                        .show(view, ui, &self.data, &self.save, offset, live);
                 });
             for o in outs {
                 match o {
                     WbOut::Dial(entry, seed) if live => self.dial(entry, seed),
                     WbOut::Dial(..) => {}
                     WbOut::Theme(name) => match self.set_run_theme(&ctx, &name) {
-                        Ok(label) => self.wb.say(format!("theme: {label}")),
-                        Err(e) => self.wb.say(e),
+                        Ok(label) => self.home.say(format!("theme: {label}")),
+                        Err(e) => self.home.say(e),
                     },
+                    WbOut::HelpSeen => {
+                        self.save.tiling_help_seen = true;
+                        self.save_dirty = true;
+                    }
+                    WbOut::Tiling(t) => {
+                        self.save.tiling = t;
+                        self.save_dirty = true;
+                    }
+                    WbOut::BuyAddon(id) => {
+                        let r = self.save.buy_addon(&self.data, &id);
+                        self.save_dirty = true;
+                        self.home.say(r.unwrap_or_else(|e| e));
+                    }
                     WbOut::Glitches(g) => {
                         self.save.glitches = g;
                         self.save_dirty = true;
-                        self.wb.say(format!("damage glitches {}", g.label()));
+                        self.home.say(format!("damage glitches {}", g.label()));
                     }
                     WbOut::Monitor(id) => {
                         let r = self.hardware(&ctx, |s, d| s.plug_monitor(d, &id));
-                        self.wb.say(r.unwrap_or_else(|e| e));
+                        self.home.say(r.unwrap_or_else(|e| e));
                     }
                     WbOut::Deck(id) => {
                         let r = self.hardware(&ctx, |s, d| s.use_deck(d, &id));
-                        self.wb.say(r.unwrap_or_else(|e| e));
+                        self.home.say(r.unwrap_or_else(|e| e));
                     }
                     WbOut::Firmware(id) => {
                         let r = self.hardware(&ctx, |s, d| s.use_firmware(d, &id));
-                        self.wb.say(r.unwrap_or_else(|e| e));
+                        self.home.say(r.unwrap_or_else(|e| e));
                     }
                     WbOut::BuyHardware(hw) => {
                         let r = self.hardware(&ctx, |s, d| s.buy_hardware(d, &hw));
-                        self.wb.say(r.unwrap_or_else(|e| e));
+                        self.home.say(r.unwrap_or_else(|e| e));
                     }
                     WbOut::Crt => {
                         self.toggle_crt();
-                        self.wb
+                        self.home
                             .say(format!("crt {}", if self.crt { "on" } else { "off" }));
                     }
                     WbOut::Sound => {
                         let state = self.toggle_sound();
-                        self.wb.say(format!("modem sounds {state}"));
+                        self.home.say(format!("modem sounds {state}"));
                     }
                     other => self.home_action(other),
                 }
