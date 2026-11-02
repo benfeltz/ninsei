@@ -8,6 +8,8 @@ mod encounter_view;
 mod hexview;
 mod hubtools;
 mod netmap;
+mod netmap_draft;
+mod netmap_iso;
 mod panes;
 mod sound;
 mod theme;
@@ -23,6 +25,7 @@ use ninsei_core::{Action, Command, Data, Game, LogKind, Phase, command::HELP, pa
 use bbs_view::BbsView;
 use encounter_view::EncounterView;
 use ninsei_core::home_bbs::HomeCall;
+use ninsei_core::netview::MapView;
 
 use crt_gl::CrtGl;
 use ninsei_core::display::{Effects, screen_to_content};
@@ -329,6 +332,11 @@ impl App {
         self.bbs_heard = open;
     }
 
+    fn set_map(&mut self, view: MapView) {
+        self.save.map = view;
+        self.save_dirty = true;
+    }
+
     fn toggle_crt(&mut self) {
         self.crt = !self.crt;
         self.save.crt = self.crt;
@@ -492,7 +500,12 @@ impl App {
                     Err(e) => Err(format!("NO CARRIER: {e}")),
                 }
             }
-            WbOut::Dial(..) | WbOut::Theme(_) | WbOut::Crt | WbOut::Sound | WbOut::Display(_) => {
+            WbOut::Dial(..)
+            | WbOut::Theme(_)
+            | WbOut::Crt
+            | WbOut::Sound
+            | WbOut::Map(_)
+            | WbOut::Display(_) => {
                 return;
             }
         };
@@ -521,6 +534,10 @@ impl App {
                 if self.game.at_bbs() {
                     self.bbs = Some(BbsView::new());
                 }
+                return;
+            }
+            Request::Map(view) => {
+                self.set_map(view);
                 return;
             }
             Request::GoHome => {
@@ -693,6 +710,19 @@ impl App {
                 if ui.button(sound).clicked() {
                     out.push(Request::Cmd(Command::Sound));
                 }
+                let draft = self.save.map == MapView::Draft;
+                let map = if draft {
+                    "[x] map as a draft"
+                } else {
+                    "[ ] map as a draft"
+                };
+                if ui.button(map).clicked() {
+                    out.push(Request::Map(if draft {
+                        MapView::Iso
+                    } else {
+                        MapView::Draft
+                    }));
+                }
                 ui.separator();
                 let presets: Vec<(String, String)> = self
                     .data
@@ -844,6 +874,7 @@ impl eframe::App for App {
                         let state = self.toggle_sound();
                         self.wb.say(format!("modem sounds {state}"));
                     }
+                    WbOut::Map(view) => self.set_map(view),
                     other => self.home_action(other),
                 }
             }
@@ -959,6 +990,7 @@ impl App {
         let mut panes = Panes {
             game: &self.game,
             pal,
+            map: self.save.map,
             input: &mut self.input,
             focus_input: &mut self.focus_input,
             // Any modal (BBS or talk) keeps the terminal from grabbing focus.

@@ -643,6 +643,22 @@ pub fn prefs(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
     }
     ui.add_space(8.0);
     ui.add_space(8.0);
+    ui.label(RichText::new("NETWORK MAP").color(ink()).strong());
+    ui.horizontal(|ui| {
+        use ninsei_core::netview::MapView;
+        for (view, label) in [
+            (MapView::Iso, "Isometric wireframes"),
+            (MapView::Draft, "Technical draft"),
+        ] {
+            if ui
+                .radio(save.map == view, RichText::new(label).color(ink()))
+                .clicked()
+            {
+                out.push(WbOut::Map(view));
+            }
+        }
+    });
+    ui.add_space(8.0);
     ui.label(RichText::new("DISPLAY").color(ink()).strong());
     let mut crt = save.crt;
     if ui.checkbox(&mut crt, "CRT effects").changed() {

@@ -105,13 +105,27 @@ Runs are for taking things; home is for building. **Reach the exit** and the run
 |---|---|
 | `deck.sys` | CPU (actions per turn), RAM (what's loaded), HDD (what you own), integrity (HP), trace, credits |
 | `warez/` | Your programs as a file tree: `ram/` is loaded and runnable, `hdd/` is stored |
-| `network.map` | The run. Click a lit node to route there; nodes further than one layer ahead are fogged |
+| `network.map` | The run, as floating wireframes or a technical draft (below). Click a lit node to route there; nodes further than one layer ahead are fogged |
 | `target.ice` | The ICE you're fighting: strength, next intent, run buttons |
 | `hexedit` | Open any program's binary and patch its bytes (see Crafting) |
 | `terminal` | Log and command line (`help`) |
 | `todo` | Your contracts, as an IDE TODO list: `[ ]` open, `[x]` paid, `[-]` failed |
 
 Tabs can be dragged, split and rearranged; **view → reset layout** puts them back.
+
+### The network map
+
+Nodes float over a glowing isometric grid as slowly spinning wireframes, one shape per kind:
+a cube for barrier ICE, a ring for a code gate, an icosahedron "eye" for a sentry, a spiked star for black ICE, a drum for a data vault, an octahedron for the BBS, a pyramid for MSG, a box in a box for a subnet, a landing pad for the entry and an upright ring for the exit. Your routes glow, with pulses running down them; cleared nodes go dim; the fog is `?` on dashed lines.
+
+**view → map as a draft** (or Prefs) swaps in a flat technical drawing instead: grid bubbles over each layer, a drafting symbol per node (section hatching, valve, eye, door swing...), hidden lines for the fog, a revision cloud round you, a dimension line and a title block.
+
+Both are drawn in the theme's colours. The **Synthwave** theme gives the magenta-grid, cyan-wire look; Workbench turns the draft into a blueprint. Which shape and symbol each node gets is data, in [`data/netmap.ron`](data/netmap.ron).
+
+![isometric, synthwave](docs/shots/map-iso-synthwave.png)
+![isometric, amber](docs/shots/map-iso-amber.png)
+![draft, amber](docs/shots/map-draft-amber.png)
+![draft as a blueprint](docs/shots/map-draft-blueprint.png)
 
 **Keys:** `0`-`9` run that slot, `space` ends the turn, `enter` or `/` focuses the terminal.
 **Terminal:** `run 2`, `end`, `jack 5`, `load 3`, `unload 1`, `hex 0`, `opt 0`, `newrun [hexseed]`, `theme amber|green|ice`, `crt`, `clear`.
@@ -223,6 +237,7 @@ Everything is data in [`data/`](data), compiled into the binary:
 - `contracts.ron`: contract clients and briefs
 - `bbs/<id>/board.ron`: one BBS per folder: bulletins, users, file areas, prices, stock per run, look
 - `themes.ron`, `displays.ron`: colour themes and CRT display presets
+- `netmap.ron`: the network map's shape and drafting symbol for each kind of node
 - `hub/`: desktop icons, RIG upgrades, network tiers/traits/companies, wardial ranges
 - `bbs/<id>/splash.txt`: that board's splash art. Colours use Mystic/Renegade **pipe codes** (`|00`-`|15` foreground, `|16`-`|23` background); raw ANSI `ESC[...m` escapes work too, so `.ans` art from PabloDraw or Moebius can be pasted in.
 

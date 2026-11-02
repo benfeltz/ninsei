@@ -129,6 +129,8 @@ pub enum WbOut {
     Crt,
     /// Modem sounds on/off.
     Sound,
+    /// How the network map is drawn.
+    Map(ninsei_core::netview::MapView),
     Buy(Upgrade),
     ToggleStarter(String),
     ToggleStash(u32),
