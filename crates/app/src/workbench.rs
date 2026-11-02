@@ -130,6 +130,8 @@ pub enum WbOut {
     Deck(String),
     /// Switch the deck's firmware (by id).
     Firmware(String),
+    /// Damage glitches on, reduced or off.
+    Glitches(ninsei_core::glitch::Glitches),
     /// Buy a monitor or deck in RIG.
     BuyHardware(ninsei_core::hardware::Hardware),
     Crt,

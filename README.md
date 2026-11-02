@@ -137,6 +137,12 @@ On the **Ono-Sendai** the panes are dressed btop-style: boxed with their titles 
 ![btop panes, synthwave](docs/shots/btop-synthwave.png)
 ![btop panes, amber](docs/shots/btop-amber.png)
 
+### Damage glitches
+
+Your screen breaks down as your deck does. Above 70% integrity it's clean; below that colour fringing, static and flicker creep in, then shake, wobble and bands of screen tearing sideways; near death log lines garble for a moment and patches of screen drop out. Every hit lands with a flash and a jolt sized to the damage (a shield soaking it gives a softer one). The numbers that matter (integrity, trace, CPU) are never garbled, clicks still land where you aim, and nothing flashes fast. **Prefs → Damage glitches** (or the view menu) sets it to on, reduced (just the fringe and the hit flash) or off.
+
+![damage glitches at 3/18 integrity](docs/shots/damage-glitches.png)
+
 ### The network map
 
 Nodes float over a glowing isometric grid as slowly spinning wireframes, one shape per kind:

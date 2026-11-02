@@ -717,7 +717,7 @@ impl Panes<'_> {
                             ui.spacing_mut().item_spacing.x = 6.0;
                             ui.label(text(stamp, p.faint));
                             ui.label(text(mark, col));
-                            ui.label(text(&l.text, col));
+                            ui.label(text(self.garble(&l.text), col));
                         });
                     }
                 });

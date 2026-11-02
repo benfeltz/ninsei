@@ -575,6 +575,9 @@ pub struct Save {
     /// app writes and reads; core never looks inside. Missing or unreadable: the default.
     #[serde(default)]
     pub layouts: std::collections::BTreeMap<String, String>,
+    /// Damage glitches: on, reduced or off.
+    #[serde(default)]
+    pub glitches: crate::glitch::Glitches,
 }
 
 /// A BBS whose number you know, and how you found it.
@@ -641,6 +644,7 @@ impl Default for Save {
             deck: String::new(),
             firmware: String::new(),
             layouts: std::collections::BTreeMap::new(),
+            glitches: crate::glitch::Glitches::On,
         }
     }
 }

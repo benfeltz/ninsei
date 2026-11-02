@@ -463,6 +463,11 @@ impl Game {
         self.outer.is_some()
     }
 
+    /// How badly the deck is hurting, 0 (clean) to 1 (dying), for the damage glitches.
+    pub fn glitch(&self) -> f32 {
+        crate::glitch::level(self.deck.integrity, self.deck.integrity_max)
+    }
+
     /// Whether the runner has been on node `id` of the network they're on. Routes only run
     /// forward and every node clears once you've been there, so visited nodes are your path.
     pub fn visited(&self, id: usize) -> bool {
