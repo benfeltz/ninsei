@@ -853,6 +853,12 @@ impl eframe::App for App {
             }
             let offset = self.screen.drag() * ctx.content_rect().height();
             let live = self.screen.hub_live();
+            // Dev key: free credits at home, for trying out RIG and the BBSes.
+            if live && ctx.input(|i| i.key_pressed(egui::Key::F8)) {
+                let msg = self.save.dev_credits();
+                self.save_dirty = true;
+                self.wb.say(msg);
+            }
             let mut outs = Vec::new();
             egui::Area::new(egui::Id::new("workbench"))
                 .order(egui::Order::Foreground)

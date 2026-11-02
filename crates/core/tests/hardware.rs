@@ -165,3 +165,11 @@ fn bad_hardware_is_caught() {
     assert!(err(src.replace("map: Draft", "map: Blueprint")).contains("Blueprint"));
     assert!(err(src.replace("(id: \"green\",", "(id: \"amber\",")).contains("twice"));
 }
+
+#[test]
+fn the_dev_key_fills_the_bank() {
+    let mut s = fresh(5);
+    let msg = s.dev_credits();
+    assert_eq!(s.bank, 5 + tuning::DEV_CREDITS);
+    assert!(msg.contains("dev"));
+}

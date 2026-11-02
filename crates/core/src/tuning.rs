@@ -132,3 +132,6 @@ pub const TRAP_TRACE_PCT: u32 = 5;
 
 /// Default phone bill for calling a BBS from home (a board can set its own `call_cost`).
 pub const BBS_CALL_COST: u32 = 10;
+
+/// Credits the dev key (F8 at home) drops in the bank, for trying out the shops.
+pub const DEV_CREDITS: u32 = 1000;

@@ -246,6 +246,16 @@ impl Save {
         }
     }
 
+    /// The dev key: drops `DEV_CREDITS` in the bank so the shops can be tried out.
+    pub fn dev_credits(&mut self) -> String {
+        self.bank += crate::tuning::DEV_CREDITS;
+        format!(
+            "dev: +{}¢. bank {}¢.",
+            crate::tuning::DEV_CREDITS,
+            self.bank
+        )
+    }
+
     pub fn owns(&self, hw: &Hardware) -> bool {
         match hw {
             Hardware::Monitor(id) => self.monitors.contains(id),
