@@ -935,8 +935,14 @@ impl eframe::App for App {
         self.screen = self.screen.tick(dt);
         self.sync_sound();
         // The run's sound cues: whatever happened since last frame, played together.
+        // The deck's firmware picks the sound pack.
+        let pack = self.save.firmware_def(&self.data).sounds.clone();
+        let sounds = self
+            .data
+            .sound_pack(&pack)
+            .unwrap_or(&self.data.sounds[0].sounds);
         for cue in std::mem::take(&mut self.game.cues) {
-            self.speaker.cue(cue, &self.data.sounds);
+            self.speaker.cue(cue, &pack, sounds);
         }
 
         let live = self.screen == Screen::Run && !self.crashed;

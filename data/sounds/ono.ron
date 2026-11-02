@@ -1,4 +1,6 @@
+// The Ono-Sendai's sound pack: a cowboy's modded sound card. Harsh squares, noise, chiptune.
 // Sound effects: what plays for each cue a run emits. Synthesized, never sampled, like the modem.
+// A pack is a file in data/sounds/; a deck's firmware names its pack (`sounds:` in hub/hardware.ron).
 //
 // Each cue is a few notes played one after another:
 //   wave   Square | Saw | Triangle | Sine | Noise

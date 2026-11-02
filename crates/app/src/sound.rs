@@ -20,8 +20,8 @@ pub struct Speaker {
     out: Option<backend::Out>,
     /// Opening the device failed once; don't keep trying.
     dead: bool,
-    /// Each cue rendered once, at the device's rate.
-    clips: HashMap<Cue, Arc<Vec<f32>>>,
+    /// Each cue rendered once per sound pack, at the device's rate.
+    clips: HashMap<(String, Cue), Arc<Vec<f32>>>,
 }
 
 impl Speaker {
@@ -70,11 +70,12 @@ impl Speaker {
         }
     }
 
-    /// Plays a cue over whatever else is playing.
-    pub fn cue(&mut self, cue: Cue, sounds: &[SoundDef]) {
+    /// Plays a cue from sound pack `pack` over whatever else is playing.
+    pub fn cue(&mut self, cue: Cue, pack: &str, sounds: &[SoundDef]) {
         let Some(out) = self.out() else { return };
         let rate = out.rate();
-        let clip = match self.clips.get(&cue) {
+        let key = (pack.to_string(), cue);
+        let clip = match self.clips.get(&key) {
             Some(c) => Arc::clone(c),
             None => {
                 let Some(def) = sounds.iter().find(|d| d.cue == cue) else {
@@ -82,7 +83,7 @@ impl Speaker {
                 };
                 let samples: Vec<f32> = def.render(rate).iter().map(|s| s * CUE_GAIN).collect();
                 let c = Arc::new(samples);
-                self.clips.insert(cue, Arc::clone(&c));
+                self.clips.insert(key, Arc::clone(&c));
                 c
             }
         };

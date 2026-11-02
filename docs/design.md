@@ -18,7 +18,8 @@ monitor (CRT preset) ─┼─> what you see
 deck ─> firmware ─────┘
            ├─ map      Iso | Draft             (the run's network view)
            ├─ chrome   Classic | ...           (how the run screen's panes are dressed)
-           └─ desktop  Workbench | ...         (the overworld between runs)
+           ├─ desktop  Workbench | ...         (the overworld between runs)
+           └─ sounds   ono | hosaka | ...      (a sound pack in data/sounds/)
 ```
 
 - **Colour roles.** Every part draws with the theme's six roles, darkest to brightest: `bg`, `panel`, `faint`, `dim`, `fg`, `bright`. No part brings its own colours; a deck's personality comes from shape, layout, type and motion. (The BBS window's CGA and the crash screen's red are the only exceptions.)
@@ -30,6 +31,7 @@ deck ─> firmware ─────┘
 | `map` | `Iso`: wireframes over a glowing grid ✅ | `Draft`: a technical drawing ✅ |
 | `chrome` | `Btop`: boxed panes, gradient meters, dot graphs, waterfalls ✅ | productivity-suite panes: forms, spreadsheets, report charts (#37) |
 | `desktop` | a tiling desktop (#36) | `Workbench` ✅ |
+| `sounds` | `ono`: harsh squares, noise bursts, chiptune arpeggios ✅ | `hosaka`: soft sine chimes, a polite ding, a tidy shutdown tune ✅ |
 | damage | screen glitches: tearing, RGB split, corrupted text ✅ | the same, plus corporate error dialogs (idea below) |
 
 ## The decks

@@ -14,8 +14,10 @@ fn take(g: &mut Game) -> Vec<Cue> {
 #[test]
 fn every_cue_renders_short_and_clean() {
     let d = data();
-    for c in Cue::ALL {
-        let def = d.sounds.iter().find(|s| s.cue == c).unwrap();
+    let ids: Vec<&str> = d.sounds.iter().map(|p| p.id.as_str()).collect();
+    assert_eq!(ids, ["hosaka", "ono"], "a pack per file in data/sounds/");
+    for (pack, c) in d.sounds.iter().flat_map(|p| Cue::ALL.map(|c| (p, c))) {
+        let def = pack.sounds.iter().find(|s| s.cue == c).unwrap();
         let a = def.render(44_100);
         assert!(!a.is_empty(), "{c:?}");
         assert!(a.len() <= 44_100, "{c:?} runs under a second");
@@ -30,10 +32,17 @@ fn every_cue_renders_short_and_clean() {
 
 #[test]
 fn bad_sounds_are_caught() {
-    let src = include_str!("../../../data/sounds.ron");
-    let parse = |sounds: &str| {
+    let src = include_str!("../../../data/sounds/ono.ron");
+    let parse = |text: &str| {
+        let packs = [
+            data::PackSrc {
+                id: "ono",
+                sounds: text,
+            },
+            data::BUILTIN_SOUNDS[0],
+        ];
         Data::parse(Sources {
-            sounds,
+            sounds: &packs,
             ..Sources::builtin()
         })
     };
@@ -53,7 +62,9 @@ fn bad_sounds_are_caught() {
             .unwrap_err()
             .contains("ms")
     );
-    assert!(SoundDef::validate(&data().sounds).is_ok());
+    for p in &data().sounds {
+        assert!(SoundDef::validate(&p.sounds).is_ok(), "{}", p.id);
+    }
 }
 
 #[test]
@@ -158,4 +169,33 @@ fn nobody_listening_keeps_the_queue_small() {
         g.apply(Action::Move(to));
     }
     assert!(g.cues.len() <= cue::QUEUE_MAX);
+}
+
+#[test]
+fn each_deck_sounds_like_itself() {
+    let d = data();
+    let ono = &d.hardware.deck("onosendai").unwrap().firmware[0];
+    let hosaka = &d.hardware.deck("hosaka").unwrap().firmware[0];
+    assert_eq!(
+        (ono.sounds.as_str(), hosaka.sounds.as_str()),
+        ("ono", "hosaka")
+    );
+    let hit = |pack: &str| {
+        d.sound_pack(pack)
+            .unwrap()
+            .iter()
+            .find(|s| s.cue == Cue::Hit)
+            .unwrap()
+            .render(22_050)
+    };
+    assert_ne!(hit("ono"), hit("hosaka"), "two packs, two sounds");
+    // A firmware can't name a pack that isn't there.
+    let hw = include_str!("../../../data/hub/hardware.ron")
+        .replace("sounds: \"hosaka\"", "sounds: \"nope\"");
+    let err = Data::parse(Sources {
+        hardware: &hw,
+        ..Sources::builtin()
+    })
+    .unwrap_err();
+    assert!(err.contains("unknown sound pack `nope`"), "{err}");
 }

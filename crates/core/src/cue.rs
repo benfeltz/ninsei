@@ -1,6 +1,6 @@
 //! Sound cues: what a run's actions sound like. `Game::apply` works out what happened and
 //! pushes cues onto `Game::cues`; the app drains them each frame and plays them. Recipes are
-//! data (`data/sounds.ron`), rendered here like the modem; nothing here touches the game's RNG.
+//! data (a pack per file in `data/sounds/`), rendered here like the modem; nothing here touches the game's RNG.
 
 use serde::Deserialize;
 
@@ -74,7 +74,14 @@ pub struct Note {
     pub vol: f32,
 }
 
-/// One line of `data/sounds.ron`.
+/// A sound pack: every cue, for one deck's firmware (`data/sounds/<id>.ron`).
+#[derive(Clone, Debug, PartialEq)]
+pub struct SoundPack {
+    pub id: String,
+    pub sounds: Vec<SoundDef>,
+}
+
+/// One line of a sound pack.
 #[derive(Deserialize, Clone, Debug, PartialEq)]
 pub struct SoundDef {
     pub cue: Cue,

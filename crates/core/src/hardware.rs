@@ -32,6 +32,13 @@ pub struct FirmwareDef {
     pub map: MapView,
     pub chrome: Chrome,
     pub desktop: Desktop,
+    /// The sound pack (`data/sounds/<id>.ron`) its cues play from.
+    #[serde(default = "default_sounds")]
+    pub sounds: String,
+}
+
+fn default_sounds() -> String {
+    "ono".into()
 }
 
 #[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -143,6 +150,12 @@ impl HardwareDef {
                 return Err(format!("deck `{}` has no firmware", d.id));
             }
             for (j, f) in d.firmware.iter().enumerate() {
+                if data.sound_pack(&f.sounds).is_none() {
+                    return Err(format!(
+                        "deck `{}` firmware `{}` plays unknown sound pack `{}`",
+                        d.id, f.id, f.sounds
+                    ));
+                }
                 if d.firmware[..j].iter().any(|o| o.id == f.id) {
                     return Err(format!("deck `{}` lists firmware `{}` twice", d.id, f.id));
                 }

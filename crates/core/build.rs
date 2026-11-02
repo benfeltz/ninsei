@@ -1,5 +1,6 @@
-//! Finds every BBS under `data/bbs/<id>/` (a `board.ron` and a `splash.txt`) and compiles them
-//! in, so a new board is just a new folder.
+//! Finds every BBS under `data/bbs/<id>/` (a `board.ron` and a `splash.txt`) and every sound
+//! pack under `data/sounds/<id>.ron`, and compiles them in, so a new board is a new folder and a
+//! new sound pack a new file.
 
 use std::fmt::Write;
 use std::path::Path;
@@ -38,5 +39,32 @@ fn main() {
     }
     out.push(']');
     let dest = Path::new(&std::env::var("OUT_DIR").unwrap()).join("boards.rs");
+    std::fs::write(dest, out).unwrap();
+    sound_packs();
+}
+
+fn sound_packs() {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/sounds");
+    println!("cargo:rerun-if-changed={}", root.display());
+    let mut files: Vec<_> = std::fs::read_dir(&root)
+        .expect("data/sounds")
+        .filter_map(|e| e.ok())
+        .map(|e| e.path())
+        .filter(|p| p.extension().is_some_and(|x| x == "ron"))
+        .collect();
+    files.sort();
+    let mut out = String::from("&[\n");
+    for f in &files {
+        println!("cargo:rerun-if-changed={}", f.display());
+        let id = f.file_stem().unwrap().to_string_lossy();
+        let path = format!("{:?}", f.canonicalize().unwrap().display().to_string());
+        writeln!(
+            out,
+            "    PackSrc {{ id: {id:?}, sounds: include_str!({path}) }},"
+        )
+        .unwrap();
+    }
+    out.push(']');
+    let dest = Path::new(&std::env::var("OUT_DIR").unwrap()).join("sounds.rs");
     std::fs::write(dest, out).unwrap();
 }

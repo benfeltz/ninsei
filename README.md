@@ -139,7 +139,7 @@ On the **Ono-Sendai** the panes are dressed btop-style: boxed with their titles 
 
 ### Sound
 
-Everything is synthesized, like a late-80s sound card: no samples. Dialing plays the real modem handshake for the number. In a run, short bleeps and buzzes follow what happens: a hop, ICE rezzing, a breaker hitting, a shield going up, a hit soaked or taken, a derez, loot, a BBS download, trace crossing each quarter, someone on the line, the flatline and the jack-out. Cues layer over each other and the modem on one small mixer. Recipes (waveform, pitch sweep, length, volume per note) are data in [`data/sounds.ron`](data/sounds.ron). `sound` in the Shell or terminal, Prefs, or the view menu mutes it all.
+Everything is synthesized, like a late-80s sound card: no samples. Dialing plays the real modem handshake for the number. In a run, short bleeps and buzzes follow what happens: a hop, ICE rezzing, a breaker hitting, a shield going up, a hit soaked or taken, a derez, loot, a BBS download, trace crossing each quarter, someone on the line, the flatline and the jack-out. Cues layer over each other and the modem on one small mixer. Each deck sounds like itself: the **Ono-Sendai** plays harsh squares, noise and chiptune; the **Hosaka** plays soft office chimes and a polite ding, and even its flatline is a tidy shutdown tune. Sound packs are data, one file each in [`data/sounds/`](data/sounds) (per cue: waveform, pitch sweep, length, volume per note), and a deck's firmware names its pack. `sound` in the Shell or terminal, Prefs, or the view menu mutes it all.
 
 ### Damage glitches
 
@@ -277,7 +277,7 @@ Everything is data in [`data/`](data), compiled into the binary:
 - `bbs/<id>/board.ron`: one BBS per folder: bulletins, users, file areas, prices, stock per run, look
 - `themes.ron`, `displays.ron`: colour themes and CRT display presets
 - `netmap.ron`: the network map's shape and drafting symbol for each kind of node
-- `sounds.ron`: what each sound cue plays
+- `sounds/<pack>.ron`: a sound pack, what each cue plays (a deck's firmware picks one)
 - `hub/`: desktop icons, RIG upgrades, network tiers/traits/companies, wardial ranges
 - `bbs/<id>/splash.txt`: that board's splash art. Colours use Mystic/Renegade **pipe codes** (`|00`-`|15` foreground, `|16`-`|23` background); raw ANSI `ESC[...m` escapes work too, so `.ans` art from PabloDraw or Moebius can be pasted in.
 
