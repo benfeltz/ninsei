@@ -10,7 +10,9 @@ use crate::hexview;
 use crate::netmap;
 use crate::theme::Palette;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+/// The run screen's panes. Core panes are always there; secondary panes are added from
+/// **view → add pane** and can be closed. A new pane is a variant here, a title, and a renderer.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
 pub enum Tab {
     Deck,
     Warez,
@@ -19,6 +21,27 @@ pub enum Tab {
     Hex,
     Terminal,
     Todo,
+    /// Secondary: network traffic, btop's net box.
+    Net,
+}
+
+impl Tab {
+    /// Panes every layout must have.
+    pub const CORE: [Tab; 7] = [
+        Tab::Deck,
+        Tab::Warez,
+        Tab::Network,
+        Tab::Target,
+        Tab::Hex,
+        Tab::Terminal,
+        Tab::Todo,
+    ];
+    /// Panes you add yourself, with what the add-pane menu calls them.
+    pub const SECONDARY: [(Tab, &'static str); 1] = [(Tab::Net, "net: network traffic")];
+
+    pub fn is_secondary(self) -> bool {
+        Self::SECONDARY.iter().any(|(t, _)| *t == self)
+    }
 }
 
 pub enum Request {
@@ -36,6 +59,8 @@ pub enum Request {
     Monitor(String),
     /// Run with a deck you own.
     Deck(String),
+    /// Add a secondary pane.
+    AddPane(Tab),
 }
 
 pub struct Panes<'a> {
@@ -89,6 +114,7 @@ impl egui_dock::TabViewer for Panes<'_> {
                 " hexedit "
             }
             Tab::Terminal => " terminal ",
+            Tab::Net => " net ",
             Tab::Todo => {
                 let open = self
                     .game
@@ -105,13 +131,13 @@ impl egui_dock::TabViewer for Panes<'_> {
         .into()
     }
 
-    fn is_closeable(&self, _tab: &Tab) -> bool {
-        false
+    fn is_closeable(&self, tab: &Tab) -> bool {
+        tab.is_secondary()
     }
 
     fn scroll_bars(&self, tab: &Tab) -> [bool; 2] {
         match tab {
-            Tab::Network | Tab::Terminal => [false, false],
+            Tab::Network | Tab::Terminal | Tab::Net => [false, false],
             _ => [false, true],
         }
     }
@@ -124,6 +150,7 @@ impl egui_dock::TabViewer for Panes<'_> {
             Tab::Target if btop => self.btop_target(ui),
             Tab::Terminal if btop => self.btop_terminal(ui),
             Tab::Todo if btop => self.btop_todo(ui),
+            Tab::Net => crate::netpane::show(ui, self.game, &self.pal, self.chrome),
             Tab::Deck => self.deck(ui),
             Tab::Warez => self.warez(ui),
             Tab::Network => {

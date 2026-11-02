@@ -11,6 +11,7 @@ mod hubtools;
 mod netmap;
 mod netmap_draft;
 mod netmap_iso;
+mod netpane;
 mod panes;
 mod sound;
 mod theme;
@@ -25,6 +26,7 @@ use ninsei_core::{Action, Command, Data, Game, LogKind, Phase, command::HELP, pa
 
 use bbs_view::BbsView;
 use encounter_view::EncounterView;
+use ninsei_core::hardware::Chrome;
 use ninsei_core::home_bbs::HomeCall;
 
 use crt_gl::CrtGl;
@@ -136,14 +138,29 @@ const FALLBACK_PALETTE: Palette = Palette {
     bright: egui::Color32::WHITE,
 };
 
-fn default_layout() -> DockState<Tab> {
+/// The run screen's layout a deck firmware starts with. The btop chrome puts the net
+/// traffic pane beside the terminal.
+fn default_layout(chrome: Chrome) -> DockState<Tab> {
     let mut dock = DockState::new(vec![Tab::Network, Tab::Target, Tab::Hex]);
     let tree = dock.main_surface_mut();
     let [center, left] = tree.split_left(NodeIndex::root(), 0.27, vec![Tab::Deck]);
     tree.split_below(left, 0.42, vec![Tab::Warez]);
-    tree.split_below(center, 0.68, vec![Tab::Terminal, Tab::Todo]);
+    let [_, bottom] = tree.split_below(center, 0.68, vec![Tab::Terminal, Tab::Todo]);
+    if chrome == Chrome::Btop {
+        tree.split_right(bottom, 0.55, vec![Tab::Net]);
+    }
     dock
 }
+
+/// A saved layout, if it reads back and still has every core pane; otherwise `None`.
+fn parse_layout(text: &str) -> Option<DockState<Tab>> {
+    let dock: DockState<Tab> = ron::from_str(text).ok()?;
+    let all: Vec<Tab> = dock.iter_all_tabs().map(|(_, t)| *t).collect();
+    Tab::CORE.iter().all(|t| all.contains(t)).then_some(dock)
+}
+
+/// How often the run screen's layout is checked for changes to save, in seconds.
+const LAYOUT_CHECK_SECS: f64 = 2.0;
 
 struct App {
     data: Data,
@@ -163,6 +180,8 @@ struct App {
     /// The run. Between runs this is the last one, or a placeholder before the first.
     game: Game,
     dock: DockState<Tab>,
+    /// When the layout was last compared with the saved one.
+    layout_checked: f64,
     /// The CRT shader pass (falls back to `crt.rs`'s overlay if GL can't run it).
     crt_gl: CrtGl,
     /// Run theme id (see `data/themes.ron`) and its palette.
@@ -229,7 +248,7 @@ impl App {
             .unwrap_or(FALLBACK_PALETTE);
         theme::apply(&cc.egui_ctx, &pal);
         let game = Game::new(data.clone(), first_seed.unwrap_or(0));
-        Self {
+        let mut me = Self {
             crt: save.crt,
             speaker: sound::Speaker::new(save.sound),
             bbs_heard: false,
@@ -250,12 +269,54 @@ impl App {
             talk: EncounterView::default(),
             last_phase: game.phase,
             game,
-            dock: default_layout(),
+            dock: default_layout(Chrome::Classic),
             run_theme,
             pal,
             crt_gl: CrtGl::new(),
             input: String::new(),
             focus_input: true,
+            layout_checked: 0.0,
+        };
+        me.load_layout();
+        me
+    }
+
+    /// The layout for the deck and firmware in use: the saved one, or its default.
+    fn load_layout(&mut self) {
+        let chrome = self.save.firmware_def(&self.data).chrome;
+        self.dock = self
+            .save
+            .layout(&self.data)
+            .and_then(parse_layout)
+            .unwrap_or_else(|| default_layout(chrome));
+    }
+
+    /// Writes the layout into the save when it's changed (checked every couple of seconds).
+    fn keep_layout(&mut self, now: f64) {
+        if now - self.layout_checked < LAYOUT_CHECK_SECS {
+            return;
+        }
+        self.layout_checked = now;
+        if let Ok(text) = ron::to_string(&self.dock)
+            && self.save.set_layout(&self.data, text)
+        {
+            self.save_dirty = true;
+        }
+    }
+
+    /// Adds a secondary pane: the net pane goes beside the terminal; anything else into the
+    /// focused leaf.
+    fn add_pane(&mut self, tab: Tab) {
+        if self.dock.find_tab(&tab).is_some() {
+            return;
+        }
+        match self.dock.find_tab(&Tab::Terminal) {
+            Some(at) if at.surface == egui_dock::SurfaceIndex::main() => {
+                self.dock
+                    .main_surface_mut()
+                    .split_right(at.node, 0.55, vec![tab]);
+            }
+            _ => self.dock.push_to_focused_leaf(tab),
         }
     }
 
@@ -302,8 +363,12 @@ impl App {
         change: impl FnOnce(&mut Save, &Data) -> Result<String, String>,
     ) -> Result<String, String> {
         let before = self.save.monitor.clone();
+        let layout = self.save.layout_key(&self.data);
         let msg = change(&mut self.save, &self.data)?;
         self.save_dirty = true;
+        if self.save.layout_key(&self.data) != layout {
+            self.load_layout();
+        }
         let theme = self.save.phosphor.clone();
         self.apply_theme(ctx, &theme);
         if self.save.monitor != before && !self.crt {
@@ -552,6 +617,10 @@ impl App {
                 self.game.say(LogKind::Sys, r.unwrap_or_else(|e| e));
                 return;
             }
+            Request::AddPane(tab) => {
+                self.add_pane(tab);
+                return;
+            }
             Request::Deck(id) => {
                 let r = self.hardware(ctx, |s, d| s.use_deck(d, &id));
                 self.game.say(LogKind::Sys, r.unwrap_or_else(|e| e));
@@ -710,8 +779,24 @@ impl App {
             });
             ui.menu_button("view", |ui| {
                 if ui.button("reset layout").clicked() {
-                    self.dock = default_layout();
+                    self.save.clear_layout(&self.data);
+                    self.save_dirty = true;
+                    self.load_layout();
                 }
+                ui.menu_button("add pane", |ui| {
+                    let mut any = false;
+                    for (tab, label) in Tab::SECONDARY {
+                        if self.dock.find_tab(&tab).is_none() {
+                            any = true;
+                            if ui.button(label).clicked() {
+                                out.push(Request::AddPane(tab));
+                            }
+                        }
+                    }
+                    if !any {
+                        ui.label(RichText::new("every pane is open").color(pal.dim));
+                    }
+                });
                 let crt = if self.crt {
                     "[x] crt effects"
                 } else {
@@ -1038,13 +1123,14 @@ impl App {
             .show(ui, |ui| {
                 DockArea::new(&mut self.dock)
                     .style(theme::dock_style(ui.style(), &pal))
-                    .show_close_buttons(false)
+                    .show_close_buttons(true)
                     .show_add_buttons(false)
                     .show_leaf_collapse_buttons(false)
                     .show_leaf_close_all_buttons(false)
                     .show_inside(ui, &mut panes);
             });
         requests.extend(panes.out);
+        self.keep_layout(ctx.input(|i| i.time));
 
         for r in requests {
             self.handle(&ctx, r);
@@ -1094,5 +1180,47 @@ impl App {
             }
             self.last_phase = self.game.phase;
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn default_layouts_round_trip() {
+        for chrome in [Chrome::Classic, Chrome::Btop] {
+            let dock = default_layout(chrome);
+            let text = ron::to_string(&dock).unwrap();
+            let back = parse_layout(&text).expect("a default layout reads back");
+            let tabs = |d: &DockState<Tab>| d.iter_all_tabs().map(|(_, t)| *t).collect::<Vec<_>>();
+            assert_eq!(tabs(&back), tabs(&dock));
+        }
+        let btop = default_layout(Chrome::Btop);
+        assert!(
+            btop.find_tab(&Tab::Net).is_some(),
+            "the btop chrome opens the net pane"
+        );
+        assert!(
+            default_layout(Chrome::Classic)
+                .find_tab(&Tab::Net)
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn bad_layouts_fall_back() {
+        assert!(parse_layout("not a layout").is_none());
+        // A layout missing a core pane (say, from an older build) is refused.
+        let dock = DockState::new(vec![Tab::Network]);
+        assert!(parse_layout(&ron::to_string(&dock).unwrap()).is_none());
+    }
+
+    #[test]
+    fn only_secondary_panes_close() {
+        for t in Tab::CORE {
+            assert!(!t.is_secondary());
+        }
+        assert!(Tab::Net.is_secondary());
     }
 }

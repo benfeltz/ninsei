@@ -684,6 +684,7 @@ dependencies = [
  "duplicate",
  "egui",
  "paste",
+ "serde",
  "thiserror 2.0.21",
 ]
 
@@ -1482,6 +1483,8 @@ dependencies = [
  "egui_dock",
  "js-sys",
  "ninsei-core",
+ "ron",
+ "serde",
  "wasm-bindgen",
  "wasm-bindgen-futures",
  "web-sys",
