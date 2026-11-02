@@ -5,8 +5,8 @@ use egui::{
     Align2, Color32, Context, Event, FontFamily, FontId, Key, Painter, Rect, RichText, Sense,
     Stroke, pos2, vec2,
 };
-use ninsei_core::bbs::{COLS, Outcome, ROWS, Session};
-use ninsei_core::{Game, ansi};
+use ninsei_core::ansi;
+use ninsei_core::bbs::{COLS, Line, Outcome, ROWS, Session};
 
 use crate::theme::Palette;
 
@@ -23,6 +23,8 @@ const CGA: [u32; 16] = [
 
 pub struct BbsView {
     pub session: Session,
+    /// The window's layer: over the playfield in a run, over the desktop at home.
+    pub order: egui::Order,
     /// Real ANSI colours, or the phosphor in four intensities.
     pub color: bool,
 }
@@ -49,6 +51,7 @@ impl BbsView {
     pub fn new() -> Self {
         Self {
             session: Session::new(),
+            order: egui::Order::Middle,
             color: true,
         }
     }
@@ -68,7 +71,7 @@ impl BbsView {
     }
 
     /// Runs one frame: clock, keys, drawing. Returns what the game should do.
-    pub fn show(&mut self, ctx: &Context, game: &Game, p: &Palette) -> Vec<Outcome> {
+    pub fn show(&mut self, ctx: &Context, game: &dyn Line, p: &Palette) -> Vec<Outcome> {
         let mut out = Vec::new();
         let dt = ctx.input(|i| i.stable_dt).min(0.1);
         out.push(self.session.tick(game, dt));
@@ -98,7 +101,7 @@ impl BbsView {
             out.push(self.session.key(game, k));
         }
 
-        let b = game.bbs();
+        let b = game.board();
         let font = FontId::new(FONT_SIZE, FontFamily::Monospace);
         let cw = ctx.fonts_mut(|f| f.glyph_width(&font, 'M'));
         let size = vec2(
@@ -110,6 +113,7 @@ impl BbsView {
 
         egui::Window::new(format!("TELIX 3.51 — {}  {} 8N1  ANSI-BBS", b.name, b.baud))
             .id(egui::Id::new("bbs"))
+            .order(self.order)
             .anchor(Align2::CENTER_CENTER, vec2(0.0, -20.0))
             .collapsible(false)
             .resizable(false)

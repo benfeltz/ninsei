@@ -9,6 +9,7 @@
     baud: 14400,
     default: true,
     tiers: [1, 2],
+    call_cost: 10,  // phone bill to call it from home
     // No `look`: the Gutter is what every look field defaults to.
     bulletins: [
         (title: "READ THIS FIRST", body: [

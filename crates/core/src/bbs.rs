@@ -3,7 +3,7 @@
 //! [`Session::key`] takes single keypresses like a real board, [`Session::tick`] runs the modem clock.
 
 use crate::data::{BbsDef, Drop, HeaderStyle, Look};
-use crate::game::{Action, ContractStatus, Game};
+use crate::game::{Action, ContractStatus, Game, StockFile};
 use crate::modem::Handshake;
 use crate::tuning::{BBS_CPS, BBS_HANGUP_SECS};
 
@@ -13,6 +13,79 @@ pub const COLS: usize = 78;
 pub const ROWS: usize = 24;
 /// Seconds after CONNECT the ANSI line shows.
 const MODEM_ANSI_AFTER: f32 = 0.15;
+
+/// One post on a jobs board, wherever the board was reached from.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct JobPost {
+    pub client: String,
+    pub reward: u32,
+    /// What to hit: a node in a run, a network in the phonebook from home.
+    pub target: String,
+    /// Where it is: `layer 3`, or a phone number.
+    pub detail: String,
+    pub brief: String,
+    /// Ghost bonus: (trace cap, bonus).
+    pub ghost: Option<(u32, u32)>,
+    pub taken: bool,
+}
+
+/// The other end of the line: everything a BBS session reads. A board reached in a run
+/// ([`Game`]) or called from home ([`crate::hub::HomeCall`]).
+pub trait Line {
+    fn board(&self) -> &BbsDef;
+    /// Today's listing: per area, the files on offer.
+    fn stock(&self) -> &[Vec<StockFile>];
+    fn jobs(&self) -> Vec<JobPost>;
+    /// Credits you can spend: the deck's in a run, the bank's at home.
+    fn credits(&self) -> u32;
+    /// Where downloads land, and how much room is left there (`Free slots`, `Stash`).
+    fn room(&self) -> (&'static str, u32);
+    /// Why a file can't be bought right now, if it can't.
+    fn buy_blocker(&self, area: usize, file: usize) -> Option<String>;
+}
+
+impl Line for Game {
+    fn board(&self) -> &BbsDef {
+        self.bbs()
+    }
+
+    fn stock(&self) -> &[Vec<StockFile>] {
+        &self.bbs_stock
+    }
+
+    fn jobs(&self) -> Vec<JobPost> {
+        self.bbs_jobs
+            .iter()
+            .map(|j| {
+                let n = &self.root().nodes[j.node];
+                JobPost {
+                    client: j.client.clone(),
+                    reward: j.reward,
+                    target: n.name.clone(),
+                    detail: format!("layer {}", n.layer),
+                    brief: j.brief.clone(),
+                    ghost: j.ghost,
+                    taken: j.status != ContractStatus::Offered,
+                }
+            })
+            .collect()
+    }
+
+    fn credits(&self) -> u32 {
+        self.deck.credits
+    }
+
+    fn room(&self) -> (&'static str, u32) {
+        (
+            "Free slots",
+            self.deck.hdd_max.saturating_sub(self.hdd.len() as u32),
+        )
+    }
+
+    fn buy_blocker(&self, area: usize, file: usize) -> Option<String> {
+        Game::buy_blocker(self, area, file)
+    }
+}
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Screen {
@@ -60,11 +133,11 @@ impl Session {
     }
 
     /// Advances modem time by `dt` seconds.
-    pub fn tick(&mut self, game: &Game, dt: f32) -> Outcome {
+    pub fn tick(&mut self, game: &dyn Line, dt: f32) -> Outcome {
         match &mut self.screen {
             Screen::Dialing { t } => {
                 *t += dt;
-                if *t >= Handshake::new(&game.bbs().phone).end {
+                if *t >= Handshake::new(&game.board().phone).end {
                     self.screen = Screen::Splash;
                 }
             }
@@ -95,8 +168,8 @@ impl Session {
     }
 
     /// The hotkeys the current screen accepts, with labels (for clickable buttons).
-    pub fn keys(&self, game: &Game) -> Vec<(char, String)> {
-        let b = game.bbs();
+    pub fn keys(&self, game: &dyn Line) -> Vec<(char, String)> {
+        let b = game.board();
         match self.screen {
             Screen::Dialing { .. } | Screen::Download { .. } | Screen::Hangup { .. } => Vec::new(),
             Screen::Splash => vec![('\n', "continue".into())],
@@ -108,15 +181,15 @@ impl Session {
                 ('G', "bye".into()),
             ],
             Screen::Bulletins => numbered(b.bulletins.len(), "Q"),
-            Screen::Jobs => numbered(game.bbs_jobs.len(), "Q"),
+            Screen::Jobs => numbered(game.jobs().len(), "Q"),
             Screen::Areas => numbered(b.areas.len(), "Q"),
-            Screen::Area(a) => numbered(game.bbs_stock[a].len(), "Q"),
+            Screen::Area(a) => numbered(game.stock()[a].len(), "Q"),
             Screen::Bulletin(_) | Screen::Who => vec![('Q', "back".into())],
         }
     }
 
     /// Handles one keypress. Letters are case-insensitive; Escape counts as `Q`.
-    pub fn key(&mut self, game: &Game, key: char) -> Outcome {
+    pub fn key(&mut self, game: &dyn Line, key: char) -> Outcome {
         let k = key.to_ascii_uppercase();
         let back = k == 'Q' || k == '\x1b';
         let digit = k.to_digit(10).map(|d| d as usize);
@@ -132,7 +205,7 @@ impl Session {
                 _ => self.status = Some(format!("|12Unknown command '{}'.", printable(key))),
             },
             Screen::Bulletins => match digit {
-                Some(n) if (1..=game.bbs().bulletins.len()).contains(&n) => {
+                Some(n) if (1..=game.board().bulletins.len()).contains(&n) => {
                     self.go(Screen::Bulletin(n - 1))
                 }
                 _ if back => self.go(Screen::Main),
@@ -149,8 +222,8 @@ impl Session {
                 }
             }
             Screen::Jobs => match digit {
-                Some(n) if (1..=game.bbs_jobs.len()).contains(&n) => {
-                    if game.bbs_jobs[n - 1].status == ContractStatus::Offered {
+                Some(n) if (1..=game.jobs().len()).contains(&n) => {
+                    if !game.jobs()[n - 1].taken {
                         self.status = Some("|10Job accepted. It's on your todo list.".into());
                         return Outcome::Act(Action::TakeJob { job: n - 1 });
                     }
@@ -160,14 +233,14 @@ impl Session {
                 _ => {}
             },
             Screen::Areas => match digit {
-                Some(n) if (1..=game.bbs().areas.len()).contains(&n) => {
+                Some(n) if (1..=game.board().areas.len()).contains(&n) => {
                     self.go(Screen::Area(n - 1))
                 }
                 _ if back => self.go(Screen::Main),
                 _ => {}
             },
             Screen::Area(a) => match digit {
-                Some(n) if (1..=game.bbs_stock[a].len()).contains(&n) => {
+                Some(n) if (1..=game.stock()[a].len()).contains(&n) => {
                     let file = n - 1;
                     match game.buy_blocker(a, file) {
                         Some(why) => self.status = Some(format!("|12{why}")),
@@ -191,8 +264,8 @@ impl Session {
     }
 
     /// The whole screen as pipe-coded lines, at most [`ROWS`] of them, in the board's look.
-    pub fn render(&self, game: &Game) -> Vec<String> {
-        let b = game.bbs();
+    pub fn render(&self, game: &dyn Line) -> Vec<String> {
+        let b = game.board();
         let l = &b.look;
         let [fr, k, lb, dm, tx, mo, ok, wn, aside] = [
             l.frame, l.key, l.label, l.dim, l.text, l.money, l.ok, l.warn, l.aside,
@@ -246,10 +319,11 @@ impl Session {
                 }
                 out.push(String::new());
                 out.push(format!(
-                    "   {dm}Handle: {tx}{}   {dm}Credits: {mo}{}¢   {dm}Free slots: {tx}{}",
+                    "   {dm}Handle: {tx}{}   {dm}Credits: {mo}{}¢   {dm}{}: {tx}{}",
                     l.handle,
-                    game.deck.credits,
-                    game.deck.hdd_max.saturating_sub(game.hdd.len() as u32)
+                    game.credits(),
+                    game.room().0,
+                    game.room().1
                 ));
                 out.push(String::new());
                 out.push(prompt("Command"));
@@ -300,23 +374,24 @@ impl Session {
             Screen::Jobs => {
                 header(&mut out, b, "JOBS BOARD");
                 out.push(String::new());
-                if game.bbs_jobs.is_empty() {
+                let jobs = game.jobs();
+                if jobs.is_empty() {
                     out.push(format!(
                         "   {dm}Nothing posted. Check back next time you dial in."
                     ));
                 }
-                for (i, j) in game.bbs_jobs.iter().enumerate() {
-                    let n = &game.root().nodes[j.node];
-                    let taken = j.status != ContractStatus::Offered;
+                for (i, j) in jobs.iter().enumerate() {
+                    let taken = j.taken;
                     let (num, name) = if taken { (&dm, &dm) } else { (&k, &lb) };
-                    out.push(format!(
-                        "   {fr}[{num}{}{fr}] {name}{:<24}{mo}{:>5}¢ {dm}target {tx}{} {dm}layer {}",
+                    let line = format!(
+                        "   {fr}[{num}{}{fr}] {name}{:<24}{mo}{:>5}¢ {dm}target {tx}{} {dm}{}",
                         i + 1,
                         j.client,
                         j.reward,
-                        n.name,
-                        n.layer
-                    ));
+                        j.target,
+                        j.detail
+                    );
+                    out.push(crate::ansi::clip(&line, COLS));
                     let brief: String = j.brief.chars().take(68).collect();
                     out.push(format!("       {tx}{brief}"));
                     match (taken, j.ghost) {
@@ -334,7 +409,7 @@ impl Session {
                 header(&mut out, b, "FILE AREAS");
                 out.push(String::new());
                 for (i, a) in b.areas.iter().enumerate() {
-                    let left = game.bbs_stock[i].iter().filter(|f| !f.bought).count();
+                    let left = game.stock()[i].iter().filter(|f| !f.bought).count();
                     out.push(format!(
                         "   {} {lb}{:<26}{dm}{left} file(s)",
                         hot(&(i + 1).to_string()),
@@ -353,7 +428,7 @@ impl Session {
                     "#", "FILENAME", "SIZE", "CRED", "DESCRIPTION"
                 ));
                 out.push(format!("   {dm}{}", "─".repeat(70)));
-                for (i, s) in game.bbs_stock[a].iter().enumerate() {
+                for (i, s) in game.stock()[a].iter().enumerate() {
                     let f = &area.files[s.def];
                     let size = file_size(&f.file);
                     if s.bought {
@@ -365,7 +440,7 @@ impl Session {
                             "--"
                         ));
                     } else {
-                        let price = if game.credits_ok(f.price) { &mo } else { &wn };
+                        let price = if game.credits() >= f.price { &mo } else { &wn };
                         out.push(format!(
                             "   {k}{:<3}{lb}{:<14}{tx}{:>7}k{price}{:>6}¢  {tx}{}{}",
                             i + 1,
@@ -378,7 +453,7 @@ impl Session {
                     }
                 }
                 out.push(String::new());
-                out.push(format!("   {dm}Credits: {mo}{}¢", game.deck.credits));
+                out.push(format!("   {dm}Credits: {mo}{}¢", game.credits()));
                 out.push(pick("Download"));
             }
             Screen::Download { area, file, t } => {
@@ -496,9 +571,9 @@ fn centered(line: &str) -> String {
     format!("{}{line}", " ".repeat(pad))
 }
 
-fn file_def(game: &Game, area: usize, file: usize) -> &crate::data::BbsFileDef {
-    let s = game.bbs_stock[area][file];
-    &game.bbs().areas[area].files[s.def]
+fn file_def(game: &dyn Line, area: usize, file: usize) -> &crate::data::BbsFileDef {
+    let s = game.stock()[area][file];
+    &game.board().areas[area].files[s.def]
 }
 
 /// A stable fake file size from the filename.
@@ -509,7 +584,7 @@ pub fn file_size(name: &str) -> u32 {
     40_000 + h % 90_000
 }
 
-fn transfer_secs(game: &Game, area: usize, file: usize) -> f32 {
+fn transfer_secs(game: &dyn Line, area: usize, file: usize) -> f32 {
     file_size(&file_def(game, area, file).file) as f32 / BBS_CPS
 }
 

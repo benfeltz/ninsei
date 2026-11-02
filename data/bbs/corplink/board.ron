@@ -6,6 +6,7 @@
     phone: "555-0100",
     baud: 28800,
     tiers: [2, 3],
+    call_cost: 25,  // phone bill to call it from home
     look: (
         software: "PCBoard v15.2 / Corporate Edition",
         header: Inverse,

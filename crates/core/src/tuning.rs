@@ -129,3 +129,6 @@ pub const HEAT_TRACE_PCT: u32 = 5;
 pub const WARDIAL_BLOCK: u32 = 100;
 pub const LOCAL_RANGE: &str = "local";
 pub const TRAP_TRACE_PCT: u32 = 5;
+
+/// Default phone bill for calling a BBS from home (a board can set its own `call_cost`).
+pub const BBS_CALL_COST: u32 = 10;

@@ -312,6 +312,11 @@ pub enum Answer {
     },
     /// The telco is watching this line.
     Trap,
+    /// A BBS (index into `Data::boards`), and whether its number is new to you.
+    Board {
+        board: usize,
+        new: bool,
+    },
 }
 
 impl Answer {
@@ -324,6 +329,7 @@ impl Answer {
             Answer::Fax => 'F',
             Answer::Carrier { .. } => 'C',
             Answer::Trap => '!',
+            Answer::Board { .. } => 'B',
         }
     }
 }
@@ -547,6 +553,37 @@ pub struct Save {
     /// Traps tripped since the last dial: extra trace on the next run.
     #[serde(default)]
     pub telco_heat: u32,
+    /// BBS numbers you know (board ids), and where you found them.
+    #[serde(default)]
+    pub boards: Vec<KnownBoard>,
+    /// Files downloaded from home since the last run: (board, area, listing #).
+    #[serde(default)]
+    pub home_bought: Vec<(String, usize, usize)>,
+    /// Jobs taken from home since the last run: (board, job #).
+    #[serde(default)]
+    pub home_taken: Vec<(String, usize)>,
+    /// Jobs taken from home, waiting for their network to be dialed.
+    #[serde(default)]
+    pub pending: Vec<PendingJob>,
+}
+
+/// A BBS whose number you know, and how you found it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct KnownBoard {
+    pub id: String,
+    pub source: String,
+}
+
+/// A contract taken from a board at home. It rides into the next run on `entry`'s network,
+/// where it gets a target node.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct PendingJob {
+    pub entry: u32,
+    pub client: String,
+    /// With `{host}` still in it: the node isn't known until the network is.
+    pub brief: String,
+    pub reward: u32,
+    pub ghost: Option<(u32, u32)>,
 }
 
 fn default_phosphor() -> String {
@@ -589,6 +626,10 @@ impl Default for Save {
             ranges: local_range(),
             scanned: Vec::new(),
             telco_heat: 0,
+            boards: Vec::new(),
+            home_bought: Vec::new(),
+            home_taken: Vec::new(),
+            pending: Vec::new(),
         }
     }
 }
@@ -798,6 +839,12 @@ impl Save {
         kit.net = net;
         kit.mods = mods;
         kit.board = Self::site_board(data, &e);
+        // Jobs taken at home for this number come along. Unfinished, they're gone with the run.
+        let (mine, rest) = std::mem::take(&mut self.pending)
+            .into_iter()
+            .partition(|j| j.entry == e.id);
+        self.pending = rest;
+        kit.jobs = mine;
         let labels = e
             .traits
             .iter()
@@ -889,7 +936,13 @@ impl Save {
         let mut cells = Vec::new();
         for number in def.numbers(block) {
             let roll = rng.range(1, 100);
-            let answer = if roll <= def.carrier_pct {
+            // A board always picks up on its own number, so scanning its block finds it.
+            let board = data.boards.iter().position(|b| b.phone == number);
+            let answer = if let Some(board) = board {
+                let new =
+                    self.learn_board(&data.boards[board].id, &format!("wardialing {}", def.label));
+                Answer::Board { board, new }
+            } else if roll <= def.carrier_pct {
                 if let Some(e) = self.phonebook.iter().find(|e| e.number == number) {
                     Answer::Carrier {
                         entry: e.id,
@@ -1084,6 +1137,7 @@ impl Save {
             mods: RunMods::default(),
             site: None,
             board: 0,
+            jobs: Vec::new(),
         }
     }
 
@@ -1124,6 +1178,16 @@ impl Save {
             .filter(|h| self.learn_range(h, &format!("found on {source}")))
             .cloned()
             .collect();
+        let mut boards = Vec::new();
+        if game.bbs_seen {
+            let b = game.bbs();
+            if self.learn_board(&b.id, &format!("dialed in from {source}")) {
+                boards.push(format!("{} ({})", b.name, b.phone));
+            }
+        }
+        // A new run, new listings on every board.
+        self.home_bought.clear();
+        self.home_taken.clear();
         let credits = game.deck.credits;
         let mut kept = Vec::new();
         let banked = match end {
@@ -1172,6 +1236,7 @@ impl Save {
             seed: game.seed,
             kept,
             learned,
+            boards,
         })
     }
 }
@@ -1195,6 +1260,8 @@ pub struct RunReport {
     pub kept: Vec<String>,
     /// Phone ranges learned on the run.
     pub learned: Vec<String>,
+    /// BBS numbers found on the run, as "NAME (555-0199)".
+    pub boards: Vec<String>,
 }
 
 /// Which machine is on screen, and the drags between them.
@@ -1257,6 +1324,8 @@ pub enum ShellEffect {
     Dial(u32, Option<u64>),
     /// Wardial a range (by id).
     Scan(String),
+    /// Call a BBS from home (board id).
+    Call(String),
     Open(Tool),
     /// Set the theme (by id): desktop and runs.
     Theme(String),
@@ -1283,7 +1352,7 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
                 "dir              list the desktop",
                 "run <tool>       open a tool (jackin, shell, ...)",
                 "phonebook        list numbers you can dial",
-                "dial <n> [seed]  dial entry n (or a number) and jack in",
+                "dial <n> [seed]  dial entry n (or a number) and jack in; a BBS opens here",
                 "ranges           number ranges you know",
                 "wardial <range>  scan 100 numbers of a range",
                 "info             your record",
@@ -1331,10 +1400,11 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
             ShellEffect::None,
         ),
         "phonebook" | "pb" => {
-            if save.phonebook.is_empty() {
+            let boards = save.known_boards(data);
+            if save.phonebook.is_empty() && boards.is_empty() {
                 return (vec!["the phonebook is empty.".into()], ShellEffect::None);
             }
-            let out = save
+            let mut out: Vec<String> = save
                 .phonebook
                 .iter()
                 .enumerate()
@@ -1349,6 +1419,17 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
                     )
                 })
                 .collect();
+            let first = save.phonebook.len() + 1;
+            out.extend(boards.iter().enumerate().map(|(i, &b)| {
+                let d = &data.boards[b];
+                format!(
+                    "{:>2}  {}  {:<22} BBS {}¢/call",
+                    first + i,
+                    d.phone,
+                    d.name,
+                    d.call_cost
+                )
+            }));
             (out, ShellEffect::None)
         }
         "dial" | "atdt" => {
@@ -1358,6 +1439,13 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
                     ShellEffect::None,
                 );
             };
+            if let Some(b) = save.lookup_board(data, what) {
+                let d = &data.boards[b];
+                return (
+                    vec![format!("ATDT {}", d.phone)],
+                    ShellEffect::Call(d.id.clone()),
+                );
+            }
             let Some(e) = save.lookup(what) else {
                 return (
                     vec![format!("{what}: no such number in the phonebook.")],
