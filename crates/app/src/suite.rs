@@ -34,6 +34,8 @@ pub mod size {
     pub const CHART_MAX: f32 = 150.0;
     /// Upcoming turns the incident report's agenda lists.
     pub const AGENDA_ROWS: usize = 5;
+    /// Widest a column chart's group of columns gets, so a short fight isn't one wall.
+    pub const COL_SLOT_MAX: f32 = 56.0;
     pub const DIALOG_W: f32 = 420.0;
 }
 
@@ -221,11 +223,17 @@ fn axes(
 }
 
 /// X labels under a plot, thinned so they don't collide.
-fn x_labels(painter: &Painter, plot: Rect, p: &Palette, n: usize, label: impl Fn(usize) -> String) {
+fn x_labels(
+    painter: &Painter,
+    plot: Rect,
+    p: &Palette,
+    n: usize,
+    slot: f32,
+    label: impl Fn(usize) -> String,
+) {
     if n == 0 {
         return;
     }
-    let slot = plot.width() / n as f32;
     let every = ((28.0 / slot).ceil() as usize).max(1);
     for i in (0..n).step_by(every) {
         painter.text(
@@ -337,7 +345,7 @@ fn line_chart(ui: &mut Ui, p: &Palette, h: f32, values: &[u32], max: u32, marks:
     for q in &pts {
         painter.rect_filled(Rect::from_center_size(*q, vec2(4.0, 4.0)), 0.0, p.bright);
     }
-    x_labels(&painter, plot, p, values.len(), |i| format!("H{i}"));
+    x_labels(&painter, plot, p, values.len(), slot, |i| format!("H{i}"));
 }
 
 /// A column chart: one group per x, one column per series (solid or outlined).
@@ -363,7 +371,7 @@ fn column_chart(
     if n == 0 {
         return;
     }
-    let slot = plot.width() / n as f32;
+    let slot = (plot.width() / n as f32).min(size::COL_SLOT_MAX);
     let k = series.len().max(1) as f32;
     let w = (slot * 0.7 / k).max(1.0);
     for (si, (_, vals, solid)) in series.iter().enumerate() {
@@ -379,7 +387,7 @@ fn column_chart(
             }
         }
     }
-    x_labels(&painter, plot, p, n, label);
+    x_labels(&painter, plot, p, n, slot, label);
 }
 
 /// A form: labelled fields with a one-line note each.
@@ -760,6 +768,36 @@ impl Panes<'_> {
         let ice = &g.data.ice[c.ice];
         let mut acts = Vec::new();
         window(ui, &p, Tab::Target.number(), "INCIDENT REPORT", |ui| {
+            // The toolbar: run buttons and End Turn, always in view above the report.
+            ui.horizontal_wrapped(|ui| {
+                for (i, s) in g.hdd.iter().enumerate().filter(|(_, s)| s.loaded) {
+                    let w = &s.spec;
+                    let class_hit =
+                        matches!(w.effect, Effect::Break { vs: Some(v), .. } if v == ice.class);
+                    let label = format!(
+                        "[{i}] {} {}c{}",
+                        w.file(),
+                        w.cpu,
+                        if class_hit { " x2" } else { "" }
+                    );
+                    if ui
+                        .add_enabled(
+                            c.cpu >= w.cpu,
+                            egui::Button::new(t(label, if class_hit { p.bright } else { p.fg })),
+                        )
+                        .on_hover_text(w.effect.describe())
+                        .clicked()
+                    {
+                        acts.push(Action::Run(i));
+                    }
+                }
+                if ui.button(t("End Turn  F10", p.bright)).clicked() {
+                    acts.push(Action::EndTurn);
+                }
+            });
+            let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 6.0), Sense::hover());
+            ui.painter()
+                .line_segment([r.left_center(), r.right_center()], Stroke::new(1.0, p.dim));
             let ch = chart_h(ui.available_height());
             page(ui, "suite-incident", |ui| {
                 let severity = match ice.tier {
@@ -843,36 +881,6 @@ impl Panes<'_> {
                             ui.end_row();
                         }
                     });
-                ui.add_space(6.0);
-                ui.horizontal_wrapped(|ui| {
-                    for (i, s) in g.hdd.iter().enumerate().filter(|(_, s)| s.loaded) {
-                        let w = &s.spec;
-                        let class_hit =
-                            matches!(w.effect, Effect::Break { vs: Some(v), .. } if v == ice.class);
-                        let label = format!(
-                            "[ Run {} ({}c){} ]",
-                            w.file(),
-                            w.cpu,
-                            if class_hit { " x2" } else { "" }
-                        );
-                        if ui
-                            .add_enabled(
-                                c.cpu >= w.cpu,
-                                egui::Button::new(t(
-                                    label,
-                                    if class_hit { p.bright } else { p.fg },
-                                )),
-                            )
-                            .on_hover_text(w.effect.describe())
-                            .clicked()
-                        {
-                            acts.push(Action::Run(i));
-                        }
-                    }
-                    if ui.button(t("[ End Turn  F10 ]", p.bright)).clicked() {
-                        acts.push(Action::EndTurn);
-                    }
-                });
             });
         });
         for a in acts {
