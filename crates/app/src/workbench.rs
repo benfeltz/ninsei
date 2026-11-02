@@ -260,6 +260,14 @@ impl DesktopView for Workbench {
                 .flatten()
         });
         let mut rects = Vec::with_capacity(n);
+        // And where it came up: a click that ends on the Shell gives it the keyboard (a press
+        // alone isn't enough, since releasing over empty space would take the focus away again).
+        let release = ui.input(|i| {
+            i.pointer
+                .primary_released()
+                .then(|| i.pointer.interact_pos())
+                .flatten()
+        });
         for i in 0..n {
             let top = i + 1 == n;
             let (kind, pos, size) = (self.wins[i].kind, self.wins[i].pos, self.wins[i].size);
@@ -383,7 +391,9 @@ impl DesktopView for Workbench {
         }
         // A Shell window that comes to the front (opened, clicked, raised) takes the keyboard.
         let top = self.wins.last().map(|w| w.kind);
-        if top != self.top && top == Some(Kind::Shell) {
+        let clicked_shell = top == Some(Kind::Shell)
+            && release.is_some_and(|p| rects.last().is_some_and(|r| r.contains(p)));
+        if (top != self.top && top == Some(Kind::Shell)) || (live && clicked_shell) {
             home.focus();
         }
         self.top = top;

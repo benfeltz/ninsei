@@ -29,7 +29,8 @@ impl EncounterView {
         // The conversation owns the keyboard while it's open.
         ctx.memory_mut(|m| m.stop_text_input());
 
-        // Keys: digits choose (or pick a slot), enter closes, escape backs out.
+        // Keys: digits choose (or pick a slot), enter closes, escape backs out of picking a slot
+        // or walks away.
         let keys: Vec<char> = if fresh {
             Vec::new()
         } else {
@@ -66,6 +67,14 @@ impl EncounterView {
                     }),
                     None if k == '\x1b' => self.picking = None,
                     None => {}
+                }
+            } else if k == '\x1b' {
+                // Escape hangs up: every encounter has a way to walk away.
+                if let Some(c) = game.leave_choice() {
+                    out.push(Action::Choose {
+                        choice: c,
+                        slot: None,
+                    });
                 }
             } else if let Some(d) = k.to_digit(10).filter(|&d| d >= 1) {
                 let c = d as usize - 1;
@@ -192,6 +201,12 @@ impl EncounterView {
                         }
                     });
                 }
+                ui.add_space(4.0);
+                ui.label(
+                    RichText::new("[1-9] choose   [esc] walk away")
+                        .small()
+                        .color(p.dim),
+                );
             });
         if out
             .iter()
