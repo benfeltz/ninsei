@@ -55,7 +55,8 @@ impl CrtGl {
     }
 
     /// Queues the CRT pass as the last thing drawn this frame.
-    pub fn paint(&self, ctx: &Context, effects: Effects) {
+    /// `tear` (0..1) is damage tearing on top of the preset.
+    pub fn paint(&self, ctx: &Context, effects: Effects, tear: f32) {
         let state = Arc::clone(&self.state);
         let time = ctx.input(|i| i.time);
         let callback = egui_glow::CallbackFn::new(move |info, painter| {
@@ -78,7 +79,7 @@ impl CrtGl {
             if let Some(g) = st.gpu.as_mut() {
                 let [w, h] = info.screen_size_px;
                 // SAFETY: as above; `draw` restores what egui_glow doesn't re-apply itself.
-                unsafe { g.draw(gl, w, h, &effects, time) };
+                unsafe { g.draw(gl, w, h, &effects, time, tear) };
             }
         });
         let rect = ctx.content_rect();
@@ -143,6 +144,7 @@ uniform float u_ambient;
 uniform float u_shine;
 uniform float u_raster;
 uniform vec3 u_frame_color;
+uniform float u_tear;
 
 float hash(vec2 p) { return fract(sin(dot(p, vec2(12.9898, 78.233))) * 43758.5453); }
 vec3 tap(vec2 c) { return texture(u_img, vec2(c.x, 1.0 - c.y)).rgb; }
@@ -172,6 +174,18 @@ void main() {
     float tick = floor(u_time * 24.0);
     c.x += (hash(vec2(line, tick)) - 0.5) * u_jitter * 0.0012;
     c.x += sin(c.y * 20.0 + u_time * 3.0) * u_hsync * 0.0015;
+    // Damage tearing: a few bands slip sideways, re-picked about nine times a second.
+    if (u_tear > 0.0) {
+        float slot = floor(u_time * 9.0);
+        for (int i = 0; i < 3; i++) {
+            float fi = float(i);
+            float y0 = hash(vec2(slot, fi * 3.1));
+            float h = 0.008 + 0.05 * hash(vec2(slot, fi + 9.0));
+            if (c.y > y0 && c.y < y0 + h && hash(vec2(slot, fi * 7.0 + 1.0)) < u_tear) {
+                c.x += (hash(vec2(slot, fi + 2.0)) - 0.5) * 0.05 * u_tear;
+            }
+        }
+    }
 
     float d = u_rgb * 0.003;
     vec3 col = vec3(tap(c + vec2(d, 0.0)).r, tap(c).g, tap(c - vec2(d, 0.0)).b);
@@ -283,7 +297,15 @@ impl Gpu {
         self.size = [w, h];
     }
 
-    unsafe fn draw(&mut self, gl: &glow::Context, w: u32, h: u32, e: &Effects, time: f64) {
+    unsafe fn draw(
+        &mut self,
+        gl: &glow::Context,
+        w: u32,
+        h: u32,
+        e: &Effects,
+        time: f64,
+        tear: f32,
+    ) {
         if w == 0 || h == 0 {
             return;
         }
@@ -356,6 +378,7 @@ impl Gpu {
                 ("u_ambient", e.ambient_light),
                 ("u_shine", e.frame_shininess),
                 ("u_raster", raster),
+                ("u_tear", tear),
             ] {
                 set_f(gl, p, name, v);
             }

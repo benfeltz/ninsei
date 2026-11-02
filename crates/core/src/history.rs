@@ -45,8 +45,21 @@ pub struct History {
     pub turns: Vec<TurnRow>,
     /// Programs run: (slot uid, tick).
     pub runs: Vec<(u32, u32)>,
+    /// The last time something hit the deck, for the damage glitches.
+    pub last_hit: Option<Hit>,
     /// Damage dealt so far this turn.
     pending: u32,
+}
+
+/// A hit on the deck.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Hit {
+    /// The tick it landed on.
+    pub tick: u32,
+    /// Integrity lost, or (if `soaked`) shield spent.
+    pub amount: u32,
+    /// A shield took it all.
+    pub soaked: bool,
 }
 
 /// The bits of a game the history compares before and after an action.
@@ -98,6 +111,18 @@ impl History {
             .combat
             .as_ref()
             .map(|c| (c.node, c.strength, c.shield, c.cpu));
+        let lost = was.integrity.saturating_sub(g.deck.integrity);
+        let soaked = match (was.fight, now) {
+            (Some(a), Some(b)) => a.2.saturating_sub(b.2),
+            _ => 0,
+        };
+        if lost > 0 || soaked > 0 {
+            self.last_hit = Some(Hit {
+                tick: self.tick,
+                amount: lost.max(soaked),
+                soaked: lost == 0,
+            });
+        }
         match (was.fight, now) {
             // A new fight: fresh graphs.
             (None, Some((_, strength, ..))) => {

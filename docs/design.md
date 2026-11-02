@@ -30,7 +30,7 @@ deck ─> firmware ─────┘
 | `map` | `Iso`: wireframes over a glowing grid ✅ | `Draft`: a technical drawing ✅ |
 | `chrome` | `Btop`: boxed panes, gradient meters, dot graphs, waterfalls ✅ | productivity-suite panes: forms, spreadsheets, report charts (#37) |
 | `desktop` | a tiling desktop (#36) | `Workbench` ✅ |
-| damage (#33) | screen glitches: tearing, RGB split, corrupted text | the same, plus corporate error dialogs (idea below) |
+| damage | screen glitches: tearing, RGB split, corrupted text ✅ | the same, plus corporate error dialogs (idea below) |
 
 ## The decks
 
@@ -46,7 +46,7 @@ deck ─> firmware ─────┘
 - Tiling over floating: tools snap into tiles with small gaps and thin borders, and the focused tile is lit `bright`.
 - Keyboard first, with every action a key; the mouse still works.
 - Motion has a meaning: a pulse along a route means you can go there, and a burst means something died.
-- Damage shows up as the screen breaking (#33).
+- Damage shows up as the screen breaking.
 
 **Comps**
 
@@ -76,7 +76,7 @@ deck ─> firmware ─────┘
 - **Dialogs, not overlays.** Confirmations and errors come in boxed dialogs with buttons and drop shadows.
 - **Very little motion.** No spin and no glow beyond what the CRT adds. Animate only progress and focus.
 - **Everything is labelled and attributed:** `PREPARED BY`, `DEPT`, `REV`, `PROPERTY OF HOSAKA CORP.`
-- **Damage idea (with #33):** besides the glitches, the corpo deck can surface failures as system dialogs: `GENERAL PROTECTION FAULT`, `Abort, Retry, Fail?`, a stack of error boxes as integrity drops.
+- **Damage idea (on top of the glitches):** besides the glitches, the corpo deck can surface failures as system dialogs: `GENERAL PROTECTION FAULT`, `Abort, Retry, Fail?`, a stack of error boxes as integrity drops.
 
 **Comps**
 

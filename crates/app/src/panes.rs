@@ -61,6 +61,8 @@ pub enum Request {
     Deck(String),
     /// Add a secondary pane.
     AddPane(Tab),
+    /// Damage glitches on, reduced or off.
+    Glitches(ninsei_core::glitch::Glitches),
 }
 
 pub struct Panes<'a> {
@@ -72,6 +74,8 @@ pub struct Panes<'a> {
     pub deck: String,
     /// How the panes are dressed: the deck's firmware decides.
     pub chrome: Chrome,
+    /// Damage glitches: how much log text to corrupt, and the seed for this moment.
+    pub corrupt: (f32, u64),
     pub input: &'a mut String,
     pub focus_input: &'a mut bool,
     pub bbs_open: bool,
@@ -641,10 +645,23 @@ impl Panes<'_> {
                         LogKind::Loot => p.bright,
                         LogKind::Sys => p.dim,
                     };
-                    ui.label(RichText::new(&l.text).monospace().color(col));
+                    let line = self.garble(&l.text);
+                    ui.label(RichText::new(line).monospace().color(col));
                 }
             });
         self.prompt(ui);
+    }
+
+    /// A log line as the damaged deck shows it: a few characters corrupted, same width.
+    pub(crate) fn garble(&self, text: &str) -> String {
+        let (rate, seed) = self.corrupt;
+        if rate <= 0.0 {
+            return text.to_string();
+        }
+        let line_seed = text
+            .bytes()
+            .fold(seed, |h, b| h.wrapping_mul(31).wrapping_add(u64::from(b)));
+        ninsei_core::glitch::corrupt(text, line_seed, rate)
     }
 
     /// The command line under the log.

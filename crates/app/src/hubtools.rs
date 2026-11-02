@@ -713,6 +713,16 @@ pub fn prefs(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
     if ui.checkbox(&mut sound, "Modem sounds").changed() {
         out.push(WbOut::Sound);
     }
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Damage glitches").color(ink()));
+        for g in ninsei_core::glitch::Glitches::ALL {
+            if ui.radio(save.glitches == g, g.label()).clicked() {
+                out.push(WbOut::Glitches(g));
+            }
+        }
+    })
+    .response
+    .on_hover_text("The screen breaks down as your deck takes damage. Reduced keeps the colour fringe and the hit flash.");
     ui.add_space(8.0);
 
     ui.label(RichText::new("THEME").color(ink()).strong());

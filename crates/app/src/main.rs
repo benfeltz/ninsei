@@ -6,6 +6,7 @@ mod crash;
 mod crt;
 mod crt_gl;
 mod encounter_view;
+mod glitch;
 mod hexview;
 mod hubtools;
 mod netmap;
@@ -182,6 +183,8 @@ struct App {
     dock: DockState<Tab>,
     /// When the layout was last compared with the saved one.
     layout_checked: f64,
+    /// This frame's damage glitches.
+    glitch: glitch::Glitch,
     /// The CRT shader pass (falls back to `crt.rs`'s overlay if GL can't run it).
     crt_gl: CrtGl,
     /// Run theme id (see `data/themes.ron`) and its palette.
@@ -276,6 +279,7 @@ impl App {
             input: String::new(),
             focus_input: true,
             layout_checked: 0.0,
+            glitch: glitch::Glitch::default(),
         };
         me.load_layout();
         me
@@ -578,6 +582,7 @@ impl App {
             | WbOut::Theme(_)
             | WbOut::Crt
             | WbOut::Sound
+            | WbOut::Glitches(_)
             | WbOut::Monitor(_)
             | WbOut::Deck(_)
             | WbOut::Firmware(_)
@@ -615,6 +620,13 @@ impl App {
             Request::Monitor(id) => {
                 let r = self.hardware(ctx, |s, d| s.plug_monitor(d, &id));
                 self.game.say(LogKind::Sys, r.unwrap_or_else(|e| e));
+                return;
+            }
+            Request::Glitches(g) => {
+                self.save.glitches = g;
+                self.save_dirty = true;
+                self.game
+                    .say(LogKind::Sys, format!("damage glitches {}", g.label()));
                 return;
             }
             Request::AddPane(tab) => {
@@ -783,6 +795,13 @@ impl App {
                     self.save_dirty = true;
                     self.load_layout();
                 }
+                let g = self.save.glitches;
+                if ui
+                    .button(format!("damage glitches: {}", g.label()))
+                    .clicked()
+                {
+                    out.push(Request::Glitches(g.next()));
+                }
                 ui.menu_button("add pane", |ui| {
                     let mut any = false;
                     for (tab, label) in Tab::SECONDARY {
@@ -916,6 +935,11 @@ impl eframe::App for App {
         self.screen = self.screen.tick(dt);
         self.sync_sound();
 
+        let live = self.screen == Screen::Run && !self.crashed;
+        self.glitch = glitch::Glitch::frame(&ctx, &self.game, self.save.glitches, live);
+        if self.glitch.busy() {
+            ctx.request_repaint();
+        }
         if self.screen.shows_run() {
             if self.crashed {
                 let clicked = crash::show(ui, self.booked.as_ref());
@@ -965,6 +989,11 @@ impl eframe::App for App {
                         Ok(label) => self.wb.say(format!("theme: {label}")),
                         Err(e) => self.wb.say(e),
                     },
+                    WbOut::Glitches(g) => {
+                        self.save.glitches = g;
+                        self.save_dirty = true;
+                        self.wb.say(format!("damage glitches {}", g.label()));
+                    }
                     WbOut::Monitor(id) => {
                         let r = self.hardware(&ctx, |s, d| s.plug_monitor(d, &id));
                         self.wb.say(r.unwrap_or_else(|e| e));
@@ -999,10 +1028,19 @@ impl eframe::App for App {
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
         }
 
+        // Damage glitches go on top of the preset, for the shader only: the mouse keeps the
+        // preset's own geometry.
         match self.effects() {
-            Some(e) if !self.crt_gl.failed() => self.crt_gl.paint(&ctx, e),
-            Some(_) => crt::paint(&ctx, &pal),
-            None => {}
+            Some(e) if !self.crt_gl.failed() => {
+                self.glitch.overlay(&ctx, &pal, true);
+                let (e, tear) = self.glitch.effects(e);
+                self.crt_gl.paint(&ctx, e, tear);
+            }
+            Some(_) => {
+                self.glitch.overlay(&ctx, &pal, false);
+                crt::paint(&ctx, &pal);
+            }
+            None => self.glitch.overlay(&ctx, &pal, false),
         }
         if !self.crt && self.game.phase == Phase::Exploring {
             // Keep the cursor blinking.
@@ -1108,6 +1146,7 @@ impl App {
             map: self.save.firmware_def(&self.data).map,
             deck: self.save.deck_def(&self.data).title(),
             chrome: self.save.firmware_def(&self.data).chrome,
+            corrupt: self.glitch.corruption(),
             input: &mut self.input,
             focus_input: &mut self.focus_input,
             // Any modal (BBS or talk) keeps the terminal from grabbing focus.
