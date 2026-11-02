@@ -497,6 +497,20 @@ impl Home {
 }
 
 /// A dim line for an empty tile or slot.
+/// A tool's body in a window or tile that may be shorter than it: it scrolls, with a solid bar
+/// drawn in the text colour so every theme shows it.
+pub(crate) fn scrolled(
+    ui: &mut Ui,
+    salt: impl std::hash::Hash + std::fmt::Debug,
+    body: impl FnOnce(&mut Ui),
+) {
+    ui.spacing_mut().scroll = crate::theme::visible_scroll();
+    egui::ScrollArea::vertical()
+        .id_salt(salt)
+        .auto_shrink([false, false])
+        .show(ui, body);
+}
+
 pub(crate) fn hint(painter: &egui::Painter, rect: Rect, text: &str) {
     painter.text(
         pos2(rect.center().x, rect.center().y),

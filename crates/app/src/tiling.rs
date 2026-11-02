@@ -320,10 +320,9 @@ impl DesktopView for TilingDesk {
             if !live {
                 child.disable();
             }
-            egui::ScrollArea::vertical()
-                .id_salt(("tile-scroll", format!("{tool:?}")))
-                .auto_shrink([false, false])
-                .show(&mut child, |ui| home.tool_body(ui, tool, data, save, out));
+            crate::home::scrolled(&mut child, ("tile-scroll", tool), |ui| {
+                home.tool_body(ui, tool, data, save, out)
+            });
         }
         if let Some(i) = focus_to {
             t.focus = i;

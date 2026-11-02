@@ -12,6 +12,10 @@ use crate::home::{Cx, DesktopView, Home, WbOut, accent, backdrop, fill, font, in
 use crate::hubtools;
 
 const TITLE_H: f32 = 20.0;
+/// Gap kept between a window's bottom and the screen's.
+const WIN_MARGIN: f32 = 8.0;
+/// Shortest a window gets when the screen is small.
+const WIN_MIN_H: f32 = 120.0;
 const SCREEN_BAR_H: f32 = 22.0;
 /// Screen pixels per icon pixel.
 const ICON_SCALE: f32 = 3.0;
@@ -60,6 +64,8 @@ pub struct Workbench {
     wins: Vec<Win>,
     selected: Option<Tool>,
     last_click: Option<(Tool, f64)>,
+    /// The window on top last frame, so the Shell takes the keyboard when it comes forward.
+    top: Option<Kind>,
 }
 
 impl Workbench {
@@ -68,6 +74,7 @@ impl Workbench {
             wins: Vec::new(),
             selected: None,
             last_click: None,
+            top: None,
         }
     }
 
@@ -226,9 +233,11 @@ impl DesktopView for Workbench {
                 Id::new(("wb-icon", n)),
                 if live { Sense::click() } else { Sense::hover() },
             );
-            if r.clicked() {
-                // Our own double-click: two clicks on the same icon in quick succession.
-                let double = matches!(self.last_click, Some((t, at)) if t == icon.tool && now - at < DOUBLE_CLICK_SECS);
+            if r.clicked() || r.double_clicked() {
+                // Two clicks on the same icon in quick succession (ours), or egui's double-click
+                // (both clicks can land in one frame on a slow machine).
+                let double = r.double_clicked()
+                    || matches!(self.last_click, Some((t, at)) if t == icon.tool && now - at < DOUBLE_CLICK_SECS);
                 self.selected = Some(icon.tool);
                 self.last_click = Some((icon.tool, now));
                 if double {
@@ -242,10 +251,21 @@ impl DesktopView for Workbench {
         let mut raise = None;
         let mut close = None;
         let n = self.wins.len();
+        // Where the mouse went down this frame: whichever window is on top there comes forward,
+        // even if a widget inside it (the Shell's text, a button) took the click.
+        let press = ui.input(|i| {
+            i.pointer
+                .primary_pressed()
+                .then(|| i.pointer.interact_pos())
+                .flatten()
+        });
+        let mut rects = Vec::with_capacity(n);
         for i in 0..n {
             let top = i + 1 == n;
             let (kind, pos, size) = (self.wins[i].kind, self.wins[i].pos, self.wins[i].size);
-            let rect = Rect::from_min_size(at(pos), size);
+            // A window never runs off the bottom of the screen: it gets shorter and scrolls.
+            let room = (screen.height() - pos.y - WIN_MARGIN).max(WIN_MIN_H);
+            let rect = Rect::from_min_size(at(pos), vec2(size.x, size.y.min(room)));
             let title = self.wins[i].title();
             let wid = Id::new(("wb-win", format!("{kind:?}")));
             // The whole window swallows clicks so icons under it don't fire.
@@ -257,6 +277,7 @@ impl DesktopView for Workbench {
             if body.clicked() || body.drag_started() {
                 raise = Some(i);
             }
+            rects.push(rect);
             window_frame(&painter, rect, &title, top);
             let bar = Rect::from_min_size(rect.min, vec2(rect.width(), TITLE_H));
             let close_r = Rect::from_min_size(bar.min + vec2(4.0, 3.0), vec2(16.0, 14.0));
@@ -327,7 +348,9 @@ impl DesktopView for Workbench {
                         Kind::Stash => Tool::Stash,
                         _ => Tool::HexEd,
                     };
-                    home.tool_body(&mut child, tool, data, save, out);
+                    crate::home::scrolled(&mut child, ("wb-scroll", tool), |ui| {
+                        home.tool_body(ui, tool, data, save, out)
+                    });
                 }
                 Kind::Requester(tool) => {
                     if let Some(action) = requester(ui, &painter, content, tool, live, wid) {
@@ -341,6 +364,12 @@ impl DesktopView for Workbench {
                 }
             }
         }
+        if raise.is_none()
+            && live
+            && let Some(p) = press
+        {
+            raise = rects.iter().rposition(|r| r.contains(p));
+        }
         if let Some(i) = close {
             if i < self.wins.len() {
                 self.wins.remove(i);
@@ -352,6 +381,12 @@ impl DesktopView for Workbench {
             let w = self.wins.remove(i);
             self.wins.push(w);
         }
+        // A Shell window that comes to the front (opened, clicked, raised) takes the keyboard.
+        let top = self.wins.last().map(|w| w.kind);
+        if top != self.top && top == Some(Kind::Shell) {
+            home.focus();
+        }
+        self.top = top;
     }
 }
 
@@ -490,6 +525,118 @@ fn draw_icon(painter: &egui::Painter, icon: &IconDef, at: Pos2, selected: bool) 
             };
             let p = at + vec2(x as f32, y as f32) * ICON_SCALE;
             painter.rect_filled(Rect::from_min_size(p, Vec2::splat(ICON_SCALE)), 0.0, col);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::home::{Cx, Home};
+    use egui::{Event, PointerButton, RawInput, Rect};
+    use ninsei_core::Data;
+    use ninsei_core::hub::Save;
+
+    /// Runs one frame of the Workbench with these input events at time `t`.
+    fn frame(
+        ctx: &egui::Context,
+        wb: &mut Workbench,
+        home: &mut Home,
+        data: &Data,
+        save: &Save,
+        events: Vec<Event>,
+        t: f64,
+    ) {
+        let raw = RawInput {
+            screen_rect: Some(Rect::from_min_size(egui::Pos2::ZERO, vec2(1280.0, 800.0))),
+            time: Some(t),
+            events,
+            ..RawInput::default()
+        };
+        let mut output = ctx.run_ui(raw, |ui| {
+            let cx = Cx {
+                data,
+                save,
+                offset: 0.0,
+                live: true,
+            };
+            let mut out = Vec::new();
+            wb.show(ui, home, &cx, &mut out);
+        });
+        output.textures_delta.clear();
+    }
+
+    fn click(at: Pos2) -> Vec<Event> {
+        let b = |pressed| Event::PointerButton {
+            pos: at,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        vec![Event::PointerMoved(at), b(true), b(false)]
+    }
+
+    #[test]
+    fn double_clicking_an_icon_raises_its_window() {
+        let data = Data::builtin().unwrap();
+        let save = Save::default();
+        let ctx = egui::Context::default();
+        let mut wb = Workbench::new();
+        let mut home = Home::new(Vec::new());
+        // Every icon, with another window opened over its own.
+        for (n, icon) in data.icons.iter().enumerate() {
+            wb.open(icon.tool);
+            let other = data.icons[(n + 1) % data.icons.len()].tool;
+            wb.open(other);
+            let at = pos2(60.0, SCREEN_BAR_H + 16.0 + n as f32 * ICON_PITCH + 20.0);
+            let t = n as f64 * 10.0;
+            frame(&ctx, &mut wb, &mut home, &data, &save, Vec::new(), t);
+            if n % 2 == 0 {
+                frame(&ctx, &mut wb, &mut home, &data, &save, click(at), t + 0.1);
+                frame(&ctx, &mut wb, &mut home, &data, &save, click(at), t + 0.2);
+            } else {
+                // A slow frame: both clicks arrive at once.
+                let mut both = click(at);
+                both.extend(click(at));
+                frame(&ctx, &mut wb, &mut home, &data, &save, both, t + 0.1);
+            }
+            frame(&ctx, &mut wb, &mut home, &data, &save, Vec::new(), t + 0.3);
+            let top = wb.wins.last().map(|w| w.kind);
+            assert_eq!(
+                top.map(|k| format!("{k:?}")),
+                Some(format!("{:?}", wb_kind(icon.tool))),
+                "{} didn't come to the front",
+                icon.label
+            );
+        }
+    }
+
+    #[test]
+    fn clicking_inside_a_window_raises_it() {
+        let data = Data::builtin().unwrap();
+        let save = Save::default();
+        let ctx = egui::Context::default();
+        let mut wb = Workbench::new();
+        let mut home = Home::new(Vec::new());
+        wb.open(Tool::Shell);
+        wb.open(Tool::Stash);
+        frame(&ctx, &mut wb, &mut home, &data, &save, Vec::new(), 0.0);
+        // The Shell's left strip, under its title bar, peeks out from behind STASH.
+        let shell = wb.wins.iter().find(|w| w.kind == Kind::Shell).unwrap();
+        let at = shell.pos + vec2(20.0, 150.0);
+        frame(&ctx, &mut wb, &mut home, &data, &save, click(at), 0.5);
+        frame(&ctx, &mut wb, &mut home, &data, &save, Vec::new(), 1.0);
+        assert_eq!(wb.wins.last().map(|w| w.kind == Kind::Shell), Some(true));
+    }
+
+    fn wb_kind(t: Tool) -> Kind {
+        match t {
+            Tool::Terminal => Kind::Terminal,
+            Tool::Prefs => Kind::Prefs,
+            Tool::Shell => Kind::Shell,
+            Tool::Rig => Kind::Rig,
+            Tool::Stash => Kind::Stash,
+            Tool::HexEd => Kind::HexEd,
         }
     }
 }

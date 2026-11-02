@@ -152,3 +152,14 @@ pub fn dock_style(style: &egui::Style, p: &Palette) -> egui_dock::Style {
     s.overlay.button_border_stroke = Stroke::new(1.0, p.fg);
     s
 }
+
+/// Scroll bars you can always see: solid, drawn in the text colour (so every theme shows them),
+/// and present before you hover. For windows whose content can run past their bottom.
+pub fn visible_scroll() -> egui::style::ScrollStyle {
+    egui::style::ScrollStyle {
+        foreground_color: true,
+        dormant_handle_opacity: 0.5,
+        dormant_background_opacity: 0.2,
+        ..egui::style::ScrollStyle::solid()
+    }
+}

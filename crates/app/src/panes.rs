@@ -340,19 +340,16 @@ impl Panes<'_> {
                     };
                     let name = RichText::new(format!("[{i}] {icon} {}{opt}", w.file()))
                         .color(if loaded { p.fg } else { p.dim });
-                    ui.label(name).on_hover_text(format!(
+                    let hover = format!(
                         "{}\n{}\nram {}  cpu {}  {}",
                         w.name,
                         blurb,
                         w.ram,
                         w.cpu,
                         w.effect.describe()
-                    ));
-                    ui.label(
-                        RichText::new(format!("r{} c{}", w.ram, w.cpu))
-                            .small()
-                            .color(p.dim),
                     );
+                    // Buttons first, from the right; the name and stats get what's left and
+                    // shorten rather than run under the buttons.
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         if ui
                             .small_button("hex")
@@ -383,6 +380,18 @@ impl Panes<'_> {
                                 self.act(Action::Load(i));
                             }
                         }
+                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                            ui.add(egui::Label::new(name).truncate())
+                                .on_hover_text(hover);
+                            ui.add(
+                                egui::Label::new(
+                                    RichText::new(format!("r{} c{}", w.ram, w.cpu))
+                                        .small()
+                                        .color(p.dim),
+                                )
+                                .truncate(),
+                            );
+                        });
                     });
                 });
             }
