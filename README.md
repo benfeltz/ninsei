@@ -133,6 +133,11 @@ a cube for barrier ICE, a ring for a code gate, an icosahedron "eye" for a sentr
 
 The **Hosaka** deck (see Hardware) draws the map as a flat technical drawing instead: grid bubbles over each layer, a drafting symbol per node (section hatching, valve, eye, door swing...), hidden lines for the fog, a revision cloud round you, a dimension line and a title block.
 
+The map reacts to the run. ICE you break blows apart (on the draft it's struck through and stamped `VOID`). The way you came stays lit. The BBS node wears its board's colours and name. As trace climbs the grid lights up and pulses, faster past 75%; the draft's paper darkens and its title block grows a TRACE row. Each new network draws itself in, layer by layer, and a route you hover lifts and spins.
+
+![derez burst](docs/shots/map-derez-burst.png)
+![draft: VOID, trail and TRACE](docs/shots/map-draft-void.png)
+
 Both are drawn in the theme's colours. The **Synthwave** theme gives the magenta-grid, cyan-wire look; Workbench turns the draft into a blueprint. Which shape and symbol each node gets is data, in [`data/netmap.ron`](data/netmap.ron).
 
 ![isometric, synthwave](docs/shots/map-iso-synthwave.png)
