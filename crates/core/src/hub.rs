@@ -1220,6 +1220,7 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
                 "theme <name>     colour theme, desktop and runs (see Prefs)",
                 "crt              toggle scanlines in runs",
                 "echo <text>      say something",
+                "leet <text>      say it in l33t",
                 "clear            clear the window",
             ]),
             ShellEffect::None,
@@ -1349,6 +1350,12 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
         },
         "crt" => (Vec::new(), ShellEffect::Crt),
         "clear" | "cls" => (Vec::new(), ShellEffect::Clear),
+        "leet" | "l33t" => (
+            vec![crate::leet::translate(
+                line.trim_start()[cmd.len()..].trim(),
+            )],
+            ShellEffect::None,
+        ),
         "echo" => (
             vec![line.trim_start()[cmd.len()..].trim().to_string()],
             ShellEffect::None,

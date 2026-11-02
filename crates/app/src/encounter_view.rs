@@ -95,7 +95,8 @@ impl EncounterView {
             .show(ctx, |ui| {
                 ui.set_width(560.0);
                 ui.label(
-                    RichText::new(format!("-- {} --", ev.title.to_uppercase())).color(p.bright),
+                    RichText::new(format!("-- {} --", game.encounter_title().to_uppercase()))
+                        .color(p.bright),
                 );
                 ui.add_space(4.0);
                 for line in &ev.text {

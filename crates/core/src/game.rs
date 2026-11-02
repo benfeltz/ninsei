@@ -731,7 +731,24 @@ impl Game {
                 _ => {}
             }
         }
-        out
+        if ev.leet {
+            crate::leet::translate(&out)
+        } else {
+            out
+        }
+    }
+
+    /// The current encounter's title, in its own voice.
+    pub fn encounter_title(&self) -> String {
+        let Some(e) = &self.encounter else {
+            return String::new();
+        };
+        let ev = &self.data.events[e.event];
+        if ev.leet {
+            crate::leet::translate(&ev.title)
+        } else {
+            ev.title.clone()
+        }
     }
 
     /// Whether choice `c` asks you to pick one of your programs.
