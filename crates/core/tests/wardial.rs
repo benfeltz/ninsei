@@ -233,6 +233,7 @@ fn a_hint_at_a_missing_range_is_caught() {
         networks: include_str!("../../../data/hub/networks.ron"),
         exchanges: include_str!("../../../data/hub/exchanges.ron"),
         themes: include_str!("../../../data/themes.ron"),
+        displays: include_str!("../../../data/displays.ron"),
     })
     .unwrap_err();
     assert!(err.contains("atlantis"), "{err}");

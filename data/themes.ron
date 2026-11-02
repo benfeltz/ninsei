@@ -19,4 +19,10 @@
      colors: (bg: "#0a0200", panel: "#140402", faint: "#3d1005", dim: "#a8320f", fg: "#ff5a1f", bright: "#ffb08a")),
     (id: "workbench", label: "Workbench 1.3",
      colors: (bg: "#000022", panel: "#0055aa", faint: "#003a7a", dim: "#aaccff", fg: "#ffffff", bright: "#ff8800")),
+    (id: "c64",       label: "Commodore 64",
+     colors: (bg: "#2d2d70", panel: "#3b3b8f", faint: "#5a58b0", dim: "#8886d8", fg: "#a9a7ff", bright: "#dcdbff")),
+    (id: "apple2",    label: "Apple ][",
+     colors: (bg: "#000800", panel: "#001100", faint: "#0c3a14", dim: "#2aa63e", fg: "#4dff6b", bright: "#c4ffd0")),
+    (id: "vga",       label: "IBM VGA",
+     colors: (bg: "#000000", panel: "#0a0a0a", faint: "#3a3a3a", dim: "#808080", fg: "#c0c0c0", bright: "#ffffff")),
 ]

@@ -19,6 +19,9 @@ pub const SAVE_VERSION: u32 = 1;
 /// Run theme a new save starts with.
 pub const DEFAULT_RUN_THEME: &str = "amber";
 
+/// CRT display preset a new save starts with.
+pub const DEFAULT_DISPLAY: &str = "amber";
+
 /// Storage key the app saves under.
 pub const SAVE_KEY: &str = "ninsei.save";
 
@@ -490,8 +493,12 @@ pub struct Save {
     /// Theme id (see `data/themes.ron`), for the desktop and runs alike.
     #[serde(default = "default_phosphor")]
     pub phosphor: String,
+    /// CRT effects on or off.
     #[serde(default = "default_crt")]
     pub crt: bool,
+    /// CRT display preset id (see `data/displays.ron`).
+    #[serde(default = "default_display")]
+    pub display: String,
     /// Credits banked at home.
     #[serde(default)]
     pub bank: u32,
@@ -533,6 +540,10 @@ fn default_crt() -> bool {
     true
 }
 
+fn default_display() -> String {
+    DEFAULT_DISPLAY.into()
+}
+
 impl Default for Save {
     fn default() -> Self {
         Self {
@@ -543,6 +554,7 @@ impl Default for Save {
             best_haul: 0,
             phosphor: default_phosphor(),
             crt: default_crt(),
+            display: default_display(),
             bank: 0,
             fragments: 0,
             key: 0,
@@ -1194,6 +1206,8 @@ pub enum ShellEffect {
     Open(Tool),
     /// Set the theme (by id): desktop and runs.
     Theme(String),
+    /// Set the CRT display preset (by id).
+    Display(String),
     Crt,
     Clear,
 }
@@ -1218,7 +1232,8 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
                 "wardial <range>  scan 100 numbers of a range",
                 "info             your record",
                 "theme <name>     colour theme, desktop and runs (see Prefs)",
-                "crt              toggle scanlines in runs",
+                "crt              CRT effects on/off",
+                "display <id>     CRT preset (see Prefs)",
                 "echo <text>      say something",
                 "leet <text>      say it in l33t",
                 "clear            clear the window",
@@ -1349,6 +1364,19 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
             }
         },
         "crt" => (Vec::new(), ShellEffect::Crt),
+        "display" => match arg.and_then(|d| data.display(d)) {
+            Some(d) => (
+                vec![format!("display: {}", d.label)],
+                ShellEffect::Display(d.id.clone()),
+            ),
+            None => {
+                let ids: Vec<&str> = data.displays.iter().map(|d| d.id.as_str()).collect();
+                (
+                    vec![format!("display {}", ids.join(" | "))],
+                    ShellEffect::None,
+                )
+            }
+        },
         "clear" | "cls" => (Vec::new(), ShellEffect::Clear),
         "leet" | "l33t" => (
             vec![crate::leet::translate(

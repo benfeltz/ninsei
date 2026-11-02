@@ -1,0 +1,41 @@
+// CRT display presets: how the glass looks, on top of the colour theme.
+// The parameter names and values follow cool-retro-term's built-in profiles
+// (https://github.com/Swordfish90/cool-retro-term); the shader that draws them is our own.
+// Add a preset by adding an entry. Every value is 0.0-1.0 unless noted.
+//
+// theme:            colour theme picking this preset switches to (an id in themes.ron)
+// flickering        brightness wobble          horizontal_sync  wavy sync drift
+// static_noise      grain                      jitter           per-line shake
+// screen_curvature  how much the glass bulges  screen_radius    rounded tube corners
+// glowing_line      a bright band rolling down bloom            light bleeding off bright text
+// burn_in           how long text afterglows   rgb_shift        red/blue fringing
+// rasterization     None | Scanline | Pixel
+// brightness, contrast (0.5 / 0.8 are neutral)  ambient_light   glare on the glass
+// frame_size, frame_color ("#rrggbb"), frame_shininess          the monitor bezel
+[
+    (id: "amber", label: "Default Amber", theme: Some("amber"), effects: (
+        flickering: 0.1, horizontal_sync: 0.1, static_noise: 0.1, jitter: 0.2,
+        screen_curvature: 0.2, screen_radius: 0.1, glowing_line: 0.2, bloom: 0.6, burn_in: 0.3,
+        rgb_shift: 0.0, rasterization: None, brightness: 0.5, contrast: 0.8, ambient_light: 0.3,
+        frame_size: 0.1, frame_color: "#cfcfcf", frame_shininess: 0.3)),
+    (id: "green", label: "Monochrome Green", theme: Some("green"), effects: (
+        flickering: 0.1, horizontal_sync: 0.1, static_noise: 0.1, jitter: 0.2,
+        screen_curvature: 0.3, screen_radius: 0.2, glowing_line: 0.2, bloom: 0.5, burn_in: 0.3,
+        rgb_shift: 0.0, rasterization: None, brightness: 0.5, contrast: 0.8, ambient_light: 0.3,
+        frame_size: 0.1, frame_color: "#d4d4d4", frame_shininess: 0.1)),
+    (id: "c64", label: "Commodore 64", theme: Some("c64"), effects: (
+        flickering: 0.1, horizontal_sync: 0.0, static_noise: 0.1, jitter: 0.0,
+        screen_curvature: 0.5, screen_radius: 0.1, glowing_line: 0.1, bloom: 0.4, burn_in: 0.1,
+        rgb_shift: 0.0, rasterization: Scanline, brightness: 0.6, contrast: 0.7, ambient_light: 0.4,
+        frame_size: 0.5, frame_color: "#999999", frame_shininess: 0.0)),
+    (id: "apple2", label: "Apple ][", theme: Some("apple2"), effects: (
+        flickering: 0.2, horizontal_sync: 0.2, static_noise: 0.2, jitter: 0.2,
+        screen_curvature: 0.5, screen_radius: 0.3, glowing_line: 0.3, bloom: 0.3, burn_in: 0.3,
+        rgb_shift: 0.0, rasterization: Scanline, brightness: 0.5, contrast: 0.8, ambient_light: 1.0,
+        frame_size: 0.2, frame_color: "#ffffff", frame_shininess: 0.8)),
+    (id: "vga", label: "IBM VGA 8x16", theme: Some("vga"), effects: (
+        flickering: 0.1, horizontal_sync: 0.0, static_noise: 0.0, jitter: 0.0,
+        screen_curvature: 0.3, screen_radius: 0.1, glowing_line: 0.1, bloom: 0.2, burn_in: 0.1,
+        rgb_shift: 0.1, rasterization: Scanline, brightness: 0.6, contrast: 1.0, ambient_light: 0.2,
+        frame_size: 0.1, frame_color: "#ffffff", frame_shininess: 0.3)),
+]

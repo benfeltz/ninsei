@@ -593,9 +593,19 @@ pub fn prefs(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
         });
     }
     ui.add_space(8.0);
+    ui.add_space(8.0);
+    ui.label(RichText::new("DISPLAY").color(ink()).strong());
     let mut crt = save.crt;
-    if ui.checkbox(&mut crt, "CRT scanlines").changed() {
+    if ui.checkbox(&mut crt, "CRT effects").changed() {
         out.push(WbOut::Crt);
+    }
+    ui.label(dim(
+        "Curved glass, glow, burn-in and scanlines. Picking one sets its theme too.",
+    ));
+    for d in &data.displays {
+        if ui.radio(save.display == d.id, &d.label).clicked() {
+            out.push(WbOut::Display(d.id.clone()));
+        }
     }
     ui.add_space(6.0);
     ui.label(dim("New themes go in data/themes.ron."));
