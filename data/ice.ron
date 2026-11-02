@@ -1,6 +1,9 @@
 // ICE: intrusion countermeasures. Each one cycles through its intents in order.
 // Attack(n) damages your deck, Trace(n) raises trace, Fortify(n) adds strength.
-// tier 1 = ordinary ICE, tier 2 = black ICE.
+// tier 1 = ordinary ICE, tier 2 = black ICE, tier 0 = never on the map (only met in encounters).
+// yields: (below: pct, chance: pct, line: "...")  optional. Once a hit leaves it at `below`% of its
+//         strength or less, each hit has a `chance`% chance it gives up and says `line`.
+//         Giving up counts as a win.
 [
     (id: "icewall",    name: "Ice Wall",   class: Barrier,  tier: 1, strength: 14, intents: [Fortify(3), Attack(3)]),
     (id: "bulwark",    name: "Bulwark",    class: Barrier,  tier: 1, strength: 18, intents: [Fortify(4), Attack(4), Attack(3)]),
@@ -10,4 +13,6 @@
     (id: "hunter",     name: "Hunter",     class: Sentry,   tier: 1, strength: 13, intents: [Trace(4), Attack(6)]),
     (id: "archer",     name: "Archer",     class: Sentry,   tier: 2, strength: 22, intents: [Attack(7), Trace(6), Attack(5)]),
     (id: "hydra",      name: "Hydra",      class: CodeGate, tier: 2, strength: 26, intents: [Trace(10), Attack(6), Fortify(4)]),
+    (id: "rival",      name: "kr4ken",     class: CodeGate, tier: 0, strength: 20, intents: [Attack(4), Trace(5), Fortify(3), Attack(5)],
+        yields: Some((below: 50, chance: 40, line: "ok ok, you win. take it and get off my line."))),
 ]

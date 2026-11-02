@@ -8,7 +8,7 @@
 //   Contract                        take a contract on a node ahead
 //   Pay(cost: n, get: <drop>)
 //   Gamble(pct: n, win: <drop>, lose: Trace(n) | Damage(n))
-//   Fight(ice: "<id>", reward: <drop>)
+//   Fight(ice: "<id>", rewards: [<drop>, ...])   fight; every reward on top of the usual loot
 [
     (
         id: "fence",
@@ -56,6 +56,21 @@
         ],
     ),
     (
+        id: "rival",
+        from: "kr4ken",
+        title: "a rival hacker",
+        leet: true,
+        text: [
+            "well well. a tourist on my backbone.",
+            "this node is mine. my warez, my creds, my phone lines.",
+            "jack out now, or prove you're good enough to take them.",
+        ],
+        choices: [
+            (label: "Fight for it (warez, creds and a range)", effect: Fight(ice: "rival", rewards: [Warez("wyrm"), Credits(50, 110), Hint("yamatai")])),
+            (label: "Back off", effect: Leave),
+        ],
+    ),
+    (
         id: "honeypot",
         from: "cache.sys",
         title: "an unsecured cache",
@@ -77,7 +92,7 @@
             "pull its attention and I'll pay you in fragments. I swear.",
         ],
         choices: [
-            (label: "Draw the Hunter off (fight)", effect: Fight(ice: "hunter", reward: Fragment(2))),
+            (label: "Draw the Hunter off (fight)", effect: Fight(ice: "hunter", rewards: [Fragment(2)])),
             (label: "Not my problem", effect: Leave),
         ],
     ),

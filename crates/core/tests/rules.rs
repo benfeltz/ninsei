@@ -206,3 +206,31 @@ fn commands_parse() {
     assert!(parse_command("run x").is_err());
     assert!(parse_command("sudo").is_err());
 }
+
+#[test]
+fn bad_yields_and_fight_rewards_are_rejected() {
+    let parse = |ice: &str, events: &str| {
+        Data::parse(Sources {
+            warez: include_str!("../../../data/warez.ron"),
+            ice,
+            loot: include_str!("../../../data/loot.ron"),
+            bbs: include_str!("../../../data/bbs/board.ron"),
+            splash: include_str!("../../../data/bbs/splash.txt"),
+            events,
+            contracts: include_str!("../../../data/contracts.ron"),
+            icons: include_str!("../../../data/hub/icons.ron"),
+            rig: include_str!("../../../data/hub/rig.ron"),
+            networks: include_str!("../../../data/hub/networks.ron"),
+            exchanges: include_str!("../../../data/hub/exchanges.ron"),
+            themes: include_str!("../../../data/themes.ron"),
+        })
+    };
+    let ice = include_str!("../../../data/ice.ron");
+    let events = include_str!("../../../data/events.ron");
+    let never = ice.replace("chance: 40", "chance: 0");
+    assert!(parse(&never, events).unwrap_err().contains("rival"));
+    let warez = events.replace("Warez(\"wyrm\"), Credits", "Warez(\"nope\"), Credits");
+    assert!(parse(ice, &warez).unwrap_err().contains("nope"));
+    let hint = events.replace("Hint(\"yamatai\")])", "Hint(\"nowhere\")])");
+    assert!(parse(ice, &hint).unwrap_err().contains("nowhere"));
+}

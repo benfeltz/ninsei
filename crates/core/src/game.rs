@@ -48,8 +48,10 @@ pub struct Combat {
     /// ICE that just shook off a stun can't be stunned again this turn.
     pub stun_immune: bool,
     pub turn: u32,
-    /// Extra reward for winning (encounter fights).
-    pub bonus: Option<Drop>,
+    /// Extra rewards for winning (encounter fights).
+    pub bonus: Vec<Drop>,
+    /// Speaks l33t (it came from a l33t encounter).
+    pub leet: bool,
 }
 
 /// What the runner brings into a run: deck bonuses from the RIG and the programs on the HDD.
@@ -602,7 +604,8 @@ impl Game {
             stunned: false,
             stun_immune: false,
             turn: 1,
-            bonus: None,
+            bonus: Vec::new(),
+            leet: false,
         });
         self.phase = Phase::Combat;
         self.say(
@@ -645,7 +648,8 @@ impl Game {
                 };
                 c.strength = c.strength.saturating_sub(hit);
                 self.say(LogKind::Good, format!("{} breaks {hit}{crit}", w.name));
-                if self.combat.as_ref().is_some_and(|c| c.strength == 0) {
+                // Derezzed, or beaten badly enough to quit.
+                if self.combat.as_ref().is_some_and(|c| c.strength == 0) || self.gives_up() {
                     self.win_combat();
                 }
             }
@@ -672,6 +676,32 @@ impl Game {
         Ok(())
     }
 
+    /// Rolls whether a beaten fighter quits. Says its line if it does.
+    fn gives_up(&mut self) -> bool {
+        let Some(c) = self.combat.as_ref() else {
+            return false;
+        };
+        let Some(y) = self.data.ice[c.ice].yields.clone() else {
+            return false;
+        };
+        let leet = c.leet;
+        if c.strength * 100 > y.below * c.strength_max || !self.rng.chance(y.chance) {
+            return false;
+        }
+        let name = self.data.ice[c.ice].name.clone();
+        let line = if leet {
+            crate::leet::translate(&y.line)
+        } else {
+            y.line
+        };
+        self.say(LogKind::Info, format!("<{name}> {line}"));
+        self.say(
+            LogKind::Good,
+            format!("{name} gives up and drops the line."),
+        );
+        true
+    }
+
     fn win_combat(&mut self) {
         let Some(c) = self.combat.take() else { return };
         self.phase = Phase::Exploring;
@@ -683,11 +713,15 @@ impl Game {
         } else {
             self.data.loot.ice.clone()
         };
-        self.say(LogKind::Good, format!("{name} derezzed. node clear."));
+        if c.strength == 0 {
+            self.say(LogKind::Good, format!("{name} derezzed. node clear."));
+        }
         self.roll_loot(&table);
-        if let Some(b) = c.bonus {
+        if !c.bonus.is_empty() {
             self.say(LogKind::Good, "as promised:");
-            self.grant(b);
+            for b in c.bonus {
+                self.grant(b);
+            }
         }
         // Contracts target the main network; a subnet's node ids mean nothing to them.
         if self.outer.is_none() {
@@ -941,12 +975,14 @@ impl Game {
                     self.penalize(lose);
                 }
             }
-            ChoiceEffect::Fight { ice, reward } => {
+            ChoiceEffect::Fight { ice, rewards } => {
                 if let Some(ix) = self.data.ice.iter().position(|i| i.id == ice) {
+                    let leet = self.data.events[e.event].leet;
                     self.encounter = None;
                     self.start_combat(e.node, ix);
                     if let Some(c) = self.combat.as_mut() {
-                        c.bonus = Some(reward);
+                        c.bonus = rewards;
+                        c.leet = leet;
                     }
                     return Ok(());
                 }

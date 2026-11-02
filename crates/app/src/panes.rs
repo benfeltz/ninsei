@@ -397,7 +397,11 @@ impl Panes<'_> {
                 p.fg
             }));
             ui.vertical(|ui| {
-                let tier = if ice.tier >= 2 { "BLACK ICE" } else { "ICE" };
+                let tier = match ice.tier {
+                    0 => "RUNNER",
+                    1 => "ICE",
+                    _ => "BLACK ICE",
+                };
                 ui.label(
                     RichText::new(ice.name.to_uppercase())
                         .heading()
