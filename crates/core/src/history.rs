@@ -16,6 +16,7 @@ pub struct Sample {
     pub cpu: u32,
     pub ram: u32,
     pub credits: u32,
+    pub hops: u32,
 }
 
 /// One turn of a fight.
@@ -173,6 +174,7 @@ fn sample(g: &Game) -> Sample {
         cpu: g.combat.as_ref().map_or(g.deck.cpu_max, |c| c.cpu),
         ram: g.ram_used(),
         credits: g.deck.credits,
+        hops: g.hops,
     }
 }
 

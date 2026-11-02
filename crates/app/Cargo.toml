@@ -11,6 +11,8 @@ ninsei-core.workspace = true
 eframe.workspace = true
 egui.workspace = true
 egui_dock.workspace = true
+serde.workspace = true
+ron.workspace = true
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 # Modem sounds. Needs ALSA headers on Linux (libasound2-dev).

@@ -571,6 +571,10 @@ pub struct Save {
     pub deck: String,
     #[serde(default)]
     pub firmware: String,
+    /// The run screen's pane layout per deck firmware (`"deck/firmware"`). Opaque text the
+    /// app writes and reads; core never looks inside. Missing or unreadable: the default.
+    #[serde(default)]
+    pub layouts: std::collections::BTreeMap<String, String>,
 }
 
 /// A BBS whose number you know, and how you found it.
@@ -636,6 +640,7 @@ impl Default for Save {
             decks: Vec::new(),
             deck: String::new(),
             firmware: String::new(),
+            layouts: std::collections::BTreeMap::new(),
         }
     }
 }

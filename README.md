@@ -126,7 +126,11 @@ Runs are for taking things; home is for building. **Reach the exit** and the run
 | `terminal` | Log and command line (`help`) |
 | `todo` | Your contracts, as an IDE TODO list: `[ ]` open, `[x]` paid, `[-]` failed |
 
-Tabs can be dragged, split and rearranged; **view → reset layout** puts them back.
+Tabs can be dragged, split and rearranged, and **your layout is saved** (one per deck firmware) and comes back next run. **view → add pane** adds secondary panes, which you can close again; **view → reset layout** goes back to the firmware's default.
+
+The first secondary pane is **net**, a network traffic monitor after btop's net box: a mirrored dot graph scrolling in real time (download up from the middle, upload down), with rate, peak and total. Hits taken and credits coming in are downloads; CPU spent and hops are uploads. The Ono-Sendai opens it beside the terminal.
+
+![net pane](docs/shots/net-pane-synthwave.png)
 
 On the **Ono-Sendai** the panes are dressed btop-style: boxed with their titles cut into the border, gradient meters with sparklines of their recent history, a trace-per-hop graph, a process table for your warez (a program's row lights up and its activity graph spikes when it runs), and in a fight a draining strength meter, a strength graph, the ICE's next moves as a waterfall falling toward *now*, and a damage waterfall of the last turns. The terminal stamps each line with its hop and turn. Graphs are painted at braille resolution (2x4 dots a character). Prefer the plain panes? Switch the deck's firmware to **Cyberspace 6.2** in Prefs.
 

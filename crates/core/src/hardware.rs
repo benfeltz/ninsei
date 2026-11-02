@@ -232,6 +232,32 @@ impl Save {
             .unwrap_or(&deck.firmware[0])
     }
 
+    /// The key a layout is saved under: the deck and its firmware.
+    pub fn layout_key(&self, data: &Data) -> String {
+        format!("{}/{}", self.deck_def(data).id, self.firmware_def(data).id)
+    }
+
+    /// The saved pane layout for the deck and firmware in use, if there is one.
+    pub fn layout(&self, data: &Data) -> Option<&str> {
+        self.layouts.get(&self.layout_key(data)).map(String::as_str)
+    }
+
+    /// Remembers the pane layout for the deck and firmware in use. True if it changed.
+    pub fn set_layout(&mut self, data: &Data, text: String) -> bool {
+        let key = self.layout_key(data);
+        if self.layouts.get(&key) == Some(&text) {
+            return false;
+        }
+        self.layouts.insert(key, text);
+        true
+    }
+
+    /// Forgets the layout for the deck and firmware in use (reset to its default).
+    pub fn clear_layout(&mut self, data: &Data) {
+        let key = self.layout_key(data);
+        self.layouts.remove(&key);
+    }
+
     /// The CRT display preset the monitor shows.
     pub fn display_id<'a>(&self, data: &'a Data) -> &'a str {
         &self.monitor_def(data).display

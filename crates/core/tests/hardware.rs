@@ -173,3 +173,32 @@ fn the_dev_key_fills_the_bank() {
     assert_eq!(s.bank, 5 + tuning::DEV_CREDITS);
     assert!(msg.contains("dev"));
 }
+
+#[test]
+fn layouts_are_kept_per_deck_firmware() {
+    let d = data();
+    let mut s = fresh(5_000);
+    assert_eq!(
+        s.layout(&d),
+        None,
+        "no layout yet: the app uses the default"
+    );
+    assert!(s.set_layout(&d, "ono layout".into()));
+    assert!(!s.set_layout(&d, "ono layout".into()), "unchanged");
+    assert_eq!(s.layout(&d), Some("ono layout"));
+    // Another deck has its own slot.
+    s.buy_hardware(&d, &Hardware::Deck("hosaka".into()))
+        .unwrap();
+    assert_eq!(s.layout(&d), None);
+    s.set_layout(&d, "hosaka layout".into());
+    s.use_deck(&d, "onosendai").unwrap();
+    assert_eq!(s.layout(&d), Some("ono layout"));
+    // Kept in the save, and reset clears only this one.
+    let mut back = Save::load(&s.to_text()).unwrap();
+    assert_eq!(back.layouts.len(), 2);
+    back.clear_layout(&d);
+    assert_eq!(back.layout(&d), None);
+    assert_eq!(back.layouts.len(), 1);
+    // Old saves have none.
+    assert!(Save::load("(version: 1)").unwrap().layouts.is_empty());
+}
