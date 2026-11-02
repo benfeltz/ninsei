@@ -46,9 +46,28 @@ pub const SUBNET_MID_LAYERS: usize = 3;
 /// Extra vault weight inside a subnet: the reason to go in.
 pub const SUBNET_VAULT_BONUS: u32 = 30;
 
-/// BBS modem theatre, in seconds.
-pub const BBS_DIAL_SECS: f32 = 2.4;
+/// BBS modem theatre, in seconds. Dialing lasts as long as the handshake (`modem.rs`).
 pub const BBS_HANGUP_SECS: f32 = 1.2;
+
+/// The dial-up handshake, in seconds: a 1200/2400-baud call, squeezed down.
+/// `ATZ`/`OK`, then dial tone, touch tones, rings, the answer tone and the carrier until CONNECT.
+pub const MODEM_OFFHOOK_SECS: f32 = 0.3;
+pub const MODEM_DIALTONE_SECS: f32 = 0.3;
+pub const MODEM_DIGIT_SECS: f32 = 0.07;
+pub const MODEM_DIGIT_GAP_SECS: f32 = 0.05;
+pub const MODEM_RINGS: usize = 2;
+pub const MODEM_RING_SECS: f32 = 0.4;
+pub const MODEM_RING_GAP_SECS: f32 = 0.25;
+pub const MODEM_ANSWER_SECS: f32 = 0.7;
+pub const MODEM_CARRIER_SECS: f32 = 0.9;
+/// Quiet after CONNECT before the screen moves on.
+pub const MODEM_SETTLE_SECS: f32 = 0.35;
+/// Carrier symbol rate (both 1200 and 2400 bps modems signal at 600 baud).
+pub const MODEM_BAUD: f32 = 600.0;
+/// Fade in/out per tone, so nothing clicks.
+pub const MODEM_RAMP_SECS: f32 = 0.004;
+/// Peak loudness, 0-1.
+pub const MODEM_VOLUME: f32 = 0.25;
 /// Simulated Zmodem throughput, bytes per second of game time.
 pub const BBS_CPS: f32 = 42_000.0;
 

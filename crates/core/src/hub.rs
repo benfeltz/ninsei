@@ -510,6 +510,9 @@ pub struct Save {
     /// CRT effects on or off.
     #[serde(default = "default_crt")]
     pub crt: bool,
+    /// Modem sounds on or off.
+    #[serde(default = "default_sound")]
+    pub sound: bool,
     /// CRT display preset id (see `data/displays.ron`).
     #[serde(default = "default_display")]
     pub display: String,
@@ -554,6 +557,10 @@ fn default_crt() -> bool {
     true
 }
 
+fn default_sound() -> bool {
+    true
+}
+
 fn default_display() -> String {
     DEFAULT_DISPLAY.into()
 }
@@ -568,6 +575,7 @@ impl Default for Save {
             best_haul: 0,
             phosphor: default_phosphor(),
             crt: default_crt(),
+            sound: default_sound(),
             display: default_display(),
             bank: 0,
             fragments: 0,
@@ -1255,6 +1263,8 @@ pub enum ShellEffect {
     /// Set the CRT display preset (by id).
     Display(String),
     Crt,
+    /// Modem sounds on/off.
+    Sound,
     Clear,
 }
 
@@ -1280,6 +1290,7 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
                 "theme <name>     colour theme, desktop and runs (see Prefs)",
                 "crt              CRT effects on/off",
                 "display <id>     CRT preset (see Prefs)",
+                "sound            modem sounds on/off",
                 "echo <text>      say something",
                 "leet <text>      say it in l33t",
                 "clear            clear the window",
@@ -1407,6 +1418,7 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
             }
         },
         "crt" => (Vec::new(), ShellEffect::Crt),
+        "sound" => (Vec::new(), ShellEffect::Sound),
         "display" => match arg.and_then(|d| data.display(d)) {
             Some(d) => (Vec::new(), ShellEffect::Display(d.id.clone())),
             None => {

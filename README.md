@@ -17,7 +17,7 @@ cargo run -p ninsei            # random seed
 cargo run -p ninsei -- 1a2b    # first dial uses this seed (hex)
 ```
 
-On Linux you need the usual X11/Wayland libraries (`libxkbcommon-x11`, GL drivers).
+On Linux you need the usual X11/Wayland libraries (`libxkbcommon-x11`, GL drivers), plus ALSA for sound (`libasound2-dev` to build).
 
 ### Web build
 

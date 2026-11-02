@@ -270,3 +270,17 @@ fn the_translator_is_for_everyone() {
     g.encounter.as_mut().unwrap().event = plain;
     assert_eq!(g.encounter_title(), d.events[plain].title);
 }
+
+#[test]
+fn dialing_lasts_as_long_as_the_handshake() {
+    let g = Game::new(Data::builtin().unwrap(), 1);
+    let h = ninsei_core::modem::Handshake::new(&g.bbs().phone);
+    let mut s = Session::new();
+    s.tick(&g, h.end - 0.05);
+    assert!(matches!(s.screen, Screen::Dialing { .. }), "still dialing");
+    let lines = s.render(&g).join("\n");
+    assert_eq!(lines.matches("RING").count(), h.rings.len());
+    assert!(lines.contains("CONNECT"));
+    s.tick(&g, 0.1);
+    assert_eq!(s.screen, Screen::Splash);
+}

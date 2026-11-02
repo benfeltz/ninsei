@@ -10,6 +10,8 @@ pub enum Command {
     /// Handled by the app, e.g. `theme amber`.
     Theme(String),
     Crt,
+    /// Modem sounds on/off.
+    Sound,
     /// New run on a fresh seed the app picks.
     NewRun,
     /// Open HDD slot `n` in the hex editor.
@@ -27,6 +29,7 @@ pub const HELP: &[&str] = &[
     "newrun [seed]   start a new run",
     "theme <name>    amber | green | ice",
     "crt             toggle scanlines",
+    "sound           modem sounds on/off",
     "clear           clear the terminal",
 ];
 
@@ -60,6 +63,7 @@ pub fn parse_command(line: &str) -> Result<Command, String> {
         "clear" | "cls" => Command::Clear,
         "theme" => Command::Theme(arg.ok_or("`theme` needs a name.")?.to_ascii_lowercase()),
         "crt" => Command::Crt,
+        "sound" => Command::Sound,
         other => return Err(format!("command not found: {other}")),
     })
 }

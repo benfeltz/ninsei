@@ -11,6 +11,7 @@ pub mod game;
 pub mod hexedit;
 pub mod hub;
 pub mod leet;
+pub mod modem;
 pub mod network;
 pub mod rng;
 pub mod tuning;

@@ -137,3 +137,11 @@ fn shell_commands() {
     assert!(run("frobnicate").0[0].contains("Unknown command"));
     assert_eq!(run("   ").1, ShellEffect::None);
 }
+
+#[test]
+fn modem_sounds_default_on_and_toggle_from_the_shell() {
+    let s = Save::load("(version: 1, runs: 4)").unwrap();
+    assert!(s.sound, "old saves get sound on");
+    let d = Data::builtin().unwrap();
+    assert_eq!(hub::shell("sound", &s, &d).1, hub::ShellEffect::Sound);
+}
