@@ -4,12 +4,15 @@
 
 use crate::data::Drop;
 use crate::game::{Action, ContractStatus, Game};
-use crate::tuning::{BBS_CPS, BBS_DIAL_SECS, BBS_HANGUP_SECS};
+use crate::modem::Handshake;
+use crate::tuning::{BBS_CPS, BBS_HANGUP_SECS};
 
 /// Screen width in columns.
 pub const COLS: usize = 78;
 /// Screen height in rows.
 pub const ROWS: usize = 24;
+/// Seconds after CONNECT the ANSI line shows.
+const MODEM_ANSI_AFTER: f32 = 0.15;
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Screen {
@@ -61,7 +64,7 @@ impl Session {
         match &mut self.screen {
             Screen::Dialing { t } => {
                 *t += dt;
-                if *t >= BBS_DIAL_SECS {
+                if *t >= Handshake::new(&game.data.bbs.phone).end {
                     self.screen = Screen::Splash;
                 }
             }
@@ -193,17 +196,20 @@ impl Session {
         let mut out: Vec<String> = Vec::new();
         match self.screen {
             Screen::Dialing { t } => {
-                out.push(format!("|07ATDT {}", b.phone));
-                if t > 0.5 {
-                    out.push("|08~~ RING ~~".into());
+                let h = Handshake::new(&b.phone);
+                out.push("|07ATZ".into());
+                if t >= h.offhook {
+                    out.push(format!("|07ATDT {}", b.phone));
                 }
-                if t > 1.1 {
-                    out.push("|08~~ RING ~~".into());
+                for &ring in &h.rings {
+                    if t >= ring {
+                        out.push("|08~~ RING ~~".into());
+                    }
                 }
-                if t > 1.7 {
+                if t >= h.connect {
                     out.push(format!("|15CONNECT {}/ARQ/V42BIS", b.baud));
                 }
-                if t > 2.1 {
+                if t >= h.connect + MODEM_ANSI_AFTER {
                     out.push("|07Negotiating ANSI... |10OK".into());
                 }
             }

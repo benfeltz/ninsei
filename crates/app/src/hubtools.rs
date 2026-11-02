@@ -6,12 +6,13 @@
 use egui::{RichText, Ui, Visuals};
 use ninsei_core::hexedit::HexBuffer;
 use ninsei_core::hub::{Answer, Save, ScanResult, Upgrade};
+use ninsei_core::modem::Handshake;
 use ninsei_core::tuning::HEAT_MAX;
 use ninsei_core::{Data, binary, tuning};
 
 use crate::hexview::{self, HexCtx, HexOut};
 use crate::theme::Palette;
-use crate::workbench::{DIAL_SECS, Dialing, WbOut, accent, backdrop, fill, ink, muted, shadow};
+use crate::workbench::{Dialing, WbOut, accent, backdrop, fill, ink, muted, shadow};
 
 /// Restyles egui widgets in the 1.3 palette: blue fields, white ink, orange when pressed.
 pub fn wb_visuals(v: &mut Visuals) {
@@ -289,21 +290,30 @@ pub fn carrierterm(
                 .strong(),
         );
         ui.add_space(6.0);
-        let script = [
+        // Lines land on the handshake's beats, so text and sound stay in step.
+        let h = Handshake::new(&e.number);
+        let mut script = vec![
             (0.0, "ATZ".to_string(), ink()),
-            (0.15, "OK".to_string(), ink()),
-            (0.35, format!("ATDT {}", e.number), ink()),
-            (0.8, "~~ RING ~~".to_string(), ink()),
-            (1.3, "~~ RING ~~".to_string(), ink()),
-            (1.7, "CONNECT 2400/ARQ".to_string(), accent()),
-            (2.0, "CARRIER DETECTED. JACKING IN...".to_string(), accent()),
+            (h.offhook / 2.0, "OK".to_string(), ink()),
+            (h.offhook, format!("ATDT {}", e.number), ink()),
         ];
+        script.extend(
+            h.rings
+                .iter()
+                .map(|&r| (r, "~~ RING ~~".to_string(), ink())),
+        );
+        script.push((h.connect, "CONNECT 2400/ARQ".to_string(), accent()));
+        script.push((
+            h.connect + (h.end - h.connect) / 2.0,
+            "CARRIER DETECTED. JACKING IN...".to_string(),
+            accent(),
+        ));
         for (at, line, col) in script {
             if d.t >= at {
                 ui.label(mono(line, col));
             }
         }
-        let frac = (d.t / DIAL_SECS).clamp(0.0, 1.0);
+        let frac = (d.t / h.end).clamp(0.0, 1.0);
         let cells = 40;
         let on = (frac * cells as f32) as usize;
         ui.add_space(6.0);
@@ -607,6 +617,10 @@ pub fn prefs(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
     ui.label(dim(
         "Curved glass, glow, burn-in and scanlines. Picking one sets its theme too.",
     ));
+    let mut sound = save.sound;
+    if ui.checkbox(&mut sound, "Modem sounds").changed() {
+        out.push(WbOut::Sound);
+    }
     for d in &data.displays {
         if ui.radio(save.display == d.id, &d.label).clicked() {
             out.push(WbOut::Display(d.id.clone()));
