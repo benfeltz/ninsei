@@ -284,6 +284,8 @@ pub struct Game {
     pub hints: Vec<String>,
     /// What the run has been doing, for the graphs. Watches the rules, never changes them.
     pub history: crate::history::History,
+    /// Sound cues waiting to be played. The app drains them each frame.
+    pub cues: Vec<crate::cue::Cue>,
 }
 
 impl Game {
@@ -337,6 +339,7 @@ impl Game {
             mods: kit.mods,
             hints: Vec::new(),
             history: crate::history::History::default(),
+            cues: Vec::new(),
             site: kit.site.clone(),
         };
         let programs: Vec<(usize, Bin)> = if kit.programs.is_empty() {
@@ -518,12 +521,26 @@ impl Game {
     /// Applies one player action. Illegal actions change nothing but a log line.
     pub fn apply(&mut self, action: Action) {
         let was = crate::history::Snap::of(self);
+        let heard = crate::cue::Snap::of(self);
         let uid = match action {
             Action::Run(slot) => self.hdd.get(slot).map(|s| s.uid),
             _ => None,
         };
-        if let Err(e) = self.try_apply(action) {
-            self.say(LogKind::Sys, format!("err: {e}"));
+        let ok = match self.try_apply(action) {
+            Ok(()) => true,
+            Err(e) => {
+                self.say(LogKind::Sys, format!("err: {e}"));
+                false
+            }
+        };
+        // Refused actions make no sound; a new run starts quiet.
+        if ok && !matches!(action, Action::NewRun(_)) {
+            let bought = matches!(action, Action::Buy { .. });
+            let cues = crate::cue::cues(&heard, self, bought);
+            self.cues.extend(cues);
+            // Nobody listening (tests, the balance probe): keep only the latest few.
+            let extra = self.cues.len().saturating_sub(crate::cue::QUEUE_MAX);
+            self.cues.drain(..extra);
         }
         // A new run starts its own history; everything else is recorded.
         if !matches!(action, Action::NewRun(_)) {

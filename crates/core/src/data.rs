@@ -458,6 +458,7 @@ pub struct Sources<'a> {
     pub icons: &'a str,
     pub netmap: &'a str,
     pub hardware: &'a str,
+    pub sounds: &'a str,
     pub rig: &'a str,
     pub networks: &'a str,
     pub exchanges: &'a str,
@@ -478,6 +479,7 @@ impl Sources<'static> {
             icons: include_str!("../../../data/hub/icons.ron"),
             netmap: include_str!("../../../data/netmap.ron"),
             hardware: include_str!("../../../data/hub/hardware.ron"),
+            sounds: include_str!("../../../data/sounds.ron"),
             rig: include_str!("../../../data/hub/rig.ron"),
             networks: include_str!("../../../data/hub/networks.ron"),
             exchanges: include_str!("../../../data/hub/exchanges.ron"),
@@ -502,6 +504,8 @@ pub struct Data {
     pub netmap: Vec<crate::netview::MapStyleDef>,
     /// Monitors and decks you can own.
     pub hardware: crate::hardware::HardwareDef,
+    /// What each sound cue plays.
+    pub sounds: Vec<crate::cue::SoundDef>,
     /// RIG deck-shop upgrades.
     pub rig: Vec<crate::hub::UpgradeDef>,
     /// Network tiers, traits and companies for the phonebook.
@@ -541,6 +545,7 @@ impl Data {
             icons: ron::from_str(src.icons).map_err(|e| format!("hub/icons.ron: {e}"))?,
             netmap: ron::from_str(src.netmap).map_err(|e| format!("netmap.ron: {e}"))?,
             hardware: ron::from_str(src.hardware).map_err(|e| format!("hub/hardware.ron: {e}"))?,
+            sounds: ron::from_str(src.sounds).map_err(|e| format!("sounds.ron: {e}"))?,
             rig: ron::from_str(src.rig).map_err(|e| format!("hub/rig.ron: {e}"))?,
             networks: ron::from_str(src.networks).map_err(|e| format!("hub/networks.ron: {e}"))?,
             exchanges: ron::from_str(src.exchanges)
@@ -619,6 +624,7 @@ impl Data {
         self.hardware
             .validate(self)
             .map_err(|e| format!("hub/hardware.ron: {e}"))?;
+        crate::cue::SoundDef::validate(&self.sounds).map_err(|e| format!("sounds.ron: {e}"))?;
         crate::hub::RangeDef::validate(&self.exchanges, &self.networks)
             .map_err(|e| format!("hub/exchanges.ron: {e}"))?;
         // Every hint anywhere must name a range that exists.

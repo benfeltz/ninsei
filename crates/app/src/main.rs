@@ -934,6 +934,10 @@ impl eframe::App for App {
         let dt = ctx.input(|i| i.stable_dt).min(0.1);
         self.screen = self.screen.tick(dt);
         self.sync_sound();
+        // The run's sound cues: whatever happened since last frame, played together.
+        for cue in std::mem::take(&mut self.game.cues) {
+            self.speaker.cue(cue, &self.data.sounds);
+        }
 
         let live = self.screen == Screen::Run && !self.crashed;
         self.glitch = glitch::Glitch::frame(&ctx, &self.game, self.save.glitches, live);
