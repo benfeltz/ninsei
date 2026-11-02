@@ -89,6 +89,10 @@ pub trait ChromeView {
         crate::netpane::live(ui, p.game, &p.pal);
     }
 
+    /// The tab brought forward when ICE rezzes or the run ends.
+    fn combat_tab(&self) -> Tab {
+        Tab::Target
+    }
     /// A tab's title, if this chrome names it differently.
     fn title(&self, _tab: Tab) -> Option<&'static str> {
         None
@@ -151,6 +155,17 @@ impl ChromeView for Classic {}
 
 pub struct Btop;
 impl ChromeView for Btop {
+    fn network(&self, p: &mut Panes, ui: &mut Ui) {
+        // In a fight the map dives into the ICE's node and becomes the fight view.
+        if p.game.phase == ninsei_core::Phase::Combat {
+            crate::fightview::show(ui, p);
+        } else {
+            p.network(ui);
+        }
+    }
+    fn combat_tab(&self) -> Tab {
+        Tab::Network
+    }
     fn deck(&self, p: &mut Panes, ui: &mut Ui) {
         p.btop_deck(ui);
     }

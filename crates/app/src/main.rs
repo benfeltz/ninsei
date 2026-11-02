@@ -7,6 +7,7 @@ mod crash;
 mod crt;
 mod crt_gl;
 mod encounter_view;
+mod fightview;
 mod glitch;
 mod hexview;
 mod home;
@@ -1367,10 +1368,16 @@ impl App {
             self.handle(&ctx, r);
         }
 
-        // Bring the target pane forward when ICE rezzes or the run ends.
+        // Bring the fight forward when ICE rezzes (the chrome says where), and the target pane
+        // when a message comes in or the run ends.
         if self.game.phase != self.last_phase {
+            let tab = if self.game.phase == Phase::Combat {
+                view.combat_tab()
+            } else {
+                Tab::Target
+            };
             if self.game.phase != Phase::Exploring
-                && let Some(path) = self.dock.find_tab(&Tab::Target)
+                && let Some(path) = self.dock.find_tab(&tab)
             {
                 let _ = self.dock.set_active_tab(path);
             }
@@ -1428,6 +1435,13 @@ mod tests {
                 d.id
             );
         }
+    }
+
+    #[test]
+    fn the_btop_chrome_fights_in_the_map_pane() {
+        assert_eq!(chrome::view(Chrome::Btop).combat_tab(), Tab::Network);
+        assert_eq!(chrome::view(Chrome::Classic).combat_tab(), Tab::Target);
+        assert_eq!(chrome::view(Chrome::Suite).combat_tab(), Tab::Target);
     }
 
     #[test]

@@ -1,7 +1,7 @@
 //! Run state and the rules that change it. The app only ever calls [`Game::apply`].
 
 use crate::binary::{self, Bin, Spec};
-use crate::data::{ChoiceEffect, Data, Drop, Effect, Intent, LootTable, Penalty};
+use crate::data::{ChoiceEffect, Data, Drop, Intent, LootTable, Penalty};
 use crate::network::{NetParams, Network, NodeKind};
 use crate::rng::Rng;
 use crate::tuning::*;
@@ -714,54 +714,44 @@ impl Game {
     }
 
     fn run(&mut self, slot: usize) -> Result<(), String> {
-        let s = self.slot(slot)?;
-        let w = s.spec;
-        if !s.loaded {
-            return Err(format!("{} is not loaded.", w.name));
-        }
+        // Everything that decides what happens is in `preview`, which the fight view shows.
+        let p = self.preview(slot)?;
+        let name = self.hdd[slot].spec.name.clone();
         let Some(c) = self.combat.as_mut() else {
             return Err("nothing to run against.".into());
         };
-        if c.cpu < w.cpu {
-            return Err(format!("{} needs {} cpu, {} left.", w.name, w.cpu, c.cpu));
-        }
-        if w.effect == Effect::Stun && c.stun_immune {
-            return Err("the ICE has adapted to lag. a stun won't land this turn.".into());
-        }
-        c.cpu -= w.cpu;
-        match w.effect {
-            Effect::Break { power, vs } => {
-                let class = self.data.ice[c.ice].class;
-                // Specialised breakers double against their class and halve against the rest.
-                let (hit, crit) = match vs {
-                    Some(v) if v == class => (power * 2, " (class match x2)"),
-                    Some(_) => (power / 2, " (wrong class /2)"),
-                    None => (power, ""),
+        c.cpu -= p.cpu;
+        match p.outcome {
+            crate::fight::Outcome::Break { hit, vs } => {
+                let crit = match vs {
+                    crate::fight::Match::Strong => " (class match x2)",
+                    crate::fight::Match::Weak => " (wrong class /2)",
+                    crate::fight::Match::Plain => "",
                 };
                 c.strength = c.strength.saturating_sub(hit);
-                self.say(LogKind::Good, format!("{} breaks {hit}{crit}", w.name));
+                self.say(LogKind::Good, format!("{name} breaks {hit}{crit}"));
                 // Derezzed, or beaten badly enough to quit.
                 if self.combat.as_ref().is_some_and(|c| c.strength == 0) || self.gives_up() {
                     self.win_combat();
                 }
             }
-            Effect::Shield(n) => {
+            crate::fight::Outcome::Shield(n) => {
                 c.shield += n;
-                self.say(LogKind::Good, format!("{} up: shield {n}", w.name));
+                self.say(LogKind::Good, format!("{name} up: shield {n}"));
             }
-            Effect::Repair(n) => {
+            crate::fight::Outcome::Repair(n) => {
                 self.deck.integrity = (self.deck.integrity + n).min(self.deck.integrity_max);
-                self.say(LogKind::Good, format!("{} restores {n} integrity", w.name));
+                self.say(LogKind::Good, format!("{name} restores {n} integrity"));
             }
-            Effect::Scrub(n) => {
+            crate::fight::Outcome::Scrub(n) => {
                 self.deck.trace = self.deck.trace.saturating_sub(n);
-                self.say(LogKind::Good, format!("{} scrubs {n} trace", w.name));
+                self.say(LogKind::Good, format!("{name} scrubs {n} trace"));
             }
-            Effect::Stun => {
+            crate::fight::Outcome::Stun => {
                 c.stunned = true;
                 self.say(
                     LogKind::Good,
-                    format!("{} lags the ICE. it skips a beat.", w.name),
+                    format!("{name} lags the ICE. it skips a beat."),
                 );
             }
         }
