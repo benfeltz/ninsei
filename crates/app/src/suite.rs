@@ -1290,13 +1290,16 @@ impl ChromeView for Suite {
         if !st.watch.watching(cx.game) {
             st.dialogs.clear();
         }
+        // Enter only dismisses a dialog that was already up: the Enter that sent the command
+        // causing it (`jack` to the exit) mustn't close it in the same frame.
+        let was_up = !st.dialogs.is_empty();
         st.dialogs.extend(st.watch.step(cx.game));
         let Some(n) = st.dialogs.first().cloned() else {
             return Vec::new();
         };
         let p = cx.pal;
         let waiting = st.dialogs.len();
-        let mut ok = cx.keys_free && ctx.input(|i| i.key_pressed(Key::Enter));
+        let mut ok = was_up && cx.keys_free && ctx.input(|i| i.key_pressed(Key::Enter));
         egui::Area::new(egui::Id::new("suite-dialog"))
             .order(egui::Order::Foreground)
             .anchor(Align2::CENTER_CENTER, vec2(0.0, -40.0))

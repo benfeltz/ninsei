@@ -1332,8 +1332,13 @@ impl App {
         if !self.game.at_bbs() {
             self.bbs = None;
         }
+        let talking = self.game.encounter.is_some();
         for a in self.talk.show(&ctx, &self.game, &pal) {
             self.game.apply(a);
+        }
+        // A conversation that just ended hands the keyboard back to the command line.
+        if talking && self.game.encounter.is_none() {
+            self.focus_input = true;
         }
         self.sync_hex();
         if let Some(view) = &mut self.bbs {
