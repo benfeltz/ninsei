@@ -1,6 +1,7 @@
 //! The dock tabs. Panes only read the game and push [`Request`]s; the app applies them after drawing.
 
 use egui::{Color32, RichText, ScrollArea, Ui, WidgetText};
+use ninsei_core::hardware::Chrome;
 use ninsei_core::hexedit::HexBuffer;
 use ninsei_core::netview::MapView;
 use ninsei_core::{Action, Command, ContractStatus, Effect, Game, LogKind, Phase, tuning};
@@ -44,6 +45,8 @@ pub struct Panes<'a> {
     pub map: MapView,
     /// The deck's name for the deck.sys header.
     pub deck: String,
+    /// How the panes are dressed: the deck's firmware decides.
+    pub chrome: Chrome,
     pub input: &'a mut String,
     pub focus_input: &'a mut bool,
     pub bbs_open: bool,
@@ -56,7 +59,7 @@ pub struct Panes<'a> {
 }
 
 impl Panes<'_> {
-    fn act(&mut self, a: Action) {
+    pub(crate) fn act(&mut self, a: Action) {
         self.out.push(Request::Cmd(Command::Game(a)));
     }
 }
@@ -114,7 +117,13 @@ impl egui_dock::TabViewer for Panes<'_> {
     }
 
     fn ui(&mut self, ui: &mut Ui, tab: &mut Tab) {
+        let btop = self.chrome == Chrome::Btop;
         match tab {
+            Tab::Deck if btop => self.btop_deck(ui),
+            Tab::Warez if btop => self.btop_warez(ui),
+            Tab::Target if btop => self.btop_target(ui),
+            Tab::Terminal if btop => self.btop_terminal(ui),
+            Tab::Todo if btop => self.btop_todo(ui),
             Tab::Deck => self.deck(ui),
             Tab::Warez => self.warez(ui),
             Tab::Network => {
@@ -325,7 +334,7 @@ impl Panes<'_> {
         }
     }
 
-    fn target(&mut self, ui: &mut Ui) {
+    pub(crate) fn target(&mut self, ui: &mut Ui) {
         let g = self.game;
         let p = self.pal;
         match g.phase {
@@ -608,6 +617,12 @@ impl Panes<'_> {
                     ui.label(RichText::new(&l.text).monospace().color(col));
                 }
             });
+        self.prompt(ui);
+    }
+
+    /// The command line under the log.
+    pub(crate) fn prompt(&mut self, ui: &mut Ui) {
+        let p = self.pal;
         ui.horizontal(|ui| {
             ui.label(RichText::new("runner@ninsei:~$").color(p.dim));
             let edit = egui::TextEdit::singleline(self.input)

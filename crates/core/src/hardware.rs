@@ -10,8 +10,11 @@ use crate::netview::MapView;
 /// How the run screen's panes are dressed. New pane styles (#32) are new names here.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Chrome {
+    /// Plain IDE panes.
     #[default]
     Classic,
+    /// btop-style: boxed panes, gradient meters, dot graphs and waterfalls (the hacker deck).
+    Btop,
 }
 
 /// The overworld's look. A corporate desktop would be a new name here.

@@ -28,7 +28,7 @@ deck ─> firmware ─────┘
 | Part | Ono-Sendai (hacker) | Hosaka (corpo) |
 |---|---|---|
 | `map` | `Iso`: wireframes over a glowing grid ✅ | `Draft`: a technical drawing ✅ |
-| `chrome` | btop-style panes (#32) | productivity-suite panes: forms, spreadsheets, report charts (#37) |
+| `chrome` | `Btop`: boxed panes, gradient meters, dot graphs, waterfalls ✅ | productivity-suite panes: forms, spreadsheets, report charts (#37) |
 | `desktop` | a tiling desktop (#36) | `Workbench` ✅ |
 | damage (#33) | screen glitches: tearing, RGB split, corrupted text | the same, plus corporate error dialogs (idea below) |
 

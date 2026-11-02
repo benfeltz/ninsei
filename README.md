@@ -128,6 +128,11 @@ Runs are for taking things; home is for building. **Reach the exit** and the run
 
 Tabs can be dragged, split and rearranged; **view → reset layout** puts them back.
 
+On the **Ono-Sendai** the panes are dressed btop-style: boxed with their titles cut into the border, gradient meters with sparklines of their recent history, a trace-per-hop graph, a process table for your warez (a program's row lights up and its activity graph spikes when it runs), and in a fight a draining strength meter, a strength graph, the ICE's next moves as a waterfall falling toward *now*, and a damage waterfall of the last turns. The terminal stamps each line with its hop and turn. Graphs are painted at braille resolution (2x4 dots a character). Prefer the plain panes? Switch the deck's firmware to **Cyberspace 6.2** in Prefs.
+
+![btop panes, synthwave](docs/shots/btop-synthwave.png)
+![btop panes, amber](docs/shots/btop-amber.png)
+
 ### The network map
 
 Nodes float over a glowing isometric grid as slowly spinning wireframes, one shape per kind:
