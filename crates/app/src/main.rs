@@ -1,6 +1,7 @@
 //! ninsei: a cyberspace hacking roguelike dressed as a retro IDE.
 
 mod bbs_view;
+mod btop;
 mod crash;
 mod crt;
 mod crt_gl;
@@ -811,6 +812,9 @@ impl App {
                 .color(pal.dim),
             );
             ui.label(RichText::new(format!("trace {}%", g.deck.trace)).color(pal.dim));
+            if self.save.firmware_def(&self.data).chrome == ninsei_core::hardware::Chrome::Btop {
+                btop::status_sparks(ui, pal, g);
+            }
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(RichText::new("UTF-8  LF  RUST").color(pal.dim));
                 ui.label(RichText::new(self.run_theme_label()).color(pal.dim));
@@ -1018,6 +1022,7 @@ impl App {
             pal,
             map: self.save.firmware_def(&self.data).map,
             deck: self.save.deck_def(&self.data).title(),
+            chrome: self.save.firmware_def(&self.data).chrome,
             input: &mut self.input,
             focus_input: &mut self.focus_input,
             // Any modal (BBS or talk) keeps the terminal from grabbing focus.

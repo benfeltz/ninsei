@@ -10,6 +10,7 @@ pub mod display;
 pub mod game;
 pub mod hardware;
 pub mod hexedit;
+pub mod history;
 pub mod home_bbs;
 pub mod hub;
 pub mod leet;

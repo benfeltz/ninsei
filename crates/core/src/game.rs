@@ -193,6 +193,9 @@ pub enum LogKind {
 pub struct LogLine {
     pub kind: LogKind,
     pub text: String,
+    /// When it was said: the hop, and the combat turn (0 outside a fight).
+    pub hop: u32,
+    pub turn: u32,
 }
 
 /// One file on today's BBS listing.
@@ -279,6 +282,8 @@ pub struct Game {
     pub site: Option<Site>,
     /// Number ranges learned this run (exchange ids). They come home even on a flatline.
     pub hints: Vec<String>,
+    /// What the run has been doing, for the graphs. Watches the rules, never changes them.
+    pub history: crate::history::History,
 }
 
 impl Game {
@@ -331,6 +336,7 @@ impl Game {
             next_uid: 1,
             mods: kit.mods,
             hints: Vec::new(),
+            history: crate::history::History::default(),
             site: kit.site.clone(),
         };
         let programs: Vec<(usize, Bin)> = if kit.programs.is_empty() {
@@ -368,6 +374,7 @@ impl Game {
         );
         game.say(LogKind::Sys, "type `help` for commands.");
         game.bring_jobs(&kit.jobs);
+        game.history = crate::history::History::start(&game);
         game
     }
 
@@ -494,6 +501,8 @@ impl Game {
         self.log.push(LogLine {
             kind,
             text: text.into(),
+            hop: self.hops,
+            turn: self.combat.as_ref().map_or(0, |c| c.turn),
         });
         if self.log.len() > LOG_LIMIT {
             let extra = self.log.len() - LOG_LIMIT;
@@ -503,8 +512,19 @@ impl Game {
 
     /// Applies one player action. Illegal actions change nothing but a log line.
     pub fn apply(&mut self, action: Action) {
+        let was = crate::history::Snap::of(self);
+        let uid = match action {
+            Action::Run(slot) => self.hdd.get(slot).map(|s| s.uid),
+            _ => None,
+        };
         if let Err(e) = self.try_apply(action) {
             self.say(LogKind::Sys, format!("err: {e}"));
+        }
+        // A new run starts its own history; everything else is recorded.
+        if !matches!(action, Action::NewRun(_)) {
+            let mut h = std::mem::take(&mut self.history);
+            h.record(&was, self, action, uid);
+            self.history = h;
         }
     }
 
