@@ -82,9 +82,23 @@ pub struct IceDef {
     pub id: String,
     pub name: String,
     pub class: IceClass,
+    /// 1 = ICE, 2 = black ICE, 0 = never placed on the map (met only through encounters).
     pub tier: u32,
     pub strength: u32,
     pub intents: Vec<Intent>,
+    /// Whether it gives up when it's losing.
+    #[serde(default)]
+    pub yields: Option<YieldDef>,
+}
+
+/// A fighter that can give up: once a hit drops it to `below`% of its strength or less,
+/// each hit after that has a `chance`% chance it quits. Quitting counts as a win.
+#[derive(Deserialize, Clone, Debug)]
+pub struct YieldDef {
+    pub below: u32,
+    pub chance: u32,
+    /// What it says when it quits.
+    pub line: String,
 }
 
 #[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -195,10 +209,10 @@ pub enum ChoiceEffect {
         win: Drop,
         lose: Penalty,
     },
-    /// Fight ICE `ice` here; `reward` on top of the usual loot.
+    /// Fight ICE `ice` here; every drop in `rewards` on top of the usual loot.
     Fight {
         ice: String,
-        reward: Drop,
+        rewards: Vec<Drop>,
     },
 }
 
@@ -364,6 +378,20 @@ impl Data {
             if ice.intents.is_empty() {
                 return Err(format!("ICE `{}` has no intents", ice.id));
             }
+            if ice.tier > 2 {
+                return Err(format!(
+                    "ICE `{}` has tier {} (0, 1 or 2)",
+                    ice.id, ice.tier
+                ));
+            }
+            if let Some(y) = &ice.yields
+                && (y.below == 0 || y.below >= 100 || y.chance == 0 || y.chance > 100)
+            {
+                return Err(format!(
+                    "ICE `{}` yields below {}% at {}%: both must be 1-99/1-100",
+                    ice.id, y.below, y.chance
+                ));
+            }
         }
         for tier in [1, 2] {
             if !self.ice.iter().any(|i| i.tier == tier) {
@@ -440,10 +468,11 @@ impl Data {
         for ev in &self.events {
             for c in &ev.choices {
                 match &c.effect {
-                    ChoiceEffect::Pay { get: d, .. }
-                    | ChoiceEffect::Gamble { win: d, .. }
-                    | ChoiceEffect::Fight { reward: d, .. } => {
+                    ChoiceEffect::Pay { get: d, .. } | ChoiceEffect::Gamble { win: d, .. } => {
                         drops.push((format!("event `{}`", ev.id), d));
+                    }
+                    ChoiceEffect::Fight { rewards, .. } => {
+                        drops.extend(rewards.iter().map(|d| (format!("event `{}`", ev.id), d)));
                     }
                     _ => {}
                 }
@@ -470,7 +499,7 @@ impl Data {
                 let drops: Vec<&Drop> = match &c.effect {
                     ChoiceEffect::Pay { get, .. } => vec![get],
                     ChoiceEffect::Gamble { win, .. } => vec![win],
-                    ChoiceEffect::Fight { reward, .. } => vec![reward],
+                    ChoiceEffect::Fight { rewards, .. } => rewards.iter().collect(),
                     _ => Vec::new(),
                 };
                 for d in drops {

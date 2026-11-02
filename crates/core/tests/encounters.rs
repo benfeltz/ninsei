@@ -308,3 +308,74 @@ fn labels_fill_their_placeholders() {
         assert!(!g.fill(t, None).contains('{'));
     }
 }
+
+/// Meets the rival hacker and starts the fight.
+fn fight_rival(seed: u64) -> Game {
+    let mut g = game(seed);
+    meet(&mut g, "rival");
+    let c = choice(&g, |e| matches!(e, ChoiceEffect::Fight { .. }));
+    g.apply(Action::Choose {
+        choice: c,
+        slot: None,
+    });
+    assert_eq!(g.phase, Phase::Combat);
+    g
+}
+
+fn breaker(g: &Game) -> usize {
+    g.hdd
+        .iter()
+        .position(|s| s.loaded && matches!(s.spec.effect, Effect::Break { .. }))
+        .unwrap()
+}
+
+#[test]
+fn the_rival_gives_up_when_beaten_and_pays_everything() {
+    let mut quit = 0;
+    for seed in 0..40 {
+        let mut g = fight_rival(seed);
+        // One hit leaves him under half strength, far from derezzed.
+        let c = g.combat.as_mut().unwrap();
+        c.strength_max = 2400;
+        c.strength = 1000;
+        let (credits, warez) = (g.deck.credits, g.hdd.len());
+        g.apply(Action::Run(breaker(&g)));
+        if g.phase == Phase::Combat {
+            continue;
+        }
+        quit += 1;
+        assert_eq!(g.phase, Phase::Exploring);
+        assert!(g.deck.credits >= credits + 50, "seed {seed}: creds paid");
+        assert!(g.hdd.len() > warez, "seed {seed}: warez paid");
+        assert!(
+            g.hints.contains(&"yamatai".to_string()),
+            "seed {seed}: hint paid"
+        );
+        let said = g.log.iter().any(|l| l.text.contains("y0u w1n"));
+        assert!(said, "seed {seed}: he gives up in l33t");
+    }
+    assert!((5..40).contains(&quit), "gave up {quit}/40 times");
+}
+
+#[test]
+fn the_rival_never_gives_up_while_winning() {
+    for seed in 0..40 {
+        let mut g = fight_rival(seed);
+        let c = g.combat.as_mut().unwrap();
+        c.strength_max = 1000;
+        c.strength = 1000;
+        g.apply(Action::Run(breaker(&g)));
+        assert_eq!(g.phase, Phase::Combat, "seed {seed}");
+    }
+}
+
+#[test]
+fn encounter_only_fighters_stay_off_the_map() {
+    let data = Data::builtin().unwrap();
+    let rival = data.ice.iter().position(|i| i.id == "rival").unwrap();
+    assert_eq!(data.ice[rival].tier, 0);
+    for seed in 0..200 {
+        let g = game(seed);
+        assert!(g.net.nodes.iter().all(|n| n.ice != Some(rival)));
+    }
+}
