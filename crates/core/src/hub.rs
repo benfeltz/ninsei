@@ -856,7 +856,7 @@ impl Save {
             tier: e.tier,
             traits: labels,
         });
-        let taken: Vec<u32> = self.loadout.stash.drain(..).collect();
+        let taken: Vec<u32> = std::mem::take(&mut self.loadout.stash);
         self.stash.retain(|s| !taken.contains(&s.id));
         Ok(Game::start(data.clone(), seed, &kit))
     }
@@ -1145,7 +1145,7 @@ impl Save {
     /// if you reach the exit and keep them.
     pub fn jack_in(&mut self, data: &Data, defs: &[UpgradeDef], seed: u64) -> Game {
         let kit = self.kit(data, defs);
-        let taken: Vec<u32> = self.loadout.stash.drain(..).collect();
+        let taken: Vec<u32> = std::mem::take(&mut self.loadout.stash);
         self.stash.retain(|s| !taken.contains(&s.id));
         Game::start(data.clone(), seed, &kit)
     }
