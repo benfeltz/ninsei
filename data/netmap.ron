@@ -1,0 +1,23 @@
+// How the network map draws each kind of node.
+//
+// mesh:    the wireframe shape in the isometric view.
+//          Cube, Ring, Ico, Spikes, Drum, Octa, Pyramid, Nested, Pad, Portal
+// symbol:  the drafting symbol on the flat draft view.
+//          Hatch (section hatching), Valve (circle and cross), Eye (circle and pupil),
+//          Crosshatch (dense hatching, double outline), Column (square and X), Hex,
+//          Flag (triangle), Nested (square in a square), Inlet (arrow in), Door (door swing)
+// tag:     the short label under the node.
+//
+// Every node kind (ICE by class) needs exactly one entry; `Data::validate` checks.
+[
+    (node: Entry,    mesh: Pad,     symbol: Inlet,      tag: "ENTRY"),
+    (node: Barrier,  mesh: Cube,    symbol: Hatch,      tag: "BARRIER"),
+    (node: CodeGate, mesh: Ring,    symbol: Valve,      tag: "CODE GATE"),
+    (node: Sentry,   mesh: Ico,     symbol: Eye,        tag: "SENTRY"),
+    (node: BlackIce, mesh: Spikes,  symbol: Crosshatch, tag: "BLACK ICE"),
+    (node: Vault,    mesh: Drum,    symbol: Column,     tag: "VAULT"),
+    (node: Bbs,      mesh: Octa,    symbol: Hex,        tag: "BBS"),
+    (node: Contact,  mesh: Pyramid, symbol: Flag,       tag: "MSG"),
+    (node: Subnet,   mesh: Nested,  symbol: Nested,     tag: "SUBNET"),
+    (node: Exit,     mesh: Portal,  symbol: Door,       tag: "EXIT"),
+]

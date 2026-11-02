@@ -2,6 +2,7 @@
 
 use egui::{Color32, RichText, ScrollArea, Ui, WidgetText};
 use ninsei_core::hexedit::HexBuffer;
+use ninsei_core::netview::MapView;
 use ninsei_core::{Action, Command, ContractStatus, Effect, Game, LogKind, Phase, tuning};
 
 use crate::hexview;
@@ -30,11 +31,15 @@ pub enum Request {
     CloseHex,
     /// A raw line typed into the terminal.
     Line(String),
+    /// Switch the network map's view.
+    Map(MapView),
 }
 
 pub struct Panes<'a> {
     pub game: &'a Game,
     pub pal: Palette,
+    /// How the network map is drawn.
+    pub map: MapView,
     pub input: &'a mut String,
     pub focus_input: &'a mut bool,
     pub bbs_open: bool,
@@ -109,7 +114,7 @@ impl egui_dock::TabViewer for Panes<'_> {
             Tab::Deck => self.deck(ui),
             Tab::Warez => self.warez(ui),
             Tab::Network => {
-                if let Some(n) = netmap::show(ui, self.game, &self.pal) {
+                if let Some(n) = netmap::show(ui, self.game, &self.pal, self.map) {
                     self.act(Action::Move(n));
                 }
             }

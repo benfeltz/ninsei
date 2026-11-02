@@ -565,6 +565,9 @@ pub struct Save {
     /// Jobs taken from home, waiting for their network to be dialed.
     #[serde(default)]
     pub pending: Vec<PendingJob>,
+    /// How the network map is drawn.
+    #[serde(default)]
+    pub map: crate::netview::MapView,
 }
 
 /// A BBS whose number you know, and how you found it.
@@ -630,6 +633,7 @@ impl Default for Save {
             home_bought: Vec::new(),
             home_taken: Vec::new(),
             pending: Vec::new(),
+            map: crate::netview::MapView::Iso,
         }
     }
 }
