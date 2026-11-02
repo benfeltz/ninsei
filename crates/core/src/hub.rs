@@ -1351,10 +1351,7 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
             }
         }
         "theme" => match arg.and_then(|t| data.theme(t)) {
-            Some(t) => (
-                vec![format!("theme: {}", t.label)],
-                ShellEffect::Theme(t.id.clone()),
-            ),
+            Some(t) => (Vec::new(), ShellEffect::Theme(t.id.clone())),
             None => {
                 let ids: Vec<&str> = data.themes.iter().map(|t| t.id.as_str()).collect();
                 (
@@ -1365,10 +1362,7 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
         },
         "crt" => (Vec::new(), ShellEffect::Crt),
         "display" => match arg.and_then(|d| data.display(d)) {
-            Some(d) => (
-                vec![format!("display: {}", d.label)],
-                ShellEffect::Display(d.id.clone()),
-            ),
+            Some(d) => (Vec::new(), ShellEffect::Display(d.id.clone())),
             None => {
                 let ids: Vec<&str> = data.displays.iter().map(|d| d.id.as_str()).collect();
                 (
