@@ -36,11 +36,34 @@ impl Tab {
         Tab::Terminal,
         Tab::Todo,
     ];
-    /// Panes you add yourself, with what the add-pane menu calls them.
-    pub const SECONDARY: [(Tab, &'static str); 1] = [(Tab::Net, "net: network traffic")];
+    /// Panes you add yourself, each with its id in `data/hub/panes.ron` (bought in RIG or
+    /// bundled with a firmware).
+    pub const SECONDARY: [(Tab, &'static str); 1] = [(Tab::Net, "net")];
 
     pub fn is_secondary(self) -> bool {
         Self::SECONDARY.iter().any(|(t, _)| *t == self)
+    }
+
+    /// The catalog id of a secondary pane.
+    pub fn pane_id(self) -> Option<&'static str> {
+        Self::SECONDARY
+            .iter()
+            .find(|(t, _)| *t == self)
+            .map(|(_, id)| *id)
+    }
+
+    /// The window number the suite shows in each pane's corner.
+    pub fn number(self) -> usize {
+        match self {
+            Tab::Deck => 1,
+            Tab::Warez => 2,
+            Tab::Network => 3,
+            Tab::Target => 4,
+            Tab::Hex => 5,
+            Tab::Terminal => 6,
+            Tab::Todo => 7,
+            Tab::Net => 8,
+        }
     }
 }
 
@@ -63,6 +86,8 @@ pub enum Request {
     AddPane(Tab),
     /// Damage glitches on, reduced or off.
     Glitches(ninsei_core::glitch::Glitches),
+    /// Put this in the command line and focus it (e.g. `jack `).
+    Type(String),
 }
 
 pub struct Panes<'a> {
@@ -84,6 +109,8 @@ pub struct Panes<'a> {
     pub keep: &'a mut Vec<u32>,
     /// Free stash slots at home: how many programs can be kept.
     pub keep_room: usize,
+    /// The suite chrome's state: the sheet's cursor and sort, and its dialogs.
+    pub suite: &'a mut crate::suite::State,
     pub out: Vec<Request>,
 }
 
@@ -101,6 +128,9 @@ impl egui_dock::TabViewer for Panes<'_> {
     }
 
     fn title(&mut self, tab: &mut Tab) -> WidgetText {
+        if let Some(t) = crate::chrome::view(self.chrome).title(*tab) {
+            return t.into();
+        }
         match tab {
             Tab::Deck => " deck.sys ",
             Tab::Warez => " warez/ ",
@@ -140,6 +170,9 @@ impl egui_dock::TabViewer for Panes<'_> {
     }
 
     fn scroll_bars(&self, tab: &Tab) -> [bool; 2] {
+        if let Some(b) = crate::chrome::view(self.chrome).scroll_bars(*tab) {
+            return b;
+        }
         match tab {
             Tab::Network | Tab::Terminal | Tab::Net => [false, false],
             _ => [false, true],
@@ -147,26 +180,31 @@ impl egui_dock::TabViewer for Panes<'_> {
     }
 
     fn ui(&mut self, ui: &mut Ui, tab: &mut Tab) {
-        let btop = self.chrome == Chrome::Btop;
+        let v = crate::chrome::view(self.chrome);
         match tab {
-            Tab::Deck if btop => self.btop_deck(ui),
-            Tab::Warez if btop => self.btop_warez(ui),
-            Tab::Target if btop => self.btop_target(ui),
-            Tab::Terminal if btop => self.btop_terminal(ui),
-            Tab::Todo if btop => self.btop_todo(ui),
-            Tab::Net => crate::netpane::show(ui, self.game, &self.pal, self.chrome),
-            Tab::Deck => self.deck(ui),
-            Tab::Warez => self.warez(ui),
-            Tab::Network => {
-                if let Some(n) = netmap::show(ui, self.game, &self.pal, self.map) {
-                    self.act(Action::Move(n));
-                }
-            }
-            Tab::Target => self.target(ui),
-            Tab::Hex => hexview::show_run(ui, self.game, self.hex, &self.pal, &mut self.out),
-            Tab::Terminal => self.terminal(ui),
-            Tab::Todo => self.todo(ui),
+            Tab::Deck => v.deck(self, ui),
+            Tab::Warez => v.warez(self, ui),
+            Tab::Network => v.network(self, ui),
+            Tab::Target => v.target(self, ui),
+            Tab::Hex => v.hex(self, ui),
+            Tab::Terminal => v.terminal(self, ui),
+            Tab::Todo => v.todo(self, ui),
+            Tab::Net => v.net(self, ui),
         }
+    }
+}
+
+impl Panes<'_> {
+    /// The network map, drawn the way the firmware's map part says.
+    pub(crate) fn network(&mut self, ui: &mut Ui) {
+        if let Some(n) = netmap::show(ui, self.game, &self.pal, self.map) {
+            self.act(Action::Move(n));
+        }
+    }
+
+    /// The run's hex editor.
+    pub(crate) fn hex_pane(&mut self, ui: &mut Ui) {
+        hexview::show_run(ui, self.game, self.hex, &self.pal, &mut self.out);
     }
 }
 
@@ -194,7 +232,7 @@ impl Panes<'_> {
         });
     }
 
-    fn deck(&mut self, ui: &mut Ui) {
+    pub(crate) fn deck(&mut self, ui: &mut Ui) {
         let g = self.game;
         let d = &g.deck;
         let p = self.pal;
@@ -268,7 +306,7 @@ impl Panes<'_> {
         ui.label(RichText::new(format!("HOPS   {}", g.hops)).color(p.dim));
     }
 
-    fn warez(&mut self, ui: &mut Ui) {
+    pub(crate) fn warez(&mut self, ui: &mut Ui) {
         let g = self.game;
         let p = self.pal;
         let fighting = g.phase == Phase::Combat;
@@ -565,7 +603,7 @@ impl Panes<'_> {
     }
 
     /// Contracts as an IDE TODO list.
-    fn todo(&mut self, ui: &mut Ui) {
+    pub(crate) fn todo(&mut self, ui: &mut Ui) {
         let g = self.game;
         let p = self.pal;
         if g.contracts.is_empty() {
@@ -629,7 +667,7 @@ impl Panes<'_> {
         }
     }
 
-    fn terminal(&mut self, ui: &mut Ui) {
+    pub(crate) fn terminal(&mut self, ui: &mut Ui) {
         let p = self.pal;
         let input_h = ui.text_style_height(&egui::TextStyle::Monospace) + 10.0;
         ScrollArea::vertical()
@@ -666,17 +704,36 @@ impl Panes<'_> {
 
     /// The command line under the log.
     pub(crate) fn prompt(&mut self, ui: &mut Ui) {
+        self.prompt_as(ui, "runner@ninsei:~$", false);
+    }
+
+    /// The command line with its own label; `boxed` draws it as a form field.
+    pub(crate) fn prompt_as(&mut self, ui: &mut Ui, label: &str, boxed: bool) {
         let p = self.pal;
         ui.horizontal(|ui| {
-            ui.label(RichText::new("runner@ninsei:~$").color(p.dim));
+            ui.label(RichText::new(label).color(p.dim));
+            let frame = if boxed {
+                egui::Frame::new()
+                    .stroke(egui::Stroke::new(1.0, p.dim))
+                    .inner_margin(egui::Margin::symmetric(4, 1))
+            } else {
+                egui::Frame::NONE
+            };
             let edit = egui::TextEdit::singleline(self.input)
-                .frame(egui::Frame::NONE)
+                .frame(frame)
                 .desired_width(f32::INFINITY)
                 .text_color(p.bright);
             let resp = ui.add(edit);
             if *self.focus_input && !self.bbs_open {
                 resp.request_focus();
                 *self.focus_input = false;
+                // Typing goes after anything already there (F8 puts in `jack `).
+                if let Some(mut st) = egui::TextEdit::load_state(ui.ctx(), resp.id) {
+                    let end = egui::text::CCursor::new(self.input.chars().count());
+                    st.cursor
+                        .set_char_range(Some(egui::text::CCursorRange::one(end)));
+                    st.store(ui.ctx(), resp.id);
+                }
             }
             if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
                 let line = std::mem::take(self.input);

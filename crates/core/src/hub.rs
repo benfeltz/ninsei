@@ -587,6 +587,9 @@ pub struct Save {
     /// The tiling desktop's key help has been seen (it shows on first boot).
     #[serde(default)]
     pub tiling_help_seen: bool,
+    /// Secondary panes bought (ids in `data/hub/panes.ron`).
+    #[serde(default)]
+    pub panes: Vec<String>,
 }
 
 /// A BBS whose number you know, and how you found it.
@@ -657,6 +660,7 @@ impl Default for Save {
             addons: Vec::new(),
             tiling: crate::desktop::Tiling::default(),
             tiling_help_seen: false,
+            panes: Vec::new(),
         }
     }
 }

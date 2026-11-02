@@ -17,7 +17,8 @@ theme (colour roles) ─┐
 monitor (CRT preset) ─┼─> what you see
 deck ─> firmware ─────┘
            ├─ map      Iso | Draft             (the run's network view)
-           ├─ chrome   Classic | ...           (how the run screen's panes are dressed)
+           ├─ chrome   Classic | Btop | Suite  (how the run screen is dressed)
+           ├─ panes    net | ...             (secondary panes it ships with; more are bought)
            ├─ desktop  Tiling | Workbench | ...  (the OS between runs: AnarchyOS, Desktop)
            └─ sounds   ono | hosaka | ...      (a sound pack in data/sounds/)
 ```
@@ -29,7 +30,7 @@ deck ─> firmware ─────┘
 | Part | Ono-Sendai (hacker) | Hosaka (corpo) |
 |---|---|---|
 | `map` | `Iso`: wireframes over a glowing grid ✅ | `Draft`: a technical drawing ✅ |
-| `chrome` | `Btop`: boxed panes, gradient meters, dot graphs, waterfalls ✅ | productivity-suite panes: forms, spreadsheets, report charts (#37) |
+| `chrome` | `Btop`: boxed panes, gradient meters, dot graphs, waterfalls ✅ | `Suite`: document windows, forms, a spreadsheet, report charts, an F-key legend, dialogs ✅ |
 | `desktop` | `Tiling`: **AnarchyOS**, after Omarchy: tiles, workspaces, a top bar, a launcher ✅ | `Workbench`: **Desktop**, after Workbench 1.3 ✅ |
 | `sounds` | `ono`: harsh squares, noise bursts, chiptune arpeggios ✅ | `hosaka`: soft sine chimes, a polite ding, a tidy shutdown tune ✅ |
 | damage | screen glitches: tearing, RGB split, corrupted text ✅ | the same, plus corporate error dialogs (idea below) |
@@ -103,6 +104,10 @@ The two decks are a start. Each new one should be a new point of view, not a pal
 - **A wetware/biotech deck:** organic, slow, breathing UI; signals as nerves; the network as an organism.
 
 **Adding an OS.** A deck's OS is its `desktop` part, and it gets a name (`Desktop::name`). It's built on the shared home (the Shell and the tools), so a new OS only decides how tools are arranged, how you move between them, and what the bar or menus show. Give it add-ons in `data/hub/desktops.ron` that fit its point of view: AnarchyOS sells workspaces and a fuzzy launcher, Desktop sells a clock and a backdrop.
+
+**Adding a chrome.** A chrome is how a deck dresses the run screen. Write a `ChromeView` and override only what this deck sees differently: a pane, the tab titles, the menus, the status line, a bar under the panes, keys, an overlay. Everything else stays Classic. Secondary panes are dressed by each chrome too, so the same traffic data is btop's net box on the Ono-Sendai and a network usage report on the Hosaka.
+
+**Adding a pane.** Extra panes are things you buy (`data/hub/panes.ron`), or that a firmware ships with. Give each one a point of view per chrome, not just a box.
 
 **Adding a deck**
 1. Write down its fantasy, feel, rules of thumb and comps here first.

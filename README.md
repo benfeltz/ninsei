@@ -131,9 +131,9 @@ Runs are for taking things; home is for building. **Reach the exit** and the run
 | `terminal` | Log and command line (`help`) |
 | `todo` | Your contracts, as an IDE TODO list: `[ ]` open, `[x]` paid, `[-]` failed |
 
-Tabs can be dragged, split and rearranged, and **your layout is saved** (one per deck firmware) and comes back next run. **view → add pane** adds secondary panes, which you can close again; **view → reset layout** goes back to the firmware's default.
+Tabs can be dragged, split and rearranged, and **your layout is saved** (one per deck firmware) and comes back next run. **view → add pane** adds secondary panes you own, which you can close again; **view → reset layout** goes back to the firmware's default.
 
-The first secondary pane is **net**, a network traffic monitor after btop's net box: a mirrored dot graph scrolling in real time (download up from the middle, upload down), with rate, peak and total. Hits taken and credits coming in are downloads; CPU spent and hops are uploads. The Ono-Sendai opens it beside the terminal.
+**Secondary panes are bought** in RIG (**RUN PANES**), or come with a deck's firmware. They're data in [`data/hub/panes.ron`](data/hub/panes.ron), and each deck's look dresses them its own way. The first is **net**, network traffic. The Ono-Sendai 7.0 ships with it: a mirrored dot graph after btop's net box, scrolling in real time (download up from the middle, upload down), with rate, peak and total. On the Hosaka it's a network usage report. Hits taken and credits coming in are downloads; CPU spent and hops are uploads.
 
 ![net pane](docs/shots/net-pane-synthwave.png)
 
@@ -141,6 +141,19 @@ On the **Ono-Sendai** the panes are dressed btop-style: boxed with their titles 
 
 ![btop panes, synthwave](docs/shots/btop-synthwave.png)
 ![btop panes, amber](docs/shots/btop-amber.png)
+
+On the **Hosaka** the run screen is a 90s productivity suite. Each pane is a document window with a title bar, a double border, a drop shadow and its number in the corner:
+
+- `SYSTEM RESOURCES`: a form of labelled fields, a utilization bar chart and a trace-by-hop line chart with its 75% and 100% limits
+- `WAREZ.WK1`: a spreadsheet with column letters, row numbers, a cell cursor and a formula bar (`B3: decoder.exe   =BREAK(CodeGate, 6)`). Click a header to sort, filter to loaded rows, double-click a row to load, run or unload, or right-click for more. The arrows move the cursor
+- `INCIDENT REPORT`: the ICE as a record, its strength as a column chart per turn, and its **agenda** of planned actions
+- `ACTIVITY LOG`: a ledger (`TIME`, `REF`, `ENTRY`) with a `Command:` field
+- `WORK ORDERS`: contracts as a table with a total outstanding, and the ghost bonus as a conditional cell (`+57¢ if TRACE ≤ 40%`)
+
+An **F-key legend** runs along the bottom: **F1** help, **F2** load, **F3** unload, **F4** hex (on the sheet's cursor), **F8** jack (types `jack ` for you), **F10** end turn. The usual keys still work. The status line reads like a document: date and hop, `USER GUEST-0451`, `BRIGHTWATER MUTUAL.NET`, `NODE 4 OF 15`, `TRACE 37%`. A paid contract and the end of a session pop up as **dialogs**; Enter dismisses them, and they never block a fight.
+
+![the suite](docs/shots/suite-incident.png)
+![a dialog](docs/shots/suite-dialog.png)
 
 ### Sound
 
@@ -283,7 +296,7 @@ Everything is data in [`data/`](data), compiled into the binary:
 - `themes.ron`, `displays.ron`: colour themes and CRT display presets
 - `netmap.ron`: the network map's shape and drafting symbol for each kind of node
 - `sounds/<pack>.ron`: a sound pack, what each cue plays (a deck's firmware picks one)
-- `hub/`: desktop icons, RIG upgrades, network tiers/traits/companies, wardial ranges
+- `hub/`: desktop icons, RIG upgrades, hardware, desktop add-ons, run panes, network tiers/traits/companies, wardial ranges
 - `bbs/<id>/splash.txt`: that board's splash art. Colours use Mystic/Renegade **pipe codes** (`|00`-`|15` foreground, `|16`-`|23` background); raw ANSI `ESC[...m` escapes work too, so `.ans` art from PabloDraw or Moebius can be pasted in.
 
 `Data::validate` cross-checks the files (every id a table names must exist), and the tests run it.

@@ -8,9 +8,8 @@ use std::collections::VecDeque;
 
 use egui::{Align2, FontFamily, FontId, Painter, Rect, Sense, Stroke, Ui, pos2, vec2};
 use ninsei_core::Game;
-use ninsei_core::hardware::Chrome;
 
-use crate::btop::{boxed, ramp};
+use crate::btop::ramp;
 use crate::theme::Palette;
 
 /// Traffic sizes and timings, in one place. Display numbers, not balance.
@@ -183,13 +182,29 @@ fn draw(painter: &Painter, rect: Rect, p: &Palette, cols: &VecDeque<(f32, f32)>)
     painter.text(rect.left_bottom(), Align2::LEFT_BOTTOM, &label, font, p.dim);
 }
 
-pub fn show(ui: &mut Ui, game: &Game, p: &Palette, chrome: Chrome) {
+/// Traffic (down, up) in KiB for each hop of the run so far, from the history: what the
+/// suite's network usage report tabulates.
+pub fn per_hop(game: &Game) -> Vec<(f32, f32)> {
+    let mut out = vec![(0.0, 0.0); game.hops as usize + 1];
+    for w in game.history.samples.windows(2) {
+        let (dn, up) = between(&w[0], &w[1]);
+        if let Some(c) = out.get_mut(w[1].hops as usize) {
+            c.0 += dn;
+            c.1 += up;
+        }
+    }
+    out
+}
+
+/// "3.49 KiB": sizes the way the net pane prints them.
+pub fn kib(v: f32) -> String {
+    size(v)
+}
+
+/// The live traffic graph with its stats box, filling the pane (each chrome frames it).
+pub fn live(ui: &mut Ui, game: &Game, p: &Palette) {
     ui.ctx().request_repaint();
     let m = update(ui, game);
-    let site = game
-        .site
-        .as_ref()
-        .map_or("LOCAL".to_string(), |s| s.name.to_uppercase());
     let body = |ui: &mut Ui| {
         let rect = ui.available_rect_before_wrap();
         ui.allocate_rect(rect, Sense::hover());
@@ -245,8 +260,5 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette, chrome: Chrome) {
             );
         }
     };
-    match chrome {
-        Chrome::Btop => boxed(ui, p, &format!("net  {site}"), "en0", body),
-        Chrome::Classic => body(ui),
-    }
+    body(ui);
 }

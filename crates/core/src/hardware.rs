@@ -7,14 +7,23 @@ use serde::{Deserialize, Serialize};
 use crate::data::Data;
 use crate::netview::MapView;
 
-/// How the run screen's panes are dressed. New pane styles (#32) are new names here.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+/// How the run screen is dressed: its panes, menus, status line and default layout. A new
+/// chrome is a name here plus a `ChromeView` in the app's `chrome.rs`; anything it doesn't
+/// draw itself falls back to `Classic`.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash, Default)]
 pub enum Chrome {
     /// Plain IDE panes.
     #[default]
     Classic,
     /// btop-style: boxed panes, gradient meters, dot graphs and waterfalls (the hacker deck).
     Btop,
+    /// A 90s productivity suite: forms, spreadsheets, report charts, an F-key legend and
+    /// dialogs (the corpo deck).
+    Suite,
+}
+
+impl Chrome {
+    pub const ALL: [Chrome; 3] = [Chrome::Classic, Chrome::Btop, Chrome::Suite];
 }
 
 /// The overworld's look. A new desktop is a new name here, a renderer in the app's
@@ -50,6 +59,9 @@ pub struct FirmwareDef {
     /// The sound pack (`data/sounds/<id>.ron`) its cues play from.
     #[serde(default = "default_sounds")]
     pub sounds: String,
+    /// Secondary panes (ids in `data/hub/panes.ron`) that come with this firmware.
+    #[serde(default)]
+    pub panes: Vec<String>,
 }
 
 fn default_sounds() -> String {
@@ -169,6 +181,16 @@ impl HardwareDef {
                     return Err(format!(
                         "deck `{}` firmware `{}` plays unknown sound pack `{}`",
                         d.id, f.id, f.sounds
+                    ));
+                }
+                if let Some(p) = f
+                    .panes
+                    .iter()
+                    .find(|p| !data.panes.iter().any(|d| &d.id == *p))
+                {
+                    return Err(format!(
+                        "deck `{}` firmware `{}` bundles unknown pane `{p}`",
+                        d.id, f.id
                     ));
                 }
                 if d.firmware[..j].iter().any(|o| o.id == f.id) {
