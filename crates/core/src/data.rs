@@ -169,17 +169,171 @@ pub struct BbsAreaDef {
 
 #[derive(Deserialize, Clone, Debug)]
 pub struct BbsDef {
+    /// The folder name under `data/bbs/`.
+    #[serde(skip)]
+    pub id: String,
     pub name: String,
     pub sysop: String,
     pub phone: String,
     pub baud: u32,
+    /// The board plain runs (`Game::new`, `newrun`) and unknown networks connect to. Exactly one.
+    #[serde(default)]
+    pub default: bool,
+    /// Network tiers this board turns up on. Empty means none: it's only reached by a trait's
+    /// `Board` effect or as the default.
+    #[serde(default)]
+    pub tiers: Vec<u32>,
+    #[serde(default)]
+    pub look: Look,
     pub bulletins: Vec<BulletinDef>,
     pub users: Vec<BbsUser>,
     pub areas: Vec<BbsAreaDef>,
-    /// Pipe-coded splash art, from `bbs/splash.txt`.
+    /// Pipe-coded splash art, from the board's `splash.txt`.
     #[serde(skip)]
     pub splash: String,
 }
+
+/// How the header bar across the top of every menu screen is drawn.
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
+pub enum HeaderStyle {
+    /// `▄▄ BOARD ▄▄▄▄▄ TITLE ▄▄` with the names on the `bar` background.
+    #[default]
+    Bar,
+    /// `══[ BOARD ]══════[ TITLE ]══` box-drawing rule.
+    Rule,
+    /// One solid inverse bar the full width of the screen.
+    Inverse,
+}
+
+/// A board's look and feel. Colours are CGA indices (0-15) for pipe codes; `bar` is a
+/// background (0-7). Every field has a default, so a board only lists what it changes.
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(default)]
+pub struct Look {
+    /// BBS software, shown once the modem connects.
+    pub software: String,
+    pub header: HeaderStyle,
+    /// Header fill colour and the brackets around hotkeys.
+    pub frame: u8,
+    /// Header background.
+    pub bar: u8,
+    /// Hotkeys and highlighted text.
+    pub key: u8,
+    /// Menu items and file names.
+    pub label: u8,
+    /// Notes, rules, column headings.
+    pub dim: u8,
+    /// Body text.
+    pub text: u8,
+    /// Prices, credits and bulletin titles.
+    pub money: u8,
+    pub ok: u8,
+    pub warn: u8,
+    /// Who's-online activity and other asides.
+    pub aside: u8,
+    /// The prompt marker after "Command".
+    pub prompt: String,
+    /// The handle you're logged in as.
+    pub handle: String,
+    /// Main menu wording: (label, note) for each command. The hotkeys stay F J B W G.
+    pub menu: MenuText,
+    /// The line shown as the board hangs up. `{board}` becomes the board's name.
+    pub goodbye: String,
+    /// Whether the board speaks l33t (every screen but the splash and the modem lines).
+    pub leet: bool,
+}
+
+impl Default for Look {
+    fn default() -> Self {
+        Self {
+            software: "Renegade v05-11-91".into(),
+            header: HeaderStyle::Bar,
+            frame: 9,
+            bar: 1,
+            key: 15,
+            label: 11,
+            dim: 8,
+            text: 7,
+            money: 14,
+            ok: 10,
+            warn: 12,
+            aside: 3,
+            prompt: "»".into(),
+            handle: "runner".into(),
+            menu: MenuText::default(),
+            goodbye: "Thanks for calling {board}. Stay frosty.".into(),
+            leet: true,
+        }
+    }
+}
+
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+#[serde(default)]
+pub struct MenuText {
+    pub files: (String, String),
+    pub jobs: (String, String),
+    pub bulletins: (String, String),
+    pub who: (String, String),
+    pub goodbye: (String, String),
+}
+
+impl Default for MenuText {
+    fn default() -> Self {
+        let p = |a: &str, b: &str| (a.to_string(), b.to_string());
+        Self {
+            files: p("File Areas", "warez, utilities, deck mods"),
+            jobs: p("Jobs Board", "contracts. no names, just creds"),
+            bulletins: p("Bulletins", "read before you leech"),
+            who: p("Who's Online", ""),
+            goodbye: p("Goodbye", "log off"),
+        }
+    }
+}
+
+impl BbsDef {
+    pub fn validate(&self) -> Result<(), String> {
+        let l = &self.look;
+        for (name, c) in [
+            ("frame", l.frame),
+            ("key", l.key),
+            ("label", l.label),
+            ("dim", l.dim),
+            ("text", l.text),
+            ("money", l.money),
+            ("ok", l.ok),
+            ("warn", l.warn),
+            ("aside", l.aside),
+        ] {
+            if c > 15 {
+                return Err(format!("look.{name} is {c}; colours are 0-15"));
+            }
+        }
+        if l.bar > 7 {
+            return Err(format!("look.bar is {}; backgrounds are 0-7", l.bar));
+        }
+        if self.name.chars().count() > 30 {
+            return Err("name is longer than 30 characters".into());
+        }
+        if self.bulletins.is_empty() || self.areas.is_empty() {
+            return Err("needs at least one bulletin and one file area".into());
+        }
+        if self.areas.len() > 9 || self.bulletins.len() > 9 {
+            return Err("at most 9 areas and 9 bulletins (one keypress each)".into());
+        }
+        Ok(())
+    }
+}
+
+/// One board's raw files, found under `data/bbs/<id>/` at build time.
+#[derive(Clone, Copy, Debug)]
+pub struct BoardSrc<'a> {
+    pub id: &'a str,
+    pub board: &'a str,
+    pub splash: &'a str,
+}
+
+/// Every board in `data/bbs/`, in folder order.
+pub const BUILTIN_BOARDS: &[BoardSrc<'static>] = include!(concat!(env!("OUT_DIR"), "/boards.rs"));
 
 #[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Penalty {
@@ -291,8 +445,7 @@ pub struct Sources<'a> {
     pub warez: &'a str,
     pub ice: &'a str,
     pub loot: &'a str,
-    pub bbs: &'a str,
-    pub splash: &'a str,
+    pub boards: &'a [BoardSrc<'a>],
     pub events: &'a str,
     pub contracts: &'a str,
     pub icons: &'a str,
@@ -303,12 +456,33 @@ pub struct Sources<'a> {
     pub displays: &'a str,
 }
 
+impl Sources<'static> {
+    /// The content shipped in `/data`.
+    pub fn builtin() -> Self {
+        Self {
+            warez: include_str!("../../../data/warez.ron"),
+            ice: include_str!("../../../data/ice.ron"),
+            loot: include_str!("../../../data/loot.ron"),
+            boards: BUILTIN_BOARDS,
+            events: include_str!("../../../data/events.ron"),
+            contracts: include_str!("../../../data/contracts.ron"),
+            icons: include_str!("../../../data/hub/icons.ron"),
+            rig: include_str!("../../../data/hub/rig.ron"),
+            networks: include_str!("../../../data/hub/networks.ron"),
+            exchanges: include_str!("../../../data/hub/exchanges.ron"),
+            themes: include_str!("../../../data/themes.ron"),
+            displays: include_str!("../../../data/displays.ron"),
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Data {
     pub warez: Vec<WarezDef>,
     pub ice: Vec<IceDef>,
     pub loot: LootTables,
-    pub bbs: BbsDef,
+    /// Every BBS, the default board first.
+    pub boards: Vec<BbsDef>,
     pub events: Vec<EventDef>,
     pub contracts: Vec<ContractTemplate>,
     /// Workbench desktop icons.
@@ -328,31 +502,25 @@ pub struct Data {
 impl Data {
     /// The content shipped in `/data`.
     pub fn builtin() -> Result<Self, String> {
-        Self::parse(Sources {
-            warez: include_str!("../../../data/warez.ron"),
-            ice: include_str!("../../../data/ice.ron"),
-            loot: include_str!("../../../data/loot.ron"),
-            bbs: include_str!("../../../data/bbs/board.ron"),
-            splash: include_str!("../../../data/bbs/splash.txt"),
-            events: include_str!("../../../data/events.ron"),
-            contracts: include_str!("../../../data/contracts.ron"),
-            icons: include_str!("../../../data/hub/icons.ron"),
-            rig: include_str!("../../../data/hub/rig.ron"),
-            networks: include_str!("../../../data/hub/networks.ron"),
-            exchanges: include_str!("../../../data/hub/exchanges.ron"),
-            themes: include_str!("../../../data/themes.ron"),
-            displays: include_str!("../../../data/displays.ron"),
-        })
+        Self::parse(Sources::builtin())
     }
 
     pub fn parse(src: Sources) -> Result<Self, String> {
-        let mut bbs: BbsDef = ron::from_str(src.bbs).map_err(|e| format!("bbs/board.ron: {e}"))?;
-        bbs.splash = src.splash.to_string();
+        let mut boards = Vec::new();
+        for b in src.boards {
+            let mut def: BbsDef =
+                ron::from_str(b.board).map_err(|e| format!("bbs/{}/board.ron: {e}", b.id))?;
+            def.id = b.id.to_string();
+            def.splash = b.splash.to_string();
+            boards.push(def);
+        }
+        // The default board goes first, so index 0 is always it.
+        boards.sort_by_key(|b| !b.default);
         let data = Self {
             warez: ron::from_str(src.warez).map_err(|e| format!("warez.ron: {e}"))?,
             ice: ron::from_str(src.ice).map_err(|e| format!("ice.ron: {e}"))?,
             loot: ron::from_str(src.loot).map_err(|e| format!("loot.ron: {e}"))?,
-            bbs,
+            boards,
             events: ron::from_str(src.events).map_err(|e| format!("events.ron: {e}"))?,
             contracts: ron::from_str(src.contracts).map_err(|e| format!("contracts.ron: {e}"))?,
             icons: ron::from_str(src.icons).map_err(|e| format!("hub/icons.ron: {e}"))?,
@@ -419,21 +587,7 @@ impl Data {
                 }
             }
         }
-        for area in &self.bbs.areas {
-            if area.files.is_empty() || area.stock == 0 {
-                return Err(format!("bbs area `{}` stocks nothing", area.name));
-            }
-            for f in &area.files {
-                if let Drop::Warez(id) = &f.item
-                    && self.warez_ix(id).is_none()
-                {
-                    return Err(format!("bbs file `{}` names unknown warez `{id}`", f.file));
-                }
-                if matches!(f.item, Drop::Nothing | Drop::Credits(..)) {
-                    return Err(format!("bbs file `{}` sells nothing", f.file));
-                }
-            }
-        }
+        self.validate_boards()?;
         crate::hub::IconDef::validate(&self.icons).map_err(|e| format!("hub/icons.ron: {e}"))?;
         crate::hub::UpgradeDef::validate(&self.rig).map_err(|e| format!("hub/rig.ron: {e}"))?;
         self.networks
@@ -458,12 +612,14 @@ impl Data {
                     .map(|e| (format!("loot table `{name}`"), &e.drop)),
             );
         }
-        for a in &self.bbs.areas {
-            drops.extend(
-                a.files
-                    .iter()
-                    .map(|f| (format!("bbs file `{}`", f.file), &f.item)),
-            );
+        for b in &self.boards {
+            for a in &b.areas {
+                drops.extend(
+                    a.files
+                        .iter()
+                        .map(|f| (format!("bbs/{} file `{}`", b.id, f.file), &f.item)),
+                );
+            }
         }
         for ev in &self.events {
             for c in &ev.choices {
@@ -549,6 +705,53 @@ impl Data {
 
     pub fn display(&self, id: &str) -> Option<&crate::display::DisplayDef> {
         self.displays.iter().find(|d| d.id == id)
+    }
+
+    /// A board's index in `boards` by id.
+    pub fn board(&self, id: &str) -> Option<usize> {
+        self.boards.iter().position(|b| b.id == id)
+    }
+
+    fn validate_boards(&self) -> Result<(), String> {
+        if self.boards.iter().filter(|b| b.default).count() != 1 {
+            return Err("exactly one bbs must be `default: true`".into());
+        }
+        for (i, b) in self.boards.iter().enumerate() {
+            let err = |e: String| format!("bbs/{}: {e}", b.id);
+            if self.boards[..i].iter().any(|o| o.id == b.id) {
+                return Err(err("listed twice".into()));
+            }
+            b.validate().map_err(err)?;
+            if let Some(t) = b.tiers.iter().find(|&&t| self.networks.tier(t).is_none()) {
+                return Err(err(format!("names unknown tier {t}")));
+            }
+            for area in &b.areas {
+                if area.files.is_empty() || area.stock == 0 {
+                    return Err(err(format!("area `{}` stocks nothing", area.name)));
+                }
+                for f in &area.files {
+                    if let Drop::Warez(id) = &f.item
+                        && self.warez_ix(id).is_none()
+                    {
+                        return Err(err(format!("file `{}` names unknown warez `{id}`", f.file)));
+                    }
+                    if matches!(f.item, Drop::Nothing | Drop::Credits(..)) {
+                        return Err(err(format!("file `{}` sells nothing", f.file)));
+                    }
+                }
+            }
+        }
+        for t in &self.networks.traits {
+            if let crate::hub::TraitEffect::Board(id) = &t.effect
+                && self.board(id).is_none()
+            {
+                return Err(format!(
+                    "hub/networks.ron: trait `{}` names unknown board `{id}`",
+                    t.id
+                ));
+            }
+        }
+        Ok(())
     }
 
     pub fn theme(&self, id: &str) -> Option<&ThemeDef> {

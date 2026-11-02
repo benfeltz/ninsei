@@ -69,6 +69,8 @@ pub struct Kit {
     pub mods: RunMods,
     /// The phonebook entry being run, if dialed from home.
     pub site: Option<Site>,
+    /// The network's BBS: an index into `Data::boards` (0 is the default board).
+    pub board: usize,
 }
 
 /// Run-wide modifiers from the network's tier, traits and heat.
@@ -259,6 +261,8 @@ pub struct Game {
     pub hops: u32,
     /// This run's BBS listing: per area, the files on offer.
     pub bbs_stock: Vec<Vec<StockFile>>,
+    /// This network's BBS: an index into `Data::boards`. Read it through [`Game::bbs`].
+    pub board: usize,
     /// Contracts posted on the BBS jobs board, rolled when you connect.
     pub bbs_jobs: Vec<Contract>,
     /// Contracts you've taken, in every state.
@@ -283,8 +287,12 @@ impl Game {
     pub fn start(data: Data, seed: u64, kit: &Kit) -> Self {
         let mut rng = Rng::new(seed);
         let net = Network::generate_with(&mut rng, &data, &kit.net);
-        let bbs_stock = data
-            .bbs
+        let board = if kit.board < data.boards.len() {
+            kit.board
+        } else {
+            0
+        };
+        let bbs_stock = data.boards[board]
             .areas
             .iter()
             .map(|a| {
@@ -325,6 +333,7 @@ impl Game {
             log: Vec::new(),
             hops: 0,
             bbs_stock,
+            board,
             bbs_jobs: Vec::new(),
             contracts: Vec::new(),
             encounter: None,
@@ -412,6 +421,11 @@ impl Game {
     }
 
     /// The main network, even while inside a subnet. Contracts point into it.
+    /// The BBS on this network.
+    pub fn bbs(&self) -> &crate::data::BbsDef {
+        &self.data.boards[self.board]
+    }
+
     pub fn root(&self) -> &Network {
         self.outer.as_ref().map_or(&self.net, |o| &o.net)
     }
@@ -530,7 +544,7 @@ impl Game {
             }
             NodeKind::Bbs => {
                 self.net.nodes[to].cleared = true;
-                let b = &self.data.bbs;
+                let b = self.bbs();
                 let line = format!("ATDT {} ... CONNECT {} to {}", b.phone, b.baud, b.name);
                 self.say(LogKind::Good, line);
                 self.bbs_jobs = (0..BBS_JOBS)
@@ -1225,7 +1239,7 @@ impl Game {
         let Some(s) = self.bbs_stock.get(area).and_then(|a| a.get(file)) else {
             return Some("no such file.".into());
         };
-        let def = &self.data.bbs.areas[area].files[s.def];
+        let def = &self.bbs().areas[area].files[s.def];
         if !self.at_bbs() {
             return Some("carrier lost. you're not on the board.".into());
         }
@@ -1249,7 +1263,7 @@ impl Game {
             return Err(why);
         }
         let s = self.bbs_stock[area][file];
-        let def = self.data.bbs.areas[area].files[s.def].clone();
+        let def = self.bbs().areas[area].files[s.def].clone();
         self.deck.credits -= def.price;
         self.bbs_stock[area][file].bought = true;
         self.say(

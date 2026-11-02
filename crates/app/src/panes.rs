@@ -347,7 +347,7 @@ impl Panes<'_> {
                     RichText::new(format!("{}  [{}]", n.name, g.node_label(g.at))).color(p.fg),
                 );
                 if g.at_bbs() {
-                    let b = &g.data.bbs;
+                    let b = g.bbs();
                     ui.label(
                         RichText::new(format!("{} // sysop {}", b.name, b.sysop)).color(p.bright),
                     );

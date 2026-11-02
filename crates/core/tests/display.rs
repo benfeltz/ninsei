@@ -89,19 +89,8 @@ fn bad_presets_are_caught() {
     let base = include_str!("../../../data/displays.ron");
     let parse = |displays: &str| {
         Data::parse(Sources {
-            warez: include_str!("../../../data/warez.ron"),
-            ice: include_str!("../../../data/ice.ron"),
-            loot: include_str!("../../../data/loot.ron"),
-            bbs: include_str!("../../../data/bbs/board.ron"),
-            splash: include_str!("../../../data/bbs/splash.txt"),
-            events: include_str!("../../../data/events.ron"),
-            contracts: include_str!("../../../data/contracts.ron"),
-            icons: include_str!("../../../data/hub/icons.ron"),
-            rig: include_str!("../../../data/hub/rig.ron"),
-            networks: include_str!("../../../data/hub/networks.ron"),
-            exchanges: include_str!("../../../data/hub/exchanges.ron"),
-            themes: include_str!("../../../data/themes.ron"),
             displays,
+            ..Sources::builtin()
         })
     };
     assert!(

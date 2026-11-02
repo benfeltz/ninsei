@@ -15,19 +15,8 @@ fn builtin_data_is_valid() {
 fn bad_loot_reference_is_rejected() {
     let loot = include_str!("../../../data/loot.ron").replace("\"torch\"", "\"nope\"");
     let err = Data::parse(Sources {
-        warez: include_str!("../../../data/warez.ron"),
-        ice: include_str!("../../../data/ice.ron"),
         loot: &loot,
-        bbs: include_str!("../../../data/bbs/board.ron"),
-        splash: include_str!("../../../data/bbs/splash.txt"),
-        events: include_str!("../../../data/events.ron"),
-        contracts: include_str!("../../../data/contracts.ron"),
-        icons: include_str!("../../../data/hub/icons.ron"),
-        rig: include_str!("../../../data/hub/rig.ron"),
-        networks: include_str!("../../../data/hub/networks.ron"),
-        exchanges: include_str!("../../../data/hub/exchanges.ron"),
-        themes: include_str!("../../../data/themes.ron"),
-        displays: include_str!("../../../data/displays.ron"),
+        ..Sources::builtin()
     })
     .unwrap_err();
     assert!(err.contains("nope"), "{err}");
@@ -212,18 +201,9 @@ fn commands_parse() {
 fn bad_yields_and_fight_rewards_are_rejected() {
     let parse = |ice: &str, events: &str| {
         Data::parse(Sources {
-            warez: include_str!("../../../data/warez.ron"),
             ice,
-            loot: include_str!("../../../data/loot.ron"),
-            bbs: include_str!("../../../data/bbs/board.ron"),
-            splash: include_str!("../../../data/bbs/splash.txt"),
             events,
-            contracts: include_str!("../../../data/contracts.ron"),
-            icons: include_str!("../../../data/hub/icons.ron"),
-            rig: include_str!("../../../data/hub/rig.ron"),
-            networks: include_str!("../../../data/hub/networks.ron"),
-            exchanges: include_str!("../../../data/hub/exchanges.ron"),
-            themes: include_str!("../../../data/themes.ron"),
+            ..Sources::builtin()
         })
     };
     let ice = include_str!("../../../data/ice.ron");

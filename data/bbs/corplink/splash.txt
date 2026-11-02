@@ -1,0 +1,20 @@
+|17|15                                                                              |16
+|17                 |15▄████ ▄███▄ ████▄ ████▄ █     █ █   █ █   █                  |16
+|17                 |15█     █   █ █   █ █   █ █     █ ██  █ █  █                   |16
+|17                 |15█     █   █ ████▀ ████▀ █     █ █ █ █ ███                    |16
+|17                 |15█     █   █ █  █  █     █     █ █  ██ █  █                   |16
+|17                 |15▀████ ▀███▀ █   █ █     █████ █ █   █ █   █                  |16
+|17                                                                              |16
+|17|11                      E M P L O Y E E   S E R V I C E S                       |16
+|17                                                                              |16
+
+                |07Welcome to the corporate information network.
+
+|07  ┌────────────────────────────────────────────────────────────────────────┐
+|07  │ |12NOTICE: |07This system is for the use of authorized employees only.      |07 │
+|07  │ |07Individuals using this system are subject to having all of their      |07 │
+|07  │ |07activities monitored and recorded by security personnel.              |07 │
+|07  │ |07Anyone using this system expressly consents to such monitoring.       |07 │
+|07  └────────────────────────────────────────────────────────────────────────┘
+
+|08  SysOp: |07IT Help Desk x4357   ·   PCBoard 15.2   ·   |03Node 01 of 48

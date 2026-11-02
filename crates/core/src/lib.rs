@@ -17,8 +17,8 @@ pub mod tuning;
 
 pub use command::{Command, parse_command};
 pub use data::{
-    BbsDef, ChoiceEffect, Data, Drop, Effect, IceClass, IceDef, Intent, Penalty, Sources, WarezDef,
-    WarezKind,
+    BbsDef, BoardSrc, ChoiceEffect, Data, Drop, Effect, IceClass, IceDef, Intent, Penalty, Sources,
+    WarezDef, WarezKind,
 };
 pub use game::{
     Action, Combat, Contract, ContractStatus, Deck, Encounter, Game, Kit, LogKind, LogLine, Phase,

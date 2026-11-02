@@ -3,7 +3,16 @@ use ninsei_core::*;
 
 /// Routes the runner onto the BBS the honest way: hop by hop from the entry.
 fn game_at_bbs(seed: u64, credits: u32) -> Game {
-    let mut g = Game::new(Data::builtin().unwrap(), seed);
+    game_at_board(seed, credits, 0)
+}
+
+/// The same, on a network whose BBS is board `board`.
+fn game_at_board(seed: u64, credits: u32, board: usize) -> Game {
+    let kit = Kit {
+        board,
+        ..Kit::default()
+    };
+    let mut g = Game::start(Data::builtin().unwrap(), seed, &kit);
     let bbs = g.net.bbs().expect("every network has a bbs");
     // Clear the way so the walk doesn't start fights or conversations.
     for n in &mut g.net.nodes {
@@ -61,7 +70,7 @@ fn every_network_has_one_bbs_on_its_layer() {
 #[test]
 fn bbs_stock_respects_area_sizes() {
     let g = Game::new(Data::builtin().unwrap(), 9);
-    for (area, stock) in g.data.bbs.areas.iter().zip(&g.bbs_stock) {
+    for (area, stock) in g.bbs().areas.iter().zip(&g.bbs_stock) {
         assert_eq!(stock.len(), (area.stock as usize).min(area.files.len()));
         let mut defs: Vec<_> = stock.iter().map(|f| f.def).collect();
         defs.dedup();
@@ -103,7 +112,7 @@ fn dial_splash_menu_download_hangup() {
 fn buying_spends_credits_and_grants_the_file() {
     let mut g = game_at_bbs(4, 10_000);
     let before = g.hdd.len();
-    let price = g.data.bbs.areas[0].files[g.bbs_stock[0][0].def].price;
+    let price = g.bbs().areas[0].files[g.bbs_stock[0][0].def].price;
     g.apply(Action::Buy { area: 0, file: 0 });
     assert_eq!(g.deck.credits, 10_000 - price);
     assert_eq!(g.hdd.len(), before + 1);
@@ -134,34 +143,42 @@ fn cannot_buy_away_from_the_bbs() {
 
 #[test]
 fn every_screen_fits_the_terminal() {
-    let g = game_at_bbs(11, 500);
-    let screens = [
-        Screen::Splash,
-        Screen::Main,
-        Screen::Bulletins,
-        Screen::Bulletin(0),
-        Screen::Who,
-        Screen::Jobs,
-        Screen::Areas,
-        Screen::Area(0),
-        Screen::Area(1),
-        Screen::Area(2),
-        Screen::Download {
-            area: 0,
-            file: 0,
-            t: 0.3,
-        },
-    ];
-    for sc in screens {
-        let s = Session {
-            screen: sc,
-            status: Some("|12status".into()),
-        };
-        let lines = s.render(&g);
-        assert!(lines.len() <= ROWS, "{sc:?} has {} rows", lines.len());
-        for l in &lines {
-            let w = ansi::visible_len(l);
-            assert!(w <= COLS, "{sc:?} line is {w} wide: {}", ansi::plain(l));
+    let boards = Data::builtin().unwrap().boards.len();
+    for board in 0..boards {
+        let g = game_at_board(11, 500, board);
+        let mut screens = vec![
+            Screen::Dialing { t: 9.0 },
+            Screen::Splash,
+            Screen::Main,
+            Screen::Bulletins,
+            Screen::Who,
+            Screen::Jobs,
+            Screen::Areas,
+            Screen::Download {
+                area: 0,
+                file: 0,
+                t: 0.3,
+            },
+            Screen::Hangup { t: 9.0 },
+        ];
+        screens.extend((0..g.bbs().bulletins.len()).map(Screen::Bulletin));
+        screens.extend((0..g.bbs().areas.len()).map(Screen::Area));
+        for sc in screens {
+            let s = Session {
+                screen: sc,
+                status: Some("|12status".into()),
+            };
+            let lines = s.render(&g);
+            let id = &g.bbs().id;
+            assert!(lines.len() <= ROWS, "{id} {sc:?} has {} rows", lines.len());
+            for l in &lines {
+                let w = ansi::visible_len(l);
+                assert!(
+                    w <= COLS,
+                    "{id} {sc:?} line is {w} wide: {}",
+                    ansi::plain(l)
+                );
+            }
         }
     }
 }
