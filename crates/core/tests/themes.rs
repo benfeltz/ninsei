@@ -44,7 +44,13 @@ fn one_setting_for_everything() {
 #[test]
 fn shell_theme_command_knows_the_data() {
     let d = data();
-    let s = Save::default();
+    // A colour monitor, so any theme can go on it.
+    let mut s = Save {
+        monitors: vec!["vga".into()],
+        monitor: "vga".into(),
+        ..Save::default()
+    };
+    s.ensure_hardware(&d);
     let run = |l: &str| hub::shell(l, &s, &d);
     assert_eq!(run("theme plasma").1, ShellEffect::Theme("plasma".into()));
     assert_eq!(

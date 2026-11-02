@@ -130,7 +130,9 @@ fn shell_commands() {
     assert_eq!(run("run shell").1, ShellEffect::Open(Tool::Shell));
     assert_eq!(run("RUN RIG").1, ShellEffect::Open(Tool::Rig));
     assert!(run("run nope").0[0].contains("not found"));
-    assert_eq!(run("theme green").1, ShellEffect::Theme("green".into()));
+    // A fresh save has the amber mono tube: amber yes, green no.
+    assert_eq!(run("theme amber").1, ShellEffect::Theme("amber".into()));
+    assert_eq!(run("theme green").1, ShellEffect::None);
     assert_eq!(run("echo  hello there").0, vec!["hello there".to_string()]);
     assert!(run("dir").0.iter().any(|l| l.contains("CarrierTerm")));
     assert!(run("info").0.iter().any(|l| l.starts_with("runs")));

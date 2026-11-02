@@ -118,10 +118,68 @@ pub fn rig(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
                 ui.end_row();
             }
         });
+    ui.add_space(10.0);
+    hardware_shop(ui, data, save, out);
     ui.add_space(6.0);
     ui.label(dim(
         "Credits come home when you reach the exit. Flatline and only the dead man's switch pays.",
     ));
+}
+
+/// RIG's HARDWARE section: monitors and decks you don't own yet.
+fn hardware_shop(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
+    use ninsei_core::hardware::Hardware;
+    ui.label(RichText::new("HARDWARE").color(ink()).strong());
+    let mut items: Vec<(Hardware, String, &str, String, u32)> = Vec::new();
+    for m in &data.hardware.monitors {
+        let kind = if m.colour {
+            "colour monitor"
+        } else {
+            "mono monitor"
+        };
+        items.push((
+            Hardware::Monitor(m.id.clone()),
+            m.title(),
+            kind,
+            m.blurb.clone(),
+            m.price,
+        ));
+    }
+    for d in &data.hardware.decks {
+        items.push((
+            Hardware::Deck(d.id.clone()),
+            d.title(),
+            "deck",
+            d.blurb.clone(),
+            d.price,
+        ));
+    }
+    items.retain(|(hw, ..)| !save.owns(hw));
+    if items.is_empty() {
+        ui.label(dim("You own everything on the shelf."));
+        return;
+    }
+    egui::Grid::new("hardware")
+        .num_columns(4)
+        .spacing([14.0, 6.0])
+        .show(ui, |ui| {
+            for (hw, title, kind, blurb, price) in items {
+                ui.label(RichText::new(title).color(ink()).strong())
+                    .on_hover_text(blurb);
+                ui.label(dim(kind));
+                let can = save.bank >= price;
+                ui.label(RichText::new(format!("{price}¢")).color(if can {
+                    ink()
+                } else {
+                    accent()
+                }));
+                if ui.add_enabled(can, egui::Button::new(" Buy ")).clicked() {
+                    out.push(WbOut::BuyHardware(hw));
+                }
+                ui.end_row();
+            }
+        });
+    ui.label(dim("New hardware plugs straight in. Swap in Prefs."));
 }
 
 /// STASH: programs kept between runs, and what goes into the next one.
@@ -627,55 +685,94 @@ pub fn prefs(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
             }
         });
     };
-    ui.label(RichText::new("THEME").color(ink()).strong());
-    ui.label(dim("One theme for everything: this desktop and your runs."));
-    ui.add_space(2.0);
-    for t in &data.themes {
+    let monitor = save.monitor_def(data);
+    let deck = save.deck_def(data);
+
+    ui.label(RichText::new("MONITOR").color(ink()).strong());
+    ui.label(dim("Your monitor sets the CRT look. RIG sells more."));
+    for id in &save.monitors {
+        let Some(m) = data.hardware.monitor(id) else {
+            continue;
+        };
         ui.horizontal(|ui| {
             if ui
-                .radio(save.phosphor == t.id, format!("{:<16}", t.label))
+                .radio(save.monitor == m.id, format!("{:<22}", m.title()))
+                .on_hover_text(&m.blurb)
                 .clicked()
             {
-                out.push(WbOut::Theme(t.id.clone()));
+                out.push(WbOut::Monitor(m.id.clone()));
             }
-            swatch(ui, t);
+            ui.label(dim(if m.colour { "colour" } else { "mono" }));
         });
     }
-    ui.add_space(8.0);
-    ui.add_space(8.0);
-    ui.label(RichText::new("NETWORK MAP").color(ink()).strong());
-    ui.horizontal(|ui| {
-        use ninsei_core::netview::MapView;
-        for (view, label) in [
-            (MapView::Iso, "Isometric wireframes"),
-            (MapView::Draft, "Technical draft"),
-        ] {
-            if ui
-                .radio(save.map == view, RichText::new(label).color(ink()))
-                .clicked()
-            {
-                out.push(WbOut::Map(view));
-            }
-        }
-    });
-    ui.add_space(8.0);
-    ui.label(RichText::new("DISPLAY").color(ink()).strong());
     let mut crt = save.crt;
     if ui.checkbox(&mut crt, "CRT effects").changed() {
         out.push(WbOut::Crt);
     }
-    ui.label(dim(
-        "Curved glass, glow, burn-in and scanlines. Picking one sets its theme too.",
-    ));
     let mut sound = save.sound;
     if ui.checkbox(&mut sound, "Modem sounds").changed() {
         out.push(WbOut::Sound);
     }
-    for d in &data.displays {
-        if ui.radio(save.display == d.id, &d.label).clicked() {
-            out.push(WbOut::Display(d.id.clone()));
+    ui.add_space(8.0);
+
+    ui.label(RichText::new("THEME").color(ink()).strong());
+    let lock = monitor.locked_theme(data);
+    ui.label(dim(match lock {
+        Some(_) => format!(
+            "The {} is a mono tube: one colour. A colour monitor shows any theme.",
+            monitor.title()
+        ),
+        None => "One theme for everything: this desktop and your runs.".to_string(),
+    }));
+    ui.add_space(2.0);
+    for t in &data.themes {
+        let ok = lock.is_none_or(|l| l == t.id);
+        ui.horizontal(|ui| {
+            ui.add_enabled_ui(ok, |ui| {
+                if ui
+                    .radio(save.phosphor == t.id, format!("{:<16}", t.label))
+                    .clicked()
+                {
+                    out.push(WbOut::Theme(t.id.clone()));
+                }
+            });
+            swatch(ui, t);
+        });
+    }
+    ui.add_space(8.0);
+
+    ui.label(RichText::new("DECK").color(ink()).strong());
+    ui.label(dim("Your deck sets how runs look. RIG sells more."));
+    for id in &save.decks {
+        let Some(d) = data.hardware.deck(id) else {
+            continue;
+        };
+        if ui
+            .radio(save.deck == d.id, d.title())
+            .on_hover_text(&d.blurb)
+            .clicked()
+        {
+            out.push(WbOut::Deck(d.id.clone()));
         }
     }
+    let fw = save.firmware_def(data);
+    if deck.firmware.len() > 1 {
+        ui.horizontal(|ui| {
+            ui.label(dim("  firmware"));
+            for f in &deck.firmware {
+                if ui.radio(fw.id == f.id, &f.label).clicked() {
+                    out.push(WbOut::Firmware(f.id.clone()));
+                }
+            }
+        });
+    }
+    let map = match fw.map {
+        ninsei_core::netview::MapView::Iso => "isometric wireframes",
+        ninsei_core::netview::MapView::Draft => "technical draft",
+    };
+    ui.label(dim(format!("  {}: network map as {map}", fw.label)));
     ui.add_space(6.0);
-    ui.label(dim("New themes go in data/themes.ron."));
+    ui.label(dim(
+        "New themes go in data/themes.ron, hardware in data/hub/hardware.ron.",
+    ));
 }

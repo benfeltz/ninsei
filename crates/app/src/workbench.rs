@@ -124,13 +124,17 @@ pub enum WbOut {
     /// Call a BBS from home (board id): it opens over the desktop.
     Call(String),
     Theme(String),
-    /// Set the CRT display preset (by id).
-    Display(String),
+    /// Plug in a monitor you own (by id).
+    Monitor(String),
+    /// Run with a deck you own (by id).
+    Deck(String),
+    /// Switch the deck's firmware (by id).
+    Firmware(String),
+    /// Buy a monitor or deck in RIG.
+    BuyHardware(ninsei_core::hardware::Hardware),
     Crt,
     /// Modem sounds on/off.
     Sound,
-    /// How the network map is drawn.
-    Map(ninsei_core::netview::MapView),
     Buy(Upgrade),
     ToggleStarter(String),
     ToggleStash(u32),
@@ -680,7 +684,8 @@ impl Workbench {
                 ShellEffect::Theme(t) => out.push(WbOut::Theme(t)),
                 ShellEffect::Crt => out.push(WbOut::Crt),
                 ShellEffect::Sound => out.push(WbOut::Sound),
-                ShellEffect::Display(id) => out.push(WbOut::Display(id)),
+                ShellEffect::Monitor(id) => out.push(WbOut::Monitor(id)),
+                ShellEffect::Deck(id) => out.push(WbOut::Deck(id)),
                 ShellEffect::Clear => self.shell_lines.clear(),
             }
             self.focus_shell = true;

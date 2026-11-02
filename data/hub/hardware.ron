@@ -1,0 +1,41 @@
+// Hardware you own: monitors and decks. Bought in RIG (HARDWARE) with banked credits.
+//
+// monitors: each plugs a CRT display preset (data/displays.ron) into your rig.
+//   display   the preset it shows
+//   colour    false: a mono tube, locked to its display's theme (an amber screen only shows amber)
+//             true:  a colour tube, any theme
+//   starter   exactly one monitor is yours from the start
+//
+// decks: the cyberdeck you run with. Look and feel only: stats stay with RIG upgrades.
+//   firmware  one or more UX versions, each built from named parts:
+//               map:     Iso (wireframes over a grid) | Draft (a flat technical drawing)
+//               chrome:  Classic (how the run screen's panes are dressed)
+//               desktop: Workbench (the overworld's look)
+//             The first is what the deck ships with. A new UX version is a new entry here.
+//   starter   exactly one deck is yours from the start
+(
+    monitors: [
+        (id: "amber",  name: "Amber Terminal",    maker: "Zenith",    price: 0,   display: "amber",  colour: false, starter: true,
+         blurb: "Long-persistence P3 amber. Easy on the eyes at 4am."),
+        (id: "green",  name: "Green Phosphor",    maker: "Hercules",  price: 140, display: "green",  colour: false,
+         blurb: "P1 green, flat glass. The classic terminal glow."),
+        (id: "apple2", name: "Monitor II",        maker: "Apple",     price: 220, display: "apple2", colour: true,
+         blurb: "Bright and curved, with a shine you can see your face in."),
+        (id: "c64",    name: "1702",              maker: "Commodore", price: 280, display: "c64",    colour: true,
+         blurb: "Fat bezel, soft scanlines, colour that bleeds a little."),
+        (id: "vga",    name: "8513 VGA",          maker: "IBM",       price: 420, display: "vga",    colour: true,
+         blurb: "Crisp 640x480. Business-grade colour for any theme."),
+    ],
+    decks: [
+        (id: "onosendai", name: "Cyberspace VII", maker: "Ono-Sendai", price: 0, starter: true,
+         blurb: "The cowboy's deck. Jacks you straight into the matrix: wireframes over a glowing grid.",
+         firmware: [
+            (id: "7.0", label: "Cyberspace 7.0", map: Iso, chrome: Classic, desktop: Workbench),
+         ]),
+        (id: "hosaka", name: "Executive 4", maker: "Hosaka", price: 650,
+         blurb: "A corporate workstation. Sees the net as a plan: every node drafted, dimensioned and filed.",
+         firmware: [
+            (id: "4.0", label: "PlanView 4.0", map: Draft, chrome: Classic, desktop: Workbench),
+         ]),
+    ],
+)

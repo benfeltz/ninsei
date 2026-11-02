@@ -457,6 +457,7 @@ pub struct Sources<'a> {
     pub contracts: &'a str,
     pub icons: &'a str,
     pub netmap: &'a str,
+    pub hardware: &'a str,
     pub rig: &'a str,
     pub networks: &'a str,
     pub exchanges: &'a str,
@@ -476,6 +477,7 @@ impl Sources<'static> {
             contracts: include_str!("../../../data/contracts.ron"),
             icons: include_str!("../../../data/hub/icons.ron"),
             netmap: include_str!("../../../data/netmap.ron"),
+            hardware: include_str!("../../../data/hub/hardware.ron"),
             rig: include_str!("../../../data/hub/rig.ron"),
             networks: include_str!("../../../data/hub/networks.ron"),
             exchanges: include_str!("../../../data/hub/exchanges.ron"),
@@ -498,6 +500,8 @@ pub struct Data {
     pub icons: Vec<crate::hub::IconDef>,
     /// How the network map draws each kind of node.
     pub netmap: Vec<crate::netview::MapStyleDef>,
+    /// Monitors and decks you can own.
+    pub hardware: crate::hardware::HardwareDef,
     /// RIG deck-shop upgrades.
     pub rig: Vec<crate::hub::UpgradeDef>,
     /// Network tiers, traits and companies for the phonebook.
@@ -536,6 +540,7 @@ impl Data {
             contracts: ron::from_str(src.contracts).map_err(|e| format!("contracts.ron: {e}"))?,
             icons: ron::from_str(src.icons).map_err(|e| format!("hub/icons.ron: {e}"))?,
             netmap: ron::from_str(src.netmap).map_err(|e| format!("netmap.ron: {e}"))?,
+            hardware: ron::from_str(src.hardware).map_err(|e| format!("hub/hardware.ron: {e}"))?,
             rig: ron::from_str(src.rig).map_err(|e| format!("hub/rig.ron: {e}"))?,
             networks: ron::from_str(src.networks).map_err(|e| format!("hub/networks.ron: {e}"))?,
             exchanges: ron::from_str(src.exchanges)
@@ -611,6 +616,9 @@ impl Data {
             .map_err(|e| format!("themes.ron: {e}"))?;
         crate::display::DisplayDef::validate(&self.displays, &self.themes)
             .map_err(|e| format!("displays.ron: {e}"))?;
+        self.hardware
+            .validate(self)
+            .map_err(|e| format!("hub/hardware.ron: {e}"))?;
         crate::hub::RangeDef::validate(&self.exchanges, &self.networks)
             .map_err(|e| format!("hub/exchanges.ron: {e}"))?;
         // Every hint anywhere must name a range that exists.

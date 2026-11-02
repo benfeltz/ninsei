@@ -39,10 +39,23 @@ Between runs you're on your own machine: a Workbench 1.3-style desktop, on the s
 ![the hub](docs/shots/hub.png)
 ![jacking in](docs/shots/hub-jackin.png)
 
-- **NinShell**: `help`, `dir`, `phonebook`, `dial <n> [seed]`, `ranges`, `wardial <range>`, `run <tool>`, `info`, `theme <id>`, `crt`, `display <id>`, `echo`, `leet <text>`, `clear`
+- **NinShell**: `help`, `dir`, `phonebook`, `dial <n> [seed]`, `ranges`, `wardial <range>`, `run <tool>`, `info`, `theme <id>`, `crt`, `monitor [id]`, `deck [id]`, `echo`, `leet <text>`, `clear`
 - **Prefs**: the theme (desktop and runs alike) with colour swatches, and the CRT display preset
 - Windows drag by their title bar; the close gadget is top left, the depth gadget top right
 - Everything below saves automatically: a file on desktop, local storage in the browser
+
+### Hardware: monitors and decks
+
+What your screen looks like is the kit you own. Buy more in **RIG → HARDWARE** with banked credits; swap in Prefs, the view menu, or the Shell (`monitor <id>`, `deck <id>`).
+
+- **Monitors** set the CRT look. You start with a Zenith Amber Terminal; the Hercules Green Phosphor, Apple Monitor II, Commodore 1702 and IBM 8513 VGA are on the shelf. A **mono** tube only shows its own colour (amber is amber); a **colour** monitor runs any theme, Synthwave and Workbench included.
+- **Decks** set the UX. You start on the **Ono-Sendai Cyberspace VII** (wireframes over a glowing grid); the **Hosaka Executive 4** sees the net as a technical drawing. Decks are look and feel only: stats come from RIG upgrades.
+
+Everything is data in [`data/hub/hardware.ron`](data/hub/hardware.ron). A deck lists **firmware** (UX versions), each put together from named parts: `map` (`Iso` | `Draft`), `chrome` (pane style) and `desktop` (the overworld). A new UX version for a deck is a new firmware entry; a new kind of part is one renderer plus one name.
+
+![hardware in RIG](docs/shots/rig-hardware.png)
+![prefs](docs/shots/prefs-hardware.png)
+![a run on the Hosaka](docs/shots/run-hosaka.png)
 
 ### Themes
 
@@ -54,7 +67,7 @@ One theme colours everything: the desktop and your runs. Themes live in [`data/t
 
 ### Displays: the CRT shader
 
-The monitor is a GPU shader pass over the whole frame, modelled on [cool-retro-term](https://github.com/Swordfish90/cool-retro-term): curved glass in a bezel, bloom, burn-in, scanlines or pixel raster, RGB shift, flicker, horizontal sync wobble, static and ambient glare. Five presets ship, using cool-retro-term's own parameter names and values: **Default Amber**, **Monochrome Green**, **Commodore 64**, **Apple ][** and **IBM VGA 8x16**. Pick one in Prefs, the view menu or with `display <id>`; picking one also sets its theme. `crt` turns the effects off.
+The monitor is a GPU shader pass over the whole frame, modelled on [cool-retro-term](https://github.com/Swordfish90/cool-retro-term): curved glass in a bezel, bloom, burn-in, scanlines or pixel raster, RGB shift, flicker, horizontal sync wobble, static and ambient glare. Five presets ship, using cool-retro-term's own parameter names and values: **Default Amber**, **Monochrome Green**, **Commodore 64**, **Apple ][** and **IBM VGA 8x16**. Each one is a monitor you own (see Hardware below); plug one in from Prefs, the view menu or `monitor <id>`. `crt` turns the effects off.
 
 Presets live in [`data/displays.ron`](data/displays.ron). To add one, add an entry; every value is 0 to 1. Clicks are mapped through the same curve the shader draws, so you click what you see; a click on the bezel goes nowhere. If the shader can't start, the old flat scanline overlay is used instead.
 
@@ -118,7 +131,7 @@ Tabs can be dragged, split and rearranged; **view → reset layout** puts them b
 Nodes float over a glowing isometric grid as slowly spinning wireframes, one shape per kind:
 a cube for barrier ICE, a ring for a code gate, an icosahedron "eye" for a sentry, a spiked star for black ICE, a drum for a data vault, an octahedron for the BBS, a pyramid for MSG, a box in a box for a subnet, a landing pad for the entry and an upright ring for the exit. Your routes glow, with pulses running down them; cleared nodes go dim; the fog is `?` on dashed lines.
 
-**view → map as a draft** (or Prefs) swaps in a flat technical drawing instead: grid bubbles over each layer, a drafting symbol per node (section hatching, valve, eye, door swing...), hidden lines for the fog, a revision cloud round you, a dimension line and a title block.
+The **Hosaka** deck (see Hardware) draws the map as a flat technical drawing instead: grid bubbles over each layer, a drafting symbol per node (section hatching, valve, eye, door swing...), hidden lines for the fog, a revision cloud round you, a dimension line and a title block.
 
 Both are drawn in the theme's colours. The **Synthwave** theme gives the magenta-grid, cyan-wire look; Workbench turns the draft into a blueprint. Which shape and symbol each node gets is data, in [`data/netmap.ron`](data/netmap.ron).
 
