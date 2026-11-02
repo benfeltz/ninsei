@@ -1,6 +1,6 @@
 # ninsei
 
-A cyberspace hacking roguelike dressed up as a retro IDE. Rust + egui, with amber, green, ice, plasma and Workbench 1.3 themes and a CRT filter.
+A cyberspace hacking roguelike dressed up as a retro IDE. Rust + egui, with data-driven themes and a GPU CRT shader whose presets come from cool-retro-term.
 
 ![network map, green phosphor](docs/shots/network-green.png)
 
@@ -39,8 +39,8 @@ Between runs you're on your own machine: a Workbench 1.3-style desktop, on the s
 ![the hub](docs/shots/hub.png)
 ![jacking in](docs/shots/hub-jackin.png)
 
-- **NinShell**: `help`, `dir`, `phonebook`, `dial <n> [seed]`, `ranges`, `wardial <range>`, `run <tool>`, `info`, `theme <id>`, `crt`, `echo`, `leet <text>`, `clear`
-- **Prefs**: the theme (desktop and runs alike) and the CRT, with colour swatches
+- **NinShell**: `help`, `dir`, `phonebook`, `dial <n> [seed]`, `ranges`, `wardial <range>`, `run <tool>`, `info`, `theme <id>`, `crt`, `display <id>`, `echo`, `leet <text>`, `clear`
+- **Prefs**: the theme (desktop and runs alike) with colour swatches, and the CRT display preset
 - Windows drag by their title bar; the close gadget is top left, the depth gadget top right
 - Everything below saves automatically: a file on desktop, local storage in the browser
 
@@ -51,6 +51,17 @@ One theme colours everything: the desktop and your runs. Themes live in [`data/t
 ![prefs](docs/shots/prefs.png)
 ![plasma desktop](docs/shots/hub-plasma.png)
 ![a run in Workbench colours](docs/shots/run-workbench.png)
+
+### Displays: the CRT shader
+
+The monitor is a GPU shader pass over the whole frame, modelled on [cool-retro-term](https://github.com/Swordfish90/cool-retro-term): curved glass in a bezel, bloom, burn-in, scanlines or pixel raster, RGB shift, flicker, horizontal sync wobble, static and ambient glare. Five presets ship, using cool-retro-term's own parameter names and values: **Default Amber**, **Monochrome Green**, **Commodore 64**, **Apple ][** and **IBM VGA 8x16**. Pick one in Prefs, the view menu or with `display <id>`; picking one also sets its theme. `crt` turns the effects off.
+
+Presets live in [`data/displays.ron`](data/displays.ron). To add one, add an entry; every value is 0 to 1. Clicks are mapped through the same curve the shader draws, so you click what you see; a click on the bezel goes nowhere. If the shader can't start, the old flat scanline overlay is used instead.
+
+![amber](docs/shots/crt-amber.png)
+![commodore 64](docs/shots/crt-c64.png)
+![apple ][](docs/shots/crt-apple2.png)
+![ibm vga](docs/shots/crt-vga.png)
 
 ### Choosing a network: CarrierTerm
 
@@ -175,6 +186,7 @@ Everything is data in [`data/`](data), compiled into the binary:
 - `events.ron`: MSG-node encounters
 - `contracts.ron`: contract clients and briefs
 - `bbs/board.ron`: the BBS: bulletins, users, file areas, prices, stock per run
+- `themes.ron`, `displays.ron`: colour themes and CRT display presets
 - `hub/`: desktop icons, RIG upgrades, network tiers/traits/companies, wardial ranges
 - `bbs/splash.txt`: the splash art. Colours use Mystic/Renegade **pipe codes** (`|00`-`|15` foreground, `|16`-`|23` background); raw ANSI `ESC[...m` escapes work too, so `.ans` art from PabloDraw or Moebius can be pasted in.
 

@@ -3,6 +3,7 @@
 mod bbs_view;
 mod crash;
 mod crt;
+mod crt_gl;
 mod encounter_view;
 mod hexview;
 mod hubtools;
@@ -21,6 +22,8 @@ use ninsei_core::{Action, Command, Data, Game, LogKind, Phase, command::HELP, pa
 use bbs_view::BbsView;
 use encounter_view::EncounterView;
 
+use crt_gl::CrtGl;
+use ninsei_core::display::{Effects, screen_to_content};
 use panes::{Panes, Request, Tab};
 use theme::Palette;
 use workbench::{WbOut, Workbench};
@@ -155,6 +158,8 @@ struct App {
     /// The run. Between runs this is the last one, or a placeholder before the first.
     game: Game,
     dock: DockState<Tab>,
+    /// The CRT shader pass (falls back to `crt.rs`'s overlay if GL can't run it).
+    crt_gl: CrtGl,
     /// Run theme id (see `data/themes.ron`) and its palette.
     run_theme: String,
     pal: Palette,
@@ -232,6 +237,7 @@ impl App {
             dock: default_layout(),
             run_theme,
             pal,
+            crt_gl: CrtGl::new(),
             input: String::new(),
             focus_input: true,
         }
@@ -246,6 +252,34 @@ impl App {
         self.run_theme = t.id.clone();
         theme::apply(ctx, &self.pal);
         self.save.phosphor = t.id.clone();
+        self.save_dirty = true;
+        true
+    }
+
+    /// The CRT effects to draw, if they're on.
+    fn effects(&self) -> Option<Effects> {
+        if !self.crt {
+            return None;
+        }
+        self.data
+            .display(&self.save.display)
+            .or_else(|| self.data.displays.first())
+            .map(|d| Effects::from_def(&d.effects))
+    }
+
+    /// Picks a CRT preset. Its theme comes along, and effects switch on.
+    fn set_display(&mut self, ctx: &egui::Context, id: &str) -> bool {
+        let Some(d) = self.data.display(id) else {
+            return false;
+        };
+        let theme = d.theme.clone();
+        self.save.display = d.id.clone();
+        if !self.crt {
+            self.toggle_crt();
+        }
+        if let Some(t) = theme {
+            self.set_run_theme(ctx, &t);
+        }
         self.save_dirty = true;
         true
     }
@@ -359,7 +393,7 @@ impl App {
                 }
                 Err(e) => Err(e),
             },
-            WbOut::Dial(..) | WbOut::Theme(_) | WbOut::Crt => return,
+            WbOut::Dial(..) | WbOut::Theme(_) | WbOut::Crt | WbOut::Display(_) => return,
         };
         match result {
             Ok(msg) => {
@@ -539,12 +573,29 @@ impl App {
                     self.dock = default_layout();
                 }
                 let crt = if self.crt {
-                    "[x] crt scanlines"
+                    "[x] crt effects"
                 } else {
-                    "[ ] crt scanlines"
+                    "[ ] crt effects"
                 };
                 if ui.button(crt).clicked() {
                     out.push(Request::Cmd(Command::Crt));
+                }
+                ui.separator();
+                let presets: Vec<(String, String)> = self
+                    .data
+                    .displays
+                    .iter()
+                    .map(|d| (d.id.clone(), d.label.clone()))
+                    .collect();
+                for (id, label) in presets {
+                    let mark = if id == self.save.display {
+                        "(•)"
+                    } else {
+                        "( )"
+                    };
+                    if ui.button(format!("{mark} {label}")).clicked() {
+                        self.set_display(ui.ctx(), &id);
+                    }
                 }
             });
             ui.menu_button("theme", |ui| {
@@ -661,6 +712,15 @@ impl eframe::App for App {
                             self.wb.say(format!("theme: {label}"));
                         }
                     }
+                    WbOut::Display(id) => {
+                        if self.set_display(&ctx, &id) {
+                            let label = self
+                                .data
+                                .display(&id)
+                                .map_or(id.clone(), |d| d.label.clone());
+                            self.wb.say(format!("display: {label}"));
+                        }
+                    }
                     WbOut::Crt => {
                         self.toggle_crt();
                         self.wb
@@ -672,9 +732,12 @@ impl eframe::App for App {
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
         }
 
-        if self.crt {
-            crt::paint(&ctx, &pal);
-        } else if self.game.phase == Phase::Exploring {
+        match self.effects() {
+            Some(e) if !self.crt_gl.failed() => self.crt_gl.paint(&ctx, e),
+            Some(_) => crt::paint(&ctx, &pal),
+            None => {}
+        }
+        if !self.crt && self.game.phase == Phase::Exploring {
             // Keep the cursor blinking.
             ctx.request_repaint_after(std::time::Duration::from_millis(500));
         }
@@ -689,6 +752,55 @@ impl eframe::App for App {
             storage.flush();
             self.save_dirty = false;
         }
+    }
+
+    /// Keeps the mouse on what you see: on curved glass, a point on the window shows a
+    /// different point of the picture, so pointer and touch positions are warped to match.
+    fn raw_input_hook(&mut self, ctx: &egui::Context, raw: &mut egui::RawInput) {
+        let Some(e) = self.effects() else { return };
+        if self.crt_gl.failed() || !e.warps() {
+            return;
+        }
+        let screen = ctx.content_rect();
+        if screen.width() <= 0.0 || screen.height() <= 0.0 {
+            return;
+        }
+        let warp = |p: egui::Pos2| {
+            let uv = [
+                (p.x - screen.min.x) / screen.width(),
+                (p.y - screen.min.y) / screen.height(),
+            ];
+            screen_to_content(uv, &e).map(|c| {
+                egui::pos2(
+                    screen.min.x + c[0] * screen.width(),
+                    screen.min.y + c[1] * screen.height(),
+                )
+            })
+        };
+        raw.events.retain_mut(|ev| match ev {
+            egui::Event::PointerMoved(p) => {
+                match warp(*p) {
+                    Some(q) => *p = q,
+                    None => *ev = egui::Event::PointerGone,
+                }
+                true
+            }
+            // Presses on the bezel go nowhere; releases always get through.
+            egui::Event::PointerButton { pos, pressed, .. } => match warp(*pos) {
+                Some(q) => {
+                    *pos = q;
+                    true
+                }
+                None => !*pressed,
+            },
+            egui::Event::Touch { pos, .. } => {
+                if let Some(q) = warp(*pos) {
+                    *pos = q;
+                }
+                true
+            }
+            _ => true,
+        });
     }
 
     fn save(&mut self, storage: &mut dyn eframe::Storage) {

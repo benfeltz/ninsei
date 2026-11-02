@@ -121,6 +121,8 @@ pub enum WbOut {
     /// Wardial a range (by id).
     Scan(String),
     Theme(String),
+    /// Set the CRT display preset (by id).
+    Display(String),
     Crt,
     Buy(Upgrade),
     ToggleStarter(String),
@@ -254,7 +256,7 @@ impl Workbench {
             let (pos, size) = match kind {
                 Kind::Shell => (pos2(150.0, 300.0), vec2(600.0, 280.0)),
                 Kind::Terminal => (pos2(170.0, 40.0), vec2(720.0, 440.0)),
-                Kind::Prefs => (pos2(260.0, 56.0), vec2(560.0, 420.0)),
+                Kind::Prefs => (pos2(260.0, 40.0), vec2(560.0, 600.0)),
                 Kind::Rig => (pos2(170.0, 50.0), vec2(620.0, 330.0)),
                 Kind::Stash => (pos2(210.0, 80.0), vec2(640.0, 380.0)),
                 Kind::HexEd => (pos2(130.0, 36.0), vec2(800.0, 500.0)),
@@ -664,6 +666,7 @@ impl Workbench {
                 ShellEffect::Open(t) => self.activate(t),
                 ShellEffect::Theme(t) => out.push(WbOut::Theme(t)),
                 ShellEffect::Crt => out.push(WbOut::Crt),
+                ShellEffect::Display(id) => out.push(WbOut::Display(id)),
                 ShellEffect::Clear => self.shell_lines.clear(),
             }
             self.focus_shell = true;

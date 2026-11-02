@@ -286,6 +286,7 @@ pub struct Sources<'a> {
     pub networks: &'a str,
     pub exchanges: &'a str,
     pub themes: &'a str,
+    pub displays: &'a str,
 }
 
 #[derive(Clone, Debug)]
@@ -306,6 +307,8 @@ pub struct Data {
     pub exchanges: Vec<crate::hub::RangeDef>,
     /// Colour themes for runs and the desktop.
     pub themes: Vec<ThemeDef>,
+    /// CRT display presets.
+    pub displays: Vec<crate::display::DisplayDef>,
 }
 
 impl Data {
@@ -324,6 +327,7 @@ impl Data {
             networks: include_str!("../../../data/hub/networks.ron"),
             exchanges: include_str!("../../../data/hub/exchanges.ron"),
             themes: include_str!("../../../data/themes.ron"),
+            displays: include_str!("../../../data/displays.ron"),
         })
     }
 
@@ -343,6 +347,7 @@ impl Data {
             exchanges: ron::from_str(src.exchanges)
                 .map_err(|e| format!("hub/exchanges.ron: {e}"))?,
             themes: ron::from_str(src.themes).map_err(|e| format!("themes.ron: {e}"))?,
+            displays: ron::from_str(src.displays).map_err(|e| format!("displays.ron: {e}"))?,
         };
         data.validate()?;
         Ok(data)
@@ -408,6 +413,8 @@ impl Data {
             .map_err(|e| format!("hub/networks.ron: {e}"))?;
         self.validate_themes()
             .map_err(|e| format!("themes.ron: {e}"))?;
+        crate::display::DisplayDef::validate(&self.displays, &self.themes)
+            .map_err(|e| format!("displays.ron: {e}"))?;
         crate::hub::RangeDef::validate(&self.exchanges, &self.networks)
             .map_err(|e| format!("hub/exchanges.ron: {e}"))?;
         // Every hint anywhere must name a range that exists.
@@ -509,6 +516,10 @@ impl Data {
             }
         }
         Ok(())
+    }
+
+    pub fn display(&self, id: &str) -> Option<&crate::display::DisplayDef> {
+        self.displays.iter().find(|d| d.id == id)
     }
 
     pub fn theme(&self, id: &str) -> Option<&ThemeDef> {

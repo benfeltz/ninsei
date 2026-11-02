@@ -22,6 +22,7 @@ fn parse_with(themes: &str) -> Result<Data, String> {
         networks: include_str!("../../../data/hub/networks.ron"),
         exchanges: include_str!("../../../data/hub/exchanges.ron"),
         themes,
+        displays: include_str!("../../../data/displays.ron"),
     })
 }
 

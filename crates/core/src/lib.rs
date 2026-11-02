@@ -6,6 +6,7 @@ pub mod bbs;
 pub mod binary;
 pub mod command;
 pub mod data;
+pub mod display;
 pub mod game;
 pub mod hexedit;
 pub mod hub;
