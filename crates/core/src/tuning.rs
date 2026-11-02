@@ -37,6 +37,14 @@ pub const ICE_STRENGTH_PER_LAYER: u32 = 4;
 
 /// Layer the network's one BBS sits on.
 pub const BBS_LAYER: usize = 3;
+/// Widest layer a network shape may ask for (the map has room for this many lanes).
+pub const NET_WIDEST: usize = 6;
+
+/// Subnets: the earliest layer one can sit on, and the private network behind it.
+pub const SUBNET_MIN_LAYER: usize = 2;
+pub const SUBNET_MID_LAYERS: usize = 3;
+/// Extra vault weight inside a subnet: the reason to go in.
+pub const SUBNET_VAULT_BONUS: u32 = 30;
 
 /// BBS modem theatre, in seconds.
 pub const BBS_DIAL_SECS: f32 = 2.4;

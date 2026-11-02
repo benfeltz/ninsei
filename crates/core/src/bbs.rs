@@ -285,7 +285,7 @@ impl Session {
                     out.push("   |08Nothing posted. Check back next time you dial in.".into());
                 }
                 for (i, k) in game.bbs_jobs.iter().enumerate() {
-                    let n = &game.net.nodes[k.node];
+                    let n = &game.root().nodes[k.node];
                     let taken = k.status != ContractStatus::Offered;
                     let (num, name) = if taken {
                         ("|08", "|08")

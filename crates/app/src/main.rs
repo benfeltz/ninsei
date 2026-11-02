@@ -587,6 +587,10 @@ impl App {
                     RichText::new(format!("{} T{}{traits}", site.name, site.tier)).color(pal.fg),
                 );
             }
+            if let Some(o) = &g.outer {
+                let door = &o.net.nodes[o.node].name;
+                ui.label(RichText::new(format!("SUBNET via {door}")).color(pal.bright));
+            }
             ui.label(
                 RichText::new(format!(
                     "{}  layer {}/{}",

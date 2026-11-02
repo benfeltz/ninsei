@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 use crate::binary::{self, Bin};
 use crate::data::{Data, IceClass};
 use crate::game::{Game, Kit, Phase, RunMods, Site};
-use crate::network::NetParams;
+use crate::network::{NetParams, Shape};
 use crate::rng::Rng;
 use crate::tuning::{
     BBS_LAYER, DEADMAN_PCT, FRAGMENTS_PER_OPT, HEAT_COOL, HEAT_ICE, HEAT_MAX, HEAT_PER_RUN,
@@ -110,6 +110,9 @@ pub struct TierDef {
     pub pay_pct: u32,
     /// How many traits a network of this tier rolls: (min, max).
     pub traits: (u32, u32),
+    /// Subnet nodes on a network of this tier.
+    #[serde(default)]
+    pub subnets: usize,
 }
 
 /// What a trait does to a network.
@@ -122,6 +125,10 @@ pub enum TraitEffect {
     Chatty(u32),
     VaultRich(u32),
     Pay(u32),
+    /// The network's topology: layer widths, cross links, chokepoints.
+    Shape(Shape),
+    /// +n subnet nodes.
+    Subnets(usize),
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -167,6 +174,11 @@ impl NetworksDef {
         for (i, t) in self.traits.iter().enumerate() {
             if self.traits[..i].iter().any(|o| o.id == t.id) {
                 return Err(format!("trait `{}` is listed twice", t.id));
+            }
+            if let TraitEffect::Shape(shape) = t.effect {
+                shape
+                    .validate()
+                    .map_err(|e| format!("trait `{}`: {e}", t.id))?;
             }
         }
         if self.companies.len() < PHONEBOOK_START.len() * 2 {
@@ -698,6 +710,7 @@ impl Save {
         let tier = nets.tier(e.tier);
         let mut p = NetParams {
             mid_layers: tier.map_or(NET_MID_LAYERS, |t| t.mid_layers),
+            subnets: tier.map_or(0, |t| t.subnets),
             ..NetParams::default()
         };
         let mut m = RunMods {
@@ -714,6 +727,8 @@ impl Save {
                 Some(TraitEffect::Chatty(n)) => p.contact_bonus += n,
                 Some(TraitEffect::VaultRich(n)) => p.vault_bonus += n,
                 Some(TraitEffect::Pay(pct)) => m.pay_pct = m.pay_pct * pct / 100,
+                Some(TraitEffect::Shape(shape)) => p.shape = shape,
+                Some(TraitEffect::Subnets(n)) => p.subnets += n,
                 None => {}
             }
         }

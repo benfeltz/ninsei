@@ -30,10 +30,13 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
     };
     // The BBS number is passed around; you always know where it is.
     // Contract targets are revealed too: the client gave you the hostname.
+    // They live on the main network, so none show inside a subnet.
     let target = |id: usize| {
-        game.contracts
-            .iter()
-            .any(|k| k.node == id && k.status == ContractStatus::Active)
+        !game.in_subnet()
+            && game
+                .contracts
+                .iter()
+                .any(|k| k.node == id && k.status == ContractStatus::Active)
     };
     let visible = |id: usize| {
         net.nodes[id].layer <= here.layer + SIGHT
@@ -85,7 +88,11 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
             },
         );
         let seen = visible(n.id);
-        let tag = if seen { kind_tag(n.kind) } else { "???" };
+        let tag = if seen {
+            kind_tag(n.kind, game.in_subnet())
+        } else {
+            "???"
+        };
 
         let (fill, stroke, text) = if n.id == game.at {
             // You are here: inverse video.
@@ -102,7 +109,7 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
             (p.bg, p.faint, p.faint)
         };
         painter.rect_filled(r, 0.0, fill);
-        let dashed = matches!(n.kind, NodeKind::BlackIce) && seen;
+        let dashed = matches!(n.kind, NodeKind::BlackIce | NodeKind::Subnet) && seen;
         painter.rect_stroke(
             r,
             0.0,
@@ -166,7 +173,11 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
             let resp = resp.on_hover_text(format!(
                 "jack {}  →  {}",
                 n.id,
-                if seen { n.kind.label() } else { "unknown" }
+                if seen {
+                    game.node_label(n.id)
+                } else {
+                    "unknown"
+                }
             ));
             if resp.clicked() {
                 clicked = Some(n.id);
@@ -175,6 +186,9 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
     }
 
     let hint = match game.phase {
+        Phase::Exploring if game.in_subnet() => {
+            "inside a subnet. the UPLINK takes you back to the main network"
+        }
         Phase::Exploring => "click a lit node (or `jack <n>`) to route there",
         Phase::Combat => "ICE holds the line. break it in target.ice",
         Phase::Encounter => "someone wants to talk",
@@ -191,8 +205,10 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
     clicked
 }
 
-fn kind_tag(kind: NodeKind) -> &'static str {
+fn kind_tag(kind: NodeKind, in_subnet: bool) -> &'static str {
     match kind {
+        NodeKind::Exit if in_subnet => "UPLINK",
+        NodeKind::Subnet => "SUB",
         NodeKind::Entry => "GW",
         NodeKind::Ice => "ICE",
         NodeKind::BlackIce => "B.ICE",
