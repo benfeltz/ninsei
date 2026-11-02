@@ -140,13 +140,21 @@ fn the_whole_network_fits_the_view() {
 }
 
 #[test]
-fn the_map_view_is_saved() {
-    assert_eq!(Save::load("(version: 1)").unwrap().map, MapView::Iso);
-    let s = Save {
-        map: MapView::Draft,
-        ..Save::default()
-    };
-    let back = Save::load(&s.to_text()).unwrap();
-    assert_eq!(back.map, MapView::Draft);
-    assert!(data().theme("synthwave").is_some());
+fn the_deck_picks_the_map() {
+    let d = data();
+    let mut s = Save::default();
+    s.ensure_hardware(&d);
+    assert_eq!(
+        s.firmware_def(&d).map,
+        MapView::Iso,
+        "the Ono-Sendai sees wireframes"
+    );
+    s.decks.push("hosaka".into());
+    s.use_deck(&d, "hosaka").unwrap();
+    assert_eq!(
+        s.firmware_def(&d).map,
+        MapView::Draft,
+        "the Hosaka sees a plan"
+    );
+    assert!(d.theme("synthwave").is_some());
 }

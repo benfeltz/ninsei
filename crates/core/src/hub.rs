@@ -19,9 +19,6 @@ pub const SAVE_VERSION: u32 = 1;
 /// Run theme a new save starts with.
 pub const DEFAULT_RUN_THEME: &str = "amber";
 
-/// CRT display preset a new save starts with.
-pub const DEFAULT_DISPLAY: &str = "amber";
-
 /// Storage key the app saves under.
 pub const SAVE_KEY: &str = "ninsei.save";
 
@@ -519,9 +516,6 @@ pub struct Save {
     /// Modem sounds on or off.
     #[serde(default = "default_sound")]
     pub sound: bool,
-    /// CRT display preset id (see `data/displays.ron`).
-    #[serde(default = "default_display")]
-    pub display: String,
     /// Credits banked at home.
     #[serde(default)]
     pub bank: u32,
@@ -565,9 +559,18 @@ pub struct Save {
     /// Jobs taken from home, waiting for their network to be dialed.
     #[serde(default)]
     pub pending: Vec<PendingJob>,
-    /// How the network map is drawn.
+    /// Monitors you own (ids in `data/hub/hardware.ron`), and the one plugged in.
     #[serde(default)]
-    pub map: crate::netview::MapView,
+    pub monitors: Vec<String>,
+    #[serde(default)]
+    pub monitor: String,
+    /// Decks you own, the one you run with, and its firmware (UX version).
+    #[serde(default)]
+    pub decks: Vec<String>,
+    #[serde(default)]
+    pub deck: String,
+    #[serde(default)]
+    pub firmware: String,
 }
 
 /// A BBS whose number you know, and how you found it.
@@ -601,10 +604,6 @@ fn default_sound() -> bool {
     true
 }
 
-fn default_display() -> String {
-    DEFAULT_DISPLAY.into()
-}
-
 impl Default for Save {
     fn default() -> Self {
         Self {
@@ -616,7 +615,6 @@ impl Default for Save {
             phosphor: default_phosphor(),
             crt: default_crt(),
             sound: default_sound(),
-            display: default_display(),
             bank: 0,
             fragments: 0,
             key: 0,
@@ -633,7 +631,11 @@ impl Default for Save {
             home_bought: Vec::new(),
             home_taken: Vec::new(),
             pending: Vec::new(),
-            map: crate::netview::MapView::Iso,
+            monitors: Vec::new(),
+            monitor: String::new(),
+            decks: Vec::new(),
+            deck: String::new(),
+            firmware: String::new(),
         }
     }
 }
@@ -1333,8 +1335,10 @@ pub enum ShellEffect {
     Open(Tool),
     /// Set the theme (by id): desktop and runs.
     Theme(String),
-    /// Set the CRT display preset (by id).
-    Display(String),
+    /// Plug in a monitor you own (by id).
+    Monitor(String),
+    /// Run with a deck you own (by id).
+    Deck(String),
     Crt,
     /// Modem sounds on/off.
     Sound,
@@ -1362,7 +1366,8 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
                 "info             your record",
                 "theme <name>     colour theme, desktop and runs (see Prefs)",
                 "crt              CRT effects on/off",
-                "display <id>     CRT preset (see Prefs)",
+                "monitor [id]     plug in a monitor you own",
+                "deck [id]        run with a deck you own",
                 "sound            modem sounds on/off",
                 "echo <text>      say something",
                 "leet <text>      say it in l33t",
@@ -1500,7 +1505,10 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
             }
         }
         "theme" => match arg.and_then(|t| data.theme(t)) {
-            Some(t) => (Vec::new(), ShellEffect::Theme(t.id.clone())),
+            Some(t) => match save.theme_blocker(data, &t.id) {
+                Some(why) => (vec![why], ShellEffect::None),
+                None => (Vec::new(), ShellEffect::Theme(t.id.clone())),
+            },
             None => {
                 let ids: Vec<&str> = data.themes.iter().map(|t| t.id.as_str()).collect();
                 (
@@ -1511,15 +1519,45 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
         },
         "crt" => (Vec::new(), ShellEffect::Crt),
         "sound" => (Vec::new(), ShellEffect::Sound),
-        "display" => match arg.and_then(|d| data.display(d)) {
-            Some(d) => (Vec::new(), ShellEffect::Display(d.id.clone())),
-            None => {
-                let ids: Vec<&str> = data.displays.iter().map(|d| d.id.as_str()).collect();
-                (
-                    vec![format!("display {}", ids.join(" | "))],
-                    ShellEffect::None,
-                )
+        "monitor" | "display" => match arg {
+            Some(id) if save.monitors.iter().any(|m| m == id) => {
+                (Vec::new(), ShellEffect::Monitor(id.to_string()))
             }
+            Some(id) => (
+                vec![format!("{id}: you don't own that monitor. RIG sells them.")],
+                ShellEffect::None,
+            ),
+            None => (
+                save.monitors
+                    .iter()
+                    .filter_map(|id| data.hardware.monitor(id))
+                    .map(|m| {
+                        let on = if m.id == save.monitor { "*" } else { " " };
+                        format!("{on} {:<8} {}", m.id, m.title())
+                    })
+                    .collect(),
+                ShellEffect::None,
+            ),
+        },
+        "deck" => match arg {
+            Some(id) if save.decks.iter().any(|d| d == id) => {
+                (Vec::new(), ShellEffect::Deck(id.to_string()))
+            }
+            Some(id) => (
+                vec![format!("{id}: you don't own that deck. RIG sells them.")],
+                ShellEffect::None,
+            ),
+            None => (
+                save.decks
+                    .iter()
+                    .filter_map(|id| data.hardware.deck(id))
+                    .map(|d| {
+                        let on = if d.id == save.deck { "*" } else { " " };
+                        format!("{on} {:<10} {}", d.id, d.title())
+                    })
+                    .collect(),
+                ShellEffect::None,
+            ),
         },
         "clear" | "cls" => (Vec::new(), ShellEffect::Clear),
         "leet" | "l33t" => (

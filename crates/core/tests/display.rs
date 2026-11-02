@@ -1,7 +1,7 @@
 //! CRT display presets and the curved-glass geometry the mouse has to follow.
 
 use ninsei_core::display::{Effects, Raster, screen_to_content};
-use ninsei_core::hub::{self, DEFAULT_DISPLAY, Save, ShellEffect};
+use ninsei_core::hub::Save;
 use ninsei_core::*;
 
 fn data() -> Data {
@@ -29,7 +29,6 @@ fn the_five_presets() {
         let t = p.theme.as_deref().unwrap();
         assert!(d.theme(t).is_some(), "{} pairs with a real theme", p.id);
     }
-    assert!(d.display(DEFAULT_DISPLAY).is_some());
     assert_eq!(effects("c64").rasterization, Raster::Scanline);
     assert_eq!(effects("amber").frame_color, [0xcf as f32 / 255.0; 3]);
 }
@@ -66,22 +65,11 @@ fn the_bezel_and_tube_corners_are_not_screen() {
 }
 
 #[test]
-fn shell_display_command() {
+fn saves_start_on_the_amber_monitor() {
     let d = data();
-    let s = Save::default();
-    let run = |l: &str| hub::shell(l, &s, &d);
-    assert_eq!(
-        run("display apple2").1,
-        ShellEffect::Display("apple2".into())
-    );
-    assert_eq!(run("display nope").1, ShellEffect::None);
-    assert!(run("display").0[0].contains("vga"));
-}
-
-#[test]
-fn saves_default_to_the_amber_display() {
-    let s = Save::load("(version: 1)").unwrap();
-    assert_eq!((s.display.as_str(), s.crt), (DEFAULT_DISPLAY, true));
+    let mut s = Save::load("(version: 1)").unwrap();
+    s.ensure_hardware(&d);
+    assert_eq!((s.display_id(&d), s.crt), ("amber", true));
 }
 
 #[test]

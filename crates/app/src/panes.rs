@@ -31,15 +31,19 @@ pub enum Request {
     CloseHex,
     /// A raw line typed into the terminal.
     Line(String),
-    /// Switch the network map's view.
-    Map(MapView),
+    /// Plug in a monitor you own.
+    Monitor(String),
+    /// Run with a deck you own.
+    Deck(String),
 }
 
 pub struct Panes<'a> {
     pub game: &'a Game,
     pub pal: Palette,
-    /// How the network map is drawn.
+    /// How the network map is drawn: the deck's firmware decides.
     pub map: MapView,
+    /// The deck's name for the deck.sys header.
+    pub deck: String,
     pub input: &'a mut String,
     pub focus_input: &'a mut bool,
     pub bbs_open: bool,
@@ -154,7 +158,7 @@ impl Panes<'_> {
         let g = self.game;
         let d = &g.deck;
         let p = self.pal;
-        ui.label(RichText::new("ONO-SENDAI CYBERSPACE VII").color(p.bright));
+        ui.label(RichText::new(self.deck.to_uppercase()).color(p.bright));
         ui.label(
             RichText::new(format!("seed {:016x}", g.seed))
                 .small()

@@ -25,7 +25,6 @@ use ninsei_core::{Action, Command, Data, Game, LogKind, Phase, command::HELP, pa
 use bbs_view::BbsView;
 use encounter_view::EncounterView;
 use ninsei_core::home_bbs::HomeCall;
-use ninsei_core::netview::MapView;
 
 use crt_gl::CrtGl;
 use ninsei_core::display::{Effects, screen_to_content};
@@ -217,6 +216,8 @@ impl App {
         let keyed = save.ensure_key(fresh_seed());
         // A new save starts with a handful of numbers to dial.
         let keyed = save.ensure_phonebook(&data, fresh_seed()) || keyed;
+        // Everyone starts with a deck and a monitor; a mono monitor picks the theme.
+        let keyed = save.ensure_hardware(&data) || keyed;
         let run_theme = match data.theme(&save.phosphor) {
             Some(t) => t.id.clone(),
             None => DEFAULT_RUN_THEME.to_string(),
@@ -257,17 +258,28 @@ impl App {
         }
     }
 
-    /// Switches the run theme. Returns false for an unknown or desktop-only theme.
-    fn set_run_theme(&mut self, ctx: &egui::Context, id: &str) -> bool {
+    /// Switches the theme, if the monitor can show it. Returns its label, or why not.
+    fn set_run_theme(&mut self, ctx: &egui::Context, id: &str) -> Result<String, String> {
+        let Some(label) = self.data.theme(id).map(|t| t.label.clone()) else {
+            return Err(format!("no theme {id}."));
+        };
+        if let Some(why) = self.save.theme_blocker(&self.data, id) {
+            return Err(why);
+        }
+        self.apply_theme(ctx, id);
+        Ok(label)
+    }
+
+    /// Paints with theme `id` and saves it. No monitor check: callers have done that.
+    fn apply_theme(&mut self, ctx: &egui::Context, id: &str) {
         let Some(t) = self.data.theme(id) else {
-            return false;
+            return;
         };
         self.pal = Palette::from_def(t);
         self.run_theme = t.id.clone();
         theme::apply(ctx, &self.pal);
         self.save.phosphor = t.id.clone();
         self.save_dirty = true;
-        true
     }
 
     /// The CRT effects to draw, if they're on.
@@ -276,26 +288,27 @@ impl App {
             return None;
         }
         self.data
-            .display(&self.save.display)
+            .display(self.save.display_id(&self.data))
             .or_else(|| self.data.displays.first())
             .map(|d| Effects::from_def(&d.effects))
     }
 
-    /// Picks a CRT preset. Its theme comes along, and effects switch on.
-    fn set_display(&mut self, ctx: &egui::Context, id: &str) -> bool {
-        let Some(d) = self.data.display(id) else {
-            return false;
-        };
-        let theme = d.theme.clone();
-        self.save.display = d.id.clone();
-        if !self.crt {
+    /// Changes hardware through one of `Save`'s methods, then repaints in whatever theme the
+    /// monitor now shows. Plugging in a monitor switches CRT effects on.
+    fn hardware(
+        &mut self,
+        ctx: &egui::Context,
+        change: impl FnOnce(&mut Save, &Data) -> Result<String, String>,
+    ) -> Result<String, String> {
+        let before = self.save.monitor.clone();
+        let msg = change(&mut self.save, &self.data)?;
+        self.save_dirty = true;
+        let theme = self.save.phosphor.clone();
+        self.apply_theme(ctx, &theme);
+        if self.save.monitor != before && !self.crt {
             self.toggle_crt();
         }
-        if let Some(t) = theme {
-            self.set_run_theme(ctx, &t);
-        }
-        self.save_dirty = true;
-        true
+        Ok(msg)
     }
 
     fn run_theme_label(&self) -> String {
@@ -330,11 +343,6 @@ impl App {
             self.speaker.stop();
         }
         self.bbs_heard = open;
-    }
-
-    fn set_map(&mut self, view: MapView) {
-        self.save.map = view;
-        self.save_dirty = true;
     }
 
     fn toggle_crt(&mut self) {
@@ -504,8 +512,10 @@ impl App {
             | WbOut::Theme(_)
             | WbOut::Crt
             | WbOut::Sound
-            | WbOut::Map(_)
-            | WbOut::Display(_) => {
+            | WbOut::Monitor(_)
+            | WbOut::Deck(_)
+            | WbOut::Firmware(_)
+            | WbOut::BuyHardware(_) => {
                 return;
             }
         };
@@ -536,8 +546,14 @@ impl App {
                 }
                 return;
             }
-            Request::Map(view) => {
-                self.set_map(view);
+            Request::Monitor(id) => {
+                let r = self.hardware(ctx, |s, d| s.plug_monitor(d, &id));
+                self.game.say(LogKind::Sys, r.unwrap_or_else(|e| e));
+                return;
+            }
+            Request::Deck(id) => {
+                let r = self.hardware(ctx, |s, d| s.use_deck(d, &id));
+                self.game.say(LogKind::Sys, r.unwrap_or_else(|e| e));
                 return;
             }
             Request::GoHome => {
@@ -595,18 +611,19 @@ impl App {
                 let state = self.toggle_sound();
                 self.game.say(LogKind::Sys, format!("modem sounds {state}"));
             }
-            Command::Theme(name) => {
-                if self.set_run_theme(ctx, &name) {
-                    let label = self.run_theme_label();
-                    self.game.say(LogKind::Sys, format!("theme: {label}"));
-                } else {
+            Command::Theme(name) => match self.set_run_theme(ctx, &name) {
+                Ok(label) => self.game.say(LogKind::Sys, format!("theme: {label}")),
+                Err(e) if self.data.theme(&name).is_some() => {
+                    self.game.say(LogKind::Sys, format!("err: {e}"));
+                }
+                Err(_) => {
                     let ids: Vec<String> = self.data.themes.iter().map(|t| t.id.clone()).collect();
                     self.game.say(
                         LogKind::Sys,
                         format!("err: no run theme `{name}`. try {}.", ids.join(", ")),
                     );
                 }
-            }
+            },
         }
     }
 
@@ -710,34 +727,30 @@ impl App {
                 if ui.button(sound).clicked() {
                     out.push(Request::Cmd(Command::Sound));
                 }
-                let draft = self.save.map == MapView::Draft;
-                let map = if draft {
-                    "[x] map as a draft"
-                } else {
-                    "[ ] map as a draft"
-                };
-                if ui.button(map).clicked() {
-                    out.push(Request::Map(if draft {
-                        MapView::Iso
-                    } else {
-                        MapView::Draft
-                    }));
-                }
                 ui.separator();
-                let presets: Vec<(String, String)> = self
-                    .data
-                    .displays
-                    .iter()
-                    .map(|d| (d.id.clone(), d.label.clone()))
-                    .collect();
-                for (id, label) in presets {
-                    let mark = if id == self.save.display {
+                ui.label(RichText::new("monitor").color(pal.dim));
+                for id in self.save.monitors.clone() {
+                    let Some(m) = self.data.hardware.monitor(&id) else {
+                        continue;
+                    };
+                    let mark = if id == self.save.monitor {
                         "(•)"
                     } else {
                         "( )"
                     };
-                    if ui.button(format!("{mark} {label}")).clicked() {
-                        self.set_display(ui.ctx(), &id);
+                    if ui.button(format!("{mark} {}", m.title())).clicked() {
+                        out.push(Request::Monitor(id));
+                    }
+                }
+                ui.separator();
+                ui.label(RichText::new("deck").color(pal.dim));
+                for id in self.save.decks.clone() {
+                    let Some(d) = self.data.hardware.deck(&id) else {
+                        continue;
+                    };
+                    let mark = if id == self.save.deck { "(•)" } else { "( )" };
+                    if ui.button(format!("{mark} {}", d.title())).clicked() {
+                        out.push(Request::Deck(id));
                     }
                 }
             });
@@ -750,8 +763,11 @@ impl App {
                     .collect();
                 for (id, label) in themes {
                     let mark = if id == self.run_theme { "(•)" } else { "( )" };
-                    if ui.button(format!("{mark} {label}")).clicked() {
-                        self.set_run_theme(ui.ctx(), &id);
+                    let ok = self.save.theme_blocker(&self.data, &id).is_none();
+                    let b = ui.add_enabled(ok, egui::Button::new(format!("{mark} {label}")));
+                    let b = b.on_disabled_hover_text("your monitor is a mono tube");
+                    if b.clicked() {
+                        let _ = self.set_run_theme(ui.ctx(), &id);
                     }
                 }
             });
@@ -837,6 +853,12 @@ impl eframe::App for App {
             }
             let offset = self.screen.drag() * ctx.content_rect().height();
             let live = self.screen.hub_live();
+            // Dev key: free credits at home, for trying out RIG and the BBSes.
+            if live && ctx.input(|i| i.key_pressed(egui::Key::F8)) {
+                let msg = self.save.dev_credits();
+                self.save_dirty = true;
+                self.wb.say(msg);
+            }
             let mut outs = Vec::new();
             egui::Area::new(egui::Id::new("workbench"))
                 .order(egui::Order::Foreground)
@@ -850,20 +872,25 @@ impl eframe::App for App {
                 match o {
                     WbOut::Dial(entry, seed) if live => self.dial(entry, seed),
                     WbOut::Dial(..) => {}
-                    WbOut::Theme(name) => {
-                        if self.set_run_theme(&ctx, &name) {
-                            let label = self.run_theme_label();
-                            self.wb.say(format!("theme: {label}"));
-                        }
+                    WbOut::Theme(name) => match self.set_run_theme(&ctx, &name) {
+                        Ok(label) => self.wb.say(format!("theme: {label}")),
+                        Err(e) => self.wb.say(e),
+                    },
+                    WbOut::Monitor(id) => {
+                        let r = self.hardware(&ctx, |s, d| s.plug_monitor(d, &id));
+                        self.wb.say(r.unwrap_or_else(|e| e));
                     }
-                    WbOut::Display(id) => {
-                        if self.set_display(&ctx, &id) {
-                            let label = self
-                                .data
-                                .display(&id)
-                                .map_or(id.clone(), |d| d.label.clone());
-                            self.wb.say(format!("display: {label}"));
-                        }
+                    WbOut::Deck(id) => {
+                        let r = self.hardware(&ctx, |s, d| s.use_deck(d, &id));
+                        self.wb.say(r.unwrap_or_else(|e| e));
+                    }
+                    WbOut::Firmware(id) => {
+                        let r = self.hardware(&ctx, |s, d| s.use_firmware(d, &id));
+                        self.wb.say(r.unwrap_or_else(|e| e));
+                    }
+                    WbOut::BuyHardware(hw) => {
+                        let r = self.hardware(&ctx, |s, d| s.buy_hardware(d, &hw));
+                        self.wb.say(r.unwrap_or_else(|e| e));
                     }
                     WbOut::Crt => {
                         self.toggle_crt();
@@ -874,7 +901,6 @@ impl eframe::App for App {
                         let state = self.toggle_sound();
                         self.wb.say(format!("modem sounds {state}"));
                     }
-                    WbOut::Map(view) => self.set_map(view),
                     other => self.home_action(other),
                 }
             }
@@ -990,7 +1016,8 @@ impl App {
         let mut panes = Panes {
             game: &self.game,
             pal,
-            map: self.save.map,
+            map: self.save.firmware_def(&self.data).map,
+            deck: self.save.deck_def(&self.data).title(),
             input: &mut self.input,
             focus_input: &mut self.focus_input,
             // Any modal (BBS or talk) keeps the terminal from grabbing focus.
