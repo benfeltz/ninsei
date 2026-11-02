@@ -232,7 +232,11 @@ impl App {
             Some(text) => match Save::load(&text) {
                 Ok(s) => {
                     let plural = if s.runs == 1 { "" } else { "s" };
-                    boot.push(format!("Welcome back. {} run{plural} on record.", s.runs));
+                    boot.push(if s.runs == 0 {
+                        "Welcome back.".to_string()
+                    } else {
+                        format!("Welcome back. {} run{plural} on record.", s.runs)
+                    });
                     s
                 }
                 Err(e) => {

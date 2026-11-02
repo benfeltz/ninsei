@@ -33,7 +33,7 @@
          blurb: "The cowboy's deck. Jacks you straight into the matrix: wireframes over a glowing grid.",
          firmware: [
             (id: "7.0", label: "Cyberspace 7.0", map: Iso, chrome: Btop, desktop: Tiling, sounds: "ono", panes: ["net"]),
-            (id: "6.2", label: "Cyberspace 6.2 (classic panes, Desktop)", map: Iso, chrome: Classic, desktop: Workbench, sounds: "ono"),
+            (id: "6.2", label: "Cyberspace 6.2 (classic panes)", map: Iso, chrome: Classic, desktop: Workbench, sounds: "ono"),
          ]),
         (id: "hosaka", name: "Executive 4", maker: "Hosaka", price: 650,
          blurb: "A corporate workstation. Sees the net as a plan: every node drafted, dimensioned and filed.",

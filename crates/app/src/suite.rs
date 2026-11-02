@@ -36,6 +36,8 @@ pub mod size {
     pub const AGENDA_ROWS: usize = 5;
     /// Widest a column chart's group of columns gets, so a short fight isn't one wall.
     pub const COL_SLOT_MAX: f32 = 56.0;
+    /// Narrowest a form shows its notes column at.
+    pub const FORM_NOTES_W: f32 = 440.0;
     pub const DIALOG_W: f32 = 420.0;
 }
 
@@ -141,10 +143,7 @@ pub fn window(ui: &mut Ui, p: &Palette, num: usize, title: &str, body: impl FnOn
                 ui.set_clip_rect(inner.intersect(ui.clip_rect()));
                 // Solid scroll bars, always there, like any document window.
                 // The thumb in the text colour on a `panel` track: visible on the window's `bg`.
-                ui.spacing_mut().scroll = egui::style::ScrollStyle {
-                    foreground_color: true,
-                    ..egui::style::ScrollStyle::solid()
-                };
+                ui.spacing_mut().scroll = crate::theme::visible_scroll();
                 ui.visuals_mut().extreme_bg_color = p.panel;
                 body(ui);
             },
@@ -390,10 +389,12 @@ fn column_chart(
     x_labels(&painter, plot, p, n, slot, label);
 }
 
-/// A form: labelled fields with a one-line note each.
+/// A form: labelled fields with a one-line note each. In a narrow window the notes go, so the
+/// values never get cut.
 fn form(ui: &mut Ui, p: &Palette, id: &str, rows: &[(&str, String, &str, bool)]) {
+    let notes = ui.available_width() >= size::FORM_NOTES_W;
     egui::Grid::new(id)
-        .num_columns(3)
+        .num_columns(if notes { 3 } else { 2 })
         .spacing([10.0, 3.0])
         .show(ui, |ui| {
             for (label, value, note, hot) in rows {
@@ -402,7 +403,9 @@ fn form(ui: &mut Ui, p: &Palette, id: &str, rows: &[(&str, String, &str, bool)])
                     format!("[ {value} ]"),
                     if *hot { p.bright } else { p.fg },
                 ));
-                ui.label(small(*note, p.dim));
+                if notes {
+                    ui.label(small(*note, p.dim));
+                }
                 ui.end_row();
             }
         });

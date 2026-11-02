@@ -196,7 +196,7 @@ fn pane_shop(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
             .filter_map(|d| data.hardware.deck(d))
             .flat_map(|d| d.firmware.iter().map(move |f| (d, f)))
             .find(|(_, f)| f.panes.iter().any(|p| p == id))
-            .map(|(d, f)| format!("with {} {}", d.name, f.id))
+            .map(|(d, f)| format!("free on {} {}", d.name, f.id))
     };
     egui::Grid::new("panes")
         .num_columns(4)
@@ -871,8 +871,4 @@ pub fn prefs(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
         fw.label,
         fw.desktop.name()
     )));
-    ui.add_space(6.0);
-    ui.label(dim(
-        "New themes go in data/themes.ron, hardware in data/hub/hardware.ron.",
-    ));
 }

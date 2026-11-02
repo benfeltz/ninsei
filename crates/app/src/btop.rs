@@ -280,7 +280,9 @@ impl Panes<'_> {
                         format!("{note:<10}"),
                         if hot { p.bright } else { p.fg },
                     ));
-                    if !series.is_empty() {
+                    // The sparkline only when it fits; in a narrow pane it would run past the box.
+                    if !series.is_empty() && ui.available_width() >= anim::SPARK_POINTS as f32 * 2.0
+                    {
                         let pts: Vec<u32> = series
                             .iter()
                             .rev()
