@@ -15,6 +15,8 @@
 //                            an extra cross link per node, every `choke`th layer is one guarded
 //                            node (0 = none; never the BBS layer). Default is (2, 4, 35, 0).
 //              Subnets(n)    +n subnet nodes
+//              Board(id)     this network's BBS is data/bbs/<id>/ (otherwise one of the boards
+//                            for its tier, picked by the phone number)
 // companies: names and lines of business for phonebook entries.
 (
     tiers: [
@@ -37,6 +39,7 @@
         (id: "daisy_chain",    label: "daisy chain",     blurb: "Long thin lines. No way around anything.",              effect: Shape((min_width: 1, max_width: 2, links: 15, choke: 0))),
         (id: "segmented",      label: "segmented",       blurb: "Private segments behind every door. Vaults inside.",    effect: Subnets(1)),
         (id: "skint",          label: "skint",           blurb: "Nothing worth stealing. Credits -30%.",         effect: Pay(70)),
+        (id: "pirate_board",   label: "pirate board",    blurb: "Someone's running DEAD SECTOR off their backbone.", effect: Board("deadsector")),
     ],
     companies: [
         (name: "Ono Drycleaning",      business: "laundry"),

@@ -1,0 +1,84 @@
+// CORPLINK EMPLOYEE SERVICES: the staff board on corp and megacorp backbones. Clean blue
+// screens, no l33t, everything priced like an expense report. You're a guest login.
+(
+    name: "CORPLINK EMPLOYEE SERVICES",
+    sysop: "IT Help Desk",
+    phone: "555-0100",
+    baud: 28800,
+    tiers: [2, 3],
+    look: (
+        software: "PCBoard v15.2 / Corporate Edition",
+        header: Inverse,
+        frame: 3,
+        bar: 1,
+        key: 15,
+        label: 11,
+        dim: 8,
+        text: 7,
+        money: 14,
+        ok: 10,
+        warn: 12,
+        aside: 3,
+        prompt: ">",
+        handle: "GUEST-0451",
+        menu: (
+            files: ("Software Library", "approved tools and requisitions"),
+            jobs: ("Work Orders", "contract staff assignments"),
+            bulletins: ("Memos", "from management"),
+            who: ("Staff Directory", "who is logged in"),
+            goodbye: ("Log Off", "end your session"),
+        ),
+        goodbye: "{board}: SESSION TERMINATED. THIS SESSION WAS LOGGED.",
+        leet: false,
+    ),
+    bulletins: [
+        (title: "ACCEPTABLE USE POLICY (REV. 7)", body: [
+            "|07Employees may not install unapproved software on company decks.",
+            "|07Approved software is available in the Software Library.",
+            "|07Guest accounts are provided for contractors. Guests are billed.",
+            "",
+            "|08-- Office of Information Security",
+        ]),
+        (title: "SECURITY REMINDER", body: [
+            "|07Several unauthorized logins were detected on the backbone.",
+            "|07Intrusion countermeasures have been upgraded on all segments.",
+            "|12Do not|07 share your access codes or departmental prefixes.",
+        ]),
+        (title: "CAFETERIA MENU", body: [
+            "|07MON  soy loaf           THU  soy loaf (spicy)",
+            "|07TUE  krill noodles      FRI  chef's choice",
+            "|07WED  soy loaf",
+        ]),
+    ],
+    users: [
+        (handle: "HELPDESK",   location: "Bldg 4",      doing: "Resetting passwords"),
+        (handle: "J.TANAKA",   location: "Accounts",    doing: "Reading Memos"),
+        (handle: "R.OKONKWO",  location: "Security",    doing: "Reviewing logs"),
+        (handle: "SVC-BACKUP", location: "Data Center", doing: "Nightly backup"),
+    ],
+    areas: [
+        (name: "SECURITY SOFTWARE", stock: 3, files: [
+            (file: "FIREWALL.EXE", item: Warez("firewall"), price: 60,  desc: "Firewall (licensed). Absorbs damage"),
+            (file: "MIRROR.EXE",   item: Warez("mirror"),   price: 200, desc: "Mirror Enterprise. Reflective shell"),
+            (file: "LOGSCRUB.EXE", item: Warez("scrubber"), price: 100, desc: "Log maintenance utility"),
+            (file: "PENTEST.ZIP",  item: Warez("decoder"),  price: 90,  desc: "Penetration test kit (Decoder)"),
+            (file: "AUDITOR.ZIP",  item: Warez("garrote"),  price: 90,  desc: "Process auditor (Garrote)"),
+        ]),
+        (name: "HARDWARE REQUISITIONS", stock: 3, files: [
+            (file: "RAM-REQ.FRM",  item: Ram(2),            price: 160, desc: "Memory upgrade request. +2 GB"),
+            (file: "CPU-REQ.FRM",  item: Cpu(1),            price: 250, desc: "Processor upgrade. +1 cpu cycle"),
+            (file: "DSK-REQ.FRM",  item: Hdd(2),            price: 100, desc: "Storage allocation. +2 slots"),
+            (file: "MEDKIT.FRM",   item: Repair(10),        price: 70,  desc: "Field service. +10 integrity"),
+        ]),
+        (name: "INTERNAL DIRECTORY", stock: 2, files: [
+            (file: "BW-CORE.LST",  item: Hint("brightwater_core"), price: 95,  desc: "Brightwater core extensions"),
+            (file: "YMT-R&D.LST",  item: Hint("yamatai_core"),     price: 110, desc: "Yamatai R&D directory"),
+            (file: "SAITO.LST",    item: Hint("saito"),            price: 40,  desc: "Saito Pharmaceutical switchboard"),
+            (file: "YAMATAI.LST",  item: Hint("yamatai"),          price: 45,  desc: "Yamatai Dynamics switchboard"),
+        ]),
+        (name: "BUILD TOOLS", stock: 2, files: [
+            (file: "OPTKIT.ZIP",   item: Fragment(2),       price: 140, desc: "Compiler optimizer kit. x2"),
+            (file: "OPTSUITE.ZIP", item: Fragment(3),       price: 200, desc: "Optimizer suite. x3"),
+        ]),
+    ],
+)

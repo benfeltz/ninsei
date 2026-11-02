@@ -1,10 +1,15 @@
-// The one BBS for now. Each run stocks `stock` random files per area.
+// THE NEON GUTTER: the default board, a hangout on LANs and small corp nets.
+// Every board is a folder under data/bbs/ with a board.ron and a splash.txt; see README "The BBS".
+// Each run stocks `stock` random files per area.
 // Text fields take Mystic-style pipe colour codes: |00-|15 foreground, |16-|23 background.
 (
     name: "THE NEON GUTTER",
     sysop: "m0th",
     phone: "555-0199",
     baud: 14400,
+    default: true,
+    tiers: [1, 2],
+    // No `look`: the Gutter is what every look field defaults to.
     bulletins: [
         (title: "READ THIS FIRST", body: [
             "|15Rules of the Gutter:",

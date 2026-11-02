@@ -313,7 +313,7 @@ impl App {
         }
         let open = self.bbs.is_some();
         if open && !self.bbs_heard {
-            let phone = self.game.data.bbs.phone.clone();
+            let phone = self.game.bbs().phone.clone();
             self.speaker.dial(&phone);
         } else if !open && self.bbs_heard {
             self.speaker.stop();

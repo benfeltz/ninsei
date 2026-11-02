@@ -193,8 +193,7 @@ fn bbs_textfiles_sell_ranges() {
     let here = g.at;
     g.net.nodes[here].kind = NodeKind::Bbs;
     g.deck.credits = 1_000;
-    let area = d
-        .bbs
+    let area = d.boards[0]
         .areas
         .iter()
         .position(|a| a.name == "TEXTFILES")
@@ -202,7 +201,7 @@ fn bbs_textfiles_sell_ranges() {
     g.apply(Action::Buy { area, file: 0 });
     assert_eq!(g.hints.len(), 1);
     // Every file area fits the BBS screen, TEXTFILES included.
-    for a in 0..d.bbs.areas.len() {
+    for a in 0..g.bbs().areas.len() {
         let lines = Session {
             screen: Screen::Area(a),
             status: None,
@@ -221,19 +220,8 @@ fn a_hint_at_a_missing_range_is_caught() {
     let loot =
         include_str!("../../../data/loot.ron").replace("Hint(\"saito\")", "Hint(\"atlantis\")");
     let err = Data::parse(Sources {
-        warez: include_str!("../../../data/warez.ron"),
-        ice: include_str!("../../../data/ice.ron"),
         loot: &loot,
-        bbs: include_str!("../../../data/bbs/board.ron"),
-        splash: include_str!("../../../data/bbs/splash.txt"),
-        events: include_str!("../../../data/events.ron"),
-        contracts: include_str!("../../../data/contracts.ron"),
-        icons: include_str!("../../../data/hub/icons.ron"),
-        rig: include_str!("../../../data/hub/rig.ron"),
-        networks: include_str!("../../../data/hub/networks.ron"),
-        exchanges: include_str!("../../../data/hub/exchanges.ron"),
-        themes: include_str!("../../../data/themes.ron"),
-        displays: include_str!("../../../data/displays.ron"),
+        ..Sources::builtin()
     })
     .unwrap_err();
     assert!(err.contains("atlantis"), "{err}");

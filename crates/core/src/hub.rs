@@ -119,7 +119,7 @@ pub struct TierDef {
 }
 
 /// What a trait does to a network.
-#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
 pub enum TraitEffect {
     IceClass(IceClass),
     BlackIce(u32),
@@ -132,6 +132,8 @@ pub enum TraitEffect {
     Shape(Shape),
     /// +n subnet nodes.
     Subnets(usize),
+    /// This network's BBS is the board with this id (`data/bbs/<id>/`).
+    Board(String),
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -684,14 +686,14 @@ impl Save {
         while traits.len() < want && !pool.is_empty() {
             let t = pool.swap_remove(rng.below(pool.len()));
             // One ICE-class bias and one trace shift per network, or they'd cancel out.
-            let clash = |e: TraitEffect| {
+            let clash = |e: &TraitEffect| {
                 traits.iter().any(|id: &String| {
                     nets.trait_def(id).is_some_and(|d| {
-                        std::mem::discriminant(&d.effect) == std::mem::discriminant(&e)
+                        std::mem::discriminant(&d.effect) == std::mem::discriminant(e)
                     })
                 })
             };
-            if !clash(t.effect) {
+            if !clash(&t.effect) {
                 traits.push(t.id.clone());
             }
         }
@@ -739,7 +741,7 @@ impl Save {
             pay_pct: tier.map_or(100, |t| t.pay_pct),
         };
         for id in &e.traits {
-            match nets.trait_def(id).map(|d| d.effect) {
+            match nets.trait_def(id).map(|d| d.effect.clone()) {
                 Some(TraitEffect::IceClass(c)) => p.ice_bias = Some(c),
                 Some(TraitEffect::BlackIce(n)) => p.black_bonus += n,
                 Some(TraitEffect::NoBbs) => p.bbs = false,
@@ -749,10 +751,37 @@ impl Save {
                 Some(TraitEffect::Pay(pct)) => m.pay_pct = m.pay_pct * pct / 100,
                 Some(TraitEffect::Shape(shape)) => p.shape = shape,
                 Some(TraitEffect::Subnets(n)) => p.subnets += n,
+                Some(TraitEffect::Board(_)) => {}
                 None => {}
             }
         }
         (p, m)
+    }
+
+    /// Which BBS an entry's network runs: a trait's `Board` if it has one, else one of the
+    /// boards for its tier, picked by the phone number so a number always reaches the same
+    /// board. Falls back to the default board.
+    pub fn site_board(data: &Data, e: &Entry) -> usize {
+        let forced =
+            e.traits
+                .iter()
+                .find_map(|id| match data.networks.trait_def(id).map(|d| &d.effect) {
+                    Some(TraitEffect::Board(b)) => data.board(b),
+                    _ => None,
+                });
+        if let Some(b) = forced {
+            return b;
+        }
+        let fits: Vec<usize> = (0..data.boards.len())
+            .filter(|&i| data.boards[i].tiers.contains(&e.tier))
+            .collect();
+        if fits.is_empty() {
+            return 0;
+        }
+        let h = e.number.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
+            (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+        });
+        fits[(h % fits.len() as u64) as usize]
     }
 
     /// Dials a phonebook entry: a run on that network with your loadout and RIG.
@@ -768,6 +797,7 @@ impl Save {
         let mut kit = self.kit(data, &data.rig);
         kit.net = net;
         kit.mods = mods;
+        kit.board = Self::site_board(data, &e);
         let labels = e
             .traits
             .iter()
@@ -1053,6 +1083,7 @@ impl Save {
             net: NetParams::default(),
             mods: RunMods::default(),
             site: None,
+            board: 0,
         }
     }
 

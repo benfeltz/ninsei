@@ -2,7 +2,7 @@
 //! Pure navigation logic. [`Session::render`] returns pipe-coded lines for the app to paint,
 //! [`Session::key`] takes single keypresses like a real board, [`Session::tick`] runs the modem clock.
 
-use crate::data::Drop;
+use crate::data::{BbsDef, Drop, HeaderStyle, Look};
 use crate::game::{Action, ContractStatus, Game};
 use crate::modem::Handshake;
 use crate::tuning::{BBS_CPS, BBS_HANGUP_SECS};
@@ -64,7 +64,7 @@ impl Session {
         match &mut self.screen {
             Screen::Dialing { t } => {
                 *t += dt;
-                if *t >= Handshake::new(&game.data.bbs.phone).end {
+                if *t >= Handshake::new(&game.bbs().phone).end {
                     self.screen = Screen::Splash;
                 }
             }
@@ -96,7 +96,7 @@ impl Session {
 
     /// The hotkeys the current screen accepts, with labels (for clickable buttons).
     pub fn keys(&self, game: &Game) -> Vec<(char, String)> {
-        let b = &game.data.bbs;
+        let b = game.bbs();
         match self.screen {
             Screen::Dialing { .. } | Screen::Download { .. } | Screen::Hangup { .. } => Vec::new(),
             Screen::Splash => vec![('\n', "continue".into())],
@@ -105,7 +105,7 @@ impl Session {
                 ('J', "jobs".into()),
                 ('B', "bulletins".into()),
                 ('W', "who".into()),
-                ('G', "goodbye".into()),
+                ('G', "bye".into()),
             ],
             Screen::Bulletins => numbered(b.bulletins.len(), "Q"),
             Screen::Jobs => numbered(game.bbs_jobs.len(), "Q"),
@@ -132,7 +132,7 @@ impl Session {
                 _ => self.status = Some(format!("|12Unknown command '{}'.", printable(key))),
             },
             Screen::Bulletins => match digit {
-                Some(n) if (1..=game.data.bbs.bulletins.len()).contains(&n) => {
+                Some(n) if (1..=game.bbs().bulletins.len()).contains(&n) => {
                     self.go(Screen::Bulletin(n - 1))
                 }
                 _ if back => self.go(Screen::Main),
@@ -160,7 +160,7 @@ impl Session {
                 _ => {}
             },
             Screen::Areas => match digit {
-                Some(n) if (1..=game.data.bbs.areas.len()).contains(&n) => {
+                Some(n) if (1..=game.bbs().areas.len()).contains(&n) => {
                     self.go(Screen::Area(n - 1))
                 }
                 _ if back => self.go(Screen::Main),
@@ -190,9 +190,18 @@ impl Session {
         self.status = None;
     }
 
-    /// The whole screen as pipe-coded lines, at most [`ROWS`] of them.
+    /// The whole screen as pipe-coded lines, at most [`ROWS`] of them, in the board's look.
     pub fn render(&self, game: &Game) -> Vec<String> {
-        let b = &game.data.bbs;
+        let b = game.bbs();
+        let l = &b.look;
+        let [fr, k, lb, dm, tx, mo, ok, wn, aside] = [
+            l.frame, l.key, l.label, l.dim, l.text, l.money, l.ok, l.warn, l.aside,
+        ]
+        .map(pipe);
+        // `[K]` in the board's colours.
+        let hot = |key: &str| format!("{fr}[{k}{key}{fr}]");
+        let prompt = |what: &str| format!("   {tx}{what} {fr}{} {k}_", l.prompt);
+        let pick = |what: &str| prompt(&format!("{what} {} {tx}or {}{tx}uit", hot("#"), hot("Q")));
         let mut out: Vec<String> = Vec::new();
         match self.screen {
             Screen::Dialing { t } => {
@@ -211,65 +220,69 @@ impl Session {
                 }
                 if t >= h.connect + MODEM_ANSI_AFTER {
                     out.push("|07Negotiating ANSI... |10OK".into());
+                    out.push(format!("|08{}", l.software));
                 }
             }
             Screen::Splash => {
                 out.extend(b.splash.lines().map(String::from));
                 out.push(String::new());
-                out.push(centered("|07Press |15[ENTER]|07 to continue"));
+                out.push(centered(&format!("{tx}Press {k}[ENTER]{tx} to continue")));
             }
             Screen::Main => {
-                header(&mut out, &b.name, "MAIN MENU");
+                header(&mut out, b, "MAIN MENU");
                 out.push(String::new());
-                for (k, label, note) in [
-                    ('F', "File Areas", "warez, utilities, deck mods"),
-                    ('J', "Jobs Board", "contracts. no names, just creds"),
-                    ('B', "Bulletins", "read before you leech"),
-                    ('W', "Who's Online", ""),
-                    ('G', "Goodbye", "log off"),
+                let m = &l.menu;
+                for (key, (label, note)) in [
+                    ('F', &m.files),
+                    ('J', &m.jobs),
+                    ('B', &m.bulletins),
+                    ('W', &m.who),
+                    ('G', &m.goodbye),
                 ] {
-                    out.push(format!("   |09[|15{k}|09] |11{label:<16}|08{note}"));
+                    out.push(format!(
+                        "   {} {lb}{label:<20}{dm}{note}",
+                        hot(&key.to_string())
+                    ));
                 }
                 out.push(String::new());
                 out.push(format!(
-                    "   |08Handle: |07runner   |08Credits: |14{}¢   |08Free slots: |07{}",
+                    "   {dm}Handle: {tx}{}   {dm}Credits: {mo}{}¢   {dm}Free slots: {tx}{}",
+                    l.handle,
                     game.deck.credits,
                     game.deck.hdd_max.saturating_sub(game.hdd.len() as u32)
                 ));
                 out.push(String::new());
-                out.push("   |07Command |09» |15_".into());
+                out.push(prompt("Command"));
             }
             Screen::Bulletins => {
-                header(&mut out, &b.name, "BULLETINS");
+                header(&mut out, b, "BULLETINS");
                 out.push(String::new());
                 for (i, bl) in b.bulletins.iter().enumerate() {
-                    out.push(format!("   |09[|15{}|09] |07{}", i + 1, bl.title));
+                    out.push(format!("   {} {tx}{}", hot(&(i + 1).to_string()), bl.title));
                 }
                 out.push(String::new());
-                out.push(
-                    "   |07Read which? |09[|15#|09] |07or |09[|15Q|09]|07uit |09» |15_".into(),
-                );
+                out.push(pick("Read which?"));
             }
             Screen::Bulletin(i) => {
                 let bl = &b.bulletins[i];
-                header(&mut out, &b.name, &format!("BULLETIN #{}", i + 1));
-                out.push(format!("   |14{}", bl.title));
-                out.push(format!("   |08{}", "─".repeat(bl.title.chars().count())));
-                out.extend(bl.body.iter().map(|l| format!("   {l}")));
+                header(&mut out, b, &format!("BULLETIN #{}", i + 1));
+                out.push(format!("   {mo}{}", bl.title));
+                out.push(format!("   {dm}{}", "─".repeat(bl.title.chars().count())));
+                out.extend(bl.body.iter().map(|line| format!("   {tx}{line}")));
                 out.push(String::new());
-                out.push("   |07[|15Q|07] back".into());
+                out.push(format!("   {} {tx}back", hot("Q")));
             }
             Screen::Who => {
-                header(&mut out, &b.name, "WHO'S ONLINE");
+                header(&mut out, b, "WHO'S ONLINE");
                 out.push(String::new());
                 out.push(format!(
-                    "   |08{:<6}{:<14}{:<16}{}",
+                    "   {dm}{:<6}{:<14}{:<16}{}",
                     "NODE", "HANDLE", "FROM", "DOING"
                 ));
-                out.push(format!("   |08{}", "─".repeat(60)));
+                out.push(format!("   {dm}{}", "─".repeat(60)));
                 for (i, u) in b.users.iter().enumerate() {
                     out.push(format!(
-                        "   |07{:<6}|15{:<14}|07{:<16}|03{}",
+                        "   {tx}{:<6}{k}{:<14}{tx}{:<16}{aside}{}",
                         i + 1,
                         u.handle,
                         u.location,
@@ -278,136 +291,131 @@ impl Session {
                 }
                 let n = b.users.len() + 1;
                 out.push(format!(
-                    "   |07{n:<6}|14{:<14}|07{:<16}|03{}",
-                    "runner", "unknown", "This screen"
+                    "   {tx}{n:<6}{mo}{:<14}{tx}{:<16}{aside}{}",
+                    l.handle, "unknown", "This screen"
                 ));
                 out.push(String::new());
-                out.push("   |07[|15Q|07] back".into());
+                out.push(format!("   {} {tx}back", hot("Q")));
             }
             Screen::Jobs => {
-                header(&mut out, &b.name, "JOBS BOARD");
+                header(&mut out, b, "JOBS BOARD");
                 out.push(String::new());
                 if game.bbs_jobs.is_empty() {
-                    out.push("   |08Nothing posted. Check back next time you dial in.".into());
-                }
-                for (i, k) in game.bbs_jobs.iter().enumerate() {
-                    let n = &game.root().nodes[k.node];
-                    let taken = k.status != ContractStatus::Offered;
-                    let (num, name) = if taken {
-                        ("|08", "|08")
-                    } else {
-                        ("|15", "|11")
-                    };
                     out.push(format!(
-                        "   |09[{num}{}|09] {name}{:<24}|14{:>5}¢ |08target |07{} |08layer {}",
+                        "   {dm}Nothing posted. Check back next time you dial in."
+                    ));
+                }
+                for (i, j) in game.bbs_jobs.iter().enumerate() {
+                    let n = &game.root().nodes[j.node];
+                    let taken = j.status != ContractStatus::Offered;
+                    let (num, name) = if taken { (&dm, &dm) } else { (&k, &lb) };
+                    out.push(format!(
+                        "   {fr}[{num}{}{fr}] {name}{:<24}{mo}{:>5}¢ {dm}target {tx}{} {dm}layer {}",
                         i + 1,
-                        k.client,
-                        k.reward,
+                        j.client,
+                        j.reward,
                         n.name,
                         n.layer
                     ));
-                    let brief: String = k.brief.chars().take(68).collect();
-                    out.push(format!("       |07{brief}"));
-                    match (taken, k.ghost) {
-                        (true, _) => out.push("       |08[taken]".into()),
+                    let brief: String = j.brief.chars().take(68).collect();
+                    out.push(format!("       {tx}{brief}"));
+                    match (taken, j.ghost) {
+                        (true, _) => out.push(format!("       {dm}[taken]")),
                         (false, Some((cap, bonus))) => out.push(format!(
-                            "       |13ghost bonus |14+{bonus}¢ |13if trace stays at or under {cap}%"
+                            "       {aside}ghost bonus {mo}+{bonus}¢ {aside}if trace stays at or under {cap}%"
                         )),
                         (false, None) => {}
                     }
                     out.push(String::new());
                 }
-                out.push(
-                    "   |07Take which? |09[|15#|09] |07or |09[|15Q|09]|07uit |09» |15_".into(),
-                );
+                out.push(pick("Take which?"));
             }
             Screen::Areas => {
-                header(&mut out, &b.name, "FILE AREAS");
+                header(&mut out, b, "FILE AREAS");
                 out.push(String::new());
                 for (i, a) in b.areas.iter().enumerate() {
                     let left = game.bbs_stock[i].iter().filter(|f| !f.bought).count();
                     out.push(format!(
-                        "   |09[|15{}|09] |11{:<26}|08{left} file(s)",
-                        i + 1,
+                        "   {} {lb}{:<26}{dm}{left} file(s)",
+                        hot(&(i + 1).to_string()),
                         a.name
                     ));
                 }
                 out.push(String::new());
-                out.push("   |07Area? |09[|15#|09] |07or |09[|15Q|09]|07uit |09» |15_".into());
+                out.push(pick("Area?"));
             }
             Screen::Area(a) => {
                 let area = &b.areas[a];
-                header(&mut out, &b.name, &format!("AREA {}: {}", a + 1, area.name));
+                header(&mut out, b, &format!("AREA {}: {}", a + 1, area.name));
                 out.push(String::new());
                 out.push(format!(
-                    "   |08{:<3}{:<14}{:>8}{:>7}  {}",
+                    "   {dm}{:<3}{:<14}{:>8}{:>7}  {}",
                     "#", "FILENAME", "SIZE", "CRED", "DESCRIPTION"
                 ));
-                out.push(format!("   |08{}", "─".repeat(70)));
+                out.push(format!("   {dm}{}", "─".repeat(70)));
                 for (i, s) in game.bbs_stock[a].iter().enumerate() {
                     let f = &area.files[s.def];
                     let size = file_size(&f.file);
                     if s.bought {
                         out.push(format!(
-                            "   |08{:<3}{:<14}{:>7}k{:>7}  [downloaded]",
+                            "   {dm}{:<3}{:<14}{:>7}k{:>7}  [downloaded]",
                             i + 1,
                             f.file,
                             size / 1024,
                             "--"
                         ));
                     } else {
-                        let can = game.credits_ok(f.price);
-                        let price = if can { "|14" } else { "|04" };
+                        let price = if game.credits_ok(f.price) { &mo } else { &wn };
                         out.push(format!(
-                            "   |15{:<3}|11{:<14}|07{:>7}k{price}{:>6}¢  |07{}{}",
+                            "   {k}{:<3}{lb}{:<14}{tx}{:>7}k{price}{:>6}¢  {tx}{}{}",
                             i + 1,
                             f.file,
                             size / 1024,
                             f.price,
                             f.desc,
-                            drop_tag(&f.item)
+                            drop_tag(&f.item, l)
                         ));
                     }
                 }
                 out.push(String::new());
-                out.push(format!("   |08Credits: |14{}¢", game.deck.credits));
-                out.push("   |07Download |09[|15#|09] |07or |09[|15Q|09]|07uit |09» |15_".into());
+                out.push(format!("   {dm}Credits: {mo}{}¢", game.deck.credits));
+                out.push(pick("Download"));
             }
             Screen::Download { area, file, t } => {
                 let f = file_def(game, area, file);
                 let size = file_size(&f.file);
                 let total = transfer_secs(game, area, file);
                 let frac = (t / total).clamp(0.0, 1.0);
-                header(&mut out, &b.name, "ZMODEM TRANSFER");
+                header(&mut out, b, "ZMODEM TRANSFER");
                 out.push(String::new());
                 out.push(format!(
-                    "   |08Protocol |07Zmodem      |08File |15{}",
+                    "   {dm}Protocol {tx}Zmodem      {dm}File {k}{}",
                     f.file
                 ));
                 out.push(format!(
-                    "   |08Size     |07{size} bytes   |08Cost |14{}¢",
+                    "   {dm}Size     {tx}{size} bytes   {dm}Cost {mo}{}¢",
                     f.price
                 ));
                 out.push(String::new());
                 let cells = 50;
                 let on = (frac * cells as f32) as usize;
                 out.push(format!(
-                    "   |08[|10{}|08{}|08] |15{:>3}%",
+                    "   {dm}[{ok}{}{dm}{}{dm}] {k}{:>3}%",
                     "█".repeat(on),
                     "░".repeat(cells - on),
                     (frac * 100.0) as u32
                 ));
                 let sent = (size as f32 * frac) as u32;
                 out.push(format!(
-                    "   |08Bytes |07{sent:>7}   |08CPS |07{:>6}   |08ETA |07{:.1}s",
+                    "   {dm}Bytes {tx}{sent:>7}   {dm}CPS {tx}{:>6}   {dm}ETA {tx}{:.1}s",
                     BBS_CPS as u32,
                     (total - t).max(0.0)
                 ));
                 out.push(String::new());
-                out.push("   |08rz waiting to receive.**B0100000023be50".into());
+                out.push(format!("   {dm}rz waiting to receive.**B0100000023be50"));
             }
             Screen::Hangup { t } => {
-                out.push(format!("|07Thanks for calling {}. Stay frosty.", b.name));
+                out.push(format!("|07{}", l.goodbye.replace("{board}", &b.name)));
                 if t > 0.2 {
                     out.push("|08+++".into());
                 }
@@ -426,15 +434,22 @@ impl Session {
             out.push(format!("   {s}"));
         }
         out.truncate(ROWS);
-        // The board speaks 31337. The modem (dialing, hang-up) and the splash art don't.
-        if !matches!(
-            self.screen,
-            Screen::Dialing { .. } | Screen::Hangup { .. } | Screen::Splash
-        ) {
+        // A l33t board speaks 31337. The modem (dialing, hang-up) and the splash art don't.
+        if l.leet
+            && !matches!(
+                self.screen,
+                Screen::Dialing { .. } | Screen::Hangup { .. } | Screen::Splash
+            )
+        {
             out = out.iter().map(|l| crate::leet::translate(l)).collect();
         }
         out
     }
+}
+
+/// The pipe code for CGA colour `c`.
+fn pipe(c: u8) -> String {
+    format!("|{c:02}")
 }
 
 fn numbered(n: usize, back: &str) -> Vec<(char, String)> {
@@ -453,14 +468,27 @@ fn printable(c: char) -> String {
     }
 }
 
-fn header(out: &mut Vec<String>, board: &str, title: &str) {
-    let left = format!(" {board} ");
+/// The header across the top of a menu screen, exactly [`COLS`] wide, in the board's style.
+fn header(out: &mut Vec<String>, b: &BbsDef, title: &str) {
+    let l = &b.look;
+    let (fr, k, bar) = (pipe(l.frame), pipe(l.key), format!("|{}", 16 + l.bar));
+    let left = format!(" {} ", b.name);
     let right = format!(" {title} ");
-    let fill = COLS.saturating_sub(left.chars().count() + right.chars().count() + 4);
-    out.push(format!(
-        "|09▄▄|17|15{left}|16|09{}|17|15{right}|16|09▄▄",
-        "▄".repeat(fill)
-    ));
+    let used = left.chars().count() + right.chars().count();
+    out.push(match l.header {
+        HeaderStyle::Bar => format!(
+            "{fr}▄▄{bar}{k}{left}|16{fr}{}{bar}{k}{right}|16{fr}▄▄",
+            "▄".repeat(COLS.saturating_sub(used + 4))
+        ),
+        HeaderStyle::Rule => format!(
+            "{fr}══[{k}{left}{fr}]{}[{k}{right}{fr}]══",
+            "═".repeat(COLS.saturating_sub(used + 8))
+        ),
+        HeaderStyle::Inverse => format!(
+            "{bar}{k}{left}{}{right}|16",
+            " ".repeat(COLS.saturating_sub(used))
+        ),
+    });
 }
 
 fn centered(line: &str) -> String {
@@ -470,7 +498,7 @@ fn centered(line: &str) -> String {
 
 fn file_def(game: &Game, area: usize, file: usize) -> &crate::data::BbsFileDef {
     let s = game.bbs_stock[area][file];
-    &game.data.bbs.areas[area].files[s.def]
+    &game.bbs().areas[area].files[s.def]
 }
 
 /// A stable fake file size from the filename.
@@ -485,10 +513,10 @@ fn transfer_secs(game: &Game, area: usize, file: usize) -> f32 {
     file_size(&file_def(game, area, file).file) as f32 / BBS_CPS
 }
 
-fn drop_tag(item: &Drop) -> &'static str {
+fn drop_tag(item: &Drop, l: &Look) -> String {
     match item {
-        Drop::Warez(_) => "",
-        Drop::Hint(_) => " |10[TXT]",
-        _ => " |13[MOD]",
+        Drop::Warez(_) => String::new(),
+        Drop::Hint(_) => format!(" {}[TXT]", pipe(l.ok)),
+        _ => format!(" {}[MOD]", pipe(l.aside)),
     }
 }

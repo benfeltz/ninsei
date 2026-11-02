@@ -98,7 +98,7 @@ impl BbsView {
             out.push(self.session.key(game, k));
         }
 
-        let b = &game.data.bbs;
+        let b = game.bbs();
         let font = FontId::new(FONT_SIZE, FontFamily::Monospace);
         let cw = ctx.fonts_mut(|f| f.glyph_width(&font, 'M'));
         let size = vec2(

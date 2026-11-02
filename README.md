@@ -169,12 +169,34 @@ Click a byte (or tab into the ASCII column) to type over it; arrows move, `ctrl+
 
 ## The BBS
 
-Landing on the `BBS` node dials **THE NEON GUTTER**: modem handshake, an ANSI splash, then a real single-key BBS: `[F]`iles, `[B]`ulletins, `[W]`ho's online, `[G]`oodbye. File areas list today's stock. Pick a number to start a Zmodem download, and the credits come off when the transfer completes. **display** flips between true 16-colour ANSI and the current phosphor. The board speaks l33t (`F1l3 4r34z`, `Rul3z 0f th3 Gutt3r`); hotkeys, filenames and numbers stay readable.
+Landing on the `BBS` node dials the network's board: modem handshake, an ANSI splash, then a real single-key BBS: `[F]`iles, `[J]`obs, `[B]`ulletins, `[W]`ho's online, `[G]`oodbye. File areas list today's stock. Pick a number to start a Zmodem download, and the credits come off when the transfer completes. **display** flips between true 16-colour ANSI and the current phosphor.
 
-![bbs in l33t](docs/shots/bbs-l33t.png)
+Three boards ship, each with its own sysop, wares and look:
 
-![bbs splash](docs/shots/bbs-splash.png)
-![bbs file area](docs/shots/bbs-download.png)
+- **THE NEON GUTTER** (LAN and corp nets, and every plain `newrun`): the hangout. Blue bars, l33t (`F1l3 4r34z`, `Rul3z 0f th3 Gutt3r`; hotkeys, filenames and numbers stay readable).
+- **DEAD SECTOR** (LANs and megacorps, or any net with the *pirate board* trait): an anarchy board at 2400 baud. Red box-drawn rules, cheap hot breakers, phreak textfiles, no deck-mod shop.
+- **CORPLINK EMPLOYEE SERVICES** (corp and megacorp backbones): the staff intranet. Plain inverse-blue headers, no l33t, a guest login, memos, hardware requisitions and priced like an expense report.
+
+A phonebook number always reaches the same board: one of the boards for its tier, picked by the number, unless a trait names one.
+
+![the gutter](docs/shots/bbs-gutter-main.png)
+![gutter splash](docs/shots/bbs-splash.png)
+![gutter download](docs/shots/bbs-download.png)
+![corplink splash](docs/shots/bbs-corplink-splash.png)
+![corplink menu](docs/shots/bbs-corplink-main.png)
+![dead sector splash](docs/shots/bbs-deadsector-splash.png)
+![dead sector files](docs/shots/bbs-deadsector-areas.png)
+
+### Adding a board
+
+A board is a folder: `data/bbs/<id>/board.ron` and `data/bbs/<id>/splash.txt`. The build finds every folder, so there's nothing to register. In `board.ron`:
+
+- `name`, `sysop`, `phone`, `baud`, `bulletins`, `users`, `areas` (files with prices, `stock` per run)
+- `tiers: [..]`: the network tiers it turns up on. Leave it empty for a board only a trait reaches (`Board("<id>")` in `hub/networks.ron`).
+- `look: (..)`: optional, every field defaults to the Gutter's. `header` (`Bar`, `Rule` or `Inverse`), CGA colours for `frame`, `bar`, `key`, `label`, `dim`, `text`, `money`, `ok`, `warn`, `aside`, plus `prompt`, `handle`, `software`, the main `menu` wording, the `goodbye` line and `leet`.
+- `default: true` on exactly one board (the Gutter).
+
+Splash art and bulletins use pipe codes (below), up to 78x24. `Data::validate` checks every board's warez, hints, tiers and colours, and the tests render every screen of every board to make sure it fits.
 
 ## Content
 
@@ -185,10 +207,10 @@ Everything is data in [`data/`](data), compiled into the binary:
 - `loot.ron`: weighted loot tables for ICE, black ICE and vaults (credits, warez, upgrades, fragments)
 - `events.ron`: MSG-node encounters
 - `contracts.ron`: contract clients and briefs
-- `bbs/board.ron`: the BBS: bulletins, users, file areas, prices, stock per run
+- `bbs/<id>/board.ron`: one BBS per folder: bulletins, users, file areas, prices, stock per run, look
 - `themes.ron`, `displays.ron`: colour themes and CRT display presets
 - `hub/`: desktop icons, RIG upgrades, network tiers/traits/companies, wardial ranges
-- `bbs/splash.txt`: the splash art. Colours use Mystic/Renegade **pipe codes** (`|00`-`|15` foreground, `|16`-`|23` background); raw ANSI `ESC[...m` escapes work too, so `.ans` art from PabloDraw or Moebius can be pasted in.
+- `bbs/<id>/splash.txt`: that board's splash art. Colours use Mystic/Renegade **pipe codes** (`|00`-`|15` foreground, `|16`-`|23` background); raw ANSI `ESC[...m` escapes work too, so `.ans` art from PabloDraw or Moebius can be pasted in.
 
 `Data::validate` cross-checks the files (every id a table names must exist), and the tests run it.
 
