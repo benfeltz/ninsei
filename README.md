@@ -139,6 +139,19 @@ Tabs can be dragged, split and rearranged, and **your layout is saved** (one per
 
 On the **Ono-Sendai** the panes are dressed btop-style: boxed with their titles cut into the border, gradient meters with sparklines of their recent history, a trace-per-hop graph, a process table for your warez (a program's row lights up and its activity graph spikes when it runs), and in a fight a draining strength meter, a strength graph, the ICE's next moves as a waterfall falling toward *now*, and a damage waterfall of the last turns. The terminal stamps each line with its hop and turn. Graphs are painted at braille resolution (2x4 dots a character). Prefer the plain panes? Switch the deck's firmware to **Cyberspace 6.2** in Prefs.
 
+**Fights on the Ono-Sendai happen in cyberspace.** When ICE rezzes, the network map dives into its node and the node's wireframe becomes the ICE:
+
+- It turns over a grid that runs to the horizon, with slow digital rain behind it.
+- It comes apart edge by edge as its strength drops, jolts when you hit it, charges up before it attacks, and freezes and flickers when lagged.
+- Along the bottom, your loaded programs are a hotbar. A digit or a click runs one. Hovering one previews what it would do: the strength it would take off shows on the meter, and the edges it would break light up.
+- Packets fly from the program to the ICE, and the damage floats up.
+
+target.ice keeps the numbers view (intent and damage waterfalls).
+
+![diving into the node](docs/shots/fight-dive.png)
+![previewing a program](docs/shots/fight-preview.png)
+![a hit, on amber](docs/shots/fight-amber.png)
+
 ![btop panes, synthwave](docs/shots/btop-synthwave.png)
 ![btop panes, amber](docs/shots/btop-amber.png)
 

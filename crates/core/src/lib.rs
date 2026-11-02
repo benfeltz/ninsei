@@ -9,6 +9,7 @@ pub mod cue;
 pub mod data;
 pub mod desktop;
 pub mod display;
+pub mod fight;
 pub mod game;
 pub mod glitch;
 pub mod hardware;
