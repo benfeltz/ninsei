@@ -121,6 +121,8 @@ pub enum WbOut {
     Firmware(String),
     /// Damage glitches on, reduced or off.
     Glitches(ninsei_core::glitch::Glitches),
+    /// Buy a secondary pane for the run screen in RIG (id).
+    BuyPane(String),
     /// Buy a desktop add-on in RIG (id).
     BuyAddon(String),
     /// The tiling desktop's first-boot key help was dismissed.

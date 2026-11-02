@@ -121,6 +121,8 @@ pub fn rig(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
     ui.add_space(10.0);
     hardware_shop(ui, data, save, out);
     ui.add_space(10.0);
+    pane_shop(ui, data, save, out);
+    ui.add_space(4.0);
     addon_shop(ui, data, save, out);
     ui.add_space(6.0);
     ui.label(dim(
@@ -182,6 +184,48 @@ fn hardware_shop(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
             }
         });
     ui.label(dim("New hardware plugs straight in. Swap in Prefs."));
+}
+
+/// RIG's PANES section: extra windows for the run screen. Panes that came with a firmware
+/// you own are listed as bundled.
+fn pane_shop(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
+    ui.label(RichText::new("RUN PANES").color(ink()).strong());
+    let bundled = |id: &str| {
+        save.decks
+            .iter()
+            .filter_map(|d| data.hardware.deck(d))
+            .flat_map(|d| d.firmware.iter().map(move |f| (d, f)))
+            .find(|(_, f)| f.panes.iter().any(|p| p == id))
+            .map(|(d, f)| format!("with {} {}", d.name, f.id))
+    };
+    egui::Grid::new("panes")
+        .num_columns(4)
+        .spacing([14.0, 6.0])
+        .show(ui, |ui| {
+            for d in &data.panes {
+                ui.label(RichText::new(&d.name).color(ink()).strong())
+                    .on_hover_text(&d.blurb);
+                let owned = save.panes.iter().any(|p| p == &d.id);
+                ui.label(dim(bundled(&d.id).unwrap_or_default()));
+                if owned {
+                    ui.label(dim("owned"));
+                    ui.label("");
+                } else {
+                    let can = save.bank >= d.price;
+                    ui.label(RichText::new(format!("{}¢", d.price)).color(if can {
+                        ink()
+                    } else {
+                        accent()
+                    }));
+                    if ui.add_enabled(can, egui::Button::new(" Buy ")).clicked() {
+                        out.push(WbOut::BuyPane(d.id.clone()));
+                    }
+                }
+                ui.end_row();
+            }
+        });
+    ui.label(dim("Add a pane in a run from the view menu."));
+    ui.add_space(6.0);
 }
 
 /// RIG's ADD-ONS section: upgrades for the desktops your decks run.

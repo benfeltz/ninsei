@@ -1,0 +1,8 @@
+// Secondary panes: extra windows for the run screen, bought in RIG with banked credits, or
+// bundled with a deck's firmware (`panes: [...]` in hardware.ron). Each id is drawn by a
+// renderer in the app (`panes::Tab::SECONDARY`), and every chrome dresses it its own way:
+// btop's net box on the Ono-Sendai, a network usage report on the Hosaka.
+[
+    (id: "net", name: "net: network traffic", price: 80,
+     blurb: "Traffic in and out of your deck, live. Hits and pay come down; CPU and hops go up."),
+]

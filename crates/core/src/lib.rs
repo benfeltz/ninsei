@@ -20,7 +20,9 @@ pub mod leet;
 pub mod modem;
 pub mod netview;
 pub mod network;
+pub mod panes;
 pub mod rng;
+pub mod suite;
 pub mod tuning;
 
 pub use command::{Command, parse_command};

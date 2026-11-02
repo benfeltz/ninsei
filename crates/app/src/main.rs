@@ -2,6 +2,7 @@
 
 mod bbs_view;
 mod btop;
+mod chrome;
 mod crash;
 mod crt;
 mod crt_gl;
@@ -16,12 +17,13 @@ mod netmap_iso;
 mod netpane;
 mod panes;
 mod sound;
+mod suite;
 mod theme;
 mod tiling;
 mod workbench;
 
 use egui::{Key, RichText};
-use egui_dock::{DockArea, DockState, NodeIndex};
+use egui_dock::{DockArea, DockState};
 use ninsei_core::bbs::Outcome;
 use ninsei_core::hexedit::HexBuffer;
 use ninsei_core::hub::{Answer, DEFAULT_RUN_THEME, RunEnd, RunReport, SAVE_KEY, Save, Screen};
@@ -32,6 +34,7 @@ use encounter_view::EncounterView;
 use ninsei_core::hardware::Chrome;
 use ninsei_core::home_bbs::HomeCall;
 
+use chrome::{FrameCx, MenuPart};
 use crt_gl::CrtGl;
 use home::{Desktops, Home, WbOut};
 use ninsei_core::display::{Effects, screen_to_content};
@@ -141,25 +144,26 @@ const FALLBACK_PALETTE: Palette = Palette {
     bright: egui::Color32::WHITE,
 };
 
-/// The run screen's layout a deck firmware starts with. The btop chrome puts the net
-/// traffic pane beside the terminal.
-fn default_layout(chrome: Chrome) -> DockState<Tab> {
-    let mut dock = DockState::new(vec![Tab::Network, Tab::Target, Tab::Hex]);
-    let tree = dock.main_surface_mut();
-    let [center, left] = tree.split_left(NodeIndex::root(), 0.27, vec![Tab::Deck]);
-    tree.split_below(left, 0.42, vec![Tab::Warez]);
-    let [_, bottom] = tree.split_below(center, 0.68, vec![Tab::Terminal, Tab::Todo]);
-    if chrome == Chrome::Btop {
-        tree.split_right(bottom, 0.55, vec![Tab::Net]);
-    }
-    dock
+/// The run screen's layout a deck firmware starts with: the chrome's own, with the secondary
+/// panes the player has (`extra`) beside the terminal.
+fn default_layout(chrome: Chrome, extra: &[Tab]) -> DockState<Tab> {
+    chrome::view(chrome).default_layout(extra)
 }
 
-/// A saved layout, if it reads back and still has every core pane; otherwise `None`.
-fn parse_layout(text: &str) -> Option<DockState<Tab>> {
-    let dock: DockState<Tab> = ron::from_str(text).ok()?;
+/// A saved layout, if it reads back and still has every core pane; otherwise `None`. Secondary
+/// panes the player doesn't have (`has` says no) are taken out.
+fn parse_layout(text: &str, has: impl Fn(Tab) -> bool) -> Option<DockState<Tab>> {
+    let mut dock: DockState<Tab> = ron::from_str(text).ok()?;
     let all: Vec<Tab> = dock.iter_all_tabs().map(|(_, t)| *t).collect();
-    Tab::CORE.iter().all(|t| all.contains(t)).then_some(dock)
+    if !Tab::CORE.iter().all(|t| all.contains(t)) {
+        return None;
+    }
+    for tab in all.into_iter().filter(|t| t.is_secondary() && !has(*t)) {
+        if let Some(at) = dock.find_tab(&tab) {
+            dock.remove_tab(at);
+        }
+    }
+    Some(dock)
 }
 
 /// How often the run screen's layout is checked for changes to save, in seconds.
@@ -210,6 +214,8 @@ struct App {
     /// Uid of the program open in the hex editor, so trades and sales can't swap it underneath.
     hex_uid: u32,
     talk: EncounterView,
+    /// The suite chrome's sheet cursor, sort and dialogs.
+    suite: suite::State,
 }
 
 impl App {
@@ -280,9 +286,10 @@ impl App {
             hex: None,
             hex_uid: 0,
             talk: EncounterView::default(),
+            suite: suite::State::default(),
             last_phase: game.phase,
             game,
-            dock: default_layout(Chrome::Classic),
+            dock: default_layout(Chrome::Classic, &[]),
             run_theme,
             pal,
             crt_gl: CrtGl::new(),
@@ -298,11 +305,21 @@ impl App {
     /// The layout for the deck and firmware in use: the saved one, or its default.
     fn load_layout(&mut self) {
         let chrome = self.save.firmware_def(&self.data).chrome;
+        let extra = self.extra_panes();
         self.dock = self
             .save
             .layout(&self.data)
-            .and_then(parse_layout)
-            .unwrap_or_else(|| default_layout(chrome));
+            .and_then(|text| parse_layout(text, |t| extra.contains(&t)))
+            .unwrap_or_else(|| default_layout(chrome, &extra));
+    }
+
+    /// The secondary panes the player has right now: bought, or bundled with the firmware.
+    fn extra_panes(&self) -> Vec<Tab> {
+        Tab::SECONDARY
+            .iter()
+            .filter(|(_, id)| self.save.has_pane(&self.data, id))
+            .map(|(t, _)| *t)
+            .collect()
     }
 
     /// Writes the layout into the save when it's changed (checked every couple of seconds).
@@ -596,6 +613,7 @@ impl App {
             | WbOut::HelpSeen
             | WbOut::Tiling(_)
             | WbOut::BuyAddon(_)
+            | WbOut::BuyPane(_)
             | WbOut::Monitor(_)
             | WbOut::Deck(_)
             | WbOut::Firmware(_)
@@ -644,6 +662,11 @@ impl App {
             }
             Request::AddPane(tab) => {
                 self.add_pane(tab);
+                return;
+            }
+            Request::Type(text) => {
+                self.input = text;
+                self.focus_input = true;
                 return;
             }
             Request::Deck(id) => {
@@ -790,24 +813,52 @@ impl App {
         out
     }
 
+    /// The menu bar: the chrome's name, then its menus, each built from shared parts.
     fn menu_bar(&mut self, ui: &mut egui::Ui, pal: &theme::Palette) -> Vec<Request> {
         let mut out = Vec::new();
+        let v = chrome::view(self.save.firmware_def(&self.data).chrome);
         egui::MenuBar::new().ui(ui, |ui| {
-            ui.label(RichText::new("▌ninsei").color(pal.bright).strong());
-            ui.menu_button("run", |ui| {
+            ui.label(RichText::new(v.brand()).color(pal.bright).strong());
+            for (name, parts) in v.menus() {
+                ui.menu_button(*name, |ui| {
+                    for (i, part) in parts.iter().enumerate() {
+                        if i > 0 && matches!(part, MenuPart::Monitors | MenuPart::Decks) {
+                            ui.separator();
+                        }
+                        self.menu_part(ui, *part, pal, &mut out);
+                    }
+                });
+            }
+        });
+        out
+    }
+
+    fn menu_part(
+        &mut self,
+        ui: &mut egui::Ui,
+        part: MenuPart,
+        pal: &theme::Palette,
+        out: &mut Vec<Request>,
+    ) {
+        match part {
+            MenuPart::Turn => {
                 if ui.button("end turn   [space]").clicked() {
                     out.push(Request::Cmd(Command::Game(Action::EndTurn)));
                 }
+            }
+            MenuPart::Help => {
                 if ui.button("help").clicked() {
                     out.push(Request::Cmd(Command::Help));
                 }
-            });
-            ui.menu_button("view", |ui| {
+            }
+            MenuPart::Layout => {
                 if ui.button("reset layout").clicked() {
                     self.save.clear_layout(&self.data);
                     self.save_dirty = true;
                     self.load_layout();
                 }
+            }
+            MenuPart::Glitches => {
                 let g = self.save.glitches;
                 if ui
                     .button(format!("damage glitches: {}", g.label()))
@@ -815,20 +866,34 @@ impl App {
                 {
                     out.push(Request::Glitches(g.next()));
                 }
+            }
+            MenuPart::Panes => {
                 ui.menu_button("add pane", |ui| {
                     let mut any = false;
-                    for (tab, label) in Tab::SECONDARY {
+                    for tab in self.extra_panes() {
                         if self.dock.find_tab(&tab).is_none() {
                             any = true;
-                            if ui.button(label).clicked() {
+                            let id = tab.pane_id().unwrap_or_default();
+                            let name = self
+                                .data
+                                .panes
+                                .iter()
+                                .find(|d| d.id == id)
+                                .map_or(id, |d| d.name.as_str());
+                            if ui.button(name).clicked() {
                                 out.push(Request::AddPane(tab));
                             }
                         }
                     }
                     if !any {
-                        ui.label(RichText::new("every pane is open").color(pal.dim));
+                        ui.label(
+                            RichText::new("every pane you own is open. more in RIG.")
+                                .color(pal.dim),
+                        );
                     }
                 });
+            }
+            MenuPart::Toggles => {
                 let crt = if self.crt {
                     "[x] crt effects"
                 } else {
@@ -845,7 +910,8 @@ impl App {
                 if ui.button(sound).clicked() {
                     out.push(Request::Cmd(Command::Sound));
                 }
-                ui.separator();
+            }
+            MenuPart::Monitors => {
                 ui.label(RichText::new("monitor").color(pal.dim));
                 for id in self.save.monitors.clone() {
                     let Some(m) = self.data.hardware.monitor(&id) else {
@@ -860,7 +926,8 @@ impl App {
                         out.push(Request::Monitor(id));
                     }
                 }
-                ui.separator();
+            }
+            MenuPart::Decks => {
                 ui.label(RichText::new("deck").color(pal.dim));
                 for id in self.save.decks.clone() {
                     let Some(d) = self.data.hardware.deck(&id) else {
@@ -871,8 +938,8 @@ impl App {
                         out.push(Request::Deck(id));
                     }
                 }
-            });
-            ui.menu_button("theme", |ui| {
+            }
+            MenuPart::Themes => {
                 let themes: Vec<(String, String)> = self
                     .data
                     .themes
@@ -888,13 +955,16 @@ impl App {
                         let _ = self.set_run_theme(ui.ctx(), &id);
                     }
                 }
-            });
-        });
-        out
+            }
+        }
     }
 
     fn status_bar(&self, ui: &mut egui::Ui, pal: &theme::Palette) {
         let g = &self.game;
+        let v = chrome::view(self.save.firmware_def(&self.data).chrome);
+        if v.status(ui, pal, g) {
+            return;
+        }
         let node = &g.net.nodes[g.at];
         ui.horizontal(|ui| {
             let (state, col) = match g.phase {
@@ -929,9 +999,7 @@ impl App {
                 .color(pal.dim),
             );
             ui.label(RichText::new(format!("trace {}%", g.deck.trace)).color(pal.dim));
-            if self.save.firmware_def(&self.data).chrome == ninsei_core::hardware::Chrome::Btop {
-                btop::status_sparks(ui, pal, g);
-            }
+            v.status_extra(ui, pal, g);
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(RichText::new("UTF-8  LF  RUST").color(pal.dim));
                 ui.label(RichText::new(self.run_theme_label()).color(pal.dim));
@@ -1026,6 +1094,11 @@ impl eframe::App for App {
                     }
                     WbOut::BuyAddon(id) => {
                         let r = self.save.buy_addon(&self.data, &id);
+                        self.save_dirty = true;
+                        self.home.say(r.unwrap_or_else(|e| e));
+                    }
+                    WbOut::BuyPane(id) => {
+                        let r = self.save.buy_pane(&self.data, &id);
                         self.save_dirty = true;
                         self.home.say(r.unwrap_or_else(|e| e));
                     }
@@ -1164,6 +1237,17 @@ impl App {
         } else {
             Vec::new()
         };
+        let view = chrome::view(self.save.firmware_def(&self.data).chrome);
+        let keys_free = self.bbs.is_none() && self.game.encounter.is_none();
+        if self.screen == Screen::Run {
+            let mut cx = FrameCx {
+                game: &self.game,
+                pal,
+                suite: &mut self.suite,
+                keys_free,
+            };
+            requests.extend(view.keys(&ctx, &mut cx));
+        }
 
         egui::Panel::top("menu")
             .frame(
@@ -1179,6 +1263,23 @@ impl App {
                     .inner_margin(egui::Margin::symmetric(6, 1)),
             )
             .show(ui, |ui| self.status_bar(ui, &pal));
+        if view.has_legend() {
+            egui::Panel::bottom("legend")
+                .frame(
+                    egui::Frame::new()
+                        .fill(pal.bg)
+                        .inner_margin(egui::Margin::symmetric(6, 2)),
+                )
+                .show(ui, |ui| {
+                    let mut cx = FrameCx {
+                        game: &self.game,
+                        pal,
+                        suite: &mut self.suite,
+                        keys_free,
+                    };
+                    requests.extend(view.legend(ui, &mut cx));
+                });
+        }
 
         let mut panes = Panes {
             game: &self.game,
@@ -1195,6 +1296,7 @@ impl App {
             keep: &mut self.keep,
             keep_room: (self.save.stash_cap(&self.data.rig) as usize)
                 .saturating_sub(self.save.stash.len()),
+            suite: &mut self.suite,
             out: Vec::new(),
         };
         egui::CentralPanel::default()
@@ -1245,6 +1347,17 @@ impl App {
             }
         }
 
+        // The chrome's overlay (the suite's dialogs) sits over everything.
+        let mut cx = FrameCx {
+            game: &self.game,
+            pal,
+            suite: &mut self.suite,
+            keys_free,
+        };
+        for r in view.overlay(&ctx, &mut cx) {
+            self.handle(&ctx, r);
+        }
+
         // Bring the target pane forward when ICE rezzes or the run ends.
         if self.game.phase != self.last_phase {
             if self.game.phase != Phase::Exploring
@@ -1268,31 +1381,52 @@ mod tests {
 
     #[test]
     fn default_layouts_round_trip() {
-        for chrome in [Chrome::Classic, Chrome::Btop] {
-            let dock = default_layout(chrome);
-            let text = ron::to_string(&dock).unwrap();
-            let back = parse_layout(&text).expect("a default layout reads back");
-            let tabs = |d: &DockState<Tab>| d.iter_all_tabs().map(|(_, t)| *t).collect::<Vec<_>>();
-            assert_eq!(tabs(&back), tabs(&dock));
+        for chrome in Chrome::ALL {
+            for extra in [&[][..], &[Tab::Net][..]] {
+                let dock = default_layout(chrome, extra);
+                let text = ron::to_string(&dock).unwrap();
+                let back = parse_layout(&text, |_| true).expect("a default layout reads back");
+                let tabs =
+                    |d: &DockState<Tab>| d.iter_all_tabs().map(|(_, t)| *t).collect::<Vec<_>>();
+                assert_eq!(tabs(&back), tabs(&dock));
+                assert_eq!(dock.find_tab(&Tab::Net).is_some(), !extra.is_empty());
+            }
         }
-        let btop = default_layout(Chrome::Btop);
-        assert!(
-            btop.find_tab(&Tab::Net).is_some(),
-            "the btop chrome opens the net pane"
-        );
-        assert!(
-            default_layout(Chrome::Classic)
-                .find_tab(&Tab::Net)
-                .is_none()
-        );
+    }
+
+    #[test]
+    fn panes_you_lack_leave_a_saved_layout() {
+        let text = ron::to_string(&default_layout(Chrome::Btop, &[Tab::Net])).unwrap();
+        let back = parse_layout(&text, |_| false).expect("core panes are all there");
+        assert!(back.find_tab(&Tab::Net).is_none());
+        assert!(Tab::CORE.iter().all(|t| back.find_tab(t).is_some()));
+    }
+
+    #[test]
+    fn every_secondary_pane_is_in_the_catalog() {
+        let data = Data::builtin().unwrap();
+        for (tab, id) in Tab::SECONDARY {
+            assert_eq!(tab.pane_id(), Some(id));
+            assert!(
+                data.panes.iter().any(|d| d.id == id),
+                "{id} has no catalog entry"
+            );
+        }
+        for d in &data.panes {
+            assert!(
+                Tab::SECONDARY.iter().any(|(_, id)| *id == d.id),
+                "pane {} has no renderer",
+                d.id
+            );
+        }
     }
 
     #[test]
     fn bad_layouts_fall_back() {
-        assert!(parse_layout("not a layout").is_none());
+        assert!(parse_layout("not a layout", |_| true).is_none());
         // A layout missing a core pane (say, from an older build) is refused.
         let dock = DockState::new(vec![Tab::Network]);
-        assert!(parse_layout(&ron::to_string(&dock).unwrap()).is_none());
+        assert!(parse_layout(&ron::to_string(&dock).unwrap(), |_| true).is_none());
     }
 
     #[test]

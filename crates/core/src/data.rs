@@ -469,6 +469,7 @@ pub struct Sources<'a> {
     pub netmap: &'a str,
     pub hardware: &'a str,
     pub addons: &'a str,
+    pub panes: &'a str,
     pub sounds: &'a [PackSrc<'a>],
     pub rig: &'a str,
     pub networks: &'a str,
@@ -491,6 +492,7 @@ impl Sources<'static> {
             netmap: include_str!("../../../data/netmap.ron"),
             hardware: include_str!("../../../data/hub/hardware.ron"),
             addons: include_str!("../../../data/hub/desktops.ron"),
+            panes: include_str!("../../../data/hub/panes.ron"),
             sounds: BUILTIN_SOUNDS,
             rig: include_str!("../../../data/hub/rig.ron"),
             networks: include_str!("../../../data/hub/networks.ron"),
@@ -518,6 +520,8 @@ pub struct Data {
     pub hardware: crate::hardware::HardwareDef,
     /// Desktop add-ons you can buy.
     pub addons: Vec<crate::desktop::AddonDef>,
+    /// Secondary panes you can buy for the run screen.
+    pub panes: Vec<crate::panes::PaneDef>,
     /// Sound packs: what each cue plays, one pack per file in `data/sounds/`.
     pub sounds: Vec<crate::cue::SoundPack>,
     /// RIG deck-shop upgrades.
@@ -560,6 +564,7 @@ impl Data {
             netmap: ron::from_str(src.netmap).map_err(|e| format!("netmap.ron: {e}"))?,
             hardware: ron::from_str(src.hardware).map_err(|e| format!("hub/hardware.ron: {e}"))?,
             addons: ron::from_str(src.addons).map_err(|e| format!("hub/desktops.ron: {e}"))?,
+            panes: ron::from_str(src.panes).map_err(|e| format!("hub/panes.ron: {e}"))?,
             sounds: src
                 .sounds
                 .iter()
@@ -652,6 +657,7 @@ impl Data {
             .map_err(|e| format!("hub/hardware.ron: {e}"))?;
         crate::desktop::AddonDef::validate(&self.addons)
             .map_err(|e| format!("hub/desktops.ron: {e}"))?;
+        crate::panes::PaneDef::validate(&self.panes).map_err(|e| format!("hub/panes.ron: {e}"))?;
         if self.sounds.is_empty() {
             return Err("data/sounds/ has no sound packs".into());
         }
