@@ -46,6 +46,8 @@ Between runs you're on your own machine: a Workbench 1.3-style desktop, on the s
 
 ### Hardware: monitors and decks
 
+The look and feel each deck is going for (and the references behind it) is in [`docs/design.md`](docs/design.md).
+
 What your screen looks like is the kit you own. Buy more in **RIG → HARDWARE** with banked credits; swap in Prefs, the view menu, or the Shell (`monitor <id>`, `deck <id>`). Testing? **F8** at home drops 1000¢ in the bank.
 
 - **Monitors** set the CRT look. You start with a Zenith Amber Terminal; the Hercules Green Phosphor, Apple Monitor II, Commodore 1702 and IBM 8513 VGA are on the shelf. A **mono** tube only shows its own colour (amber is amber); a **colour** monitor runs any theme, Synthwave and Workbench included.
@@ -132,6 +134,11 @@ Nodes float over a glowing isometric grid as slowly spinning wireframes, one sha
 a cube for barrier ICE, a ring for a code gate, an icosahedron "eye" for a sentry, a spiked star for black ICE, a drum for a data vault, an octahedron for the BBS, a pyramid for MSG, a box in a box for a subnet, a landing pad for the entry and an upright ring for the exit. Your routes glow, with pulses running down them; cleared nodes go dim; the fog is `?` on dashed lines.
 
 The **Hosaka** deck (see Hardware) draws the map as a flat technical drawing instead: grid bubbles over each layer, a drafting symbol per node (section hatching, valve, eye, door swing...), hidden lines for the fog, a revision cloud round you, a dimension line and a title block.
+
+The map reacts to the run. ICE you break blows apart (on the draft it's struck through and stamped `VOID`). The way you came stays lit. The BBS node wears its board's colours and name. As trace climbs the grid lights up and pulses, faster past 75%; the draft's paper darkens and its title block grows a TRACE row. Each new network draws itself in, layer by layer, and a route you hover lifts and spins.
+
+![derez burst](docs/shots/map-derez-burst.png)
+![draft: VOID, trail and TRACE](docs/shots/map-draft-void.png)
 
 Both are drawn in the theme's colours. The **Synthwave** theme gives the magenta-grid, cyan-wire look; Workbench turns the draft into a blueprint. Which shape and symbol each node gets is data, in [`data/netmap.ron`](data/netmap.ron).
 

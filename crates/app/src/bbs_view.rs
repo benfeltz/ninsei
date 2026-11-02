@@ -35,7 +35,7 @@ fn cga(i: u8) -> Color32 {
 }
 
 /// Maps a CGA colour onto the phosphor by brightness.
-fn mono(i: u8, p: &Palette) -> Color32 {
+pub(crate) fn mono(i: u8, p: &Palette) -> Color32 {
     let c = cga(i);
     let luma = 0.3 * c.r() as f32 + 0.59 * c.g() as f32 + 0.11 * c.b() as f32;
     match luma as u32 {

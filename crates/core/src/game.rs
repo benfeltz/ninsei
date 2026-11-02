@@ -456,6 +456,17 @@ impl Game {
         self.outer.is_some()
     }
 
+    /// Whether the runner has been on node `id` of the network they're on. Routes only run
+    /// forward and every node clears once you've been there, so visited nodes are your path.
+    pub fn visited(&self, id: usize) -> bool {
+        id == self.at || self.net.nodes.get(id).is_some_and(|n| n.cleared)
+    }
+
+    /// Whether the runner came along the link from `a` to `b`: the hop trail on the map.
+    pub fn travelled(&self, a: usize, b: usize) -> bool {
+        self.visited(a) && self.visited(b) && self.net.nodes[a].links.contains(&b)
+    }
+
     /// What a node on the current network is called in the UI: a subnet's exit is its uplink.
     pub fn node_label(&self, node: usize) -> &'static str {
         match self.net.nodes[node].kind {

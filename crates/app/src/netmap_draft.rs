@@ -8,21 +8,25 @@ use egui::{
 use ninsei_core::netview::{MapNode, Symbol, style};
 use ninsei_core::{Game, NodeKind, Phase};
 
-use crate::netmap::{hint, interact, kind, tag, target, visible};
+use crate::netmap::{Anim, board_ink, hint, interact, kind, mix, tag, target, visible};
 use crate::theme::Palette;
 
 /// Half the size of a node symbol, in pixels.
 const R: f32 = 15.0;
 /// Room round the drawing: bubbles on top, dimension and title block below.
 const TOP: f32 = 64.0;
-const BOTTOM: f32 = 96.0;
+const BOTTOM: f32 = 112.0;
 const SIDE: f32 = 56.0;
 
 pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
     let (rect, _) = ui.allocate_exact_size(ui.available_size(), Sense::hover());
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 0.0, p.bg);
-    paper(&painter, rect, p);
+    let fx = Anim::frame(ui, game);
+    if fx.busy() {
+        ui.ctx().request_repaint();
+    }
+    paper(&painter, rect, p, fx.pressure(game.deck.trace));
 
     let net = &game.net;
     let layers = net.layers.len();
@@ -38,6 +42,8 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
     };
     let small = FontId::new(10.0, FontFamily::Monospace);
     let body = FontId::new(11.0, FontFamily::Monospace);
+    // The sheet draws itself in, layer by layer, when a run starts.
+    let shown = |id: usize| fx.reveal(net.nodes[id].layer, layers) > 0.0;
 
     // Grid lines: a chain line down each layer, with its bubble.
     for l in 0..layers {
@@ -58,10 +64,16 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
     let reach = game.reachable();
     for n in &net.nodes {
         for &to in &n.links {
+            if !shown(n.id) || !shown(to) {
+                continue;
+            }
             let (a, b) = (pos(n.id) + vec2(R, 0.0), pos(to) - vec2(R, 0.0));
             let mid = (a.x + b.x) / 2.0;
             let run = [a, pos2(mid, a.y), pos2(mid, b.y), b];
-            if n.id == game.at && reach.contains(&to) {
+            if game.travelled(n.id, to) {
+                // The hop trail: the way you came, inked heavy.
+                painter.add(Shape::line(run.to_vec(), Stroke::new(2.5, p.bright)));
+            } else if n.id == game.at && reach.contains(&to) {
                 painter.add(Shape::line(run.to_vec(), Stroke::new(2.0, p.fg)));
                 arrow(&painter, b, p.fg);
             } else if visible(game, n.id) && visible(game, to) {
@@ -78,8 +90,12 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
     }
 
     let mut clicked = None;
-    let t = ui.input(|i| i.time);
+    let t = fx.t;
+    let (board_edge, board_label) = board_ink(game, p);
     for n in &net.nodes {
+        if !shown(n.id) {
+            continue;
+        }
         let c = pos(n.id);
         let (hit, hovered) = interact(
             ui,
@@ -103,6 +119,11 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         };
         if seen {
             let k = kind(game, n.id);
+            let ink = if k == MapNode::Bbs && !here && !(can_go && hovered) {
+                board_edge
+            } else {
+                ink
+            };
             symbol(
                 &painter,
                 c,
@@ -111,6 +132,14 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
                 p,
                 k == MapNode::BlackIce,
             );
+            let derezzed = done && matches!(n.kind, NodeKind::Ice | NodeKind::BlackIce);
+            if let Some(b) = fx.burst(n.id) {
+                // Struck through: a quick hatch fill over the symbol, fading.
+                hatch_flash(&painter, c, p.bright.gamma_multiply(1.0 - b));
+            }
+            if derezzed {
+                void_stamp(&painter, c, p);
+            }
         } else {
             // Hidden line: what's there isn't known.
             let r = Rect::from_center_size(c, vec2(R * 2.0, R * 2.0));
@@ -144,6 +173,7 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
             small.clone(),
             if done { p.dim } else { p.fg },
         );
+        let bbs = seen && kind(game, n.id) == MapNode::Bbs;
         let mut label = tag(game, n.id);
         if done && n.kind != NodeKind::Entry {
             label.push_str(" ok");
@@ -153,7 +183,7 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
             Align2::CENTER_TOP,
             label,
             small.clone(),
-            p.dim,
+            if bbs { board_label } else { p.dim },
         );
 
         if here {
@@ -199,10 +229,12 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
     clicked
 }
 
-/// Drafting paper: a fine grid with a heavier line every fifth square.
-fn paper(painter: &Painter, rect: Rect, p: &Palette) {
+/// Drafting paper: a fine grid with a heavier line every fifth square. Trace `pressure`
+/// (0..1) inks it darker, toward `dim`.
+fn paper(painter: &Painter, rect: Rect, p: &Palette, pressure: f32) {
     const STEP: f32 = 12.0;
-    let (minor, major) = (p.faint.gamma_multiply(0.35), p.faint.gamma_multiply(0.8));
+    let line = mix(p.faint, p.dim, pressure * 0.6);
+    let (minor, major) = (line.gamma_multiply(0.35), line.gamma_multiply(0.8));
     let mut i = 0;
     let mut x = rect.left();
     while x < rect.right() {
@@ -337,6 +369,59 @@ fn symbol(painter: &Painter, c: Pos2, s: Symbol, ink: Color32, p: &Palette, heav
     }
 }
 
+/// A dense hatch over a symbol's square, for the moment its ICE falls.
+fn hatch_flash(painter: &Painter, c: Pos2, ink: Color32) {
+    let st = Stroke::new(1.0, ink);
+    let mut k = -R * 2.0 + 3.0;
+    while k < R * 2.0 {
+        let (a, b) = clip_diagonal(k, false);
+        painter.line_segment([c + a, c + b], st);
+        k += 3.0;
+    }
+}
+
+/// Derezzed ICE: struck through, and stamped VOID at an angle like a rubber stamp.
+fn void_stamp(painter: &Painter, c: Pos2, p: &Palette) {
+    let ink = p.bright.gamma_multiply(0.75);
+    painter.line_segment(
+        [c + vec2(-R * 1.3, R * 1.1), c + vec2(R * 1.3, -R * 1.1)],
+        Stroke::new(1.5, ink),
+    );
+    let galley = painter.layout_no_wrap(
+        "VOID".to_string(),
+        FontId::new(12.0, FontFamily::Monospace),
+        ink,
+    );
+    let size = galley.size();
+    let angle = -0.35_f32;
+    // Rotate about the stamp's centre: start from where its top-left lands after turning.
+    let half = vec2(size.x / 2.0, size.y / 2.0);
+    let turned = vec2(
+        half.x * angle.cos() - half.y * angle.sin(),
+        half.x * angle.sin() + half.y * angle.cos(),
+    );
+    let origin = c + vec2(R * 0.9, R * 0.2) - turned;
+    painter.add(egui::epaint::TextShape::new(origin, galley, ink).with_angle(angle));
+    let box_pts: Vec<Pos2> = [
+        (-1.0, -1.0),
+        (1.0, -1.0),
+        (1.0, 1.0),
+        (-1.0, 1.0),
+        (-1.0, -1.0),
+    ]
+    .iter()
+    .map(|&(x, y)| {
+        let v = vec2(x * (half.x + 3.0), y * (half.y + 1.0));
+        c + vec2(R * 0.9, R * 0.2)
+            + vec2(
+                v.x * angle.cos() - v.y * angle.sin(),
+                v.x * angle.sin() + v.y * angle.cos(),
+            )
+    })
+    .collect();
+    painter.add(Shape::line(box_pts, Stroke::new(1.0, ink)));
+}
+
 /// The ends of a 45° line `x - y = k` (or `x + y = k`) clipped to the symbol's square.
 fn clip_diagonal(k: f32, flip: bool) -> (egui::Vec2, egui::Vec2) {
     let lo = (-R).max(k - R);
@@ -421,12 +506,12 @@ fn dimension(painter: &Painter, x0: f32, x1: f32, y: f32, label: &str, p: &Palet
 
 /// The title block in the corner: what this sheet is.
 fn title_block(painter: &Painter, rect: Rect, game: &Game, p: &Palette) {
-    let (w, h) = (250.0, 58.0);
+    let (w, h) = (250.0, 76.0);
     let r = Rect::from_min_size(rect.right_bottom() - vec2(w + 8.0, h + 8.0), vec2(w, h));
     painter.rect_filled(r, 0.0, p.bg);
     painter.rect_stroke(r, 0.0, Stroke::new(1.5, p.dim), egui::StrokeKind::Middle);
-    let row = h / 3.0;
-    for i in 1..3 {
+    let row = h / 4.0;
+    for i in 1..4 {
         let y = r.top() + row * i as f32;
         painter.line_segment(
             [pos2(r.left(), y), pos2(r.right(), y)],
@@ -454,6 +539,11 @@ fn title_block(painter: &Painter, rect: Rect, game: &Game, p: &Palette) {
         ("PROJECT", site),
         ("SEED", format!("{:016x}", game.seed)),
         ("DRAWN", format!("runner   {sheet}   NTS")),
+        ("TRACE", {
+            let tr = game.deck.trace.min(100);
+            let on = (tr / 10) as usize;
+            format!("{tr:>3}%  {}{}", "█".repeat(on), "░".repeat(10 - on))
+        }),
     ]
     .into_iter()
     .enumerate()
