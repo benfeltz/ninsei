@@ -46,6 +46,8 @@ Between runs you're on your own machine: a Workbench 1.3-style desktop, on the s
 
 ### Hardware: monitors and decks
 
+The look and feel each deck is going for (and the references behind it) is in [`docs/design.md`](docs/design.md).
+
 What your screen looks like is the kit you own. Buy more in **RIG → HARDWARE** with banked credits; swap in Prefs, the view menu, or the Shell (`monitor <id>`, `deck <id>`). Testing? **F8** at home drops 1000¢ in the bank.
 
 - **Monitors** set the CRT look. You start with a Zenith Amber Terminal; the Hercules Green Phosphor, Apple Monitor II, Commodore 1702 and IBM 8513 VGA are on the shelf. A **mono** tube only shows its own colour (amber is amber); a **colour** monitor runs any theme, Synthwave and Workbench included.

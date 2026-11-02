@@ -2,6 +2,10 @@
 
 Cyberspace hacking roguelike styled as a retro IDE. Rust workspace: `crates/core` (pure rules) and `crates/app` (eframe/egui + egui_dock).
 
+## Design
+
+How the game should look and feel lives in [`docs/design.md`](docs/design.md): the pillars, how theme, monitor and deck combine, and each deck's point of view. The **Ono-Sendai** is the hacker deck (Omarchy, btop, cyberpunk). The **Hosaka** is the corpo deck (a productivity suite). There are comps for both, and more decks are coming. Read it before building UI, and add a deck there before adding it to the data.
+
 ## Commands
 
 | Purpose | Command |
