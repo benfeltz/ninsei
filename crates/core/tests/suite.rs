@@ -147,6 +147,8 @@ fn contract(status: ContractStatus, reward: u32, ghost: Option<(u32, u32)>) -> C
         reward,
         ghost,
         status,
+        paid: 0,
+        betrayal: None,
     }
 }
 

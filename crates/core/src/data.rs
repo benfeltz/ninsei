@@ -413,6 +413,44 @@ pub struct ContractTemplate {
     pub brief: String,
 }
 
+/// `data/contracts.ron`: the clients, and the ways they can turn on you.
+#[derive(Deserialize, Clone, Debug)]
+struct ContractsFile {
+    clients: Vec<ContractTemplate>,
+    betrayals: Vec<BetrayalDef>,
+}
+
+/// One way a client can double-cross you once the target falls.
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct BetrayalDef {
+    pub id: String,
+    /// Short status for the todo pane and the work orders, e.g. `DEFAULTED`.
+    pub label: String,
+    pub weight: u32,
+    /// The lowest tier it happens on (plain runs count as tier 1).
+    #[serde(default = "tier_one")]
+    pub min_tier: u32,
+    pub effect: BetrayalEffect,
+    /// What the log says. `{client}` is the client.
+    pub says: String,
+}
+
+fn tier_one() -> u32 {
+    1
+}
+
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+pub enum BetrayalEffect {
+    /// They pay only `pct`% of what they owe (bonus included).
+    Stiffed(u32),
+    /// They tip off the target: trace jumps, and the rest of the run's ICE rezzes stronger.
+    Burned { trace: u32, ice: u32 },
+    /// They hand your number to the telco: that phonebook entry's heat jumps.
+    SoldOut(u32),
+    /// A hunter rezzes on your node right after the payout: `Data::ice` id.
+    Setup(String),
+}
+
 /// A theme's six colours, as `#rrggbb`.
 #[derive(Deserialize, Clone, Debug)]
 pub struct ThemeColors {
@@ -512,6 +550,8 @@ pub struct Data {
     pub boards: Vec<BbsDef>,
     pub events: Vec<EventDef>,
     pub contracts: Vec<ContractTemplate>,
+    /// How clients turn on you, from `contracts.ron`.
+    pub betrayals: Vec<BetrayalDef>,
     /// Workbench desktop icons.
     pub icons: Vec<crate::hub::IconDef>,
     /// How the network map draws each kind of node.
@@ -553,13 +593,16 @@ impl Data {
         }
         // The default board goes first, so index 0 is always it.
         boards.sort_by_key(|b| !b.default);
+        let contracts: ContractsFile =
+            ron::from_str(src.contracts).map_err(|e| format!("contracts.ron: {e}"))?;
         let data = Self {
             warez: ron::from_str(src.warez).map_err(|e| format!("warez.ron: {e}"))?,
             ice: ron::from_str(src.ice).map_err(|e| format!("ice.ron: {e}"))?,
             loot: ron::from_str(src.loot).map_err(|e| format!("loot.ron: {e}"))?,
             boards,
             events: ron::from_str(src.events).map_err(|e| format!("events.ron: {e}"))?,
-            contracts: ron::from_str(src.contracts).map_err(|e| format!("contracts.ron: {e}"))?,
+            contracts: contracts.clients,
+            betrayals: contracts.betrayals,
             icons: ron::from_str(src.icons).map_err(|e| format!("hub/icons.ron: {e}"))?,
             netmap: ron::from_str(src.netmap).map_err(|e| format!("netmap.ron: {e}"))?,
             hardware: ron::from_str(src.hardware).map_err(|e| format!("hub/hardware.ron: {e}"))?,
@@ -710,7 +753,36 @@ impl Data {
             }
         }
         if self.contracts.is_empty() {
-            return Err("contracts.ron has no templates".into());
+            return Err("contracts.ron has no clients".into());
+        }
+        for b in &self.betrayals {
+            if b.weight == 0 {
+                return Err(format!("betrayal `{}` has weight 0", b.id));
+            }
+            if b.label.is_empty() || b.label.chars().count() > 10 {
+                return Err(format!(
+                    "betrayal `{}`: label must be 1-10 characters",
+                    b.id
+                ));
+            }
+            match &b.effect {
+                BetrayalEffect::Stiffed(pct) if *pct >= 100 => {
+                    return Err(format!("betrayal `{}`: Stiffed must pay under 100%", b.id));
+                }
+                BetrayalEffect::Setup(ice) if self.ice_by_id(ice).is_none() => {
+                    return Err(format!("betrayal `{}` rezzes unknown ICE `{ice}`", b.id));
+                }
+                _ => {}
+            }
+        }
+        // Tier 1 stays friendly: something always fits it, and it's only ever money.
+        let t1: Vec<&BetrayalDef> = self.betrayals.iter().filter(|b| b.min_tier <= 1).collect();
+        if !t1.is_empty()
+            && t1
+                .iter()
+                .any(|b| !matches!(b.effect, BetrayalEffect::Stiffed(_)))
+        {
+            return Err("tier 1 betrayals may only stiff you".into());
         }
         if self.events.is_empty() {
             return Err("events.ron has no events".into());
@@ -857,5 +929,9 @@ impl Data {
 
     pub fn warez_ix(&self, id: &str) -> Option<usize> {
         self.warez.iter().position(|w| w.id == id)
+    }
+
+    pub fn ice_by_id(&self, id: &str) -> Option<usize> {
+        self.ice.iter().position(|i| i.id == id)
     }
 }

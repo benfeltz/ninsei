@@ -193,11 +193,9 @@ impl Watch {
     }
 
     pub fn step(&mut self, g: &Game) -> Vec<Notice> {
-        let paid = g
-            .contracts
-            .iter()
-            .filter(|k| k.status == ContractStatus::Done)
-            .count();
+        let settled =
+            |k: &&Contract| matches!(k.status, ContractStatus::Done | ContractStatus::Betrayed);
+        let paid = g.contracts.iter().filter(settled).count();
         // A new run (or the first look) starts quiet.
         if self.phase.is_none() || self.seed != g.seed || paid < self.paid {
             *self = Watch {
@@ -209,18 +207,23 @@ impl Watch {
         }
         let mut out = Vec::new();
         if paid > self.paid {
-            for k in g
-                .contracts
-                .iter()
-                .filter(|k| k.status == ContractStatus::Done)
-                .skip(self.paid)
-            {
-                out.push(Notice {
-                    title: "WORK ORDER COMPLETE".into(),
-                    lines: vec![
-                        format!("CLIENT   {}", k.client),
-                        format!("AMOUNT   {}¢ credited to your account.", k.reward),
-                    ],
+            for k in g.contracts.iter().filter(settled).skip(self.paid) {
+                out.push(match g.betrayal_label(k) {
+                    None => Notice {
+                        title: "WORK ORDER COMPLETE".into(),
+                        lines: vec![
+                            format!("CLIENT   {}", k.client),
+                            format!("AMOUNT   {}¢ credited to your account.", k.paid),
+                        ],
+                    },
+                    Some(label) => Notice {
+                        title: "WORK ORDER VOID".into(),
+                        lines: vec![
+                            format!("CLIENT   {}", k.client),
+                            format!("STATUS   client defaulted ({label})."),
+                            format!("AMOUNT   {}¢ of {}¢ received.", k.paid, k.reward),
+                        ],
+                    },
                 });
             }
         }

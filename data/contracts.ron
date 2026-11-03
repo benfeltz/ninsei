@@ -1,8 +1,34 @@
-// Contract templates. {host} is replaced with the target's hostname.
-[
-    (client: "Yamatai Dynamics", brief: "A rival lab keeps its prototype specs behind {host}. Burn it."),
-    (client: "Brightwater Mutual", brief: "{host} holds claim records we'd rather nobody audits. Make them go away."),
-    (client: "the Lazarus Clinic", brief: "Someone at {host} has our patient files. Derez the node, no copies."),
-    (client: "a voice with no handle", brief: "{host}. Don't ask why. Half up front was a joke; you get it all after."),
-    (client: "Chiba Freight Co-op", brief: "{host} reroutes our cargo manifests. Take it offline."),
-]
+// Contracts. `clients` are the templates a job is rolled from: {host} is replaced with the
+// target's hostname.
+//
+// `betrayals` are the ways a client can turn on you once the target falls. The chance rises with
+// the tier and the pay, drops for a client you've worked for cleanly before, and halves when you
+// earned the ghost bonus (crates/core/src/tuning.rs, BETRAY_*). One is picked by weight among
+// those whose `min_tier` the network reaches; tier 1 may only stiff you.
+//   Stiffed(pct)              they pay pct% of what they owe
+//   Burned(trace, ice)        they tip off the target: trace +trace, the rest of the run's ICE +ice
+//   SoldOut(heat)             they sell your number to the telco: that entry's heat +heat
+//   Setup(ice)                that ICE rezzes on your node right after the payout
+// `label` is the status the todo pane and the work orders show; `says` is the log line
+// ({client} is the client).
+(
+    clients: [
+        (client: "Yamatai Dynamics", brief: "A rival lab keeps its prototype specs behind {host}. Burn it."),
+        (client: "Brightwater Mutual", brief: "{host} holds claim records we'd rather nobody audits. Make them go away."),
+        (client: "the Lazarus Clinic", brief: "Someone at {host} has our patient files. Derez the node, no copies."),
+        (client: "a voice with no handle", brief: "{host}. Don't ask why. Half up front was a joke; you get it all after."),
+        (client: "Chiba Freight Co-op", brief: "{host} reroutes our cargo manifests. Take it offline."),
+    ],
+    betrayals: [
+        (id: "shorted",  label: "SHORTED",   weight: 4, min_tier: 1, effect: Stiffed(50),
+            says: "{client} pays half. \"check's in the mail.\""),
+        (id: "stiffed",  label: "DEFAULTED", weight: 3, min_tier: 2, effect: Stiffed(0),
+            says: "{client} never pays. the account's already closed."),
+        (id: "burned",   label: "BURNED",    weight: 3, min_tier: 2, effect: Burned(trace: 15, ice: 4),
+            says: "{client} tipped off the target. sysops are awake and the ICE is waiting."),
+        (id: "sold_out", label: "SOLD OUT",  weight: 2, min_tier: 2, effect: SoldOut(3),
+            says: "{client} sold your number to the telco. this line's hot now."),
+        (id: "setup",    label: "SETUP",     weight: 2, min_tier: 3, effect: Setup("archer"),
+            says: "{client} pays. then the node rezzes again. it was a setup."),
+    ],
+)

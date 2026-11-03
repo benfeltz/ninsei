@@ -628,9 +628,14 @@ impl Panes<'_> {
                     ContractStatus::Done => ("[x]", p.dim),
                     ContractStatus::Failed => ("[-]", p.faint),
                     ContractStatus::Offered => ("[?]", p.dim),
+                    ContractStatus::Betrayed => ("[!]", p.dim),
                 };
                 ui.horizontal(|ui| {
                     ui.label(text(format!("{mark} {}  {}  ", k.client, n.name), col));
+                    if let Some(label) = g.betrayal_label(k) {
+                        ui.label(text(format!("{label} {}¢", k.paid), p.bright));
+                        return;
+                    }
                     ui.label(text(
                         format!("{}¢", k.reward),
                         if k.status == ContractStatus::Active {

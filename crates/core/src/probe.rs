@@ -19,7 +19,7 @@ use crate::game::{Action, ContractStatus, Game, Phase};
 use crate::hub::{Entry, RunEnd, Save, Upgrade};
 use crate::network::NodeKind;
 use crate::rng::Rng;
-use crate::tuning::TRACE_MAX;
+use crate::tuning::{BETRAY_PCT, TRACE_MAX};
 
 /// How big a probe to run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -70,11 +70,12 @@ pub struct RunLog {
     pub fights: u32,
     /// BBS downloads: (what kind of file, price).
     pub bought: Vec<(&'static str, u32)>,
-    /// Contracts taken (jobs boards and fixers) and paid, and what they paid (before the
-    /// network's pay %).
+    /// Contracts taken (jobs boards and fixers) and settled, and what they actually paid.
     pub taken: u32,
     pub paid: u32,
     pub pay: u32,
+    /// Clients who turned on the runner: (betrayal label, pay they kept back).
+    pub betrayals: Vec<(String, u32)>,
     /// What it chose in each encounter.
     pub talks: Vec<&'static str>,
 }
@@ -157,10 +158,14 @@ pub fn play_knowing(mut g: Game, bot: Bot, known: &[String]) -> (Game, RunLog) {
     for k in g
         .contracts
         .iter()
-        .filter(|k| k.status == ContractStatus::Done)
+        .filter(|k| matches!(k.status, ContractStatus::Done | ContractStatus::Betrayed))
     {
         log.paid += 1;
-        log.pay += k.reward;
+        log.pay += k.paid;
+        if let Some(label) = g.betrayal_label(k) {
+            let short = g.mods.pay(k.reward).saturating_sub(k.paid);
+            log.betrayals.push((label.to_string(), short));
+        }
     }
     (g, log)
 }
@@ -351,7 +356,8 @@ fn kind(d: &Drop) -> &'static str {
 /// a reserve, until nothing's worth it.
 fn shop_bbs(g: &mut Game, known: &[String], log: &mut RunLog) {
     for job in 0..g.bbs_jobs.len() {
-        if g.bbs_jobs[job].status == ContractStatus::Offered {
+        let k = &g.bbs_jobs[job];
+        if k.status == ContractStatus::Offered && risk_worth(g, k.reward, g.betray_pct(k)) {
             let before = g.contracts.len();
             g.apply(Action::TakeJob { job });
             log.taken += (g.contracts.len() - before) as u32;
@@ -389,6 +395,14 @@ fn shop_bbs(g: &mut Game, known: &[String], log: &mut RunLog) {
     }
 }
 
+/// Whether a job paying `reward` is worth it when the client turns `pct`% of the time: a
+/// betrayal can cost the pay and, above tier 1, the run.
+fn risk_worth(g: &Game, reward: u32, pct: u32) -> bool {
+    let danger = if g.tier() > 1 { 2 * reward } else { 0 };
+    let keep = i64::from(reward) * i64::from(100 - pct) - i64::from(danger) * i64::from(pct);
+    keep > 0
+}
+
 /// In an encounter: the choice worth most, if any is worth more than walking away. Choices
 /// that need a program picked (trades, sales) are left alone.
 fn talk(g: &Game, known: &[String], log: &mut RunLog) -> Option<usize> {
@@ -416,7 +430,11 @@ fn talk(g: &Game, known: &[String], log: &mut RunLog) -> Option<usize> {
         .map(|(i, c)| {
             let v = match &c.effect {
                 ChoiceEffect::Leave => (0, "walked away"),
-                ChoiceEffect::Contract if active < 2 => (60, "took a contract"),
+                ChoiceEffect::Contract if active < 2 => {
+                    // Whoever's offering, they might turn: what that costs at this tier.
+                    let pct = BETRAY_PCT[(g.tier() as usize).clamp(1, 3) - 1];
+                    (60 - i64::from(pct) * 2, "took a contract")
+                }
                 ChoiceEffect::Pay { cost, get } => {
                     (worth(g, get, known) - i64::from(*cost), "paid")
                 }
@@ -534,6 +552,8 @@ pub struct Stats {
     pub taken: u32,
     pub paid: u32,
     pub pay: u64,
+    /// Betrayals by label: how many, and the pay they kept back.
+    pub betrayals: Vec<(String, u32, u64)>,
     /// Career encounter choices: (what, count).
     pub talks: Vec<(String, u32)>,
     /// Phone ranges known at each checkpoint (summed over careers).
@@ -709,6 +729,18 @@ impl Probe {
         self.stats.taken += log.taken;
         self.stats.paid += log.paid;
         self.stats.pay += u64::from(log.pay);
+        for (label, short) in &log.betrayals {
+            match self.stats.betrayals.iter_mut().find(|(l, _, _)| l == label) {
+                Some((_, n, lost)) => {
+                    *n += 1;
+                    *lost += u64::from(*short);
+                }
+                None => self
+                    .stats
+                    .betrayals
+                    .push((label.clone(), 1, u64::from(*short))),
+            }
+        }
         for t in &log.talks {
             match self.stats.talks.iter_mut().find(|(w, _)| w == t) {
                 Some((_, n)) => *n += 1,
@@ -969,12 +1001,24 @@ impl Probe {
         let runs = u64::from(s.career.iter().map(|t| t.runs).sum::<u32>().max(1));
         out.push("where the money comes from (career runs)".into());
         out.push(format!(
-            "  contracts: {} taken, {} paid ({}%), {:.1}¢ a run",
+            "  contracts: {} taken, {} settled ({}%), {:.1}¢ a run",
             s.taken,
             s.paid,
             pct(s.paid, s.taken),
             s.pay as f64 / runs as f64
         ));
+        let turned: u32 = s.betrayals.iter().map(|b| b.1).sum();
+        out.push(format!(
+            "  betrayed: {turned} ({}% of settled jobs)",
+            pct(turned, s.paid)
+        ));
+        let mut b = s.betrayals.clone();
+        b.sort_by_key(|b| std::cmp::Reverse(b.1));
+        for (label, n, lost) in b {
+            out.push(format!(
+                "    {label:<13} {n:>5} times, {lost:>7}¢ kept back"
+            ));
+        }
         let spent: u64 = s.bought.iter().map(|b| b.2).sum();
         out.push(format!(
             "  BBS: {:.1}¢ a run spent, on",
