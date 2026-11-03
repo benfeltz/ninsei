@@ -113,6 +113,20 @@ pub struct TierDef {
     /// Subnet nodes on a network of this tier.
     #[serde(default)]
     pub subnets: usize,
+    /// Every `choke`th middle layer is a single guarded node, so some fights can't be routed
+    /// around (0 = none). A trait's `Shape` replaces it.
+    #[serde(default)]
+    pub choke: usize,
+    /// Extra weight for black ICE, on top of any trait's.
+    #[serde(default)]
+    pub black: u32,
+    /// Trace gain, percent of normal, before traits and heat.
+    #[serde(default = "full_pct")]
+    pub trace_pct: u32,
+}
+
+fn full_pct() -> u32 {
+    100
 }
 
 /// What a trait does to a network.
@@ -813,11 +827,13 @@ impl Save {
         let mut p = NetParams {
             mid_layers: tier.map_or(NET_MID_LAYERS, |t| t.mid_layers),
             subnets: tier.map_or(0, |t| t.subnets),
+            black_bonus: tier.map_or(0, |t| t.black),
             ..NetParams::default()
         };
+        p.shape.choke = tier.map_or(0, |t| t.choke);
         let mut m = RunMods {
             ice_bonus: tier.map_or(0, |t| t.ice_bonus) + HEAT_ICE * e.heat,
-            trace_pct: 100 + HEAT_TRACE_PCT * e.heat,
+            trace_pct: tier.map_or(100, |t| t.trace_pct) + HEAT_TRACE_PCT * e.heat,
             pay_pct: tier.map_or(100, |t| t.pay_pct),
         };
         for id in &e.traits {
