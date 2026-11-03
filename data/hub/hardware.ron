@@ -29,13 +29,13 @@
          blurb: "Crisp 640x480. Business-grade colour for any theme."),
     ],
     decks: [
-        (id: "onosendai", name: "Cyberspace VII", maker: "Ono-Sendai", price: 0, starter: true,
+        (id: "onosendai", name: "Cyberspace VII", maker: "Ono-Sendai", price: 650,
          blurb: "The cowboy's deck. Jacks you straight into the matrix: wireframes over a glowing grid.",
          firmware: [
             (id: "7.0", label: "Cyberspace 7.0", map: Iso, chrome: Btop, desktop: Tiling, sounds: "ono", panes: ["net"]),
             (id: "6.2", label: "Cyberspace 6.2 (classic panes)", map: Iso, chrome: Classic, desktop: Workbench, sounds: "ono"),
          ]),
-        (id: "hosaka", name: "Executive 4", maker: "Hosaka", price: 650,
+        (id: "hosaka", name: "Executive 4", maker: "Hosaka", price: 0, starter: true,
          blurb: "A corporate workstation. Sees the net as a plan: every node drafted, dimensioned and filed.",
          firmware: [
             (id: "4.0", label: "PlanView 4.0", map: Draft, chrome: Suite, desktop: Workbench, sounds: "hosaka"),

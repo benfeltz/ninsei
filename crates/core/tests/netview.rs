@@ -146,15 +146,15 @@ fn the_deck_picks_the_map() {
     s.ensure_hardware(&d);
     assert_eq!(
         s.firmware_def(&d).map,
-        MapView::Iso,
-        "the Ono-Sendai sees wireframes"
-    );
-    s.decks.push("hosaka".into());
-    s.use_deck(&d, "hosaka").unwrap();
-    assert_eq!(
-        s.firmware_def(&d).map,
         MapView::Draft,
         "the Hosaka sees a plan"
+    );
+    s.decks.push("onosendai".into());
+    s.use_deck(&d, "onosendai").unwrap();
+    assert_eq!(
+        s.firmware_def(&d).map,
+        MapView::Iso,
+        "the Ono-Sendai sees wireframes"
     );
     assert!(d.theme("synthwave").is_some());
 }
