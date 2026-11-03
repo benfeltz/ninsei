@@ -504,6 +504,7 @@ pub struct Sources<'a> {
     pub events: &'a str,
     pub contracts: &'a str,
     pub icons: &'a str,
+    pub liza: &'a str,
     pub patterns: &'a str,
     pub netmap: &'a str,
     pub hardware: &'a str,
@@ -528,6 +529,7 @@ impl Sources<'static> {
             events: include_str!("../../../data/events.ron"),
             contracts: include_str!("../../../data/contracts.ron"),
             icons: include_str!("../../../data/hub/icons.ron"),
+            liza: include_str!("../../../data/hub/liza.ron"),
             patterns: include_str!("../../../data/patterns.ron"),
             netmap: include_str!("../../../data/netmap.ron"),
             hardware: include_str!("../../../data/hub/hardware.ron"),
@@ -556,6 +558,8 @@ pub struct Data {
     pub betrayals: Vec<BetrayalDef>,
     /// Workbench desktop icons.
     pub icons: Vec<crate::hub::IconDef>,
+    /// The Liza desktop's pixel art: the boot card's face and the Trash.
+    pub liza: crate::hub::LizaArt,
     /// 1-bit fill patterns for the Sense/Net deck's parts.
     pub patterns: Vec<crate::pattern::PatternDef>,
     /// How the network map draws each kind of node.
@@ -608,6 +612,7 @@ impl Data {
             contracts: contracts.clients,
             betrayals: contracts.betrayals,
             icons: ron::from_str(src.icons).map_err(|e| format!("hub/icons.ron: {e}"))?,
+            liza: ron::from_str(src.liza).map_err(|e| format!("hub/liza.ron: {e}"))?,
             patterns: ron::from_str(src.patterns).map_err(|e| format!("patterns.ron: {e}"))?,
             netmap: ron::from_str(src.netmap).map_err(|e| format!("netmap.ron: {e}"))?,
             hardware: ron::from_str(src.hardware).map_err(|e| format!("hub/hardware.ron: {e}"))?,
@@ -690,6 +695,9 @@ impl Data {
         }
         self.validate_boards()?;
         crate::hub::IconDef::validate(&self.icons).map_err(|e| format!("hub/icons.ron: {e}"))?;
+        self.liza
+            .validate()
+            .map_err(|e| format!("hub/liza.ron: {e}"))?;
         crate::pattern::PatternDef::validate(&self.patterns)
             .map_err(|e| format!("patterns.ron: {e}"))?;
         crate::netview::MapStyleDef::validate(&self.netmap)

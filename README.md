@@ -34,7 +34,7 @@ Every push to `main` builds `dist/` and publishes it to GitHub Pages (`.github/w
 
 ## Home: your desktop
 
-Between runs you're on your own machine, on the same monitor as your runs. What the desktop looks like is up to the deck's OS: the Ono-Sendai runs **AnarchyOS**, a tiling desktop after Omarchy; the Hosaka runs **Desktop**, after Amiga Workbench 1.3. One theme colours the desktop and your runs; pick it in **Prefs**. Open **CarrierTerm**, pick a number from your phonebook and dial it: the modem handshakes, then the desktop drags down like an Amiga screen to reveal the run behind it. Reach the exit and you jack out home; flatline and the deck crashes first.
+Between runs you're on your own machine, on the same monitor as your runs. What the desktop looks like is up to the deck's OS: the starter Sense/Net runs **Liza**, a 1-bit desktop after the first Mac; the Ono-Sendai runs **AnarchyOS**, a tiling desktop after Omarchy; the Hosaka runs **Desktop**, after Amiga Workbench 1.3. One theme colours the desktop and your runs; pick it in **Prefs**. Open **CarrierTerm**, pick a number from your phonebook and dial it: the modem handshakes, then the desktop drags down like an Amiga screen to reveal the run behind it. Reach the exit and you jack out home; flatline and the deck crashes first.
 
 ![the hub](docs/shots/hub.png)
 ![jacking in](docs/shots/hub-jackin.png)
@@ -42,9 +42,11 @@ Between runs you're on your own machine, on the same monitor as your runs. What 
 - **NinShell**: `help`, `dir`, `phonebook`, `dial <n> [seed]`, `ranges`, `wardial <range>`, `run <tool>`, `info`, `theme <id>`, `crt`, `monitor [id]`, `deck [id]`, `echo`, `leet <text>`, `clear`, `probe [n|stop]` (the balance probe). Same line editor as the run terminal: readline keys, `↑` history (saved), `Ctrl+R`, and `Tab` to complete verbs, phonebook entries and known boards, ranges, tools, themes and the monitors and decks you own
 - **Prefs**: the theme (desktop and runs alike) with colour swatches, and the CRT display preset
 - **Desktop**: windows drag by their title bar; the close gadget is top left, the depth gadget top right
+- **Liza**: a menu bar along the top with the tools as menus (File, Net, Deck, Special), Finder windows with striped title bars and a close box, icons down the right and a Trash. It boots to a happy deck. Everything is two colours from the theme, shaded with 1-bit patterns.
 - **AnarchyOS**: tools open as tiles (a master on the left, a stack on the right) across workspaces, with a top bar. **Esc** is the leader key; then **Space** opens the launcher, **1-9** switches workspace, **Shift+1-9** sends the tile there, **h/l** moves focus, **Enter** swaps with the master, **x** closes, **?** shows the keys. The mouse works too.
 - **Add-ons** for each OS are sold in RIG: more workspaces, a fuzzy launcher that also runs Shell commands and a stats widget for AnarchyOS; a clock and a backdrop pattern for Desktop. They're data in [`data/hub/desktops.ron`](data/hub/desktops.ron).
 
+![Liza](docs/shots/liza-desktop.png)
 ![AnarchyOS tiles](docs/shots/anarchy-tiles.png)
 ![the launcher](docs/shots/anarchy-launcher.png)
 - Everything below saves automatically: a file on desktop, local storage in the browser

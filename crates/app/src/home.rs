@@ -68,7 +68,7 @@ pub fn set_desk(d: Desk) {
     DESK.with(|c| c.set(d));
 }
 
-fn desk() -> Desk {
+pub(crate) fn desk() -> Desk {
     DESK.with(Cell::get)
 }
 
@@ -184,6 +184,7 @@ pub struct Cx<'a> {
 pub struct Desktops {
     workbench: crate::workbench::Workbench,
     tiling: crate::tiling::TilingDesk,
+    liza: crate::liza::Liza,
 }
 
 impl Desktops {
@@ -191,6 +192,7 @@ impl Desktops {
         Self {
             workbench: crate::workbench::Workbench::new(),
             tiling: crate::tiling::TilingDesk::new(),
+            liza: crate::liza::Liza::new(),
         }
     }
 
@@ -198,6 +200,7 @@ impl Desktops {
         match d {
             Desktop::Workbench => &mut self.workbench,
             Desktop::Tiling => &mut self.tiling,
+            Desktop::Liza => &mut self.liza,
         }
     }
 }

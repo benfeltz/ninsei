@@ -63,6 +63,36 @@ impl Tool {
     }
 }
 
+/// The Liza desktop's own 1-bit pixel art (`data/hub/liza.ron`): `#` ink, `.` paper.
+#[derive(Deserialize, Clone, Debug)]
+pub struct LizaArt {
+    /// The happy deck on the boot card.
+    pub boot: Vec<String>,
+    pub trash: Vec<String>,
+}
+
+impl LizaArt {
+    pub fn validate(&self) -> Result<(), String> {
+        for (name, rows) in [("boot", &self.boot), ("trash", &self.trash)] {
+            let w = rows.first().map_or(0, |r| r.chars().count());
+            if w == 0 {
+                return Err(format!("`{name}` is empty"));
+            }
+            if let Some(n) = rows.iter().position(|r| r.chars().count() != w) {
+                return Err(format!("`{name}` row {n} is not {w} wide"));
+            }
+            if let Some(c) = rows
+                .iter()
+                .flat_map(|r| r.chars())
+                .find(|c| !"#.".contains(*c))
+            {
+                return Err(format!("`{name}` has `{c}`: only `#` and `.`"));
+            }
+        }
+        Ok(())
+    }
+}
+
 /// A desktop icon: pixel art in the 1.3 palette (see `data/hub/icons.ron`).
 #[derive(Deserialize, Clone, Debug)]
 pub struct IconDef {
