@@ -1376,7 +1376,13 @@ pub enum ShellEffect {
     /// Modem sounds on/off.
     Sound,
     Clear,
+    /// Run the balance probe with this many careers (`probe::Config::careers`).
+    Probe(u32),
+    ProbeStop,
 }
+
+/// Careers `probe` plays when you don't say.
+pub const PROBE_CAREERS: u32 = 20;
 
 /// Every verb the home Shell knows, for Tab completion.
 pub const SHELL_VERBS: &[&str] = &[
@@ -1396,6 +1402,7 @@ pub const SHELL_VERBS: &[&str] = &[
     "echo",
     "leet",
     "clear",
+    "probe",
 ];
 
 /// Tab completion for the home Shell: the text before the cursor in, the words that could
@@ -1425,6 +1432,7 @@ pub fn shell_complete(before: &str, save: &Save, data: &Data) -> Vec<String> {
         "theme" => data.themes.iter().map(|t| t.id.clone()).collect(),
         "monitor" | "display" => save.monitors.clone(),
         "deck" => save.decks.clone(),
+        "probe" => vec!["stop".into()],
         _ => Vec::new(),
     }
 }
@@ -1456,6 +1464,7 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
                 "echo <text>      say something",
                 "leet <text>      say it in l33t",
                 "clear            clear the window",
+                "probe [n|stop]   balance check: bots play n careers (20)",
             ]),
             ShellEffect::None,
         ),
@@ -1644,6 +1653,17 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
             ),
         },
         "clear" | "cls" => (Vec::new(), ShellEffect::Clear),
+        "probe" => match arg {
+            None => (Vec::new(), ShellEffect::Probe(PROBE_CAREERS)),
+            Some("stop") => (Vec::new(), ShellEffect::ProbeStop),
+            Some(n) => match n.parse::<u32>() {
+                Ok(n) if n > 0 => (Vec::new(), ShellEffect::Probe(n.min(500))),
+                _ => (
+                    vec!["probe [careers]: how many careers to play (1-500), or `stop`.".into()],
+                    ShellEffect::None,
+                ),
+            },
+        },
         "leet" | "l33t" => (
             vec![crate::leet::translate(
                 line.trim_start()[cmd.len()..].trim(),

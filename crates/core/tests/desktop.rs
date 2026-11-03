@@ -240,3 +240,17 @@ fn the_shell_completes_its_verbs_and_arguments() {
     // Old saves load without the history.
     assert!(Save::load("(version: 1)").unwrap().shell_history.is_empty());
 }
+
+#[test]
+fn the_shell_runs_the_probe() {
+    use ninsei_core::hub::{self, ShellEffect};
+    let d = data();
+    let s = Save::default();
+    assert_eq!(hub::shell("probe", &s, &d).1, ShellEffect::Probe(hub::PROBE_CAREERS));
+    assert_eq!(hub::shell("probe 5", &s, &d).1, ShellEffect::Probe(5));
+    assert_eq!(hub::shell("probe 9999", &s, &d).1, ShellEffect::Probe(500));
+    assert_eq!(hub::shell("probe stop", &s, &d).1, ShellEffect::ProbeStop);
+    let (lines, effect) = hub::shell("probe lots", &s, &d);
+    assert_eq!(effect, ShellEffect::None);
+    assert!(lines[0].contains("careers"));
+}

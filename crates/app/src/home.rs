@@ -98,6 +98,9 @@ pub fn fill() -> Color32 {
 
 pub(crate) const FONT: f32 = 14.0;
 const SHELL_KEEP: usize = 200;
+/// Probe runs played each frame: enough to finish a default probe in seconds, few enough to
+/// keep the desktop smooth.
+const PROBE_RUNS_PER_FRAME: u32 = 4;
 
 pub(crate) fn font() -> FontId {
     FontId::new(FONT, FontFamily::Monospace)
@@ -202,6 +205,9 @@ impl Desktops {
 /// Home's shared state.
 pub struct Home {
     shell_lines: Vec<String>,
+    /// The balance probe, while `probe` runs it a few runs a frame, and the last progress
+    /// step printed (in tenths).
+    probe: Option<(ninsei_core::probe::Probe, u32)>,
     /// The Shell's command line: readline keys, history, completion.
     shell: ninsei_term::LineEditor,
     focus_shell: bool,
@@ -229,6 +235,7 @@ impl Home {
         Self {
             shell_lines: boot,
             shell: ninsei_term::LineEditor::new(ninsei_core::command::HISTORY_KEEP),
+            probe: None,
             focus_shell: true,
             prompt: "1.Workbench:> ",
             opens: vec![Tool::Shell],
@@ -321,6 +328,7 @@ impl Home {
         live: bool,
     ) -> Vec<WbOut> {
         self.sync_hex(save);
+        self.step_probe(ui);
         let mut out = Vec::new();
         // The handshake runs on its own clock, then hands over to the jack-in drag.
         if live && let Some(d) = &mut self.dialing {
@@ -498,6 +506,31 @@ impl Home {
         self.shell.text()
     }
 
+    /// Plays a few of the probe's runs (there are no threads in the browser), prints progress
+    /// every tenth, then the report.
+    fn step_probe(&mut self, ui: &Ui) {
+        let Some((p, shown)) = &mut self.probe else {
+            return;
+        };
+        let finished = p.step(PROBE_RUNS_PER_FRAME);
+        let (done, total) = p.progress();
+        let tenth = done * 10 / total.max(1);
+        let mut lines = Vec::new();
+        if tenth > *shown && !finished {
+            *shown = tenth;
+            lines.push(format!("probe: {}% ({done}/{total} runs)", tenth * 10));
+        }
+        if finished {
+            lines.extend(p.report());
+            self.probe = None;
+        } else {
+            ui.ctx().request_repaint();
+        }
+        for l in lines {
+            self.say(l);
+        }
+    }
+
     /// Whether the Shell is in a `Ctrl+R` search.
     pub fn shell_searching(&self) -> bool {
         self.shell.searching()
@@ -531,6 +564,22 @@ impl Home {
             ShellEffect::Monitor(id) => out.push(WbOut::Monitor(id)),
             ShellEffect::Deck(id) => out.push(WbOut::Deck(id)),
             ShellEffect::Clear => self.shell_lines.clear(),
+            ShellEffect::Probe(n) => {
+                let p =
+                    ninsei_core::probe::Probe::new(data, ninsei_core::probe::Config::careers(n));
+                let (_, total) = p.progress();
+                self.say(format!(
+                    "probe: bots play {n} careers ({total} runs). `probe stop` to stop."
+                ));
+                self.probe = Some((p, 0));
+            }
+            ShellEffect::ProbeStop => {
+                if self.probe.take().is_some() {
+                    self.say("probe: stopped.");
+                } else {
+                    self.say("probe: nothing running.");
+                }
+            }
         }
     }
 }
