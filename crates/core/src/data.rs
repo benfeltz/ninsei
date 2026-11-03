@@ -700,6 +700,18 @@ impl Data {
             .map_err(|e| format!("hub/liza.ron: {e}"))?;
         crate::pattern::PatternDef::validate(&self.patterns)
             .map_err(|e| format!("patterns.ron: {e}"))?;
+        for s in &self.netmap {
+            let p = s.paint.as_str();
+            if p != crate::netview::PAINT_PAPER
+                && p != crate::netview::PAINT_SOLID
+                && self.pattern(p).is_none()
+            {
+                return Err(format!(
+                    "netmap.ron: {:?} paints with unknown pattern `{p}`",
+                    s.node
+                ));
+            }
+        }
         crate::netview::MapStyleDef::validate(&self.netmap)
             .map_err(|e| format!("netmap.ron: {e}"))?;
         crate::hub::UpgradeDef::validate(&self.rig).map_err(|e| format!("hub/rig.ron: {e}"))?;

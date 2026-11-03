@@ -60,7 +60,7 @@ What your screen looks like is the kit you own. Buy more in **RIG → HARDWARE**
 - **Monitors** set the CRT look. You start with a Zenith Amber Terminal; the Hercules Green Phosphor, Apple Monitor II, Commodore 1702 and IBM 8513 VGA are on the shelf. A **mono** tube only shows its own colour (amber is amber); a **colour** monitor runs any theme, Synthwave and Workbench included.
 - **Decks** set the UX. You start on the **Sense/Net Personal Deck**, a friendly 1-bit machine running Liza (its own desktop, map and run screen are on the way, #46). RIG sells the **Ono-Sendai Cyberspace VII** (wireframes over a glowing grid) and the **Hosaka Executive 4**, which sees the net as a technical drawing. Decks are look and feel only: stats come from RIG upgrades.
 
-Everything is data in [`data/hub/hardware.ron`](data/hub/hardware.ron). A deck lists **firmware** (UX versions), each put together from named parts: `map` (`Iso` | `Draft`), `chrome` (pane style) and `desktop` (the overworld). A new UX version for a deck is a new firmware entry; a new kind of part is one renderer plus one name.
+Everything is data in [`data/hub/hardware.ron`](data/hub/hardware.ron). A deck lists **firmware** (UX versions), each put together from named parts: `map` (`Iso` | `Draft` | `Paint`), `chrome` (pane style) and `desktop` (the overworld). A new UX version for a deck is a new firmware entry; a new kind of part is one renderer plus one name.
 
 ![hardware in RIG](docs/shots/rig-hardware.png)
 ![prefs](docs/shots/prefs-hardware.png)
@@ -127,7 +127,7 @@ Runs are for taking things; home is for building. **Reach the exit** and the run
 |---|---|
 | `deck.sys` | CPU (actions per turn), RAM (what's loaded), HDD (what you own), integrity (HP), trace, credits |
 | `warez/` | Your programs as a file tree: `ram/` is loaded and runnable, `hdd/` is stored |
-| `network.map` | The run, as floating wireframes or a technical draft (below). Click a lit node to route there; nodes further than one layer ahead are fogged |
+| `network.map` | The run, as floating wireframes, a technical draft or a 1-bit picture (below). Click a lit node to route there; nodes further than one layer ahead are fogged |
 | `target.ice` | The ICE you're fighting: strength, next intent, run buttons |
 | `hexedit` | Open any program's binary and patch its bytes (see Crafting) |
 | `terminal` | Log and command line (`help`). It's a real line editor: readline keys (`Ctrl+A`/`E`/`B`/`F`, `Alt+B`/`F`, `Ctrl+U`/`K`/`W`/`Y`), `↑`/`↓` history (kept in your save), `Ctrl+R` to search it, `Tab` to complete verbs, routes, slots and themes (twice to list them), `Ctrl+C` to drop the line and `Ctrl+L` to clear. In a browser, `Ctrl+W` belongs to the tab, so `Alt+Backspace` kills a word too |
@@ -187,12 +187,16 @@ a cube for barrier ICE, a ring for a code gate, an icosahedron "eye" for a sentr
 
 The **Hosaka** deck (see Hardware) draws the map as a flat technical drawing instead: grid bubbles over each layer, a drafting symbol per node (section hatching, valve, eye, door swing...), hidden lines for the fog, a revision cloud round you, a dimension line and a title block.
 
+The **Sense/Net** paints it as a 1-bit MacPaint picture on a card: boxes filled with patterns (bricks for barriers, crosshatch for code gates, dots for sentries, solid black ICE), hatched drop shadows, a 50% checker for the fog, marching ants round you and crosshairs on contract targets. Danger is never a colour: the card's frame gets denser as trace climbs, and the ants march faster.
+
+![paint map](docs/shots/paint-map.png)
+
 The map reacts to the run. ICE you break blows apart (on the draft it's struck through and stamped `VOID`). The way you came stays lit. The BBS node wears its board's colours and name. As trace climbs the grid lights up and pulses, faster past 75%; the draft's paper darkens and its title block grows a TRACE row. Each new network draws itself in, layer by layer, and a route you hover lifts and spins.
 
 ![derez burst](docs/shots/map-derez-burst.png)
 ![draft: VOID, trail and TRACE](docs/shots/map-draft-void.png)
 
-Both are drawn in the theme's colours. The **Synthwave** theme gives the magenta-grid, cyan-wire look; Workbench turns the draft into a blueprint. Which shape and symbol each node gets is data, in [`data/netmap.ron`](data/netmap.ron).
+Both are drawn in the theme's colours. The **Synthwave** theme gives the magenta-grid, cyan-wire look; Workbench turns the draft into a blueprint. Which shape, symbol and pattern each node gets is data, in [`data/netmap.ron`](data/netmap.ron).
 
 ![isometric, synthwave](docs/shots/map-iso-synthwave.png)
 ![isometric, amber](docs/shots/map-iso-amber.png)

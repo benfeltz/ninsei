@@ -865,6 +865,7 @@ pub fn prefs(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
     let map = match fw.map {
         ninsei_core::netview::MapView::Iso => "isometric wireframes",
         ninsei_core::netview::MapView::Draft => "technical draft",
+        ninsei_core::netview::MapView::Paint => "1-bit picture",
     };
     ui.label(dim(format!(
         "  {}: runs {}, network map as {map}",

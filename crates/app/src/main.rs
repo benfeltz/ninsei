@@ -16,6 +16,7 @@ mod liza;
 mod netmap;
 mod netmap_draft;
 mod netmap_iso;
+mod netmap_paint;
 mod netpane;
 mod panes;
 mod patterns;

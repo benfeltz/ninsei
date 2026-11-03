@@ -1,6 +1,7 @@
-//! The main editor pane: the network. Two views share what's visible, what's clickable and
-//! what each node is called: floating isometric wireframes (`netmap_iso`) or a flat technical
-//! draft (`netmap_draft`). Returns the node the player clicked.
+//! The main editor pane: the network. Three views share what's visible, what's clickable and
+//! what each node is called: floating isometric wireframes (`netmap_iso`), a flat technical
+//! draft (`netmap_draft`) or a 1-bit MacPaint picture (`netmap_paint`). Returns the node the
+//! player clicked.
 
 use egui::{Color32, Rect, Sense, Ui};
 use ninsei_core::netview::{MapNode, MapView, style};
@@ -151,6 +152,7 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette, view: MapView) -> Option<usiz
     match view {
         MapView::Iso => crate::netmap_iso::show(ui, game, p),
         MapView::Draft => crate::netmap_draft::show(ui, game, p),
+        MapView::Paint => crate::netmap_paint::show(ui, game, p),
     }
 }
 
