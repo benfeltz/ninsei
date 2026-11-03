@@ -21,10 +21,11 @@ fn every_node_kind_has_a_style() {
             ..Sources::builtin()
         })
     };
-    let missing = src.replace(
-        "    (node: Sentry,   mesh: Ico,     symbol: Eye,        tag: \"SENTRY\"),\n",
-        "",
-    );
+    let missing: String = src
+        .lines()
+        .filter(|l| !l.contains("(node: Sentry,"))
+        .collect::<Vec<_>>()
+        .join("\n");
     assert!(parse(&missing).unwrap_err().contains("Sentry"));
     let twice = src.replace("(node: Sentry,", "(node: Barrier,");
     assert!(parse(&twice).unwrap_err().contains("Barrier"));
@@ -144,9 +145,9 @@ fn the_deck_picks_the_map() {
     let d = data();
     let mut s = Save::default();
     s.ensure_hardware(&d);
-    // The starter Sense/Net draws a flat picture (a stand-in until its Paint map lands).
+    // The starter Sense/Net paints a 1-bit picture.
     assert_eq!(s.deck, "sensenet");
-    assert_eq!(s.firmware_def(&d).map, MapView::Draft);
+    assert_eq!(s.firmware_def(&d).map, MapView::Paint);
     s.decks.push("hosaka".into());
     s.use_deck(&d, "hosaka").unwrap();
     assert_eq!(
@@ -162,4 +163,58 @@ fn the_deck_picks_the_map() {
         "the Ono-Sendai sees wireframes"
     );
     assert!(d.theme("synthwave").is_some());
+}
+
+#[test]
+fn every_node_kind_paints_with_a_known_fill() {
+    let d = data();
+    for k in MapNode::ALL {
+        let p = &netview::style(&d, k).paint;
+        assert!(
+            p == netview::PAINT_PAPER || p == netview::PAINT_SOLID || d.pattern(p).is_some(),
+            "{k:?} paints with {p}"
+        );
+    }
+    // ICE classes are told apart by their fill.
+    let fill = |k| netview::style(&d, k).paint.clone();
+    let ice = [
+        MapNode::Barrier,
+        MapNode::CodeGate,
+        MapNode::Sentry,
+        MapNode::BlackIce,
+    ]
+    .map(fill);
+    for (i, a) in ice.iter().enumerate() {
+        assert!(!ice[..i].contains(a), "two ICE kinds paint with {a}");
+    }
+    let src = include_str!("../../../data/netmap.ron");
+    let err = Data::parse(data::Sources {
+        netmap: &src.replace("paint: \"bricks\"", "paint: \"plaid\""),
+        ..data::Sources::builtin()
+    })
+    .unwrap_err();
+    assert!(err.contains("unknown pattern `plaid`"), "{err}");
+}
+
+#[test]
+fn the_flat_layout_runs_left_to_right_inside_the_picture() {
+    let d = data();
+    for seed in 0..20 {
+        let g = Game::new(d.clone(), seed);
+        let net = &g.net;
+        let spots = netview::flat_layout(net);
+        assert_eq!(spots.len(), net.nodes.len());
+        for (n, &(x, y)) in net.nodes.iter().zip(&spots) {
+            assert!((0.0..=1.0).contains(&x) && (0.0..1.0).contains(&y));
+            for &to in &n.links {
+                assert!(spots[to].0 > x, "links run left to right");
+            }
+        }
+        // A layer's nodes never share a spot.
+        for layer in &net.layers {
+            for (i, &a) in layer.iter().enumerate() {
+                assert!(layer[..i].iter().all(|&b| spots[b] != spots[a]));
+            }
+        }
+    }
 }

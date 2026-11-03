@@ -14,6 +14,8 @@ pub enum MapView {
     Iso,
     /// A flat plan, drawn like a technical drawing.
     Draft,
+    /// A 1-bit MacPaint picture on a card: nodes filled with patterns.
+    Paint,
 }
 
 /// A kind of node as the map tells them apart: ICE splits by class.
@@ -102,6 +104,29 @@ pub struct MapStyleDef {
     pub mesh: MeshKind,
     pub symbol: Symbol,
     pub tag: String,
+    /// How the Paint view fills the node: a pattern id (`data/patterns.ron`), or `paper`
+    /// (blank, with its tag written inside) or `solid` (all ink).
+    pub paint: String,
+}
+
+/// Paint fills that aren't patterns.
+pub const PAINT_PAPER: &str = "paper";
+pub const PAINT_SOLID: &str = "solid";
+
+/// Where each node sits on a flat map, as fractions (0..1) of the drawing's width and height:
+/// layers left to right, a layer's nodes spread evenly top to bottom.
+pub fn flat_layout(net: &Network) -> Vec<(f32, f32)> {
+    let layers = net.layers.len();
+    net.nodes
+        .iter()
+        .map(|n| {
+            let width = net.layers[n.layer].len().max(1);
+            (
+                n.layer as f32 / (layers - 1).max(1) as f32,
+                (n.lane as f32 + 0.5) / width as f32,
+            )
+        })
+        .collect()
 }
 
 impl MapStyleDef {

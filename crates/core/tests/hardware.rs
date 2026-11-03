@@ -46,7 +46,7 @@ fn old_saves_get_the_starters() {
     assert_eq!((s.monitor.as_str(), s.deck.as_str()), ("amber", "sensenet"));
     // The amber tube only shows amber.
     assert_eq!(s.phosphor, "amber");
-    assert_eq!(s.firmware_def(&d).map, MapView::Draft);
+    assert_eq!(s.firmware_def(&d).map, MapView::Paint);
     assert!(!s.ensure_hardware(&d), "nothing more to fix");
 }
 
@@ -106,7 +106,7 @@ fn buying_hardware() {
     );
     // Swapping back and forth.
     s.use_deck(&d, "sensenet").unwrap();
-    assert_eq!(s.firmware_def(&d).map, MapView::Draft);
+    assert_eq!(s.firmware_def(&d).map, MapView::Paint);
     assert!(s.use_deck(&d, "nope").is_err());
     assert!(s.use_firmware(&d, "9.9").is_err());
 }
