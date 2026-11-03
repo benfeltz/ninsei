@@ -29,13 +29,20 @@
          blurb: "Crisp 640x480. Business-grade colour for any theme."),
     ],
     decks: [
-        (id: "onosendai", name: "Cyberspace VII", maker: "Ono-Sendai", price: 650,
+        (id: "sensenet", name: "Personal Deck", maker: "Sense/Net", price: 0, starter: true,
+         blurb: "Everybody's first deck. Friendly, tidy, 1-bit: the net as a stack of cards you page through.",
+         firmware: [
+            // Liza's own parts (the Liza desktop, the Paint map, the Stack chrome) replace these
+            // stand-ins as they land (#74-#76).
+            (id: "1.0", label: "Liza 1.0", map: Draft, chrome: Classic, desktop: Workbench, sounds: "sensenet"),
+         ]),
+        (id: "onosendai", name: "Cyberspace VII", maker: "Ono-Sendai", price: 400,
          blurb: "The cowboy's deck. Jacks you straight into the matrix: wireframes over a glowing grid.",
          firmware: [
             (id: "7.0", label: "Cyberspace 7.0", map: Iso, chrome: Btop, desktop: Tiling, sounds: "ono", panes: ["net"]),
             (id: "6.2", label: "Cyberspace 6.2 (classic panes)", map: Iso, chrome: Classic, desktop: Workbench, sounds: "ono"),
          ]),
-        (id: "hosaka", name: "Executive 4", maker: "Hosaka", price: 0, starter: true,
+        (id: "hosaka", name: "Executive 4", maker: "Hosaka", price: 650,
          blurb: "A corporate workstation. Sees the net as a plan: every node drafted, dimensioned and filed.",
          firmware: [
             (id: "4.0", label: "PlanView 4.0", map: Draft, chrome: Suite, desktop: Workbench, sounds: "hosaka"),

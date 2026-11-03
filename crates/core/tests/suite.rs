@@ -36,12 +36,14 @@ fn panes_come_with_firmware_or_are_bought() {
     let d = data();
     let mut s = Save::default();
     s.ensure_hardware(&d);
-    // The starter Hosaka doesn't bundle the net pane; the Ono-Sendai 7.0 ships with it.
-    assert!(!s.has_pane(&d, "net"), "the Hosaka doesn't bundle it");
+    // The starter Sense/Net doesn't bundle the net pane; the Ono-Sendai 7.0 ships with it.
+    assert!(!s.has_pane(&d, "net"), "the Sense/Net doesn't bundle it");
     s.decks.push("onosendai".into());
     s.use_deck(&d, "onosendai").unwrap();
     assert!(s.has_pane(&d, "net"));
+    s.decks.push("hosaka".into());
     s.use_deck(&d, "hosaka").unwrap();
+    assert!(!s.has_pane(&d, "net"), "the Hosaka doesn't bundle it");
     let price = d.panes.iter().find(|p| p.id == "net").unwrap().price;
     assert!(s.buy_pane(&d, "net").is_err(), "no credits yet");
     s.bank = price + 5;
