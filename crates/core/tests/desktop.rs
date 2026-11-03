@@ -206,3 +206,37 @@ fn each_os_has_a_name() {
     assert_eq!(Desktop::Tiling.name(), "AnarchyOS");
     assert_eq!(Desktop::Workbench.name(), "Desktop");
 }
+
+#[test]
+fn the_shell_completes_its_verbs_and_arguments() {
+    use ninsei_core::hub::{self, SHELL_VERBS};
+    let d = data();
+    let mut s = Save::default();
+    s.ensure_hardware(&d);
+    s.ensure_phonebook(&d, 7);
+    assert_eq!(hub::shell_complete("", &s, &d).len(), SHELL_VERBS.len());
+    // Every verb is one the Shell answers (not "Unknown command").
+    for v in SHELL_VERBS {
+        let (lines, _) = hub::shell(v, &s, &d);
+        assert!(
+            !lines.iter().any(|l| l.starts_with("Unknown command")),
+            "{v}: {lines:?}"
+        );
+    }
+    let dial = hub::shell_complete("dial ", &s, &d);
+    assert_eq!(dial.len(), s.phonebook.len());
+    assert_eq!(dial.first().map(String::as_str), Some("1"));
+    assert!(hub::shell_complete("run ", &s, &d).contains(&"carrierterm".to_string()));
+    assert!(hub::shell_complete("theme ", &s, &d).contains(&"amber".to_string()));
+    assert_eq!(hub::shell_complete("deck ", &s, &d), s.decks);
+    assert_eq!(
+        hub::shell_complete("wardial ", &s, &d).len(),
+        s.ranges.len()
+    );
+    assert!(
+        hub::shell_complete("dial 1 ", &s, &d).is_empty(),
+        "no third word"
+    );
+    // Old saves load without the history.
+    assert!(Save::load("(version: 1)").unwrap().shell_history.is_empty());
+}

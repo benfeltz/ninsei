@@ -98,7 +98,8 @@ impl TilingDesk {
     }
 
     /// Reads this frame's keys for the desktop. Returns true if something changed.
-    fn keys(&mut self, ui: &Ui, t: &mut Tiling) {
+    /// `searching`: the Shell is in a `Ctrl+R` search, where Esc only ends the search.
+    fn keys(&mut self, ui: &Ui, t: &mut Tiling, searching: bool) {
         let events = ui.input(|i| i.events.clone());
         for e in events {
             match e {
@@ -107,7 +108,7 @@ impl TilingDesk {
                     pressed: true,
                     ..
                 } => {
-                    if self.launcher.take().is_none() && !self.help {
+                    if self.launcher.take().is_none() && !self.help && !searching {
                         self.leader = !self.leader;
                     }
                     self.help = false;
@@ -165,7 +166,7 @@ impl DesktopView for TilingDesk {
             t.open(tool);
         }
         if live {
-            self.keys(ui, &mut t);
+            self.keys(ui, &mut t, home.shell_searching());
         }
         let screen = ui.ctx().content_rect().translate(vec2(0.0, cx.offset));
         let painter = ui.painter_at(screen);
@@ -531,4 +532,56 @@ fn help_ui(ui: &mut Ui, screen: Rect) -> bool {
                 matches!(e, Event::Key { pressed: true, key, .. } if *key != Key::Escape && *key != Key::Questionmark && *key != Key::Slash)
             })
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::home::{Cx, DesktopView};
+    use egui::{Event, RawInput};
+
+    #[test]
+    fn the_shell_tile_takes_typing_once_enabled() {
+        let data = ninsei_core::Data::builtin().unwrap();
+        let save = ninsei_core::hub::Save {
+            tiling_help_seen: true,
+            ..Default::default()
+        };
+        let ctx = egui::Context::default();
+        let mut desk = TilingDesk::new();
+        let mut home = Home::new(Vec::new());
+        // The first frame is drawn disabled, as while the desktop settles at boot: the Shell
+        // must keep its focus request for the first frame it can take it.
+        for (k, events) in [
+            Vec::new(),
+            Vec::new(),
+            vec![Event::Text("ph".into())],
+            Vec::new(),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let raw = RawInput {
+                screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(1280.0, 800.0))),
+                time: Some(k as f64 * 0.1),
+                events,
+                ..RawInput::default()
+            };
+            let mut o = ctx.run_ui(raw, |ui| {
+                if k == 0 {
+                    ui.disable();
+                }
+                let cx = Cx {
+                    data: &data,
+                    save: &save,
+                    offset: 0.0,
+                    live: true,
+                };
+                let mut out = Vec::new();
+                desk.show(ui, &mut home, &cx, &mut out);
+            });
+            o.textures_delta.clear();
+        }
+        assert_eq!(home.shell_text(), "ph");
+    }
 }

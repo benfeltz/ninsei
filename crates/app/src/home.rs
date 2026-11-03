@@ -121,6 +121,8 @@ pub enum WbOut {
     Firmware(String),
     /// Damage glitches on, reduced or off.
     Glitches(ninsei_core::glitch::Glitches),
+    /// The Shell ran a command: keep its history in the save.
+    ShellHistory(Vec<String>),
     /// Buy a secondary pane for the run screen in RIG (id).
     BuyPane(String),
     /// Buy a desktop add-on in RIG (id).
@@ -200,7 +202,8 @@ impl Desktops {
 /// Home's shared state.
 pub struct Home {
     shell_lines: Vec<String>,
-    shell_input: String,
+    /// The Shell's command line: readline keys, history, completion.
+    shell: ninsei_term::LineEditor,
     focus_shell: bool,
     /// The Shell's prompt (each desktop sets its own).
     pub(crate) prompt: &'static str,
@@ -225,7 +228,7 @@ impl Home {
     pub fn new(boot: Vec<String>) -> Self {
         Self {
             shell_lines: boot,
-            shell_input: String::new(),
+            shell: ninsei_term::LineEditor::new(ninsei_core::command::HISTORY_KEEP),
             focus_shell: true,
             prompt: "1.Workbench:> ",
             opens: vec![Tool::Shell],
@@ -436,37 +439,73 @@ impl Home {
         }
         let prompt = self.prompt;
         let py = rect.min.y + (self.shell_lines.len() - start) as f32 * row;
-        let pw = painter
-            .text(
-                pos2(rect.min.x, py),
-                Align2::LEFT_TOP,
-                prompt,
-                font(),
-                accent(),
-            )
-            .width();
         let input_rect =
-            Rect::from_min_max(pos2(rect.min.x + pw, py - 1.0), pos2(rect.max.x, py + row));
-        let edit = egui::TextEdit::singleline(&mut self.shell_input)
-            .frame(egui::Frame::NONE)
-            .font(font())
-            .text_color(ink())
-            .desired_width(input_rect.width())
-            .id(Id::new("wb-shell-input"));
-        let resp = ui.put(input_rect, edit);
-        if focused && self.focus_shell {
-            resp.request_focus();
+            Rect::from_min_max(pos2(rect.min.x, py - 2.0), pos2(rect.max.x, py + row + 2.0));
+        let id = Id::new("wb-shell-input");
+        // Keep the request until the Shell can take it: a disabled frame (the desktop still
+        // settling) would hand the focus straight back.
+        if focused && self.focus_shell && ui.is_enabled() {
+            ui.memory_mut(|m| m.request_focus(id));
             self.focus_shell = false;
         }
-        if resp.clicked() {
+        // Only the Shell on top (or the focused tile) types.
+        if !focused && ui.memory(|m| m.has_focus(id)) {
+            ui.memory_mut(|m| m.surrender_focus(id));
+        }
+        let style = ninsei_term::widget::Style {
+            font: font(),
+            prompt: accent(),
+            text: ink(),
+            cursor: ink(),
+            under_cursor: backdrop(),
+            search: accent(),
+        };
+        let complete = |before: &str| hub::shell_complete(before, save, data);
+        let mut child = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(input_rect)
+                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+        );
+        let r = ninsei_term::widget::line(
+            &mut child,
+            id,
+            &mut self.shell,
+            prompt.trim_end(),
+            &style,
+            &complete,
+        );
+        if r.response.clicked() {
             self.focus_shell = true;
         }
-        if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-            let line = std::mem::take(&mut self.shell_input);
-            self.say(format!("{prompt}{line}"));
-            self.run(&line, data, save, out);
-            self.focus_shell = true;
+        for o in r.outcomes {
+            match o {
+                ninsei_term::Outcome::Submit(line) => {
+                    self.say(format!("{prompt}{line}"));
+                    self.run(&line, data, save, out);
+                    out.push(WbOut::ShellHistory(self.shell.history().to_vec()));
+                }
+                ninsei_term::Outcome::Cancelled(was) => self.say(format!("{prompt}{was}^C")),
+                ninsei_term::Outcome::ClearScreen => self.shell_lines.clear(),
+                ninsei_term::Outcome::List(words) => self.say(words.join("   ")),
+                ninsei_term::Outcome::Nothing => {}
+            }
         }
+    }
+
+    /// What's typed in the Shell's command line.
+    #[cfg(test)]
+    pub fn shell_text(&self) -> String {
+        self.shell.text()
+    }
+
+    /// Whether the Shell is in a `Ctrl+R` search.
+    pub fn shell_searching(&self) -> bool {
+        self.shell.searching()
+    }
+
+    /// Restores the Shell's history (from the save), oldest first.
+    pub fn set_shell_history(&mut self, history: Vec<String>) {
+        self.shell.set_history(history);
     }
 
     /// Runs a Shell command line: prints what it says and does what it asks.

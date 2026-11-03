@@ -67,9 +67,10 @@ pub fn line(
     complete: &dyn Fn(&str) -> Vec<String>,
 ) -> LineResponse {
     let row = ui.fonts_mut(|f| f.row_height(&style.font));
-    let (rect, response) =
-        ui.allocate_exact_size(vec2(ui.available_width(), row + 4.0), Sense::click());
-    let response = ui.interact(rect, id, Sense::click()).union(response);
+    // Take the space without a widget of its own (a second, unnamed focusable widget there would
+    // take the clicks and the focus), then the line is the one widget, under `id`.
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), row + 4.0), Sense::hover());
+    let response = ui.interact(rect, id, Sense::click());
     if response.clicked() {
         response.request_focus();
     }
