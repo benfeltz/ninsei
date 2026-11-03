@@ -593,6 +593,9 @@ pub struct Save {
     /// The run terminal's command history, oldest first (capped at `command::HISTORY_KEEP`).
     #[serde(default)]
     pub term_history: Vec<String>,
+    /// The home Shell's command history, oldest first (capped at `command::HISTORY_KEEP`).
+    #[serde(default)]
+    pub shell_history: Vec<String>,
 }
 
 /// A BBS whose number you know, and how you found it.
@@ -665,6 +668,7 @@ impl Default for Save {
             tiling_help_seen: false,
             panes: Vec::new(),
             term_history: Vec::new(),
+            shell_history: Vec::new(),
         }
     }
 }
@@ -1372,6 +1376,57 @@ pub enum ShellEffect {
     /// Modem sounds on/off.
     Sound,
     Clear,
+}
+
+/// Every verb the home Shell knows, for Tab completion.
+pub const SHELL_VERBS: &[&str] = &[
+    "help",
+    "dir",
+    "info",
+    "phonebook",
+    "dial",
+    "ranges",
+    "wardial",
+    "run",
+    "theme",
+    "crt",
+    "sound",
+    "monitor",
+    "deck",
+    "echo",
+    "leet",
+    "clear",
+];
+
+/// Tab completion for the home Shell: the text before the cursor in, the words that could
+/// finish its last word out. Verbs first, then what each verb takes: a phonebook entry or a
+/// known board, a range, a tool, a theme, a monitor or deck you own.
+pub fn shell_complete(before: &str, save: &Save, data: &Data) -> Vec<String> {
+    let words: Vec<&str> = before.split_whitespace().collect();
+    let fresh = before.is_empty() || before.ends_with(char::is_whitespace);
+    let arg = (words.len() + usize::from(fresh)).saturating_sub(1);
+    if arg == 0 {
+        return SHELL_VERBS.iter().map(|v| v.to_string()).collect();
+    }
+    if arg > 1 {
+        return Vec::new();
+    }
+    match words[0].to_ascii_lowercase().as_str() {
+        "dial" | "atdt" => (1..=save.phonebook.len() + data.boards.len())
+            .map(|n| n.to_string())
+            .filter(|n| save.lookup(n).is_some() || save.lookup_board(data, n).is_some())
+            .collect(),
+        "wardial" | "scan" => save.ranges.iter().map(|r| r.id.clone()).collect(),
+        "run" | "open" => data
+            .icons
+            .iter()
+            .map(|i| i.label.to_ascii_lowercase())
+            .collect(),
+        "theme" => data.themes.iter().map(|t| t.id.clone()).collect(),
+        "monitor" | "display" => save.monitors.clone(),
+        "deck" => save.decks.clone(),
+        _ => Vec::new(),
+    }
 }
 
 /// Runs one Shell line. Returns the lines to print and what to do.

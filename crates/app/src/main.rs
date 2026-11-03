@@ -315,6 +315,8 @@ impl App {
         me.load_layout();
         let history = me.save.term_history.clone();
         me.term.set_history(history);
+        let history = me.save.shell_history.clone();
+        me.home.set_shell_history(history);
         me
     }
 
@@ -630,6 +632,7 @@ impl App {
             | WbOut::Tiling(_)
             | WbOut::BuyAddon(_)
             | WbOut::BuyPane(_)
+            | WbOut::ShellHistory(_)
             | WbOut::Monitor(_)
             | WbOut::Deck(_)
             | WbOut::Firmware(_)
@@ -1125,6 +1128,12 @@ impl eframe::App for App {
                         let r = self.save.buy_addon(&self.data, &id);
                         self.save_dirty = true;
                         self.home.say(r.unwrap_or_else(|e| e));
+                    }
+                    WbOut::ShellHistory(h) => {
+                        if self.save.shell_history != h {
+                            self.save.shell_history = h;
+                            self.save_dirty = true;
+                        }
                     }
                     WbOut::BuyPane(id) => {
                         let r = self.save.buy_pane(&self.data, &id);

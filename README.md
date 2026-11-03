@@ -39,7 +39,7 @@ Between runs you're on your own machine, on the same monitor as your runs. What 
 ![the hub](docs/shots/hub.png)
 ![jacking in](docs/shots/hub-jackin.png)
 
-- **NinShell**: `help`, `dir`, `phonebook`, `dial <n> [seed]`, `ranges`, `wardial <range>`, `run <tool>`, `info`, `theme <id>`, `crt`, `monitor [id]`, `deck [id]`, `echo`, `leet <text>`, `clear`
+- **NinShell**: `help`, `dir`, `phonebook`, `dial <n> [seed]`, `ranges`, `wardial <range>`, `run <tool>`, `info`, `theme <id>`, `crt`, `monitor [id]`, `deck [id]`, `echo`, `leet <text>`, `clear`. Same line editor as the run terminal: readline keys, `↑` history (saved), `Ctrl+R`, and `Tab` to complete verbs, phonebook entries and known boards, ranges, tools, themes and the monitors and decks you own
 - **Prefs**: the theme (desktop and runs alike) with colour swatches, and the CRT display preset
 - **Desktop**: windows drag by their title bar; the close gadget is top left, the depth gadget top right
 - **AnarchyOS**: tools open as tiles (a master on the left, a stack on the right) across workspaces, with a top bar. **Esc** is the leader key; then **Space** opens the launcher, **1-9** switches workspace, **Shift+1-9** sends the tile there, **h/l** moves focus, **Enter** swaps with the master, **x** closes, **?** shows the keys. The mouse works too.
