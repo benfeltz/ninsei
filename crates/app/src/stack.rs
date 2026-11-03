@@ -21,8 +21,19 @@ mod look {
     /// How far a button's hatched shadow falls.
     pub const DROP: f32 = 4.0;
     pub const ALERT_W: f32 = 460.0;
-    /// How far down the screen the fight's alert sits.
-    pub const ALERT_TOP: f32 = 230.0;
+    /// Where the fight's alert sits on the screen.
+    pub const ALERT_LEFT: f32 = 60.0;
+    pub const ALERT_TOP: f32 = 300.0;
+    /// How round the small buttons are.
+    pub const SMALL_R: u8 = 6;
+}
+
+/// HyperCard's buttons are rounded, whatever pane draws them.
+fn round(ui: &mut Ui) {
+    let w = &mut ui.visuals_mut().widgets;
+    for v in [&mut w.inactive, &mut w.hovered, &mut w.active, &mut w.open] {
+        v.corner_radius = egui::CornerRadius::same(look::SMALL_R);
+    }
 }
 
 const MENUS: Menus = &[
@@ -318,6 +329,122 @@ impl ChromeView for Stack {
         true
     }
 
+    /// Ink on paper: everything folds onto the theme's text and its deepest background, with
+    /// only the faint tone kept for hovers and selections.
+    fn palette(&self, p: crate::theme::Palette) -> crate::theme::Palette {
+        crate::theme::Palette {
+            bg: p.bg,
+            panel: p.bg,
+            faint: p.faint,
+            dim: p.fg,
+            fg: p.fg,
+            bright: p.fg,
+        }
+    }
+
+    fn status_fill(&self, p: &crate::theme::Palette) -> Color32 {
+        p.bg
+    }
+
+    /// A plain line of facts along the bottom, ink on paper.
+    fn status(&self, ui: &mut Ui, pal: &crate::theme::Palette, game: &Game) -> bool {
+        let node = &game.net.nodes[game.at];
+        let state = match game.phase {
+            Phase::Exploring => "linked",
+            Phase::Combat => "ICE contact",
+            Phase::Encounter => "incoming message",
+            Phase::Flatlined => "flatline",
+            Phase::JackedOut => "offline",
+        };
+        let site = game.site.as_ref().map_or("a local net".to_string(), |s| {
+            format!("{} (tier {})", s.name, s.tier)
+        });
+        ui.horizontal(|ui| {
+            ui.label(
+                RichText::new(format!(
+                    "{state}  ·  {site}  ·  {}  ·  layer {} of {}  ·  trace {}%",
+                    node.name,
+                    node.layer,
+                    game.net.layers.len() - 1,
+                    game.deck.trace
+                ))
+                .color(pal.fg),
+            );
+        });
+        true
+    }
+
+    /// The dock dressed as HyperCard windows: ink frames and splitters on paper, the front
+    /// tab of each window inverted like a selected title.
+    fn dock_style(&self, mut s: egui_dock::Style, p: &crate::theme::Palette) -> egui_dock::Style {
+        let (ink, paper) = (p.fg, p.bg);
+        s.main_surface_border_stroke = Stroke::new(1.0, ink);
+        s.separator.width = 2.0;
+        s.separator.color_idle = ink;
+        s.separator.color_hovered = ink;
+        s.separator.color_dragged = ink;
+        s.tab_bar.bg_fill = paper;
+        s.tab_bar.hline_color = ink;
+        s.tab_bar.height = 22.0;
+        s.tab.tab_body.bg_fill = paper;
+        s.tab.tab_body.stroke = Stroke::new(1.0, ink);
+        for (t, bg, text) in [
+            (&mut s.tab.active, paper, ink),
+            (&mut s.tab.focused, ink, paper),
+            (&mut s.tab.active_with_kb_focus, paper, ink),
+            (&mut s.tab.focused_with_kb_focus, ink, paper),
+            (&mut s.tab.inactive, paper, ink),
+            (&mut s.tab.inactive_with_kb_focus, paper, ink),
+            (&mut s.tab.hovered, paper, ink),
+        ] {
+            t.bg_fill = bg;
+            t.text_color = text;
+            t.outline_color = ink;
+            t.corner_radius = egui::CornerRadius {
+                nw: look::SMALL_R,
+                ne: look::SMALL_R,
+                sw: 0,
+                se: 0,
+            };
+        }
+        s
+    }
+
+    /// The mockup's arrangement: the network (with ICE and Hex as its other cards) large on
+    /// the left, the deck and the programs on the right, the Message box along the bottom.
+    fn default_layout(&self, extra: &[Tab]) -> egui_dock::DockState<Tab> {
+        use egui_dock::{DockState, NodeIndex};
+        let mut dock = DockState::new(vec![Tab::Network, Tab::Target, Tab::Hex]);
+        let tree = dock.main_surface_mut();
+        let [card, bottom] = tree.split_below(NodeIndex::root(), 0.72, vec![Tab::Terminal]);
+        let [_, side] = tree.split_right(card, 0.68, vec![Tab::Deck]);
+        tree.split_below(side, 0.42, vec![Tab::Warez, Tab::Todo]);
+        if !extra.is_empty() {
+            tree.split_right(bottom, 0.6, extra.to_vec());
+        }
+        dock
+    }
+
+    fn network(&self, p: &mut Panes, ui: &mut Ui) {
+        round(ui);
+        p.network(ui);
+    }
+
+    fn target(&self, p: &mut Panes, ui: &mut Ui) {
+        round(ui);
+        p.target(ui);
+    }
+
+    fn hex(&self, p: &mut Panes, ui: &mut Ui) {
+        round(ui);
+        p.hex_pane(ui);
+    }
+
+    fn todo(&self, p: &mut Panes, ui: &mut Ui) {
+        round(ui);
+        p.todo(ui);
+    }
+
     /// A fight brings up a Mac alert over the card. It's small and off to the side of the
     /// action, and closing it just tucks it away for this fight.
     fn overlay(&self, ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
@@ -340,9 +467,10 @@ impl ChromeView for Stack {
         let screen = ctx.content_rect();
         egui::Area::new(Id::new("stack-alert"))
             .order(egui::Order::Foreground)
-            // Off to the right, below the panes' headers and the program row.
+            // Over the lower left, below the ICE's numbers and clear of the programs (the
+            // Stack's layout keeps them on the right).
             .fixed_pos(egui::pos2(
-                screen.right() - look::ALERT_W - 60.0,
+                screen.left() + look::ALERT_LEFT,
                 screen.top() + look::ALERT_TOP,
             ))
             .show(ctx, |ui| {
@@ -418,6 +546,13 @@ impl ChromeView for Stack {
 mod tests {
     use super::*;
     use ninsei_core::Data;
+
+    #[test]
+    fn the_stack_draws_in_ink_on_paper() {
+        let d = Data::builtin().unwrap();
+        let p = Stack.palette(crate::theme::Palette::from_def(&d.themes[0]));
+        assert_eq!((p.panel, p.dim, p.bright), (p.bg, p.fg, p.fg));
+    }
 
     #[test]
     fn meters_darken_as_they_fill() {

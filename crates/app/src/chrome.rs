@@ -138,6 +138,18 @@ pub trait ChromeView {
     fn one_bit(&self) -> bool {
         false
     }
+    /// The run's colours under this chrome, from the theme's (a 1-bit chrome folds them).
+    fn palette(&self, p: Palette) -> Palette {
+        p
+    }
+    /// How the dock (tabs, frames, splitters) is dressed, from the shared style.
+    fn dock_style(&self, s: egui_dock::Style, _p: &Palette) -> egui_dock::Style {
+        s
+    }
+    /// The status line's background.
+    fn status_fill(&self, p: &Palette) -> egui::Color32 {
+        p.faint
+    }
 }
 
 /// The shared layout: map, target and hex in the middle, deck and warez on the left, the

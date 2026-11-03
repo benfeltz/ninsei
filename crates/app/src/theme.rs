@@ -8,7 +8,7 @@ use egui::{
 };
 
 /// One theme, six intensities, from unlit glass to full glow.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Palette {
     /// Deepest background: text fields, the network map.
     pub bg: Color32,

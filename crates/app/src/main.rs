@@ -206,6 +206,8 @@ struct App {
     layout_checked: f64,
     /// This frame's damage glitches.
     glitch: glitch::Glitch,
+    /// The palette egui's visuals were last built from (a chrome can fold the run's).
+    applied_pal: Option<theme::Palette>,
     /// The CRT shader pass (falls back to `crt.rs`'s overlay if GL can't run it).
     crt_gl: CrtGl,
     /// Run theme id (see `data/themes.ron`) and its palette.
@@ -315,6 +317,7 @@ impl App {
             focus_input: true,
             layout_checked: 0.0,
             glitch: glitch::Glitch::default(),
+            applied_pal: None,
         };
         me.load_layout();
         let history = me.save.term_history.clone();
@@ -393,6 +396,7 @@ impl App {
         self.pal = Palette::from_def(t);
         self.run_theme = t.id.clone();
         theme::apply(ctx, &self.pal);
+        self.applied_pal = Some(self.pal);
         self.save.phosphor = t.id.clone();
         self.save_dirty = true;
     }
@@ -1067,6 +1071,17 @@ impl eframe::App for App {
         if self.glitch.busy() {
             ctx.request_repaint();
         }
+        // The chrome can fold the run's colours (a 1-bit chrome draws in two); the desktop
+        // keeps the theme's.
+        let pal = if self.screen.shows_run() && !self.crashed {
+            chrome::view(self.save.firmware_def(&self.data).chrome).palette(pal)
+        } else {
+            pal
+        };
+        if self.applied_pal != Some(pal) {
+            theme::apply(&ctx, &pal);
+            self.applied_pal = Some(pal);
+        }
         if self.screen.shows_run() {
             if self.crashed {
                 let clicked = crash::show(ui, self.booked.as_ref());
@@ -1305,7 +1320,7 @@ impl App {
         egui::Panel::bottom("status")
             .frame(
                 egui::Frame::new()
-                    .fill(pal.faint)
+                    .fill(view.status_fill(&pal))
                     .inner_margin(egui::Margin::symmetric(6, 1)),
             )
             .show(ui, |ui| self.status_bar(ui, &pal));
@@ -1349,7 +1364,7 @@ impl App {
             .frame(egui::Frame::new().fill(pal.bg))
             .show(ui, |ui| {
                 DockArea::new(&mut self.dock)
-                    .style(theme::dock_style(ui.style(), &pal))
+                    .style(view.dock_style(theme::dock_style(ui.style(), &pal), &pal))
                     .show_close_buttons(true)
                     .show_add_buttons(false)
                     .show_leaf_collapse_buttons(false)
