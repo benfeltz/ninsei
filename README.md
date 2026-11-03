@@ -139,6 +139,11 @@ Tabs can be dragged, split and rearranged, and **your layout is saved** (one per
 
 ![net pane](docs/shots/net-pane-synthwave.png)
 
+On the **Sense/Net** the run screen is a HyperCard stack, in the theme's two colours. The map is the Card. The deck is a field of meters that fill with darker patterns as they rise. Programs are rounded buttons with a hatched shadow: click one to run it in a fight, or to load or unload it otherwise. The terminal is the Message box under a scrolling log field. When ICE rezzes, a double-bordered Mac alert offers your hardest-hitting program as its ringed default button, plus a shield; close it and fight from the panes. Damage glitches tear and smear but never split colour.
+
+![the stack](docs/shots/stack-run.png)
+![a fight on the stack](docs/shots/stack-fight.png)
+
 On the **Ono-Sendai** the panes are dressed btop-style: boxed with their titles cut into the border, gradient meters with sparklines of their recent history, a trace-per-hop graph, a process table for your warez (a program's row lights up and its activity graph spikes when it runs), and in a fight a draining strength meter, a strength graph, the ICE's next moves as a waterfall falling toward *now*, and a damage waterfall of the last turns. The terminal stamps each line with its hop and turn. Graphs are painted at braille resolution (2x4 dots a character). Prefer the plain panes? Switch the deck's firmware to **Cyberspace 6.2** in Prefs.
 
 **Fights on the Ono-Sendai happen in cyberspace.** When ICE rezzes, the network map dives into its node and the node's wireframe becomes the ICE:

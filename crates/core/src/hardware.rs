@@ -20,10 +20,13 @@ pub enum Chrome {
     /// A 90s productivity suite: forms, spreadsheets, report charts, an F-key legend and
     /// dialogs (the corpo deck).
     Suite,
+    /// A HyperCard stack: a card, the Message box, pattern meters, rounded buttons and Mac
+    /// alerts, 1-bit (the starter deck).
+    Stack,
 }
 
 impl Chrome {
-    pub const ALL: [Chrome; 3] = [Chrome::Classic, Chrome::Btop, Chrome::Suite];
+    pub const ALL: [Chrome; 4] = [Chrome::Classic, Chrome::Btop, Chrome::Suite, Chrome::Stack];
 }
 
 /// The overworld's look. A new desktop is a new name here, a renderer in the app's

@@ -10,7 +10,7 @@
 //   firmware  one or more UX versions, each built from named parts:
 //               map:     Iso (wireframes over a grid) | Draft (a flat technical drawing) |
 //                        Paint (a 1-bit picture, nodes filled with patterns)
-//               chrome:  Classic | Btop | Suite (how the run screen is dressed)
+//               chrome:  Classic | Btop | Suite | Stack (how the run screen is dressed)
 //               desktop: Workbench | Tiling | Liza (the overworld's look)
 //               sounds:  a sound pack in data/sounds/ ("ono", "hosaka")
 //               panes:   secondary panes that come free with it (ids in hub/panes.ron)
@@ -33,8 +33,7 @@
         (id: "sensenet", name: "Personal Deck", maker: "Sense/Net", price: 0, starter: true,
          blurb: "Everybody's first deck. Friendly, tidy, 1-bit: the net as a stack of cards you page through.",
          firmware: [
-            // The Stack chrome replaces the Classic stand-in when it lands (#76).
-            (id: "1.0", label: "Liza 1.0", map: Paint, chrome: Classic, desktop: Liza, sounds: "sensenet"),
+            (id: "1.0", label: "Liza 1.0", map: Paint, chrome: Stack, desktop: Liza, sounds: "sensenet"),
          ]),
         (id: "onosendai", name: "Cyberspace VII", maker: "Ono-Sendai", price: 400,
          blurb: "The cowboy's deck. Jacks you straight into the matrix: wireframes over a glowing grid.",
