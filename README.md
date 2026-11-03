@@ -255,13 +255,13 @@ Click a byte (or tab into the ASCII column) to type over it; arrows move, `ctrl+
 
 Landing on the `BBS` node dials the network's board: modem handshake, an ANSI splash, then a real single-key BBS: `[F]`iles, `[J]`obs, `[B]`ulletins, `[W]`ho's online, `[G]`oodbye. File areas list today's stock. Pick a number to start a Zmodem download, and the credits come off when the transfer completes. **display** flips between true 16-colour ANSI and the current phosphor.
 
-Three boards ship, each with its own sysop, wares and look:
+Three boards ship, one per tier, each with its own sysop, wares and look. Each sells a step up from the last, at higher prices:
 
-- **THE NEON GUTTER** (LAN and corp nets, and every plain `newrun`): the hangout. Blue bars, l33t (`F1l3 4r34z`, `Rul3z 0f th3 Gutt3r`; hotkeys, filenames and numbers stay readable).
-- **DEAD SECTOR** (LANs and megacorps, or any net with the *pirate board* trait): an anarchy board at 2400 baud. Red box-drawn rules, cheap hot breakers, phreak textfiles, no deck-mod shop.
-- **CORPLINK EMPLOYEE SERVICES** (corp and megacorp backbones): the staff intranet. Plain inverse-blue headers, no l33t, a guest login, memos, hardware requisitions and priced like an expense report.
+- **THE NEON GUTTER** (tier 1 LANs, and every plain `newrun`): the hangout. Blue bars, l33t (`F1l3 4r34z`, `Rul3z 0f th3 Gutt3r`; hotkeys, filenames and numbers stay readable). The basics: class breakers, firewall, patch, small mods, the corp switchboard ranges.
+- **DEAD SECTOR** (tier 2 corp nets, or any net with the *pirate board* trait): an anarchy board at 2400 baud. Red box-drawn rules. Hot warez (wyrm, scrubber, lagspike), hot hardware, Kestrel and the first core ranges.
+- **CORPLINK EMPLOYEE SERVICES** (tier 3 megacorp backbones): the staff intranet. Plain inverse-blue headers, no l33t, a guest login, memos, and priced like an expense report. The best: torch, mirror, the CPU mod, Yamatai R&D and the Kestrel black site, fragment packs.
 
-A phonebook number always reaches the same board: one of the boards for its tier, picked by the number, unless a trait names one.
+A phonebook number always reaches the same board: the one for its tier (picked by the number if a tier ever has several), unless a trait names one.
 
 ![the gutter](docs/shots/bbs-gutter-main.png)
 ![gutter splash](docs/shots/bbs-splash.png)

@@ -97,16 +97,51 @@ fn a_number_always_reaches_the_same_board() {
 }
 
 #[test]
-fn each_tier_can_surprise_you() {
+fn each_tier_has_its_board_and_better_stock() {
     let d = data();
-    for tier in 1..=3 {
-        let mut seen: Vec<usize> = (0..200)
-            .map(|n| Save::site_board(&d, &entry(&format!("555-{n:04}"), tier, &[])))
-            .collect();
-        seen.sort_unstable();
-        seen.dedup();
-        assert!(seen.len() >= 2, "tier {tier} only ever reaches one board");
+    let id = |tier| Save::site_board(&d, &entry("555-0123", tier, &[])).to_owned();
+    let ids: Vec<&str> = (1..=3).map(|t| d.boards[id(t)].id.as_str()).collect();
+    assert_eq!(ids, ["gutter", "deadsector", "corplink"]);
+    // A pirate can still run Dead Sector off any backbone.
+    let pirate = Save::site_board(&d, &entry("555-0123", 1, &["pirate_board"]));
+    assert_eq!(d.boards[pirate].id, "deadsector");
+
+    // The best things only sell on the top board, and each board's dearest file costs more.
+    let sells = |b: usize, f: &dyn Fn(&Drop) -> bool| {
+        d.boards[b]
+            .areas
+            .iter()
+            .flat_map(|a| &a.files)
+            .any(|x| f(&x.item))
+    };
+    let top = |b: usize| {
+        d.boards[b]
+            .areas
+            .iter()
+            .flat_map(|a| &a.files)
+            .map(|x| x.price)
+            .max()
+            .unwrap()
+    };
+    for t in 1..=2 {
+        let b = id(t);
+        assert!(
+            !sells(b, &|i| matches!(i, Drop::Cpu(_))),
+            "a CPU mod below tier 3"
+        );
+        assert!(
+            !sells(b, &|i| *i == Drop::Warez("torch".into())),
+            "torch below tier 3"
+        );
+        assert!(
+            top(b) < top(id(t + 1)),
+            "tier {t}'s board isn't cheaper than the next"
+        );
     }
+    assert!(!sells(
+        id(1),
+        &|i| matches!(i, Drop::Hint(r) if r.ends_with("_core"))
+    ));
 }
 
 #[test]
@@ -214,20 +249,16 @@ fn bad_boards_are_caught() {
         "bbs/deadsector: file `DCDR-HOT.ZIP` names unknown warez `nope`",
     );
     check(
-        swap("corplink", "Hint(\"saito\")", "Hint(\"atlantis\")"),
+        swap("corplink", "Hint(\"saito_core\")", "Hint(\"atlantis\")"),
         "atlantis",
     );
     check(
-        swap("corplink", "tiers: [2, 3]", "tiers: [9]"),
+        swap("corplink", "tiers: [3]", "tiers: [9]"),
         "unknown tier 9",
     );
     check(swap("corplink", "label: 11", "label: 16"), "look.label");
     check(
-        swap(
-            "deadsector",
-            "tiers: [1, 3],",
-            "tiers: [1, 3], default: true,",
-        ),
+        swap("deadsector", "tiers: [2],", "tiers: [2], default: true,"),
         "exactly one",
     );
     // Only the boards that exist can be named by a trait.

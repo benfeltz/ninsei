@@ -10,13 +10,13 @@
 //
 // You always know `local`. The rest are learned from hints: data vaults, encounters, BBS text files.
 [
-    (id: "local",            label: "local exchange",       prefix: "555-",   owner: None,                        carrier_pct: 1,  trap_pct: 1,  tiers: (85, 15, 0), cost: 15),
-    (id: "brightwater",      label: "Brightwater lines",    prefix: "555-7",  owner: Some("Brightwater Mutual"),   carrier_pct: 3,  trap_pct: 2,  tiers: (20, 70, 10), cost: 30),
-    (id: "brightwater_core", label: "Brightwater core",     prefix: "555-77", owner: Some("Brightwater Mutual"),   carrier_pct: 7, trap_pct: 4,  tiers: (0, 50, 50),  cost: 60),
-    (id: "yamatai",          label: "Yamatai lines",        prefix: "555-3",  owner: Some("Yamatai Dynamics"),     carrier_pct: 3,  trap_pct: 2,  tiers: (10, 60, 30), cost: 35),
+    (id: "local",            label: "local exchange",       prefix: "555-",   owner: None,                        carrier_pct: 1,  trap_pct: 1,  tiers: (85, 15, 0),  cost: 15),
+    (id: "brightwater",      label: "Brightwater lines",    prefix: "555-7",  owner: Some("Brightwater Mutual"),   carrier_pct: 3,  trap_pct: 2,  tiers: (20, 80, 0),  cost: 30),
+    (id: "brightwater_core", label: "Brightwater core",     prefix: "555-77", owner: Some("Brightwater Mutual"),   carrier_pct: 7, trap_pct: 4,  tiers: (0, 65, 35),  cost: 60),
+    (id: "yamatai",          label: "Yamatai lines",        prefix: "555-3",  owner: Some("Yamatai Dynamics"),     carrier_pct: 3,  trap_pct: 2,  tiers: (10, 90, 0),  cost: 35),
     (id: "yamatai_core",     label: "Yamatai R&D",          prefix: "555-31", owner: Some("Yamatai Dynamics"),     carrier_pct: 8, trap_pct: 4,  tiers: (0, 30, 70),  cost: 70),
-    (id: "saito",            label: "Saito Pharma lines",   prefix: "555-6",  owner: Some("Saito Pharmaceutical"), carrier_pct: 3,  trap_pct: 2,  tiers: (15, 65, 20), cost: 30),
-    (id: "saito_core",       label: "Saito labs",           prefix: "555-68", owner: Some("Saito Pharmaceutical"), carrier_pct: 7, trap_pct: 4,  tiers: (0, 45, 55),  cost: 60),
-    (id: "kestrel",          label: "Kestrel Aerospace",    prefix: "555-4",  owner: Some("Kestrel Aerospace"),    carrier_pct: 2,  trap_pct: 3,  tiers: (0, 40, 60),  cost: 45),
+    (id: "saito",            label: "Saito Pharma lines",   prefix: "555-6",  owner: Some("Saito Pharmaceutical"), carrier_pct: 3,  trap_pct: 2,  tiers: (15, 85, 0),  cost: 30),
+    (id: "saito_core",       label: "Saito labs",           prefix: "555-68", owner: Some("Saito Pharmaceutical"), carrier_pct: 7, trap_pct: 4,  tiers: (0, 60, 40),  cost: 60),
+    (id: "kestrel",          label: "Kestrel Aerospace",    prefix: "555-4",  owner: Some("Kestrel Aerospace"),    carrier_pct: 2,  trap_pct: 3,  tiers: (0, 80, 20),  cost: 45),
     (id: "kestrel_core",     label: "Kestrel black site",   prefix: "555-42", owner: Some("Kestrel Aerospace"),    carrier_pct: 7, trap_pct: 6, tiers: (0, 10, 90),  cost: 90),
 ]

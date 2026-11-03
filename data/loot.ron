@@ -20,9 +20,9 @@
         (weight: 8,  drop: Cpu(1)),
         (weight: 8,  drop: Hdd(2)),
         (weight: 14, drop: Fragment(2)),
-        (weight: 6,  drop: Hint("kestrel")),
-        (weight: 4,  drop: Hint("yamatai_core")),
-        (weight: 4,  drop: Hint("brightwater_core")),
+        (weight: 3,  drop: Hint("kestrel")),
+        (weight: 2,  drop: Hint("yamatai_core")),
+        (weight: 2,  drop: Hint("brightwater_core")),
     ]),
     vault: (rolls: 1, entries: [
         (weight: 30, drop: Credits(40, 120)),
