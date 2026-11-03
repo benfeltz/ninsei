@@ -29,7 +29,7 @@ fn the_shelf() {
         assert!(hw.monitors.iter().any(|m| m.display == p.id), "{}", p.id);
     }
     assert_eq!(hw.starter_monitor().id, "amber");
-    assert_eq!(hw.starter_deck().title(), "Ono-Sendai Cyberspace VII");
+    assert_eq!(hw.starter_deck().title(), "Hosaka Executive 4");
     assert_eq!(hw.deck("hosaka").unwrap().firmware[0].map, MapView::Draft);
 }
 
@@ -41,15 +41,12 @@ fn old_saves_get_the_starters() {
     assert!(s.ensure_hardware(&d));
     assert_eq!(
         (s.monitors.clone(), s.decks.clone()),
-        (vec!["amber".to_string()], vec!["onosendai".to_string()])
+        (vec!["amber".to_string()], vec!["hosaka".to_string()])
     );
-    assert_eq!(
-        (s.monitor.as_str(), s.deck.as_str()),
-        ("amber", "onosendai")
-    );
+    assert_eq!((s.monitor.as_str(), s.deck.as_str()), ("amber", "hosaka"));
     // The amber tube only shows amber.
     assert_eq!(s.phosphor, "amber");
-    assert_eq!(s.firmware_def(&d).map, MapView::Iso);
+    assert_eq!(s.firmware_def(&d).map, MapView::Draft);
     assert!(!s.ensure_hardware(&d), "nothing more to fix");
 }
 
@@ -85,21 +82,21 @@ fn a_colour_monitor_shows_any_theme() {
 #[test]
 fn buying_hardware() {
     let d = data();
-    let price = d.hardware.deck("hosaka").unwrap().price;
+    let price = d.hardware.deck("onosendai").unwrap().price;
     let mut broke = fresh(price - 1);
     assert!(
         broke
-            .buy_hardware(&d, &Hardware::Deck("hosaka".into()))
+            .buy_hardware(&d, &Hardware::Deck("onosendai".into()))
             .unwrap_err()
             .contains("bank")
     );
     let mut s = fresh(price);
-    s.buy_hardware(&d, &Hardware::Deck("hosaka".into()))
+    s.buy_hardware(&d, &Hardware::Deck("onosendai".into()))
         .unwrap();
     assert_eq!(s.bank, 0);
-    assert_eq!((s.deck.as_str(), s.firmware.as_str()), ("hosaka", "4.0"));
+    assert_eq!((s.deck.as_str(), s.firmware.as_str()), ("onosendai", "7.0"));
     assert!(
-        s.buy_hardware(&d, &Hardware::Deck("hosaka".into()))
+        s.buy_hardware(&d, &Hardware::Deck("onosendai".into()))
             .is_err(),
         "once"
     );
@@ -108,8 +105,8 @@ fn buying_hardware() {
             .is_err()
     );
     // Swapping back and forth.
-    s.use_deck(&d, "onosendai").unwrap();
-    assert_eq!(s.firmware_def(&d).map, MapView::Iso);
+    s.use_deck(&d, "hosaka").unwrap();
+    assert_eq!(s.firmware_def(&d).map, MapView::Draft);
     assert!(s.use_deck(&d, "nope").is_err());
     assert!(s.use_firmware(&d, "9.9").is_err());
 }
@@ -119,17 +116,14 @@ fn only_owned_hardware_plugs_in() {
     let d = data();
     let mut s = fresh(0);
     assert!(s.plug_monitor(&d, "vga").is_err());
-    assert!(s.use_deck(&d, "hosaka").is_err());
+    assert!(s.use_deck(&d, "onosendai").is_err());
     let run = |l: &str, s: &Save| hub::shell(l, s, &d).1;
     assert_eq!(run("monitor vga", &s), ShellEffect::None);
     assert_eq!(
         run("monitor amber", &s),
         ShellEffect::Monitor("amber".into())
     );
-    assert_eq!(
-        run("deck onosendai", &s),
-        ShellEffect::Deck("onosendai".into())
-    );
+    assert_eq!(run("deck hosaka", &s), ShellEffect::Deck("hosaka".into()));
     s.monitors.push("vga".into());
     assert_eq!(run("display vga", &s), ShellEffect::Monitor("vga".into()));
 }
@@ -140,12 +134,12 @@ fn hardware_survives_a_save() {
     let mut s = fresh(5_000);
     s.buy_hardware(&d, &Hardware::Monitor("c64".into()))
         .unwrap();
-    s.buy_hardware(&d, &Hardware::Deck("hosaka".into()))
+    s.buy_hardware(&d, &Hardware::Deck("onosendai".into()))
         .unwrap();
     let back = Save::load(&s.to_text()).unwrap();
     assert_eq!(
         (back.monitor.as_str(), back.deck.as_str()),
-        ("c64", "hosaka")
+        ("c64", "onosendai")
     );
     assert_eq!(back.monitors.len(), 2);
 }
@@ -183,16 +177,16 @@ fn layouts_are_kept_per_deck_firmware() {
         None,
         "no layout yet: the app uses the default"
     );
-    assert!(s.set_layout(&d, "ono layout".into()));
-    assert!(!s.set_layout(&d, "ono layout".into()), "unchanged");
-    assert_eq!(s.layout(&d), Some("ono layout"));
+    assert!(s.set_layout(&d, "hosaka layout".into()));
+    assert!(!s.set_layout(&d, "hosaka layout".into()), "unchanged");
+    assert_eq!(s.layout(&d), Some("hosaka layout"));
     // Another deck has its own slot.
-    s.buy_hardware(&d, &Hardware::Deck("hosaka".into()))
+    s.buy_hardware(&d, &Hardware::Deck("onosendai".into()))
         .unwrap();
     assert_eq!(s.layout(&d), None);
-    s.set_layout(&d, "hosaka layout".into());
-    s.use_deck(&d, "onosendai").unwrap();
-    assert_eq!(s.layout(&d), Some("ono layout"));
+    s.set_layout(&d, "ono layout".into());
+    s.use_deck(&d, "hosaka").unwrap();
+    assert_eq!(s.layout(&d), Some("hosaka layout"));
     // Kept in the save, and reset clears only this one.
     let mut back = Save::load(&s.to_text()).unwrap();
     assert_eq!(back.layouts.len(), 2);
