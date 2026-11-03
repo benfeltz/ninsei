@@ -51,7 +51,7 @@ deck ─> firmware ─────┘
 - **Crisp pixels.** Patterns and icons draw pixel-aligned at a whole-number scale. Where a fine pattern shimmers through the CRT, use its `fallback`.
 - **Text never sits on a pattern.** Labels get a solid backing.
 - **Everything is labelled.** Menus say what they do; buttons are words. It's the calmest screen to learn on.
-- **Lit ink.** A dark page (`bg`) with lit lines (`fg`): a 1-bit Mac on a phosphor tube. The lit-paper Mac look (a bright page) was the alternative in the mockup (#70), but it's glaring on a CRT. Liza loads a strict two-colour register while it draws, so the shared tools come out 1-bit too.
+- **Lit ink.** A dark page (`bg`) with lit lines (`fg`): a 1-bit Mac on a phosphor tube. It ships with its own tube, the Personal Display 9″: paper white, sharp, a gentle curve and no colour fringing (`paperwhite` in `themes.ron` and `displays.ron`). The lit-paper Mac look (a bright page) was the alternative in the mockup (#70), but it's glaring on a CRT. Liza loads a strict two-colour register while it draws, so the shared tools come out 1-bit too.
 - **Motion is small:** marching ants around what's selected or dangerous, a blinking insertion point, a zoom rectangle when a window opens.
 - **Damage is 1-bit:** patterns smear, bitmaps tear, rows invert. Never RGB split.
 
@@ -145,7 +145,7 @@ The two decks are a start. Each new one should be a new point of view, not a pal
 
 ## Shared rules for every part
 
-- **Every theme, every monitor.** It must read on a mono amber tube as well as on Synthwave. Test on both.
+- **Every theme, every monitor.** It must read on a mono tube (the starter's paper white, amber, green) as well as on Synthwave. Test on both.
 - **Clicks land:** animations never move a click area.
 - **One place for timings:** each part keeps its animation timings and strengths together (like `netmap::anim`), and they're display numbers, not balance.
 - **Comfort:** no full-screen flashing faster than about 3 times a second, and anything intense has a reduced setting.

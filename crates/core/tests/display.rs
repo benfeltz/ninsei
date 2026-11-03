@@ -21,10 +21,13 @@ fn flat() -> Effects {
 }
 
 #[test]
-fn the_five_presets() {
+fn the_six_presets() {
     let d = data();
     let ids: Vec<&str> = d.displays.iter().map(|p| p.id.as_str()).collect();
-    assert_eq!(ids, ["amber", "green", "c64", "apple2", "vga"]);
+    assert_eq!(
+        ids,
+        ["amber", "paperwhite", "green", "c64", "apple2", "vga"]
+    );
     for p in &d.displays {
         let t = p.theme.as_deref().unwrap();
         assert!(d.theme(t).is_some(), "{} pairs with a real theme", p.id);
@@ -65,11 +68,15 @@ fn the_bezel_and_tube_corners_are_not_screen() {
 }
 
 #[test]
-fn saves_start_on_the_amber_monitor() {
+fn saves_start_on_the_white_monitor() {
     let d = data();
     let mut s = Save::load("(version: 1)").unwrap();
     s.ensure_hardware(&d);
-    assert_eq!((s.display_id(&d), s.crt), ("amber", true));
+    assert_eq!((s.display_id(&d), s.crt), ("paperwhite", true));
+    // Crisp glass for 1-bit pictures: no colour fringing, a gentle curve.
+    let e = effects("paperwhite");
+    assert_eq!(e.rgb_shift, 0.0);
+    assert!(e.screen_curvature < effects("amber").screen_curvature);
 }
 
 #[test]

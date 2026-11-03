@@ -18,6 +18,11 @@
         screen_curvature: 0.2, screen_radius: 0.1, glowing_line: 0.2, bloom: 0.6, burn_in: 0.3,
         rgb_shift: 0.0, rasterization: None, brightness: 0.5, contrast: 0.8, ambient_light: 0.3,
         frame_size: 0.1, frame_color: "#cfcfcf", frame_shininess: 0.3)),
+    (id: "paperwhite", label: "Paper White", theme: Some("paperwhite"), effects: (
+        flickering: 0.05, horizontal_sync: 0.0, static_noise: 0.04, jitter: 0.0,
+        screen_curvature: 0.1, screen_radius: 0.15, glowing_line: 0.05, bloom: 0.25, burn_in: 0.15,
+        rgb_shift: 0.0, rasterization: Scanline, brightness: 0.55, contrast: 0.85, ambient_light: 0.2,
+        frame_size: 0.15, frame_color: "#d9d3c4", frame_shininess: 0.1)),
     (id: "green", label: "Monochrome Green", theme: Some("green"), effects: (
         flickering: 0.1, horizontal_sync: 0.1, static_noise: 0.1, jitter: 0.2,
         screen_curvature: 0.3, screen_radius: 0.2, glowing_line: 0.2, bloom: 0.5, burn_in: 0.3,
