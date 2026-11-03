@@ -33,6 +33,18 @@ pub const HELP: &[&str] = &[
     "clear           clear the terminal",
 ];
 
+/// Every verb the run terminal knows, for Tab completion.
+pub const VERBS: &[&str] = &[
+    "run", "end", "jack", "load", "unload", "hex", "opt", "newrun", "theme", "crt", "sound",
+    "clear", "help",
+];
+
+/// Verbs whose argument is an HDD slot.
+pub const SLOT_VERBS: &[&str] = &["run", "load", "unload", "hex", "opt"];
+
+/// Commands kept in the terminal's history (`Save::term_history`).
+pub const HISTORY_KEEP: usize = 100;
+
 pub fn parse_command(line: &str) -> Result<Command, String> {
     let mut words = line.split_whitespace();
     let Some(verb) = words.next() else {

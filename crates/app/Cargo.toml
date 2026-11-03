@@ -8,6 +8,7 @@ rust-version.workspace = true
 
 [dependencies]
 ninsei-core.workspace = true
+ninsei-term = { workspace = true, features = ["egui"] }
 eframe.workspace = true
 egui.workspace = true
 egui_dock.workspace = true

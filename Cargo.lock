@@ -1483,6 +1483,7 @@ dependencies = [
  "egui_dock",
  "js-sys",
  "ninsei-core",
+ "ninsei-term",
  "ron",
  "serde",
  "wasm-bindgen",
@@ -1496,6 +1497,13 @@ version = "0.0.1"
 dependencies = [
  "ron",
  "serde",
+]
+
+[[package]]
+name = "ninsei-term"
+version = "0.0.1"
+dependencies = [
+ "egui",
 ]
 
 [[package]]

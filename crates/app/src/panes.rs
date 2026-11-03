@@ -88,6 +88,8 @@ pub enum Request {
     Glitches(ninsei_core::glitch::Glitches),
     /// Put this in the command line and focus it (e.g. `jack `).
     Type(String),
+    /// Print a line in the log (completions, a cancelled line).
+    Say(String),
 }
 
 pub struct Panes<'a> {
@@ -101,7 +103,8 @@ pub struct Panes<'a> {
     pub chrome: Chrome,
     /// Damage glitches: how much log text to corrupt, and the seed for this moment.
     pub corrupt: (f32, u64),
-    pub input: &'a mut String,
+    /// The command line: readline keys, history, completion.
+    pub term: &'a mut ninsei_term::LineEditor,
     pub focus_input: &'a mut bool,
     pub bbs_open: bool,
     pub hex: &'a mut Option<HexBuffer>,
@@ -716,42 +719,82 @@ impl Panes<'_> {
         self.prompt_as(ui, "runner@ninsei:~$", false);
     }
 
-    /// The command line with its own label; `boxed` draws it as a form field.
+    /// The command line with its own label; `boxed` draws it as a form field. Keys are
+    /// readline's (`ninsei_term`): history, `Ctrl+R`, Tab to complete.
     pub(crate) fn prompt_as(&mut self, ui: &mut Ui, label: &str, boxed: bool) {
         let p = self.pal;
-        ui.horizontal(|ui| {
-            ui.label(RichText::new(label).color(p.dim));
-            let frame = if boxed {
-                egui::Frame::new()
-                    .stroke(egui::Stroke::new(1.0, p.dim))
-                    .inner_margin(egui::Margin::symmetric(4, 1))
-            } else {
-                egui::Frame::NONE
-            };
-            let edit = egui::TextEdit::singleline(self.input)
-                .frame(frame)
-                .desired_width(f32::INFINITY)
-                .text_color(p.bright);
-            let resp = ui.add(edit);
-            if *self.focus_input && !self.bbs_open {
-                resp.request_focus();
-                *self.focus_input = false;
-                // Typing goes after anything already there (F8 puts in `jack `).
-                if let Some(mut st) = egui::TextEdit::load_state(ui.ctx(), resp.id) {
-                    let end = egui::text::CCursor::new(self.input.chars().count());
-                    st.cursor
-                        .set_char_range(Some(egui::text::CCursorRange::one(end)));
-                    st.store(ui.ctx(), resp.id);
+        let id = ui.id().with("command-line");
+        let style = ninsei_term::widget::Style {
+            font: egui::TextStyle::Monospace.resolve(ui.style()),
+            prompt: p.dim,
+            text: p.bright,
+            cursor: p.fg,
+            under_cursor: p.bg,
+            search: p.fg,
+        };
+        if *self.focus_input && !self.bbs_open {
+            ui.memory_mut(|m| m.request_focus(id));
+            *self.focus_input = false;
+        }
+        let g = self.game;
+        let complete = |before: &str| complete_run(g, before);
+        let frame = if boxed {
+            egui::Frame::new()
+                .stroke(egui::Stroke::new(1.0, p.dim))
+                .inner_margin(egui::Margin::symmetric(4, 1))
+        } else {
+            egui::Frame::NONE
+        };
+        let term = &mut *self.term;
+        let r = frame
+            .show(ui, |ui| {
+                ninsei_term::widget::line(ui, id, term, label, &style, &complete)
+            })
+            .inner;
+        for o in r.outcomes {
+            match o {
+                ninsei_term::Outcome::Submit(line) => {
+                    if !line.trim().is_empty() {
+                        self.out.push(Request::Line(line));
+                    }
                 }
-            }
-            if resp.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
-                let line = std::mem::take(self.input);
-                if !line.trim().is_empty() {
-                    self.out.push(Request::Line(line));
+                ninsei_term::Outcome::Cancelled(was) => {
+                    self.out.push(Request::Say(format!("{label} {was}^C")));
                 }
-                *self.focus_input = true;
+                ninsei_term::Outcome::ClearScreen => {
+                    self.out.push(Request::Cmd(Command::Clear));
+                }
+                ninsei_term::Outcome::List(words) => {
+                    self.out.push(Request::Say(words.join("   ")));
+                }
+                ninsei_term::Outcome::Nothing => {}
             }
-        });
+        }
+    }
+}
+
+/// Tab completion for the run terminal: verbs first, then what each verb takes (a route from
+/// here, an HDD slot, a theme).
+fn complete_run(g: &Game, before: &str) -> Vec<String> {
+    let words: Vec<&str> = before.split_whitespace().collect();
+    let fresh = before.ends_with(char::is_whitespace) || before.is_empty();
+    let arg = words.len() + usize::from(fresh) - 1;
+    if arg == 0 {
+        return ninsei_core::command::VERBS
+            .iter()
+            .map(|v| v.to_string())
+            .collect();
+    }
+    if arg > 1 {
+        return Vec::new();
+    }
+    match words[0] {
+        "jack" | "j" | "cd" | "ssh" => g.reachable().iter().map(|n| n.to_string()).collect(),
+        v if ninsei_core::command::SLOT_VERBS.contains(&v) || v == "r" => {
+            (0..g.hdd.len()).map(|i| i.to_string()).collect()
+        }
+        "theme" => g.data.themes.iter().map(|t| t.id.clone()).collect(),
+        _ => Vec::new(),
     }
 }
 

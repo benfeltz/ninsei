@@ -25,6 +25,10 @@
     // find, the menu bar). F5 still reloads the page.
     window.addEventListener("keydown", (e) => {
       if (["F1", "F3", "F10"].includes(e.key)) e.preventDefault();
+      // While a terminal has the keyboard, its readline chords (Ctrl+A, Ctrl+R, Ctrl+L...)
+      // are the game's, not the browser's. The list matches ninsei_term::keys::BROWSER_CTRL.
+      if (window.ninseiTyping && e.ctrlKey && !e.metaKey && !e.altKey &&
+          "abdefhklpruy".includes(e.key.toLowerCase())) e.preventDefault();
     }, true);
   </script>
   <script type="module">
