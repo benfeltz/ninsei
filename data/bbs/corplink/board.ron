@@ -1,11 +1,12 @@
-// CORPLINK EMPLOYEE SERVICES: the staff board on corp and megacorp backbones. Clean blue
-// screens, no l33t, everything priced like an expense report. You're a guest login.
+// CORPLINK EMPLOYEE SERVICES: the staff board on megacorp backbones (tier 3). The best stock
+// and the CPU mod, the deepest ranges. Clean blue screens, no l33t, everything priced like an
+// expense report. You're a guest login.
 (
     name: "CORPLINK EMPLOYEE SERVICES",
     sysop: "IT Help Desk",
     phone: "555-0100",
     baud: 28800,
-    tiers: [2, 3],
+    tiers: [3],
     call_cost: 25,  // phone bill to call it from home
     look: (
         software: "PCBoard v15.2 / Corporate Edition",
@@ -59,27 +60,26 @@
     ],
     areas: [
         (name: "SECURITY SOFTWARE", stock: 3, files: [
-            (file: "FIREWALL.EXE", item: Warez("firewall"), price: 60,  desc: "Firewall (licensed). Absorbs damage"),
-            (file: "MIRROR.EXE",   item: Warez("mirror"),   price: 200, desc: "Mirror Enterprise. Reflective shell"),
-            (file: "LOGSCRUB.EXE", item: Warez("scrubber"), price: 100, desc: "Log maintenance utility"),
-            (file: "PENTEST.ZIP",  item: Warez("decoder"),  price: 90,  desc: "Penetration test kit (Decoder)"),
-            (file: "AUDITOR.ZIP",  item: Warez("garrote"),  price: 90,  desc: "Process auditor (Garrote)"),
+            (file: "TORCH.EXE",    item: Warez("torch"),    price: 340, desc: "TORCH (licensed). Burns anything"),
+            (file: "MIRROR.EXE",   item: Warez("mirror"),   price: 260, desc: "Mirror Enterprise. Reflective shell"),
+            (file: "LOGSCRUB.EXE", item: Warez("scrubber"), price: 140, desc: "Log maintenance utility"),
+            (file: "FREEZE.EXE",   item: Warez("lagspike"), price: 220, desc: "Process freezer (LagSpike)"),
+            (file: "WORM-QA.ZIP",  item: Warez("wyrm"),     price: 180, desc: "QA worm (Wyrm). Do not run"),
         ]),
         (name: "HARDWARE REQUISITIONS", stock: 3, files: [
-            (file: "RAM-REQ.FRM",  item: Ram(2),            price: 160, desc: "Memory upgrade request. +2 GB"),
-            (file: "CPU-REQ.FRM",  item: Cpu(1),            price: 250, desc: "Processor upgrade. +1 cpu cycle"),
-            (file: "DSK-REQ.FRM",  item: Hdd(2),            price: 100, desc: "Storage allocation. +2 slots"),
-            (file: "MEDKIT.FRM",   item: Repair(10),        price: 70,  desc: "Field service. +10 integrity"),
+            (file: "RAM-REQ.FRM",  item: Ram(2),            price: 220, desc: "Memory upgrade request. +2 GB"),
+            (file: "CPU-REQ.FRM",  item: Cpu(1),            price: 420, desc: "Processor upgrade. +1 cpu cycle"),
+            (file: "DSK-REQ.FRM",  item: Hdd(2),            price: 160, desc: "Storage allocation. +2 slots"),
+            (file: "MEDKIT.FRM",   item: Repair(12),        price: 100, desc: "Field service. +12 integrity"),
         ]),
         (name: "INTERNAL DIRECTORY", stock: 2, files: [
-            (file: "BW-CORE.LST",  item: Hint("brightwater_core"), price: 95,  desc: "Brightwater core extensions"),
-            (file: "YMT-R&D.LST",  item: Hint("yamatai_core"),     price: 110, desc: "Yamatai R&D directory"),
-            (file: "SAITO.LST",    item: Hint("saito"),            price: 40,  desc: "Saito Pharmaceutical switchboard"),
-            (file: "YAMATAI.LST",  item: Hint("yamatai"),          price: 45,  desc: "Yamatai Dynamics switchboard"),
+            (file: "YMT-R&D.LST",  item: Hint("yamatai_core"),     price: 200, desc: "Yamatai R&D directory"),
+            (file: "KSTRL-BS.LST", item: Hint("kestrel_core"),     price: 260, desc: "Kestrel black site. Need to know"),
+            (file: "SAITO-LB.LST", item: Hint("saito_core"),       price: 160, desc: "Saito labs directory"),
         ]),
         (name: "BUILD TOOLS", stock: 2, files: [
-            (file: "OPTKIT.ZIP",   item: Fragment(2),       price: 140, desc: "Compiler optimizer kit. x2"),
-            (file: "OPTSUITE.ZIP", item: Fragment(3),       price: 200, desc: "Optimizer suite. x3"),
+            (file: "OPTKIT.ZIP",   item: Fragment(2),       price: 180, desc: "Compiler optimizer kit. x2"),
+            (file: "OPTSUITE.ZIP", item: Fragment(3),       price: 260, desc: "Optimizer suite. x3"),
         ]),
     ],
 )

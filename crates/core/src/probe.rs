@@ -37,7 +37,7 @@ impl Config {
     pub const FULL: Config = Config {
         spot_runs: 300,
         careers: 100,
-        career_runs: 60,
+        career_runs: 100,
         seed: 0x5EED,
     };
 
@@ -510,7 +510,7 @@ fn pct(n: u32, of: u32) -> u32 {
 }
 
 /// Checkpoints, in runs into a career, where the report samples the bank and upgrades.
-pub const CHECKPOINTS: [u32; 4] = [10, 20, 40, 60];
+pub const CHECKPOINTS: [u32; 6] = [10, 20, 40, 60, 80, 100];
 
 /// Everything the probe has seen so far.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -522,7 +522,7 @@ pub struct Stats {
     /// Run (1-based) of each career's first exit at tier 2 and tier 3; 0 if never.
     pub first_exit: Vec<[u32; 2]>,
     /// At each checkpoint: (careers that got there, total bank, total upgrade levels).
-    pub at: [(u32, u64, u64); 4],
+    pub at: [(u32, u64, u64); CHECKPOINTS.len()],
     /// RIG upgrades bought over all careers: (upgrade, purchases, sum of the run it happened).
     pub buys: Vec<(Upgrade, u32, u64)>,
     /// Strength taken off ICE per program (warez id), over all career runs.
@@ -537,7 +537,7 @@ pub struct Stats {
     /// Career encounter choices: (what, count).
     pub talks: Vec<(String, u32)>,
     /// Phone ranges known at each checkpoint (summed over careers).
-    pub ranges_at: [u64; 4],
+    pub ranges_at: [u64; CHECKPOINTS.len()],
     /// Run (1-based) each career first knew a range that can answer with tier 3; 0 if never.
     pub t3_range: Vec<u32>,
     /// Wardial scans run, and phonebook numbers they found.
