@@ -13,9 +13,9 @@
 //! command can run it a little each frame in the browser, where there are no threads. The CLI
 //! is `cargo run -p ninsei-core --example balance`. Same seed, same report.
 
-use crate::data::{Data, Effect, Intent};
+use crate::data::{ChoiceEffect, Data, Drop, Effect, Intent, Penalty};
 use crate::fight::Outcome;
-use crate::game::{Action, Game, Phase};
+use crate::game::{Action, ContractStatus, Game, Phase};
 use crate::hub::{Entry, RunEnd, Save, Upgrade};
 use crate::network::NodeKind;
 use crate::rng::Rng;
@@ -68,6 +68,15 @@ pub struct RunLog {
     /// Strength each program (by warez id) took off ICE.
     pub breaks: Vec<(String, u32)>,
     pub fights: u32,
+    /// BBS downloads: (what kind of file, price).
+    pub bought: Vec<(&'static str, u32)>,
+    /// Contracts taken (jobs boards and fixers) and paid, and what they paid (before the
+    /// network's pay %).
+    pub taken: u32,
+    pub paid: u32,
+    pub pay: u32,
+    /// What it chose in each encounter.
+    pub talks: Vec<&'static str>,
 }
 
 impl RunLog {
@@ -81,8 +90,15 @@ impl RunLog {
 
 /// Plays a run to its end with `bot`. Never leaves a game unfinished: a run that stalls (it
 /// shouldn't) is ended by the turn limit.
-pub fn play(mut g: Game, bot: Bot) -> (Game, RunLog) {
+pub fn play(g: Game, bot: Bot) -> (Game, RunLog) {
+    play_knowing(g, bot, &[])
+}
+
+/// [`play`], for a runner who already knows the phone ranges in `known` (so it won't buy them
+/// again at a BBS).
+pub fn play_knowing(mut g: Game, bot: Bot, known: &[String]) -> (Game, RunLog) {
     let mut log = RunLog::default();
+    let mut shopped: Vec<(bool, usize)> = Vec::new();
     let mut steps = 0;
     while steps < 5_000 {
         steps += 1;
@@ -90,6 +106,12 @@ pub fn play(mut g: Game, bot: Bot) -> (Game, RunLog) {
             Phase::Exploring => {
                 if bot == Bot::Smart {
                     load_what_fits(&mut g);
+                    let here = (g.outer.is_some(), g.at);
+                    if g.at_bbs() && !shopped.contains(&here) {
+                        shopped.push(here);
+                        shop_bbs(&mut g, known, &mut log);
+                        load_what_fits(&mut g);
+                    }
                 }
                 let to = match bot {
                     Bot::Dumb => g.reachable().first().copied(),
@@ -115,17 +137,30 @@ pub fn play(mut g: Game, bot: Bot) -> (Game, RunLog) {
                 g.apply(act);
             }
             Phase::Encounter => {
-                let Some(leave) = g.leave_choice() else { break };
-                g.apply(Action::Choose {
-                    choice: leave,
-                    slot: None,
-                });
+                let pick = match bot {
+                    Bot::Dumb => g.leave_choice(),
+                    Bot::Smart => talk(&g, known, &mut log),
+                };
+                let Some(choice) = pick.or_else(|| g.leave_choice()) else {
+                    break;
+                };
+                let before = g.contracts.len();
+                g.apply(Action::Choose { choice, slot: None });
+                log.taken += (g.contracts.len() - before) as u32;
                 if g.encounter.as_ref().is_some_and(|e| e.done) {
                     g.apply(Action::EndEncounter);
                 }
             }
             Phase::JackedOut | Phase::Flatlined => break,
         }
+    }
+    for k in g
+        .contracts
+        .iter()
+        .filter(|k| k.status == ContractStatus::Done)
+    {
+        log.paid += 1;
+        log.pay += k.reward;
     }
     (g, log)
 }
@@ -215,7 +250,32 @@ fn load_what_fits(g: &mut Game) {
 /// around ICE (black ICE most of all) when there's a choice.
 fn best_route(g: &Game) -> Option<usize> {
     let trace = g.deck.trace;
+    // Contract targets pull the route toward them (they're on the main network).
+    let targets: Vec<usize> = if g.outer.is_none() {
+        g.contracts
+            .iter()
+            .filter(|k| k.status == ContractStatus::Active)
+            .map(|k| k.node)
+            .collect()
+    } else {
+        Vec::new()
+    };
     g.reachable().iter().copied().max_by_key(|&to| {
+        let pull: i64 = if targets.contains(&to) {
+            150
+        } else if !targets.is_empty() {
+            let reach = g.net.reachable_from(to);
+            if targets
+                .iter()
+                .any(|&t| reach.get(t).copied().unwrap_or(false))
+            {
+                40
+            } else {
+                0
+            }
+        } else {
+            0
+        };
         let n = &g.net.nodes[to];
         let ice_strength = n
             .ice
@@ -236,8 +296,155 @@ fn best_route(g: &Game) -> Option<usize> {
                 NodeKind::Subnet => -50,
             }
         };
-        (score, -(to as i64))
+        (score + pull, -(to as i64))
     })
+}
+
+/// Credits a runner keeps when shopping, for whatever comes next.
+const BBS_RESERVE: u32 = 20;
+
+/// What a drop is worth to this runner now, in rough credits (0: not worth having).
+fn worth(g: &Game, d: &Drop, known: &[String]) -> i64 {
+    let deck = &g.deck;
+    match d {
+        Drop::Warez(id) => {
+            let have = g.hdd.iter().any(|s| g.data.warez[s.warez].id == *id);
+            match g.data.warez.iter().find(|w| w.id == *id) {
+                _ if have => 0,
+                Some(w) => match w.effect {
+                    Effect::Break { power, .. } => 30 + i64::from(power) * 5,
+                    Effect::Shield(_) | Effect::Scrub(_) => 35,
+                    Effect::Repair(_) => 20,
+                    Effect::Stun => 15,
+                },
+                None => 0,
+            }
+        }
+        Drop::Credits(lo, hi) => i64::from(lo + hi) / 2,
+        Drop::Ram(n) | Drop::Hdd(n) => 60 * i64::from(*n),
+        Drop::Cpu(n) => 120 * i64::from(*n),
+        Drop::Repair(n) if deck.integrity + n <= deck.integrity_max => 6 * i64::from(*n),
+        Drop::Scrub(n) if deck.trace >= 30 => 3 * i64::from(*n),
+        Drop::Fragment(n) => 10 * i64::from(*n),
+        Drop::Hint(id) if !known.contains(id) && !g.hints.contains(id) => g
+            .data
+            .exchanges
+            .iter()
+            .find(|r| r.id == *id)
+            .map_or(0, |r| 20 + i64::from(r.tiers.2) + i64::from(r.tiers.1) / 2),
+        _ => 0,
+    }
+}
+
+fn kind(d: &Drop) -> &'static str {
+    match d {
+        Drop::Warez(_) => "warez",
+        Drop::Hint(_) => "range file",
+        Drop::Ram(_) | Drop::Cpu(_) | Drop::Hdd(_) => "deck mod",
+        Drop::Repair(_) | Drop::Scrub(_) => "repair/scrub",
+        Drop::Fragment(_) => "fragment",
+        Drop::Credits(..) | Drop::Nothing => "other",
+    }
+}
+
+/// On a BBS: take the jobs on its board, then buy the best value it can afford while keeping
+/// a reserve, until nothing's worth it.
+fn shop_bbs(g: &mut Game, known: &[String], log: &mut RunLog) {
+    for job in 0..g.bbs_jobs.len() {
+        if g.bbs_jobs[job].status == ContractStatus::Offered {
+            let before = g.contracts.len();
+            g.apply(Action::TakeJob { job });
+            log.taken += (g.contracts.len() - before) as u32;
+        }
+    }
+    for _ in 0..16 {
+        let mut best: Option<(i64, usize, usize)> = None;
+        for (a, area) in g.bbs_stock.iter().enumerate() {
+            for (f, s) in area.iter().enumerate() {
+                if g.buy_blocker(a, f).is_some() {
+                    continue;
+                }
+                let def = &g.bbs().areas[a].files[s.def];
+                if g.deck.credits < def.price + BBS_RESERVE {
+                    continue;
+                }
+                let v = worth(g, &def.item, known);
+                if v <= i64::from(def.price) / 2 {
+                    continue;
+                }
+                let score = v * 100 / i64::from(def.price.max(1));
+                if best.is_none_or(|b| score > b.0) {
+                    best = Some((score, a, f));
+                }
+            }
+        }
+        let Some((_, a, f)) = best else { return };
+        let def = g.bbs().areas[a].files[g.bbs_stock[a][f].def].clone();
+        g.apply(Action::Buy { area: a, file: f });
+        if g.bbs_stock[a][f].bought {
+            log.bought.push((kind(&def.item), def.price));
+        } else {
+            return;
+        }
+    }
+}
+
+/// In an encounter: the choice worth most, if any is worth more than walking away. Choices
+/// that need a program picked (trades, sales) are left alone.
+fn talk(g: &Game, known: &[String], log: &mut RunLog) -> Option<usize> {
+    let e = g.encounter.as_ref()?;
+    let ev = &g.data.events[e.event];
+    let d = &g.deck;
+    let active = g
+        .contracts
+        .iter()
+        .filter(|k| k.status == ContractStatus::Active)
+        .count();
+    let healthy = d.integrity * 3 >= d.integrity_max * 2
+        && g.hdd
+            .iter()
+            .any(|s| s.loaded && matches!(s.spec.effect, Effect::Break { .. }));
+    let hurt = |p: &Penalty| match p {
+        Penalty::Trace(n) => 4 * i64::from(*n),
+        Penalty::Damage(n) => 8 * i64::from(*n),
+    };
+    let best = ev
+        .choices
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| !g.choice_needs_slot(*i) && g.choice_blocker(*i, None).is_none())
+        .map(|(i, c)| {
+            let v = match &c.effect {
+                ChoiceEffect::Leave => (0, "walked away"),
+                ChoiceEffect::Contract if active < 2 => (60, "took a contract"),
+                ChoiceEffect::Pay { cost, get } => {
+                    (worth(g, get, known) - i64::from(*cost), "paid")
+                }
+                ChoiceEffect::Gamble { pct, win, lose } => (
+                    (i64::from(*pct) * worth(g, win, known) - i64::from(100 - pct) * hurt(lose))
+                        / 100,
+                    "gambled",
+                ),
+                ChoiceEffect::Fight { rewards, .. } if healthy => (
+                    20 + rewards.iter().map(|r| worth(g, r, known)).sum::<i64>(),
+                    "fought",
+                ),
+                _ => (-1, "walked away"),
+            };
+            (i, v)
+        })
+        .filter(|(_, (v, _))| *v > 0)
+        .max_by_key(|(i, (v, _))| (*v, -(*i as i64)));
+    match best {
+        Some((i, (_, what))) => {
+            log.talks.push(what);
+            Some(i)
+        }
+        None => {
+            log.talks.push("walked away");
+            None
+        }
+    }
 }
 
 // ---- careers --------------------------------------------------------------------------------
@@ -317,6 +524,14 @@ pub struct Stats {
     /// Strength taken off ICE per program (warez id), over all career runs.
     pub breaks: Vec<(String, u64)>,
     pub fights: u64,
+    /// Career runs' BBS downloads by kind: (kind, count, credits spent).
+    pub bought: Vec<(String, u32, u64)>,
+    /// Career contracts taken, paid, and their pay.
+    pub taken: u32,
+    pub paid: u32,
+    pub pay: u64,
+    /// Career encounter choices: (what, count).
+    pub talks: Vec<(String, u32)>,
     /// Phone ranges known at each checkpoint (summed over careers).
     pub ranges_at: [u64; 4],
     /// Run (1-based) each career first knew a range that can answer with tier 3; 0 if never.
@@ -462,7 +677,8 @@ impl Probe {
             self.next_run();
             return;
         };
-        let (g, log) = play(g, Bot::Smart);
+        let known: Vec<String> = save.ranges.iter().map(|r| r.id.clone()).collect();
+        let (g, log) = play_knowing(g, Bot::Smart, &known);
         // Take home every program that isn't a starter, while the stash has room.
         let keep: Vec<usize> = (0..g.hdd.len())
             .filter(|&i| {
@@ -474,6 +690,27 @@ impl Probe {
         let f = fate(&g);
         self.stats.career[tier as usize - 1].add(f, banked);
         self.stats.fights += u64::from(log.fights);
+        for (k, price) in &log.bought {
+            match self.stats.bought.iter_mut().find(|(w, _, _)| w == k) {
+                Some((_, n, spent)) => {
+                    *n += 1;
+                    *spent += u64::from(*price);
+                }
+                None => self
+                    .stats
+                    .bought
+                    .push((k.to_string(), 1, u64::from(*price))),
+            }
+        }
+        self.stats.taken += log.taken;
+        self.stats.paid += log.paid;
+        self.stats.pay += u64::from(log.pay);
+        for t in &log.talks {
+            match self.stats.talks.iter_mut().find(|(w, _)| w == t) {
+                Some((_, n)) => *n += 1,
+                None => self.stats.talks.push((t.to_string(), 1)),
+            }
+        }
         for (id, n) in log.breaks {
             match self.stats.breaks.iter_mut().find(|(w, _)| *w == id) {
                 Some((_, t)) => *t += u64::from(n),
@@ -724,6 +961,33 @@ impl Probe {
             ),
             None => "  a range with tier 3 numbers: never learned".into(),
         });
+        out.push(String::new());
+        let runs = u64::from(s.career.iter().map(|t| t.runs).sum::<u32>().max(1));
+        out.push("where the money comes from (career runs)".into());
+        out.push(format!(
+            "  contracts: {} taken, {} paid ({}%), {:.1}¢ a run",
+            s.taken,
+            s.paid,
+            pct(s.paid, s.taken),
+            s.pay as f64 / runs as f64
+        ));
+        let spent: u64 = s.bought.iter().map(|b| b.2).sum();
+        out.push(format!(
+            "  BBS: {:.1}¢ a run spent, on",
+            spent as f64 / runs as f64
+        ));
+        let mut bought = s.bought.clone();
+        bought.sort_by_key(|b| std::cmp::Reverse(b.2));
+        for (k, n, cr) in bought {
+            out.push(format!("    {k:<13} {n:>5} bought, {cr:>7}¢"));
+        }
+        let talks: u32 = s.talks.iter().map(|t| t.1).sum();
+        out.push(format!("  encounters: {talks}"));
+        let mut t = s.talks.clone();
+        t.sort_by_key(|t| std::cmp::Reverse(t.1));
+        for (what, n) in t {
+            out.push(format!("    {what:<16} {:>3}%", pct(n, talks)));
+        }
         out.push(String::new());
         out.push(format!(
             "fights: {} over all careers; who did the breaking",
