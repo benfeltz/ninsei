@@ -19,7 +19,7 @@ deck ─> firmware ─────┘
            ├─ map      Iso | Draft | Paint*             (the run's network view)
            ├─ chrome   Classic | Btop | Suite | Stack*  (how the run screen is dressed)
            ├─ panes    net | ...                      (secondary panes it ships with; more are bought)
-           ├─ desktop  Tiling | Workbench | Liza*     (the OS between runs: AnarchyOS, Desktop, Liza)
+           ├─ desktop  Tiling | Workbench | Liza      (the OS between runs: AnarchyOS, Desktop, Liza)
            └─ sounds   ono | hosaka | sensenet        (a sound pack in data/sounds/)
                                                         * planned for the Sense/Net deck (#46)
 ```
@@ -32,12 +32,12 @@ deck ─> firmware ─────┘
 |---|---|---|---|
 | `map` | `Paint`: a MacPaint picture on a card, nodes filled with patterns (#75) | `Iso`: wireframes over a glowing grid ✅ | `Draft`: a technical drawing ✅ |
 | `chrome` | `Stack`: a HyperCard stack: a card window, the Message box, pattern meters, Mac alerts (#76) | `Btop`: boxed panes, gradient meters, dot graphs, waterfalls ✅ | `Suite`: document windows, forms, a spreadsheet, report charts, an F-key legend, dialogs ✅ |
-| `desktop` | `Liza`: after System 1 and the Lisa: a menu bar, Finder windows, a Trash (#74) | `Tiling`: **AnarchyOS**, after Omarchy: tiles, workspaces, a top bar, a launcher ✅ | `Workbench`: **Desktop**, after Workbench 1.3 ✅ |
+| `desktop` | `Liza`: after System 1 and the Lisa: a menu bar, Finder windows, a Trash, a happy deck at boot ✅ | `Tiling`: **AnarchyOS**, after Omarchy: tiles, workspaces, a top bar, a launcher ✅ | `Workbench`: **Desktop**, after Workbench 1.3 ✅ |
 | `sounds` | `sensenet`: square beeps, a warm chord, a gentle "boing" ✅ | `ono`: harsh squares, noise bursts, chiptune arpeggios ✅ | `hosaka`: soft sine chimes, a polite ding, a tidy shutdown tune ✅ |
 | fights | a Mac alert over the card, with a ringed default button (#76) | the map dives into the node: the ICE as a wireframe over a horizon grid, a program hotbar with previews ✅ | an incident report with a strength chart and an agenda ✅ |
 | damage | 1-bit glitches: patterns smearing, bitmap tearing, inverted rows (#76) | screen glitches: tearing, RGB split, corrupted text ✅ | the same, plus corporate error dialogs (idea below) |
 
-Until its own parts land, the Sense/Net firmware runs on stand-ins (`Draft`, `Classic`, `Workbench`).
+Until its own map and chrome land, the Sense/Net firmware runs on stand-ins (`Draft`, `Classic`).
 
 ## The decks
 
@@ -52,7 +52,7 @@ Until its own parts land, the Sense/Net firmware runs on stand-ins (`Draft`, `Cl
 - **Crisp pixels.** Patterns and icons draw pixel-aligned at a whole-number scale. Where a fine pattern shimmers through the CRT, use its `fallback`.
 - **Text never sits on a pattern.** Labels get a solid backing.
 - **Everything is labelled.** Menus say what they do; buttons are words. It's the calmest screen to learn on.
-- **Lit paper or lit ink.** The Mac look is a lit page with dark ink (paper = `fg`, ink = `bg`); on a phosphor tube that's bright, so a dark screen with lit lines (paper = `bg`, ink = `fg`) is the alternative. Both are drawn from the same two roles; the mockup (#70) shows both.
+- **Lit ink.** A dark page (`bg`) with lit lines (`fg`): a 1-bit Mac on a phosphor tube. The lit-paper Mac look (a bright page) was the alternative in the mockup (#70), but it's glaring on a CRT. Liza loads a strict two-colour register while it draws, so the shared tools come out 1-bit too.
 - **Motion is small:** marching ants around what's selected or dangerous, a blinking insertion point, a zoom rectangle when a window opens.
 - **Damage is 1-bit:** patterns smear, bitmaps tear, rows invert. Never RGB split.
 

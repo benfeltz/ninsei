@@ -205,6 +205,31 @@ fn bad_add_ons_are_caught() {
 fn each_os_has_a_name() {
     assert_eq!(Desktop::Tiling.name(), "AnarchyOS");
     assert_eq!(Desktop::Workbench.name(), "Desktop");
+    assert_eq!(Desktop::Liza.name(), "Liza");
+}
+
+#[test]
+fn the_starter_boots_liza() {
+    let d = data();
+    let mut s = Save::default();
+    s.ensure_hardware(&d);
+    assert_eq!(s.deck, "sensenet");
+    assert_eq!(s.firmware_def(&d).desktop, Desktop::Liza);
+    // Its pictures are 1-bit and rectangular.
+    let src = include_str!("../../../data/hub/liza.ron");
+    let parse = |liza: &str| {
+        Data::parse(data::Sources {
+            liza,
+            ..data::Sources::builtin()
+        })
+    };
+    assert!(parse(src).is_ok());
+    let err =
+        parse(&src.replacen("\"......######......\",", "\"......######.....\",", 1)).unwrap_err();
+    assert!(err.contains("trash") && err.contains("wide"), "{err}");
+    let err =
+        parse(&src.replacen("\"......######......\",", "\"......######....x.\",", 1)).unwrap_err();
+    assert!(err.contains("only `#` and `.`"), "{err}");
 }
 
 #[test]

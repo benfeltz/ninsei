@@ -36,6 +36,9 @@ pub enum Desktop {
     /// "AnarchyOS", after Omarchy: a keyboard-first tiling desktop with a top bar and a
     /// launcher (the Ono-Sendai).
     Tiling,
+    /// "Liza", after the first Mac and the Lisa: a 1-bit menu bar, Finder windows and a Trash
+    /// (the Sense/Net).
+    Liza,
 }
 
 impl Desktop {
@@ -44,6 +47,7 @@ impl Desktop {
         match self {
             Desktop::Workbench => "Desktop",
             Desktop::Tiling => "AnarchyOS",
+            Desktop::Liza => "Liza",
         }
     }
 }
