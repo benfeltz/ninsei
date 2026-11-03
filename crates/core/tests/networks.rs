@@ -77,7 +77,9 @@ fn traits_change_the_network() {
     let quiet = entry(&mut s, 2, &["no_bbs", "graveyard"]);
     let g = s.dial(&d, quiet, 11).unwrap();
     assert!(g.net.bbs().is_none());
-    assert_eq!(g.mods.trace_pct, 75);
+    // Graveyard takes a quarter off the tier's own trace rate.
+    let base = d.networks.tier(2).unwrap().trace_pct;
+    assert_eq!(g.mods.trace_pct, base * 75 / 100);
     assert_eq!(
         g.site.as_ref().unwrap().traits,
         vec!["no BBS".to_string(), "graveyard shift".to_string()]

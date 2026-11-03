@@ -2,6 +2,9 @@
 //
 // tiers:     size, ICE strength and pay for each tier; `traits` is how many traits it rolls (min, max);
 //            `subnets` is how many subnet nodes it has (doors to a small private network and back).
+//            `choke` puts a one-node guarded layer every that many layers (0: none; a trait's Shape
+//            replaces it); `black` adds to the black ICE weight; `trace_pct` is the tier's trace rate
+//            (traits and heat stack on it).
 // traits:    what makes a network play differently. Effects:
 //              IceClass(Barrier | CodeGate | Sentry)  most ICE is this class
 //              BlackIce(n)   +n weight for black ICE nodes
@@ -20,9 +23,9 @@
 // companies: names and lines of business for phonebook entries.
 (
     tiers: [
-        (tier: 1, label: "LAN",      mid_layers: 4, ice_bonus: 0, pay_pct: 80,  traits: (0, 1), subnets: 0),
-        (tier: 2, label: "CORP",     mid_layers: 5, ice_bonus: 4, pay_pct: 130, traits: (1, 2), subnets: 1),
-        (tier: 3, label: "MEGACORP", mid_layers: 6, ice_bonus: 9, pay_pct: 200, traits: (2, 2), subnets: 1),
+        (tier: 1, label: "LAN", mid_layers: 4, ice_bonus: 0, pay_pct: 80, traits: (0, 1), subnets: 0, choke: 0, black: 0, trace_pct: 100),
+        (tier: 2, label: "CORP", mid_layers: 5, ice_bonus: 6, pay_pct: 130, traits: (1, 2), subnets: 1, choke: 3, black: 8, trace_pct: 110),
+        (tier: 3, label: "MEGACORP", mid_layers: 6, ice_bonus: 9, pay_pct: 200, traits: (2, 2), subnets: 1, choke: 3, black: 16, trace_pct: 115),
     ],
     traits: [
         (id: "sentry_heavy",   label: "sentry-heavy",    blurb: "Sentries patrol everything. Bring a garrote.",   effect: IceClass(Sentry)),

@@ -462,7 +462,11 @@ fn fate(g: &Game) -> Fate {
     if g.phase == Phase::JackedOut {
         return Fate::Exit;
     }
-    if g.deck.trace >= TRACE_MAX {
+    // A run that ends mid-fight is the ICE's doing, whether it took the deck's integrity or
+    // kept it there until the trace ran out.
+    let fighting =
+        g.combat.is_some() || g.net.nodes[g.at].ice.is_some() && !g.net.nodes[g.at].cleared;
+    if !fighting && g.deck.trace >= TRACE_MAX {
         return Fate::Traced;
     }
     let black = g

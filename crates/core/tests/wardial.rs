@@ -1,7 +1,7 @@
 //! The wardialer: ranges, scans, traps, and hints that narrow ranges down.
 
 use ninsei_core::bbs::{COLS, ROWS, Screen, Session};
-use ninsei_core::hub::{self, Answer, Save, ShellEffect};
+use ninsei_core::hub::{self, Answer, Entry, Save, ShellEffect};
 use ninsei_core::*;
 
 fn data() -> Data {
@@ -242,4 +242,43 @@ fn old_saves_know_the_local_exchange() {
     let s = Save::load("(version: 1, runs: 1)").unwrap();
     assert!(s.knows_range("local"));
     assert_eq!(s.telco_heat, 0);
+}
+
+#[test]
+fn tiers_set_chokepoints_black_ice_and_trace() {
+    let data = Data::builtin().unwrap();
+    let entry = |tier, traits: &[&str]| Entry {
+        id: 0,
+        name: "probe".into(),
+        business: "test".into(),
+        number: "555-0000".into(),
+        tier,
+        traits: traits.iter().map(|t| t.to_string()).collect(),
+        heat: 0,
+        runs: 0,
+    };
+    for t in &data.networks.tiers {
+        let (p, m) = Save::site_params(&data, &entry(t.tier, &[]));
+        assert_eq!(p.shape.choke, t.choke, "tier {}", t.tier);
+        assert_eq!(p.black_bonus, t.black);
+        assert_eq!(m.trace_pct, t.trace_pct);
+        // A chokepoint layer is one guarded node: the run has to go through it.
+        let mut save = Save::default();
+        save.phonebook.push(entry(t.tier, &[]));
+        let g = save.dial(&data, 0, 9).unwrap();
+        for layer in &g.net.layers[1..g.net.layers.len() - 1] {
+            let l = g.net.nodes[layer[0]].layer;
+            if p.shape.is_choke(l) {
+                assert_eq!(layer.len(), 1, "tier {} layer {l}", t.tier);
+                let k = g.net.nodes[layer[0]].kind;
+                assert!(matches!(k, NodeKind::Ice | NodeKind::BlackIce), "{k:?}");
+            }
+        }
+    }
+    // Tier 1 stays open; the higher tiers funnel.
+    assert_eq!(data.networks.tier(1).unwrap().choke, 0);
+    assert!(data.networks.tier(3).unwrap().choke > 0);
+    // A trait's shape still wins (a mesh is wide open, whatever the tier).
+    let (p, _) = Save::site_params(&data, &entry(3, &["mesh"]));
+    assert_eq!(p.shape.choke, 0);
 }
