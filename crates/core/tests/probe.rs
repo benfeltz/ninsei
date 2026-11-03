@@ -63,3 +63,27 @@ fn bots_always_finish_their_runs() {
         }
     }
 }
+
+#[test]
+fn careers_shop_take_contracts_and_talk() {
+    let data = Data::builtin().unwrap();
+    let mut p = Probe::new(
+        &data,
+        Config {
+            spot_runs: 1,
+            careers: 3,
+            career_runs: 15,
+            seed: 11,
+        },
+    );
+    while !p.step(50) {}
+    let s = p.stats();
+    assert!(s.taken > 0, "it takes contracts");
+    assert!(s.paid > 0 && s.pay > 0, "and some pay");
+    assert!(!s.bought.is_empty(), "it buys at BBSes");
+    assert!(
+        s.talks.iter().any(|(t, _)| t != "walked away"),
+        "it does more than walk away: {:?}",
+        s.talks
+    );
+}
