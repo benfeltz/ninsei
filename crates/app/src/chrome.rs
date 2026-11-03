@@ -134,6 +134,10 @@ pub trait ChromeView {
     fn default_layout(&self, extra: &[Tab]) -> DockState<Tab> {
         base_layout(extra)
     }
+    /// A 1-bit chrome: damage glitches tear and smear, but never split colour.
+    fn one_bit(&self) -> bool {
+        false
+    }
 }
 
 /// The shared layout: map, target and hex in the middle, deck and warez on the left, the
@@ -203,6 +207,7 @@ pub fn view(c: Chrome) -> &'static dyn ChromeView {
         Chrome::Classic => &Classic,
         Chrome::Btop => &Btop,
         Chrome::Suite => &crate::suite::Suite,
+        Chrome::Stack => &crate::stack::Stack,
     }
 }
 

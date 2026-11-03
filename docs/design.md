@@ -17,7 +17,7 @@ theme (colour roles) ─┐
 monitor (CRT preset) ─┼─> what you see
 deck ─> firmware ─────┘
            ├─ map      Iso | Draft | Paint              (the run's network view)
-           ├─ chrome   Classic | Btop | Suite | Stack*  (how the run screen is dressed)
+           ├─ chrome   Classic | Btop | Suite | Stack   (how the run screen is dressed)
            ├─ panes    net | ...                      (secondary panes it ships with; more are bought)
            ├─ desktop  Tiling | Workbench | Liza      (the OS between runs: AnarchyOS, Desktop, Liza)
            └─ sounds   ono | hosaka | sensenet        (a sound pack in data/sounds/)
@@ -31,13 +31,12 @@ deck ─> firmware ─────┘
 | Part | Sense/Net (starter) | Ono-Sendai (hacker) | Hosaka (corpo) |
 |---|---|---|---|
 | `map` | `Paint`: a MacPaint picture on a card, nodes filled with patterns ✅ | `Iso`: wireframes over a glowing grid ✅ | `Draft`: a technical drawing ✅ |
-| `chrome` | `Stack`: a HyperCard stack: a card window, the Message box, pattern meters, Mac alerts (#76) | `Btop`: boxed panes, gradient meters, dot graphs, waterfalls ✅ | `Suite`: document windows, forms, a spreadsheet, report charts, an F-key legend, dialogs ✅ |
+| `chrome` | `Stack`: a HyperCard stack: the Card, the Message box, pattern meters, rounded buttons ✅ | `Btop`: boxed panes, gradient meters, dot graphs, waterfalls ✅ | `Suite`: document windows, forms, a spreadsheet, report charts, an F-key legend, dialogs ✅ |
 | `desktop` | `Liza`: after System 1 and the Lisa: a menu bar, Finder windows, a Trash, a happy deck at boot ✅ | `Tiling`: **AnarchyOS**, after Omarchy: tiles, workspaces, a top bar, a launcher ✅ | `Workbench`: **Desktop**, after Workbench 1.3 ✅ |
 | `sounds` | `sensenet`: square beeps, a warm chord, a gentle "boing" ✅ | `ono`: harsh squares, noise bursts, chiptune arpeggios ✅ | `hosaka`: soft sine chimes, a polite ding, a tidy shutdown tune ✅ |
-| fights | a Mac alert over the card, with a ringed default button (#76) | the map dives into the node: the ICE as a wireframe over a horizon grid, a program hotbar with previews ✅ | an incident report with a strength chart and an agenda ✅ |
-| damage | 1-bit glitches: patterns smearing, bitmap tearing, inverted rows (#76) | screen glitches: tearing, RGB split, corrupted text ✅ | the same, plus corporate error dialogs (idea below) |
+| fights | a Mac alert beside the card: the hardest hit as the ringed default button, a shield ✅ | the map dives into the node: the ICE as a wireframe over a horizon grid, a program hotbar with previews ✅ | an incident report with a strength chart and an agenda ✅ |
+| damage | 1-bit glitches: tearing and noise, never an RGB split ✅ (pattern smears and inverted rows: an idea) | screen glitches: tearing, RGB split, corrupted text ✅ | the same, plus corporate error dialogs (idea below) |
 
-Until its own chrome lands, the Sense/Net firmware dresses the run screen in `Classic`.
 
 ## The decks
 

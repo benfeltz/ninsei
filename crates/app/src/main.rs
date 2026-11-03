@@ -21,6 +21,7 @@ mod netpane;
 mod panes;
 mod patterns;
 mod sound;
+mod stack;
 mod suite;
 mod theme;
 mod tiling;
@@ -1187,7 +1188,11 @@ impl eframe::App for App {
         match self.effects() {
             Some(e) if !self.crt_gl.failed() => {
                 self.glitch.overlay(&ctx, &pal, true);
-                let (e, tear) = self.glitch.effects(e);
+                let (mut e, tear) = self.glitch.effects(e);
+                if chrome::view(self.save.firmware_def(&self.data).chrome).one_bit() {
+                    // A 1-bit screen has no colours to split.
+                    e.rgb_shift = 0.0;
+                }
                 self.crt_gl.paint(&ctx, e, tear);
             }
             Some(_) => {
