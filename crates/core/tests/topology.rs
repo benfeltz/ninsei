@@ -225,6 +225,8 @@ fn contracts_on_the_main_network_survive_a_subnet() {
             reward: 100,
             ghost: None,
             status: ContractStatus::Active,
+            paid: 0,
+            betrayal: None,
         });
         g.apply(Action::Move(sub));
         // Inside, node ids belong to the subnet: neither a matching id nor

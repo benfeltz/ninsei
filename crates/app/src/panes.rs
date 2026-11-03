@@ -633,6 +633,7 @@ impl Panes<'_> {
                 ContractStatus::Done => ("[x]", p.dim),
                 ContractStatus::Failed => ("[-]", p.faint),
                 ContractStatus::Offered => ("[?]", p.dim),
+                ContractStatus::Betrayed => ("[!]", p.dim),
             };
             ui.horizontal(|ui| {
                 ui.label(RichText::new(mark).color(col));
@@ -654,6 +655,14 @@ impl Panes<'_> {
                         col
                     },
                 ));
+                if let Some(label) = g.betrayal_label(k) {
+                    ui.label(
+                        RichText::new(format!("{label}, paid {}¢", k.paid))
+                            .small()
+                            .color(p.bright),
+                    );
+                    return;
+                }
                 if let Some((cap, bonus)) = k.ghost {
                     let ok = g.deck.trace <= cap;
                     let note = format!(

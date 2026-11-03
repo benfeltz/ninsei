@@ -5,7 +5,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::binary::{self, Bin};
 use crate::data::{Data, IceClass};
-use crate::game::{Game, Kit, Phase, RunMods, Site};
+use crate::game::{ContractStatus, Game, Kit, Phase, RunMods, Site};
 use crate::network::{NetParams, Shape};
 use crate::rng::Rng;
 use crate::tuning::{
@@ -561,6 +561,9 @@ pub struct Save {
     /// Traps tripped since the last dial: extra trace on the next run.
     #[serde(default)]
     pub telco_heat: u32,
+    /// Clean jobs done for each client: trusted clients turn on you less. A betrayal resets it.
+    #[serde(default)]
+    pub trust: Vec<(String, u32)>,
     /// BBS numbers you know (board ids), and where you found them.
     #[serde(default)]
     pub boards: Vec<KnownBoard>,
@@ -666,6 +669,7 @@ impl Default for Save {
             ranges: local_range(),
             scanned: Vec::new(),
             telco_heat: 0,
+            trust: Vec::new(),
             boards: Vec::new(),
             home_bought: Vec::new(),
             home_taken: Vec::new(),
@@ -1193,6 +1197,7 @@ impl Save {
             site: None,
             board: 0,
             jobs: Vec::new(),
+            trust: self.trust.clone(),
         }
     }
 
@@ -1221,6 +1226,22 @@ impl Save {
         self.runs += 1;
         if let Some(site) = &game.site {
             self.heat_up(site.entry);
+            // A client sold the number to the telco.
+            if let Some(e) = self.phonebook.iter_mut().find(|e| e.id == site.entry) {
+                e.heat = (e.heat + game.sold_out).min(HEAT_MAX);
+            }
+        }
+        for k in &game.contracts {
+            let clean = match k.status {
+                ContractStatus::Done => true,
+                ContractStatus::Betrayed => false,
+                _ => continue,
+            };
+            match self.trust.iter_mut().find(|(c, _)| *c == k.client) {
+                Some((_, n)) if clean => *n += 1,
+                Some((_, n)) => *n = 0,
+                None => self.trust.push((k.client.clone(), u32::from(clean))),
+            }
         }
         // What you learned stays in your head, deck or no deck.
         let source = game

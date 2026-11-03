@@ -101,6 +101,15 @@ pub const CONTRACT_GHOST_MARGIN: u32 = 14;
 pub const CONTRACT_GHOST_BONUS_PCT: u32 = 50;
 /// Jobs posted on the BBS board.
 pub const BBS_JOBS: usize = 2;
+/// Betrayal: chance (percent) a client turns on you when the target falls, by tier (1, 2, 3)...
+pub const BETRAY_PCT: [u32; 3] = [5, 16, 24];
+/// ... plus a point for every this many credits they owe ...
+pub const BETRAY_PER_CREDITS: u32 = 30;
+/// ... less this much for every clean job you've done for them (counted up to `BETRAY_TRUST_MAX`) ...
+pub const BETRAY_TRUST_PCT: u32 = 4;
+pub const BETRAY_TRUST_MAX: u32 = 5;
+/// ... halved when you earned the ghost bonus, and never more than this.
+pub const BETRAY_MAX_PCT: u32 = 40;
 
 /// Selling programs: extra credits per opt level on top of the per-GB price.
 pub const SELL_PER_OPT: u32 = 25;

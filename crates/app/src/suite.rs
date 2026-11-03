@@ -986,10 +986,18 @@ impl Panes<'_> {
                         for (i, k) in g.contracts.iter().enumerate() {
                             let n = &g.root().nodes[k.node];
                             let (mark, status, col) = match k.status {
-                                ContractStatus::Active => ("[ ]", "OPEN", p.fg),
-                                ContractStatus::Done => ("[x]", "PAID", p.dim),
-                                ContractStatus::Failed => ("[-]", "VOID", p.faint),
-                                ContractStatus::Offered => ("[?]", "OFFERED", p.dim),
+                                ContractStatus::Active => ("[ ]", "OPEN".into(), p.fg),
+                                ContractStatus::Done => ("[x]", "PAID".into(), p.dim),
+                                ContractStatus::Failed => ("[-]", "VOID".into(), p.faint),
+                                ContractStatus::Offered => ("[?]", "OFFERED".into(), p.dim),
+                                ContractStatus::Betrayed => (
+                                    "[!]",
+                                    format!(
+                                        "VOID — {}",
+                                        g.betrayal_label(k).unwrap_or("DEFAULTED")
+                                    ),
+                                    p.bright,
+                                ),
                             };
                             ui.label(t(mark, col));
                             ui.label(t(format!("WO-{:04}", 1001 + i), col));
@@ -997,8 +1005,13 @@ impl Panes<'_> {
                             ui.label(t(&n.name, col));
                             ui.label(t(format!("{here}/{}", n.layer), col));
                             ui.label(t(status, col));
+                            let amount = if k.status == ContractStatus::Betrayed {
+                                k.paid
+                            } else {
+                                k.reward
+                            };
                             ui.label(t(
-                                format!("{}¢", k.reward),
+                                format!("{amount}¢"),
                                 if k.status == ContractStatus::Active {
                                     p.bright
                                 } else {

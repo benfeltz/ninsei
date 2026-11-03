@@ -1,7 +1,7 @@
 //! Run state and the rules that change it. The app only ever calls [`Game::apply`].
 
 use crate::binary::{self, Bin, Spec};
-use crate::data::{ChoiceEffect, Data, Drop, Intent, LootTable, Penalty};
+use crate::data::{BetrayalEffect, ChoiceEffect, Data, Drop, Intent, LootTable, Penalty};
 use crate::network::{NetParams, Network, NodeKind};
 use crate::rng::Rng;
 use crate::tuning::*;
@@ -73,6 +73,8 @@ pub struct Kit {
     pub board: usize,
     /// Jobs taken from a board at home for this network. They get their targets once it's built.
     pub jobs: Vec<crate::hub::PendingJob>,
+    /// Clean jobs done for each client (from the save): trusted clients betray less.
+    pub trust: Vec<(String, u32)>,
 }
 
 /// Run-wide modifiers from the network's tier, traits and heat.
@@ -138,6 +140,8 @@ pub enum ContractStatus {
     Done,
     /// The target became unreachable.
     Failed,
+    /// The target fell and the client turned on you (`Contract::betrayal` says how).
+    Betrayed,
 }
 
 /// A commission to derez one node.
@@ -150,6 +154,10 @@ pub struct Contract {
     /// Ghost bonus: paid on top if trace is at or under `cap` when the target falls.
     pub ghost: Option<(u32, u32)>,
     pub status: ContractStatus,
+    /// What was actually paid, once settled.
+    pub paid: u32,
+    /// How the client turned on you: an index into `Data::betrayals`.
+    pub betrayal: Option<usize>,
 }
 
 /// An FTL-style event on a MSG node.
@@ -286,6 +294,10 @@ pub struct Game {
     pub history: crate::history::History,
     /// Sound cues waiting to be played. The app drains them each frame.
     pub cues: Vec<crate::cue::Cue>,
+    /// Clean jobs done for each client before this run (from the save's `Kit::trust`).
+    pub trust: Vec<(String, u32)>,
+    /// Heat a client's sell-out adds to this network's phonebook entry, booked by `Save::record`.
+    pub sold_out: u32,
 }
 
 impl Game {
@@ -341,6 +353,8 @@ impl Game {
             history: crate::history::History::default(),
             cues: Vec::new(),
             site: kit.site.clone(),
+            trust: kit.trust.clone(),
+            sold_out: 0,
         };
         let programs: Vec<(usize, Bin)> = if kit.programs.is_empty() {
             START_WAREZ
@@ -398,6 +412,8 @@ impl Game {
                 reward: j.reward,
                 ghost: j.ghost,
                 status: ContractStatus::Active,
+                paid: 0,
+                betrayal: None,
             };
             self.say(
                 LogKind::Good,
@@ -1163,6 +1179,8 @@ impl Game {
             reward,
             ghost,
             status,
+            paid: 0,
+            betrayal: None,
         })
     }
 
@@ -1199,32 +1217,142 @@ impl Game {
         Ok(())
     }
 
-    /// Pays out contracts on a node that just fell.
+    /// The chance (percent) that `k`'s client turns on you if its target falls now: higher on
+    /// bigger networks and bigger jobs, lower for a client you've worked for cleanly, halved if
+    /// the ghost bonus would pay. Zero if nothing in `contracts.ron` fits this tier.
+    pub fn betray_pct(&self, k: &Contract) -> u32 {
+        let tier = self.tier();
+        if !self.data.betrayals.iter().any(|b| b.min_tier <= tier) {
+            return 0;
+        }
+        let owed = self.mods.pay(k.reward + self.ghost_due(k));
+        let trust = self
+            .trust
+            .iter()
+            .find(|(c, _)| *c == k.client)
+            .map_or(0, |&(_, n)| n.min(BETRAY_TRUST_MAX));
+        let base = BETRAY_PCT[(tier as usize).clamp(1, 3) - 1] + owed / BETRAY_PER_CREDITS;
+        let pct = base.saturating_sub(BETRAY_TRUST_PCT * trust);
+        let pct = if self.ghost_due(k) > 0 { pct / 2 } else { pct };
+        pct.min(BETRAY_MAX_PCT)
+    }
+
+    /// How `k`'s client turned on you, as the panes show it: e.g. `DEFAULTED`.
+    pub fn betrayal_label(&self, k: &Contract) -> Option<&str> {
+        k.betrayal
+            .and_then(|b| self.data.betrayals.get(b))
+            .map(|b| b.label.as_str())
+    }
+
+    /// The network's tier (a plain run counts as tier 1).
+    pub fn tier(&self) -> u32 {
+        self.site.as_ref().map_or(1, |s| s.tier)
+    }
+
+    /// The ghost bonus `k` pays at the current trace.
+    fn ghost_due(&self, k: &Contract) -> u32 {
+        k.ghost
+            .filter(|&(cap, _)| self.deck.trace <= cap)
+            .map_or(0, |(_, b)| b)
+    }
+
+    /// Pays out contracts on a node that just fell, then rolls whether each client turns on you.
     fn settle_contracts(&mut self, node: usize) {
-        let trace = self.deck.trace;
-        let mut pay = Vec::new();
-        for k in &mut self.contracts {
-            if k.node == node && k.status == ContractStatus::Active {
-                k.status = ContractStatus::Done;
-                let bonus = k
-                    .ghost
-                    .filter(|&(cap, _)| trace <= cap)
-                    .map_or(0, |(_, b)| b);
-                pay.push((k.client.clone(), k.reward, bonus));
+        let due: Vec<usize> = (0..self.contracts.len())
+            .filter(|&i| self.contracts[i].node == node)
+            .filter(|&i| self.contracts[i].status == ContractStatus::Active)
+            .collect();
+        for i in due {
+            let k = self.contracts[i].clone();
+            let (reward, bonus) = (self.mods.pay(k.reward), self.mods.pay(self.ghost_due(&k)));
+            let betrayal = self
+                .rng
+                .chance(self.betray_pct(&k))
+                .then(|| self.pick_betrayal())
+                .flatten();
+            let paid = match betrayal.map(|b| &self.data.betrayals[b].effect) {
+                Some(BetrayalEffect::Stiffed(pct)) => (reward + bonus) * pct / 100,
+                _ => reward + bonus,
+            };
+            self.deck.credits += paid;
+            let c = &mut self.contracts[i];
+            c.paid = paid;
+            c.betrayal = betrayal;
+            c.status = if betrayal.is_some() {
+                ContractStatus::Betrayed
+            } else {
+                ContractStatus::Done
+            };
+            match betrayal {
+                None => {
+                    self.say(
+                        LogKind::Loot,
+                        format!("contract complete. {} pays {reward}¢.", k.client),
+                    );
+                    if bonus > 0 {
+                        self.say(
+                            LogKind::Loot,
+                            format!("+ ghost bonus {bonus}¢. clean work."),
+                        );
+                    }
+                }
+                Some(b) => self.betray(b, &k.client, node, paid),
             }
         }
-        for (client, reward, bonus) in pay {
-            let (reward, bonus) = (self.mods.pay(reward), self.mods.pay(bonus));
-            self.deck.credits += reward + bonus;
+    }
+
+    /// One of the betrayals that fit this network's tier, by weight.
+    fn pick_betrayal(&mut self) -> Option<usize> {
+        let tier = self.tier();
+        let fits: Vec<usize> = (0..self.data.betrayals.len())
+            .filter(|&b| self.data.betrayals[b].min_tier <= tier)
+            .collect();
+        let total: u32 = fits.iter().map(|&b| self.data.betrayals[b].weight).sum();
+        if total == 0 {
+            return None;
+        }
+        let mut roll = self.rng.below(total as usize) as u32;
+        fits.into_iter().find(|&b| {
+            let w = self.data.betrayals[b].weight;
+            if roll < w {
+                true
+            } else {
+                roll -= w;
+                false
+            }
+        })
+    }
+
+    /// The double-cross itself: says what happened and does it.
+    fn betray(&mut self, b: usize, client: &str, node: usize, paid: u32) {
+        let def = self.data.betrayals[b].clone();
+        if paid > 0 {
             self.say(
                 LogKind::Loot,
-                format!("contract complete. {client} pays {reward}¢."),
+                format!("contract complete. {client} pays {paid}¢."),
             );
-            if bonus > 0 {
-                self.say(
-                    LogKind::Loot,
-                    format!("+ ghost bonus {bonus}¢. clean work."),
-                );
+        }
+        self.say(
+            LogKind::Bad,
+            format!("!! {}", def.says.replace("{client}", client)),
+        );
+        match def.effect {
+            BetrayalEffect::Stiffed(_) => {}
+            BetrayalEffect::Burned { trace, ice } => {
+                self.deck.trace += trace;
+                self.mods.ice_bonus += ice;
+                self.check_trace();
+            }
+            BetrayalEffect::SoldOut(heat) => self.sold_out += heat,
+            BetrayalEffect::Setup(id) => {
+                // The runner is standing on the node that just fell (in the main network).
+                if let Some(ice) = self.data.ice_by_id(&id)
+                    && self.outer.is_none()
+                    && self.at == node
+                    && self.phase != Phase::Flatlined
+                {
+                    self.start_combat(node, ice);
+                }
             }
         }
     }

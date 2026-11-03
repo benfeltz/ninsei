@@ -129,7 +129,7 @@ Runs are for taking things; home is for building. **Reach the exit** and the run
 | `target.ice` | The ICE you're fighting: strength, next intent, run buttons |
 | `hexedit` | Open any program's binary and patch its bytes (see Crafting) |
 | `terminal` | Log and command line (`help`). It's a real line editor: readline keys (`Ctrl+A`/`E`/`B`/`F`, `Alt+B`/`F`, `Ctrl+U`/`K`/`W`/`Y`), `↑`/`↓` history (kept in your save), `Ctrl+R` to search it, `Tab` to complete verbs, routes, slots and themes (twice to list them), `Ctrl+C` to drop the line and `Ctrl+L` to clear. In a browser, `Ctrl+W` belongs to the tab, so `Alt+Backspace` kills a word too |
-| `todo` | Your contracts, as an IDE TODO list: `[ ]` open, `[x]` paid, `[-]` failed |
+| `todo` | Your contracts, as an IDE TODO list: `[ ]` open, `[x]` paid, `[-]` failed, `[!]` the client turned on you |
 
 Tabs can be dragged, split and rearranged, and **your layout is saved** (one per deck firmware) and comes back next run. **view → add pane** adds secondary panes you own, which you can close again; **view → reset layout** goes back to the firmware's default.
 
@@ -161,7 +161,7 @@ On the **Hosaka** the run screen is a 90s productivity suite. Each pane is a doc
 - `WAREZ.WK1`: a spreadsheet with column letters, row numbers, a cell cursor and a formula bar (`B3: decoder.exe   =BREAK(CodeGate, 6)`). Click a header to sort, filter to loaded rows, double-click a row to load, run or unload, or right-click for more. The arrows move the cursor
 - `INCIDENT REPORT`: the ICE as a record, its strength as a column chart per turn, and its **agenda** of planned actions
 - `ACTIVITY LOG`: a ledger (`TIME`, `REF`, `ENTRY`) with a `Command:` field
-- `WORK ORDERS`: contracts as a table with a total outstanding, and the ghost bonus as a conditional cell (`+57¢ if TRACE ≤ 40%`)
+- `WORK ORDERS`: contracts as a table with a total outstanding, and the ghost bonus as a conditional cell (`+57¢ if TRACE ≤ 40%`); a client who turned on you is `VOID — DEFAULTED` (or `BURNED`, `SOLD OUT`...)
 
 An **F-key legend** runs along the bottom: **F1** help, **F2** load, **F3** unload, **F4** hex (on the sheet's cursor), **F8** jack (types `jack ` for you), **F10** end turn. The usual keys still work. The status line reads like a document: date and hop, `USER GUEST-0451`, `BRIGHTWATER MUTUAL.NET`, `NODE 4 OF 15`, `TRACE 37%`. A paid contract and the end of a session pop up as **dialogs**; Enter dismisses them, and they never block a fight.
 
@@ -226,6 +226,14 @@ A contract names an ICE node ahead: derez it and the client pays. Some carry a *
 ![contract target](docs/shots/contract.png)
 
 Get them from fixers on MSG nodes or from the BBS's **[J]obs board**, which posts fresh work each time you dial in. Clients and briefs live in [`data/contracts.ron`](data/contracts.ron).
+
+Never quite trust a fixer. When a target falls, the client may **turn on you**. The odds rise with the tier and the pay, drop for a client you've worked for cleanly before (the save remembers), and halve if you earned the ghost bonus. Tier 1 clients only short you. Further in, they can:
+- **default**: no pay at all.
+- **burn** you: trace jumps, and the rest of the run's ICE rezzes stronger.
+- **sell you out**: that number's heat jumps, so going back costs you.
+- **set you up** (tier 3): ICE rezzes on your node right after the payout.
+
+The kinds, their weights and their messages are data in `contracts.ron`; the odds are in `tuning.rs` (`BETRAY_*`).
 
 ## Crafting: the hex editor
 
@@ -304,7 +312,7 @@ Everything is data in [`data/`](data), compiled into the binary:
 - `ice.ron`: ICE (class, strength, intent cycle; tier 2 is black ICE)
 - `loot.ron`: weighted loot tables for ICE, black ICE and vaults (credits, warez, upgrades, fragments)
 - `events.ron`: MSG-node encounters
-- `contracts.ron`: contract clients and briefs
+- `contracts.ron`: contract clients and briefs, and the ways clients turn on you
 - `bbs/<id>/board.ron`: one BBS per folder: bulletins, users, file areas, prices, stock per run, look
 - `themes.ron`, `displays.ron`: colour themes and CRT display presets
 - `netmap.ron`: the network map's shape and drafting symbol for each kind of node
