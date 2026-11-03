@@ -22,6 +22,7 @@ pub mod modem;
 pub mod netview;
 pub mod network;
 pub mod panes;
+pub mod pattern;
 pub mod probe;
 pub mod rng;
 pub mod suite;

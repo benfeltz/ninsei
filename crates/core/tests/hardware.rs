@@ -29,7 +29,7 @@ fn the_shelf() {
         assert!(hw.monitors.iter().any(|m| m.display == p.id), "{}", p.id);
     }
     assert_eq!(hw.starter_monitor().id, "amber");
-    assert_eq!(hw.starter_deck().title(), "Hosaka Executive 4");
+    assert_eq!(hw.starter_deck().title(), "Sense/Net Personal Deck");
     assert_eq!(hw.deck("hosaka").unwrap().firmware[0].map, MapView::Draft);
 }
 
@@ -41,9 +41,9 @@ fn old_saves_get_the_starters() {
     assert!(s.ensure_hardware(&d));
     assert_eq!(
         (s.monitors.clone(), s.decks.clone()),
-        (vec!["amber".to_string()], vec!["hosaka".to_string()])
+        (vec!["amber".to_string()], vec!["sensenet".to_string()])
     );
-    assert_eq!((s.monitor.as_str(), s.deck.as_str()), ("amber", "hosaka"));
+    assert_eq!((s.monitor.as_str(), s.deck.as_str()), ("amber", "sensenet"));
     // The amber tube only shows amber.
     assert_eq!(s.phosphor, "amber");
     assert_eq!(s.firmware_def(&d).map, MapView::Draft);
@@ -105,7 +105,7 @@ fn buying_hardware() {
             .is_err()
     );
     // Swapping back and forth.
-    s.use_deck(&d, "hosaka").unwrap();
+    s.use_deck(&d, "sensenet").unwrap();
     assert_eq!(s.firmware_def(&d).map, MapView::Draft);
     assert!(s.use_deck(&d, "nope").is_err());
     assert!(s.use_firmware(&d, "9.9").is_err());
@@ -123,7 +123,10 @@ fn only_owned_hardware_plugs_in() {
         run("monitor amber", &s),
         ShellEffect::Monitor("amber".into())
     );
-    assert_eq!(run("deck hosaka", &s), ShellEffect::Deck("hosaka".into()));
+    assert_eq!(
+        run("deck sensenet", &s),
+        ShellEffect::Deck("sensenet".into())
+    );
     s.monitors.push("vga".into());
     assert_eq!(run("display vga", &s), ShellEffect::Monitor("vga".into()));
 }
@@ -185,7 +188,7 @@ fn layouts_are_kept_per_deck_firmware() {
         .unwrap();
     assert_eq!(s.layout(&d), None);
     s.set_layout(&d, "ono layout".into());
-    s.use_deck(&d, "hosaka").unwrap();
+    s.use_deck(&d, "sensenet").unwrap();
     assert_eq!(s.layout(&d), Some("hosaka layout"));
     // Kept in the save, and reset clears only this one.
     let mut back = Save::load(&s.to_text()).unwrap();

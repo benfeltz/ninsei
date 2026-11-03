@@ -15,7 +15,11 @@ fn take(g: &mut Game) -> Vec<Cue> {
 fn every_cue_renders_short_and_clean() {
     let d = data();
     let ids: Vec<&str> = d.sounds.iter().map(|p| p.id.as_str()).collect();
-    assert_eq!(ids, ["hosaka", "ono"], "a pack per file in data/sounds/");
+    assert_eq!(
+        ids,
+        ["hosaka", "ono", "sensenet"],
+        "a pack per file in data/sounds/"
+    );
     for (pack, c) in d.sounds.iter().flat_map(|p| Cue::ALL.map(|c| (p, c))) {
         let def = pack.sounds.iter().find(|s| s.cue == c).unwrap();
         let a = def.render(44_100);
@@ -34,13 +38,17 @@ fn every_cue_renders_short_and_clean() {
 fn bad_sounds_are_caught() {
     let src = include_str!("../../../data/sounds/ono.ron");
     let parse = |text: &str| {
-        let packs = [
-            data::PackSrc {
-                id: "ono",
-                sounds: text,
-            },
-            data::BUILTIN_SOUNDS[0],
-        ];
+        // The edited Ono-Sendai pack, beside every other shipped pack.
+        let mut packs = vec![data::PackSrc {
+            id: "ono",
+            sounds: text,
+        }];
+        packs.extend(
+            data::BUILTIN_SOUNDS
+                .iter()
+                .filter(|p| p.id != "ono")
+                .copied(),
+        );
         Data::parse(Sources {
             sounds: &packs,
             ..Sources::builtin()

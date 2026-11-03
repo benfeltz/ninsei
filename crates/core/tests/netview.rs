@@ -144,6 +144,11 @@ fn the_deck_picks_the_map() {
     let d = data();
     let mut s = Save::default();
     s.ensure_hardware(&d);
+    // The starter Sense/Net draws a flat picture (a stand-in until its Paint map lands).
+    assert_eq!(s.deck, "sensenet");
+    assert_eq!(s.firmware_def(&d).map, MapView::Draft);
+    s.decks.push("hosaka".into());
+    s.use_deck(&d, "hosaka").unwrap();
     assert_eq!(
         s.firmware_def(&d).map,
         MapView::Draft,

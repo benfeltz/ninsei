@@ -16,27 +16,55 @@ How ninsei should look and feel, and why. Read this before building UI. `CLAUDE.
 theme (colour roles) ─┐
 monitor (CRT preset) ─┼─> what you see
 deck ─> firmware ─────┘
-           ├─ map      Iso | Draft             (the run's network view)
-           ├─ chrome   Classic | Btop | Suite  (how the run screen is dressed)
-           ├─ panes    net | ...             (secondary panes it ships with; more are bought)
-           ├─ desktop  Tiling | Workbench | ...  (the OS between runs: AnarchyOS, Desktop)
-           └─ sounds   ono | hosaka | ...      (a sound pack in data/sounds/)
+           ├─ map      Iso | Draft | Paint*             (the run's network view)
+           ├─ chrome   Classic | Btop | Suite | Stack*  (how the run screen is dressed)
+           ├─ panes    net | ...                      (secondary panes it ships with; more are bought)
+           ├─ desktop  Tiling | Workbench | Liza*     (the OS between runs: AnarchyOS, Desktop, Liza)
+           └─ sounds   ono | hosaka | sensenet        (a sound pack in data/sounds/)
+                                                        * planned for the Sense/Net deck (#46)
 ```
 
 - **Colour roles.** Every part draws with the theme's six roles, darkest to brightest: `bg`, `panel`, `faint`, `dim`, `fg`, `bright`. No part brings its own colours; a deck's personality comes from shape, layout, type and motion. (The BBS window's CGA and the crash screen's red are the only exceptions.)
 - **Danger** is `bright` plus motion: a faster pulse, a burst, a glitch. There's no red.
 - **A new part** is one enum variant and one renderer. A deck's firmware names it in data. Never special-case a deck id in code.
 
-| Part | Ono-Sendai (hacker) | Hosaka (corpo) |
-|---|---|---|
-| `map` | `Iso`: wireframes over a glowing grid ✅ | `Draft`: a technical drawing ✅ |
-| `chrome` | `Btop`: boxed panes, gradient meters, dot graphs, waterfalls ✅ | `Suite`: document windows, forms, a spreadsheet, report charts, an F-key legend, dialogs ✅ |
-| `desktop` | `Tiling`: **AnarchyOS**, after Omarchy: tiles, workspaces, a top bar, a launcher ✅ | `Workbench`: **Desktop**, after Workbench 1.3 ✅ |
-| `sounds` | `ono`: harsh squares, noise bursts, chiptune arpeggios ✅ | `hosaka`: soft sine chimes, a polite ding, a tidy shutdown tune ✅ |
-| fights | the map dives into the node: the ICE as a wireframe over a horizon grid, a program hotbar with previews ✅ | an incident report with a strength chart and an agenda ✅ |
-| damage | screen glitches: tearing, RGB split, corrupted text ✅ | the same, plus corporate error dialogs (idea below) |
+| Part | Sense/Net (starter) | Ono-Sendai (hacker) | Hosaka (corpo) |
+|---|---|---|---|
+| `map` | `Paint`: a MacPaint picture on a card, nodes filled with patterns (#75) | `Iso`: wireframes over a glowing grid ✅ | `Draft`: a technical drawing ✅ |
+| `chrome` | `Stack`: a HyperCard stack: a card window, the Message box, pattern meters, Mac alerts (#76) | `Btop`: boxed panes, gradient meters, dot graphs, waterfalls ✅ | `Suite`: document windows, forms, a spreadsheet, report charts, an F-key legend, dialogs ✅ |
+| `desktop` | `Liza`: after System 1 and the Lisa: a menu bar, Finder windows, a Trash (#74) | `Tiling`: **AnarchyOS**, after Omarchy: tiles, workspaces, a top bar, a launcher ✅ | `Workbench`: **Desktop**, after Workbench 1.3 ✅ |
+| `sounds` | `sensenet`: square beeps, a warm chord, a gentle "boing" ✅ | `ono`: harsh squares, noise bursts, chiptune arpeggios ✅ | `hosaka`: soft sine chimes, a polite ding, a tidy shutdown tune ✅ |
+| fights | a Mac alert over the card, with a ringed default button (#76) | the map dives into the node: the ICE as a wireframe over a horizon grid, a program hotbar with previews ✅ | an incident report with a strength chart and an agenda ✅ |
+| damage | 1-bit glitches: patterns smearing, bitmap tearing, inverted rows (#76) | screen glitches: tearing, RGB split, corrupted text ✅ | the same, plus corporate error dialogs (idea below) |
+
+Until its own parts land, the Sense/Net firmware runs on stand-ins (`Draft`, `Classic`, `Workbench`).
 
 ## The decks
+
+### Sense/Net Personal Deck: the starter
+
+**Fantasy.** Everybody's first deck, sold by the simstim giant that sells experiences to ordinary people. It's a friendly consumer machine that ships with a welcome stack and a smile, and the net seen through it is approachable, maybe a bit naive. The cracks show if you look: the fine print, the people its manual would rather you didn't meet.
+
+**Feel.** Friendly, tidy, a little toy-like. A 1-bit world where everything is a picture: a menu bar, icons and folders, windows with striped title bars and a close box, a Trash. A run is a HyperCard stack: the network is a card you're looking at, drawn in MacPaint.
+
+**Rules of thumb**
+- **Shade with patterns, never colour.** Grey is a 50% checker, shadows are diagonal hatching, danger is dense crosshatch. Patterns are data (`data/patterns.ron`) and always draw in two theme roles, ink and paper.
+- **Crisp pixels.** Patterns and icons draw pixel-aligned at a whole-number scale. Where a fine pattern shimmers through the CRT, use its `fallback`.
+- **Text never sits on a pattern.** Labels get a solid backing.
+- **Everything is labelled.** Menus say what they do; buttons are words. It's the calmest screen to learn on.
+- **Lit paper or lit ink.** The Mac look is a lit page with dark ink (paper = `fg`, ink = `bg`); on a phosphor tube that's bright, so a dark screen with lit lines (paper = `bg`, ink = `fg`) is the alternative. Both are drawn from the same two roles; the mockup (#70) shows both.
+- **Motion is small:** marching ants around what's selected or dangerous, a blinking insertion point, a zoom rectangle when a window opens.
+- **Damage is 1-bit:** patterns smear, bitmaps tear, rows invert. Never RGB split.
+
+**Comps**
+
+| Reference | Take from it |
+|---|---|
+| HyperCard | Stacks and cards, the Message box, the Home stack, rounded buttons, ◀ ▶ navigation |
+| MacPaint | The pattern palette, pattern fills, the fat-bits look |
+| The Apple Lisa, Macintosh System 1 | The menu bar, the Finder, striped title bars, close boxes, a Trash, the alert box |
+| Susan Kare's icons | Friendly 1-bit icons that read at a glance |
+| *Neuromancer* (Sense/Net) | A media company that sells experiences: friendly on the surface |
 
 ### Ono-Sendai Cyberspace VII: the hacker deck
 

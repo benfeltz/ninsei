@@ -56,7 +56,7 @@ The look and feel each deck is going for (and the references behind it) is in [`
 What your screen looks like is the kit you own. Buy more in **RIG → HARDWARE** with banked credits; swap in Prefs, the view menu, or the Shell (`monitor <id>`, `deck <id>`). Testing? **F8** at home drops 1000¢ in the bank.
 
 - **Monitors** set the CRT look. You start with a Zenith Amber Terminal; the Hercules Green Phosphor, Apple Monitor II, Commodore 1702 and IBM 8513 VGA are on the shelf. A **mono** tube only shows its own colour (amber is amber); a **colour** monitor runs any theme, Synthwave and Workbench included.
-- **Decks** set the UX. You start on the **Hosaka Executive 4**, which sees the net as a technical drawing; the **Ono-Sendai Cyberspace VII** (wireframes over a glowing grid) sells in RIG. Decks are look and feel only: stats come from RIG upgrades.
+- **Decks** set the UX. You start on the **Sense/Net Personal Deck**, a friendly 1-bit machine running Liza (its own desktop, map and run screen are on the way, #46). RIG sells the **Ono-Sendai Cyberspace VII** (wireframes over a glowing grid) and the **Hosaka Executive 4**, which sees the net as a technical drawing. Decks are look and feel only: stats come from RIG upgrades.
 
 Everything is data in [`data/hub/hardware.ron`](data/hub/hardware.ron). A deck lists **firmware** (UX versions), each put together from named parts: `map` (`Iso` | `Draft`), `chrome` (pane style) and `desktop` (the overworld). A new UX version for a deck is a new firmware entry; a new kind of part is one renderer plus one name.
 
@@ -170,7 +170,7 @@ An **F-key legend** runs along the bottom: **F1** help, **F2** load, **F3** unlo
 
 ### Sound
 
-Everything is synthesized, like a late-80s sound card: no samples. Dialing plays the real modem handshake for the number. In a run, short bleeps and buzzes follow what happens: a hop, ICE rezzing, a breaker hitting, a shield going up, a hit soaked or taken, a derez, loot, a BBS download, trace crossing each quarter, someone on the line, the flatline and the jack-out. Cues layer over each other and the modem on one small mixer. Each deck sounds like itself: the **Ono-Sendai** plays harsh squares, noise and chiptune; the **Hosaka** plays soft office chimes and a polite ding, and even its flatline is a tidy shutdown tune. Sound packs are data, one file each in [`data/sounds/`](data/sounds) (per cue: waveform, pitch sweep, length, volume per note), and a deck's firmware names its pack. `sound` in the Shell or terminal, Prefs, or the view menu mutes it all.
+Everything is synthesized, like a late-80s sound card: no samples. Dialing plays the real modem handshake for the number. In a run, short bleeps and buzzes follow what happens: a hop, ICE rezzing, a breaker hitting, a shield going up, a hit soaked or taken, a derez, loot, a BBS download, trace crossing each quarter, someone on the line, the flatline and the jack-out. Cues layer over each other and the modem on one small mixer. Each deck sounds like itself: the **Sense/Net** plays simple square beeps, a warm chord and a gentle "boing" when something goes wrong; the **Ono-Sendai** plays harsh squares, noise and chiptune; the **Hosaka** plays soft office chimes and a polite ding, and even its flatline is a tidy shutdown tune. Sound packs are data, one file each in [`data/sounds/`](data/sounds) (per cue: waveform, pitch sweep, length, volume per note), and a deck's firmware names its pack. `sound` in the Shell or terminal, Prefs, or the view menu mutes it all.
 
 ### Damage glitches
 
@@ -317,6 +317,7 @@ Everything is data in [`data/`](data), compiled into the binary:
 - `themes.ron`, `displays.ron`: colour themes and CRT display presets
 - `netmap.ron`: the network map's shape and drafting symbol for each kind of node
 - `sounds/<pack>.ron`: a sound pack, what each cue plays (a deck's firmware picks one)
+- `patterns.ron`: the 1-bit fill patterns the Sense/Net deck shades with
 - `hub/`: desktop icons, RIG upgrades, hardware, desktop add-ons, run panes, network tiers/traits/companies, wardial ranges
 - `bbs/<id>/splash.txt`: that board's splash art. Colours use Mystic/Renegade **pipe codes** (`|00`-`|15` foreground, `|16`-`|23` background); raw ANSI `ESC[...m` escapes work too, so `.ans` art from PabloDraw or Moebius can be pasted in.
 
