@@ -11,6 +11,8 @@
 [
     (id: "amber",     label: "amber (P3)",
      colors: (bg: "#0b0700", panel: "#120c02", faint: "#3d2900", dim: "#a36e00", fg: "#ffb000", bright: "#ffdc8a")),
+    (id: "paperwhite", label: "paper white (P4)",
+     colors: (bg: "#050608", panel: "#0b0c10", faint: "#2b2e35", dim: "#8c929c", fg: "#e4eaf0", bright: "#ffffff")),
     (id: "green",     label: "green (P1)",
      colors: (bg: "#010802", panel: "#031006", faint: "#0b3d18", dim: "#1f9a42", fg: "#33ff66", bright: "#c2ffd2")),
     (id: "ice",       label: "ice (P4)",

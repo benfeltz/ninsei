@@ -23,12 +23,15 @@ fn the_shelf() {
     let d = data();
     let hw = &d.hardware;
     let monitors: Vec<&str> = hw.monitors.iter().map(|m| m.id.as_str()).collect();
-    assert_eq!(monitors, ["amber", "green", "apple2", "c64", "vga"]);
+    assert_eq!(
+        monitors,
+        ["white", "amber", "green", "apple2", "c64", "vga"]
+    );
     // Every CRT preset is a monitor you can own.
     for p in &d.displays {
         assert!(hw.monitors.iter().any(|m| m.display == p.id), "{}", p.id);
     }
-    assert_eq!(hw.starter_monitor().id, "amber");
+    assert_eq!(hw.starter_monitor().id, "white");
     assert_eq!(hw.starter_deck().title(), "Sense/Net Personal Deck");
     assert_eq!(hw.deck("hosaka").unwrap().firmware[0].map, MapView::Draft);
 }
@@ -41,11 +44,11 @@ fn old_saves_get_the_starters() {
     assert!(s.ensure_hardware(&d));
     assert_eq!(
         (s.monitors.clone(), s.decks.clone()),
-        (vec!["amber".to_string()], vec!["sensenet".to_string()])
+        (vec!["white".to_string()], vec!["sensenet".to_string()])
     );
-    assert_eq!((s.monitor.as_str(), s.deck.as_str()), ("amber", "sensenet"));
-    // The amber tube only shows amber.
-    assert_eq!(s.phosphor, "amber");
+    assert_eq!((s.monitor.as_str(), s.deck.as_str()), ("white", "sensenet"));
+    // The white tube only shows paper white.
+    assert_eq!(s.phosphor, "paperwhite");
     assert_eq!(s.firmware_def(&d).map, MapView::Paint);
     assert!(!s.ensure_hardware(&d), "nothing more to fix");
 }
@@ -54,7 +57,7 @@ fn old_saves_get_the_starters() {
 fn a_mono_tube_locks_the_theme() {
     let d = data();
     let s = fresh(0);
-    assert!(s.theme_blocker(&d, "amber").is_none());
+    assert!(s.theme_blocker(&d, "paperwhite").is_none());
     let why = s.theme_blocker(&d, "synthwave").unwrap();
     assert!(why.contains("mono"), "{why}");
     let (lines, fx) = hub::shell("theme synthwave", &s, &d);
@@ -73,10 +76,10 @@ fn a_colour_monitor_shows_any_theme() {
     for t in &d.themes {
         assert!(s.theme_blocker(&d, &t.id).is_none(), "{}", t.id);
     }
-    // Back to the amber tube: back to amber.
+    // Back to the white tube: back to paper white.
     s.phosphor = "synthwave".into();
-    s.plug_monitor(&d, "amber").unwrap();
-    assert_eq!(s.phosphor, "amber");
+    s.plug_monitor(&d, "white").unwrap();
+    assert_eq!(s.phosphor, "paperwhite");
 }
 
 #[test]
@@ -120,8 +123,8 @@ fn only_owned_hardware_plugs_in() {
     let run = |l: &str, s: &Save| hub::shell(l, s, &d).1;
     assert_eq!(run("monitor vga", &s), ShellEffect::None);
     assert_eq!(
-        run("monitor amber", &s),
-        ShellEffect::Monitor("amber".into())
+        run("monitor white", &s),
+        ShellEffect::Monitor("white".into())
     );
     assert_eq!(
         run("deck sensenet", &s),

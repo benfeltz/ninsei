@@ -18,7 +18,9 @@
 //   starter   exactly one deck is yours from the start
 (
     monitors: [
-        (id: "amber",  name: "Amber Terminal",    maker: "Zenith",    price: 0,   display: "amber",  colour: false, starter: true,
+        (id: "white",  name: "Personal Display 9\"", maker: "Sense/Net", price: 0, display: "paperwhite", colour: false, starter: true,
+         blurb: "A small, sharp black-and-white tube. Everybody's first screen."),
+        (id: "amber",  name: "Amber Terminal",    maker: "Zenith",    price: 90,  display: "amber",  colour: false,
          blurb: "Long-persistence P3 amber. Easy on the eyes at 4am."),
         (id: "green",  name: "Green Phosphor",    maker: "Hercules",  price: 140, display: "green",  colour: false,
          blurb: "P1 green, flat glass. The classic terminal glow."),
