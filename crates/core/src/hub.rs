@@ -469,6 +469,13 @@ pub struct Rig {
 }
 
 impl Rig {
+    /// The cheapest upgrade still for sale, and what it costs.
+    pub fn next_upgrade(&self, defs: &[UpgradeDef]) -> Option<(Upgrade, u32)> {
+        defs.iter()
+            .filter_map(|d| d.cost(self.level(d.kind)).map(|c| (d.kind, c)))
+            .min_by_key(|&(_, c)| c)
+    }
+
     pub fn level(&self, u: Upgrade) -> u32 {
         match u {
             Upgrade::Ram => self.ram,

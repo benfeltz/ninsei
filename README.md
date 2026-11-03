@@ -44,7 +44,7 @@ Between runs you're on your own machine, on the same monitor as your runs. What 
 - **Desktop**: windows drag by their title bar; the close gadget is top left, the depth gadget top right
 - **Liza**: a menu bar along the top with the tools as menus (File, Net, Deck, Special), Finder windows with striped title bars and a close box, icons down the right and a Trash. It boots to a happy deck. Everything is two colours from the theme, shaded with 1-bit patterns.
 - **AnarchyOS**: tools open as tiles (a master on the left, a stack on the right) across workspaces, with a top bar. **Esc** is the leader key; then **Space** opens the launcher, **1-9** switches workspace, **Shift+1-9** sends the tile there, **h/l** moves focus, **Enter** swaps with the master, **x** closes, **?** shows the keys. The mouse works too.
-- **Add-ons** for each OS are sold in RIG: more workspaces, a fuzzy launcher that also runs Shell commands and a stats widget for AnarchyOS; a clock and a backdrop pattern for Desktop. They're data in [`data/hub/desktops.ron`](data/hub/desktops.ron).
+- **Add-ons** for each OS are sold in RIG: more workspaces, a fuzzy launcher that also runs Shell commands and a stats widget for AnarchyOS; a clock and a backdrop pattern for Desktop. Liza sells an Alarm Clock (the time in its menu bar), a Calculator desk accessory under the Sense/Net eye (bank, the next RIG upgrade, how hot your numbers run), a desktop pattern, and MultiFinder (plain Liza keeps three windows open; MultiFinder keeps them all). They're data in [`data/hub/desktops.ron`](data/hub/desktops.ron).
 
 ![Liza](docs/shots/liza-desktop.png)
 ![AnarchyOS tiles](docs/shots/anarchy-tiles.png)

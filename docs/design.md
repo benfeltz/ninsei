@@ -36,6 +36,7 @@ deck ─> firmware ─────┘
 | `sounds` | `sensenet`: square beeps, a warm chord, a gentle "boing" ✅ | `ono`: harsh squares, noise bursts, chiptune arpeggios ✅ | `hosaka`: soft sine chimes, a polite ding, a tidy shutdown tune ✅ |
 | fights | a Mac alert beside the card: the hardest hit as the ringed default button, a shield ✅ | the map dives into the node: the ICE as a wireframe over a horizon grid, a program hotbar with previews ✅ | an incident report with a strength chart and an agenda ✅ |
 | damage | 1-bit glitches: tearing and noise, never an RGB split ✅ (pattern smears and inverted rows: an idea) | screen glitches: tearing, RGB split, corrupted text ✅ | the same, plus corporate error dialogs (idea below) |
+| add-ons | Alarm Clock, a Calculator desk accessory under the eye, a desktop pattern, MultiFinder ✅ |  |  |
 
 
 ## The decks

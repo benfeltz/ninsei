@@ -6,6 +6,8 @@
 use egui::{Align2, Color32, FontFamily, FontId, Id, Pos2, Rect, Sense, Stroke, StrokeKind, Ui};
 use egui::{Vec2, pos2, vec2};
 use ninsei_core::Data;
+use ninsei_core::desktop::AddonEffect;
+use ninsei_core::hardware::Desktop;
 use ninsei_core::hub::{IconDef, Tool};
 
 use crate::home::{self, Cx, Desk, DesktopView, Home, WbOut, font};
@@ -33,6 +35,13 @@ mod look {
     pub const MENU_W: f32 = 190.0;
     /// The desktop's pattern (calm on a lit-ink screen; the 50% checker is the boot card's).
     pub const DESKTOP: &str = "p25";
+    /// The desktop pattern add-on's pattern.
+    pub const DESKTOP_ADDON: &str = "bricks";
+    /// Windows open at once without MultiFinder.
+    pub const WINDOW_LIMIT: usize = 3;
+    /// The Calculator desk accessory's window.
+    pub const CALC_POS: (f32, f32) = (24.0, 40.0);
+    pub const CALC_SIZE: (f32, f32) = (330.0, 150.0);
     pub const BOOT: &str = "p50";
 }
 
@@ -44,6 +53,8 @@ enum Act {
     Close,
     /// Shows the boot card again.
     About,
+    /// Opens or closes the Calculator desk accessory.
+    Calculator,
 }
 
 /// The menu bar: the tools as menus.
@@ -104,6 +115,10 @@ pub struct Liza {
     /// When the boot card went up (`None`: not yet shown); `done` once it's gone.
     boot: Option<f64>,
     booted: bool,
+    /// Every window stays open (the MultiFinder add-on).
+    multifinder: bool,
+    /// The Calculator desk accessory is open.
+    calc: bool,
 }
 
 impl Liza {
@@ -116,6 +131,8 @@ impl Liza {
             menu: None,
             boot: None,
             booted: false,
+            multifinder: false,
+            calc: false,
         }
     }
 
@@ -135,6 +152,10 @@ impl Liza {
             Tool::HexEd => (pos2(40.0, 40.0), vec2(800.0, 500.0)),
         };
         self.wins.push(Win { tool, pos, size });
+        // Without MultiFinder, Liza keeps a few windows: the oldest goes.
+        while !self.multifinder && self.wins.len() > look::WINDOW_LIMIT {
+            self.wins.remove(0);
+        }
     }
 
     fn act(&mut self, a: Act, now: f64) {
@@ -147,6 +168,7 @@ impl Liza {
                 self.boot = Some(now);
                 self.booted = false;
             }
+            Act::Calculator => self.calc = !self.calc,
         }
     }
 }
@@ -170,6 +192,8 @@ impl DesktopView for Liza {
     fn show(&mut self, ui: &mut Ui, home: &mut Home, cx: &Cx, out: &mut Vec<WbOut>) {
         let (data, save, offset, live) = (cx.data, cx.save, cx.offset, cx.live);
         home.prompt = "Liza> ";
+        let addon = |e| save.has_effect(data, Desktop::Liza, e);
+        self.multifinder = addon(AddonEffect::MultiFinder);
         for t in home.take_opens() {
             self.open(t);
         }
@@ -193,7 +217,12 @@ impl DesktopView for Liza {
         let sense = |s: Sense| if live { s } else { Sense::hover() };
 
         // The desktop: a pattern under everything.
-        if let Some(p) = data.pattern(look::DESKTOP) {
+        let desktop = if addon(AddonEffect::Pattern) {
+            look::DESKTOP_ADDON
+        } else {
+            look::DESKTOP
+        };
+        if let Some(p) = data.pattern(desktop) {
             patterns::fill(&painter, p, screen, ink, paper);
         }
         let bg = ui.interact(screen, Id::new("liza-bg"), sense(Sense::click()));
@@ -329,7 +358,7 @@ impl DesktopView for Liza {
 
         // The menu bar, over everything but the boot card.
         // The menu bar and the boot card sit on their own layer, over anything a window draws.
-        let mut top_ui = on_top(ui, screen, egui::Order::Foreground, "liza-menus");
+        let mut top_ui = on_top(ui, screen, egui::Order::Tooltip, "liza-menus");
         let top_painter = top_ui.painter_at(screen);
         if let Some(a) = self.menu_bar(&mut top_ui, &top_painter, screen, cx, c) {
             self.act(a, now);
@@ -343,6 +372,11 @@ impl DesktopView for Liza {
             home.focus();
         }
         self.top = top;
+
+        if self.calc && addon(AddonEffect::Calculator) {
+            let mut da = on_top(ui, screen, egui::Order::Tooltip, "liza-calc");
+            self.calculator(&mut da, cx, screen, c);
+        }
 
         let mut boot_ui = on_top(ui, screen, egui::Order::Tooltip, "liza-boot-card");
         let boot_painter = boot_ui.painter_at(screen);
@@ -369,12 +403,34 @@ impl Liza {
             [bar.left_bottom(), bar.right_bottom()],
             Stroke::new(1.0, ink),
         );
-        // Sense/Net's mark: an eye.
+        // Sense/Net's mark: an eye. With the Calculator it opens the desk accessory.
         let eye = bar.left_center() + vec2(18.0, 0.0);
-        painter.circle_stroke(eye, 6.0, Stroke::new(1.5, ink));
-        painter.circle_filled(eye, 2.5, ink);
-        let mut x = bar.left() + 40.0;
+        let calc = cx
+            .save
+            .has_effect(cx.data, Desktop::Liza, AddonEffect::Calculator);
         let mut picked = None;
+        if calc {
+            let r = Rect::from_center_size(eye, vec2(26.0, look::MENU_H - 2.0));
+            let resp = ui
+                .interact(r, Id::new("liza-eye"), sense(Sense::click()))
+                .on_hover_text("Calculator");
+            if self.calc {
+                painter.rect_filled(r, 0.0, ink);
+            }
+            if resp.clicked() {
+                picked = Some(Act::Calculator);
+                self.menu = None;
+            }
+        }
+        let (eye_ink, eye_paper) = if self.calc && calc {
+            (paper, ink)
+        } else {
+            (ink, paper)
+        };
+        painter.circle_filled(eye, 6.0, eye_paper);
+        painter.circle_stroke(eye, 6.0, Stroke::new(1.5, eye_ink));
+        painter.circle_filled(eye, 2.5, eye_ink);
+        let mut x = bar.left() + 40.0;
         for (m, (name, items)) in MENUS.iter().enumerate() {
             let w = painter
                 .layout_no_wrap(name.to_string(), font(), ink)
@@ -433,21 +489,86 @@ impl Liza {
             }
             x += w;
         }
-        // The bank and the time on the right.
+        // The bank on the right, and the time with the Alarm Clock.
         let up = ui.input(|i| i.time) as u64;
-        painter.text(
-            bar.right_center() - vec2(12.0, 0.0),
-            Align2::RIGHT_CENTER,
+        let right = if cx
+            .save
+            .has_effect(cx.data, Desktop::Liza, AddonEffect::Clock)
+        {
             format!(
                 "{}¢    {:02}:{:02}",
                 cx.save.bank,
                 up / 3600 % 24,
                 up / 60 % 60
-            ),
+            )
+        } else {
+            format!("{}¢", cx.save.bank)
+        };
+        painter.text(
+            bar.right_center() - vec2(12.0, 0.0),
+            Align2::RIGHT_CENTER,
+            right,
             font(),
             ink,
         );
         picked
+    }
+
+    /// The Calculator desk accessory: a small window doing the sums you'd do on the back of an
+    /// envelope before a run.
+    fn calculator(&mut self, ui: &mut Ui, cx: &Cx, screen: Rect, c: Two) {
+        let (save, data) = (cx.save, cx.data);
+        let rect = Rect::from_min_size(
+            screen.min + vec2(look::CALC_POS.0, look::MENU_H + look::CALC_POS.1),
+            vec2(look::CALC_SIZE.0, look::CALC_SIZE.1),
+        );
+        let painter = ui.painter_at(rect.expand(look::SHADOW + 1.0));
+        let close = window_frame(&painter, data, rect, "Calculator", true, c);
+        if cx.live
+            && ui
+                .interact(close, Id::new("liza-calc-close"), Sense::click())
+                .clicked()
+        {
+            self.calc = false;
+        }
+        let next = save.rig.next_upgrade(&data.rig);
+        let heat: u32 = save.phonebook.iter().map(|e| e.heat).sum();
+        let hottest = save.phonebook.iter().map(|e| e.heat).max().unwrap_or(0);
+        let lines = [
+            format!("Bank            {:>7}¢", save.bank),
+            match next {
+                Some((u, cost)) => {
+                    let name = data
+                        .rig
+                        .iter()
+                        .find(|d| d.kind == u)
+                        .map_or("?", |d| d.label.as_str());
+                    format!("Next: {name:<9} {cost:>7}¢")
+                }
+                None => "Next upgrade         none".to_string(),
+            },
+            match next {
+                Some((_, cost)) if cost <= save.bank => {
+                    format!("Left after      {:>7}¢", save.bank - cost)
+                }
+                Some((_, cost)) => format!("Short by        {:>7}¢", cost - save.bank),
+                None => String::new(),
+            },
+            format!(
+                "Heat  {heat} over {} numbers, hottest {hottest}",
+                save.phonebook.len()
+            ),
+        ];
+        let top = rect.top() + look::TITLE_H + 12.0;
+        for (i, l) in lines.iter().enumerate() {
+            painter.text(
+                pos2(rect.left() + 14.0, top + i as f32 * 22.0),
+                Align2::LEFT_TOP,
+                l,
+                font(),
+                c.ink,
+            );
+        }
     }
 
     /// The happy deck, for a moment at boot (or from Special > About Liza). A click skips it.
@@ -766,6 +887,69 @@ mod tests {
         // File > Close Window closes the front one.
         liza.act(Act::Close, 4.0);
         assert!(liza.wins.iter().all(|w| w.tool != Tool::Terminal));
+    }
+
+    #[test]
+    fn liza_keeps_three_windows_unless_multifinder() {
+        let mut liza = Liza::new();
+        for t in [Tool::Shell, Tool::Terminal, Tool::Rig, Tool::Stash] {
+            liza.open(t);
+        }
+        assert_eq!(liza.wins.len(), look::WINDOW_LIMIT);
+        assert!(
+            liza.wins.iter().all(|w| w.tool != Tool::Shell),
+            "the oldest went"
+        );
+        liza.multifinder = true;
+        liza.open(Tool::Prefs);
+        liza.open(Tool::HexEd);
+        assert_eq!(liza.wins.len(), 5);
+    }
+
+    #[test]
+    fn clicking_the_eye_opens_the_calculator_once_owned() {
+        let data = Data::builtin().unwrap();
+        let ctx = egui::Context::default();
+        let mut save = Save::default();
+        save.addons.push("calculator".into());
+        let (mut liza, mut home) = (Liza::new(), Home::new(Vec::new()));
+        let run = |liza: &mut Liza, home: &mut Home, events, t| {
+            let raw = RawInput {
+                screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1280.0, 800.0))),
+                time: Some(t),
+                events,
+                ..RawInput::default()
+            };
+            let mut o = ctx.run_ui(raw, |ui| {
+                let cx = Cx {
+                    data: &data,
+                    save: &save,
+                    offset: 0.0,
+                    live: true,
+                };
+                liza.show(ui, home, &cx, &mut Vec::new());
+            });
+            o.textures_delta.clear();
+        };
+        run(&mut liza, &mut home, Vec::new(), 0.0);
+        run(&mut liza, &mut home, Vec::new(), look::BOOT_SECS + 0.1);
+        run(&mut liza, &mut home, Vec::new(), 3.0);
+        run(
+            &mut liza,
+            &mut home,
+            click(pos2(18.0, look::MENU_H / 2.0)),
+            3.2,
+        );
+        assert!(liza.calc, "the eye opened it");
+    }
+
+    #[test]
+    fn the_eye_opens_the_calculator() {
+        let mut liza = Liza::new();
+        liza.act(Act::Calculator, 0.0);
+        assert!(liza.calc);
+        liza.act(Act::Calculator, 1.0);
+        assert!(!liza.calc);
     }
 
     #[test]
