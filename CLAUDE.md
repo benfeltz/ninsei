@@ -14,7 +14,7 @@ How the game should look and feel lives in [`docs/design.md`](docs/design.md): t
 | Tests | `cargo test --workspace` |
 | Lint | `cargo clippy --workspace --all-targets` (keep it warning-free) |
 | Format | `cargo fmt --all` |
-| Balance probe | `cargo run -p ninsei-core --example balance` (default network and each tier) |
+| Balance probe | `cargo run --release -p ninsei-core --example balance [careers]` (single runs per tier and whole careers, by bots; in game: `probe [n]` in the home Shell) |
 | Web build | `scripts/build-web.sh` (needs the wasm32 target and `wasm-bindgen-cli` matching Cargo.lock) |
 | Web lint | `cargo clippy -p ninsei --target wasm32-unknown-unknown` |
 
@@ -29,6 +29,7 @@ Features and bugs come in as GitHub issues (forms in `.github/ISSUE_TEMPLATE/`).
 - **Core never imports egui.** Rules, generation, BBS navigation and ANSI parsing live in `ninsei-core` and are tested headlessly. The app sends `Action`s to `Game::apply` and renders state; panes push requests and never mutate the game while drawing.
 - **Content lives in `data/`, never in code.** Add warez/ICE/loot/BBS files there; `Data::validate` must catch any bad cross-reference.
 - **Balance numbers live in `crates/core/src/tuning.rs`.** After changing them, run the balance probe; the `runs_always_end` test fails if a dumb bot always or never wins.
+- **The probe plays the real game.** `crates/core/src/probe.rs` drives bots through `Save::dial`, `Game::apply`, `Save::record`, `Save::buy` and `Save::wardial`, never a model of the rules: spot checks per tier (a dumb bot and a competent one) and careers from a fresh save (climbing tiers, shopping in RIG, wardialing). `Probe` is resumable (`step` plays a few runs) so the home Shell's `probe [careers|stop]` can run it a little each frame in the browser; the CLI is the `balance` example. Same seed, same report, and its lines fit the Shell. When the game gains a way to progress (a shop, a source of numbers), teach the career bot to use it, or the probe stops telling the truth.
 - **Every colour comes from the theme** in `data/themes.ron` (`Data::validate` checks them). One theme (`Save::phosphor`) colours both the desktop and runs; every theme must work in both. In a run that's the `Palette` (`crates/app/src/theme.rs`); on the desktop it's the `Desk` palette register in `home.rs`, loaded each frame from the desktop theme and read through `backdrop()`/`ink()`/`shadow()`/`accent()`/`muted()`/`fill()`. Never hard-code a colour in either. The BBS window's true CGA colours and the crash screen's red are the only exceptions.
 - **Saves never break.** The hub's save (`crates/core/src/hub.rs`) is one versioned RON document. New fields get `#[serde(default)]` so old saves still load; bump `SAVE_VERSION` only for incompatible changes. An unreadable save starts a fresh hub, never a crash.
 - **The hub's rules live in core** (`hub.rs`: save, screen flow, Shell commands); `workbench.rs`, `tiling.rs` and `crash.rs` only draw and route input. Desktop icons are pixel art in `data/hub/icons.ron`.
