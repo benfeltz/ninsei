@@ -1363,15 +1363,13 @@ impl App {
         egui::CentralPanel::default()
             .frame(egui::Frame::new().fill(pal.bg))
             .show(ui, |ui| {
-                if !view.run_screen(&mut panes, ui) {
-                    DockArea::new(&mut self.dock)
-                        .style(theme::dock_style(ui.style(), &pal))
-                        .show_close_buttons(true)
-                        .show_add_buttons(false)
-                        .show_leaf_collapse_buttons(false)
-                        .show_leaf_close_all_buttons(false)
-                        .show_inside(ui, &mut panes);
-                }
+                DockArea::new(&mut self.dock)
+                    .style(view.dock_style(theme::dock_style(ui.style(), &pal), &pal))
+                    .show_close_buttons(true)
+                    .show_add_buttons(false)
+                    .show_leaf_collapse_buttons(false)
+                    .show_leaf_close_all_buttons(false)
+                    .show_inside(ui, &mut panes);
             });
         requests.extend(panes.out);
         self.keep_layout(ctx.input(|i| i.time));

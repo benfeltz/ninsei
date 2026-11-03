@@ -142,10 +142,9 @@ pub trait ChromeView {
     fn palette(&self, p: Palette) -> Palette {
         p
     }
-    /// Draws the whole run screen between the bars itself, instead of the dock. Returns
-    /// false to keep the dock.
-    fn run_screen(&self, _p: &mut Panes, _ui: &mut Ui) -> bool {
-        false
+    /// How the dock (tabs, frames, splitters) is dressed, from the shared style.
+    fn dock_style(&self, s: egui_dock::Style, _p: &Palette) -> egui_dock::Style {
+        s
     }
     /// The status line's background.
     fn status_fill(&self, p: &Palette) -> egui::Color32 {
