@@ -246,7 +246,10 @@ fn the_shell_runs_the_probe() {
     use ninsei_core::hub::{self, ShellEffect};
     let d = data();
     let s = Save::default();
-    assert_eq!(hub::shell("probe", &s, &d).1, ShellEffect::Probe(hub::PROBE_CAREERS));
+    assert_eq!(
+        hub::shell("probe", &s, &d).1,
+        ShellEffect::Probe(hub::PROBE_CAREERS)
+    );
     assert_eq!(hub::shell("probe 5", &s, &d).1, ShellEffect::Probe(5));
     assert_eq!(hub::shell("probe 9999", &s, &d).1, ShellEffect::Probe(500));
     assert_eq!(hub::shell("probe stop", &s, &d).1, ShellEffect::ProbeStop);
