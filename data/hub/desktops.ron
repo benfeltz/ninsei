@@ -4,7 +4,10 @@
 //   Fuzzy          the launcher matches loosely and runs Shell commands too
 //   Stats          a run-record widget on the tiling desktop's bar
 //   Clock          an uptime clock and the bank on the Workbench's title bar
-//   Pattern        a dithered backdrop for the Workbench
+//   Pattern        a dithered backdrop for the Workbench; a different desktop pattern on Liza
+//   Calculator     a desk accessory on Liza: the bank, the next RIG upgrade, your numbers' heat
+//   MultiFinder    Liza keeps every window open (it starts with three at once)
+//   Clock          on Liza: the time in the menu bar
 // A new add-on for an existing effect is just an entry here; a new kind of effect is a name in
 // `desktop::AddonEffect` plus the desktop that draws it.
 [
@@ -18,4 +21,12 @@
      blurb: "An uptime clock and your bank on the title bar.",        effect: Clock),
     (id: "pattern",    desktop: Workbench, name: "Backdrop pattern", price: 40,
      blurb: "A dithered backdrop, like every 1.3 desktop ever.",      effect: Pattern),
+    (id: "liza-clock", desktop: Liza,      name: "Alarm Clock",    price: 40,
+     blurb: "The time in the menu bar. Never miss a 4am run.",        effect: Clock),
+    (id: "calculator", desktop: Liza,      name: "Calculator",     price: 60,
+     blurb: "A desk accessory: bank, next upgrade, and how hot your numbers run.", effect: Calculator),
+    (id: "liza-pattern", desktop: Liza,    name: "Desktop pattern", price: 30,
+     blurb: "Bricks instead of the factory grey. Make it yours.",     effect: Pattern),
+    (id: "multifinder", desktop: Liza,     name: "MultiFinder",    price: 90,
+     blurb: "Keep every window open at once. Liza alone keeps three.", effect: MultiFinder),
 ]

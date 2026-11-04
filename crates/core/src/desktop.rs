@@ -21,6 +21,10 @@ pub enum AddonEffect {
     Stats,
     Clock,
     Pattern,
+    /// A desk accessory on Liza: the bank, the next RIG upgrade, and your numbers' heat.
+    Calculator,
+    /// Liza keeps every window open (without it, opening one past the limit closes the oldest).
+    MultiFinder,
 }
 
 /// One line of `data/hub/desktops.ron`.

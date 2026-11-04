@@ -282,3 +282,39 @@ fn the_shell_runs_the_probe() {
     assert_eq!(effect, ShellEffect::None);
     assert!(lines[0].contains("careers"));
 }
+
+#[test]
+fn liza_sells_its_own_add_ons() {
+    let d = data();
+    let liza: Vec<&str> = d
+        .addons
+        .iter()
+        .filter(|a| a.desktop == Desktop::Liza)
+        .map(|a| a.id.as_str())
+        .collect();
+    assert_eq!(
+        liza,
+        ["liza-clock", "calculator", "liza-pattern", "multifinder"]
+    );
+    let mut s = Save::default();
+    s.ensure_hardware(&d);
+    s.bank = 1_000;
+    assert!(!s.has_effect(&d, Desktop::Liza, AddonEffect::MultiFinder));
+    s.buy_addon(&d, "multifinder").unwrap();
+    assert!(s.has_effect(&d, Desktop::Liza, AddonEffect::MultiFinder));
+    // It's Liza's: the other desktops don't get it.
+    assert!(!s.has_effect(&d, Desktop::Workbench, AddonEffect::MultiFinder));
+}
+
+#[test]
+fn the_calculator_knows_the_next_upgrade() {
+    let d = data();
+    let s = Save::default();
+    let (u, cost) = s.rig.next_upgrade(&d.rig).unwrap();
+    let cheapest = d.rig.iter().filter_map(|r| r.cost(0)).min().unwrap();
+    assert_eq!(cost, cheapest);
+    assert_eq!(
+        d.rig.iter().find(|r| r.kind == u).unwrap().cost(0),
+        Some(cost)
+    );
+}
