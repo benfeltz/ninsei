@@ -1480,10 +1480,12 @@ impl Game {
         let def = self.bbs().areas[area].files[s.def].clone();
         self.deck.credits -= def.price;
         self.bbs_stock[area][file].bought = true;
-        self.say(
-            LogKind::Info,
-            format!("downloaded {} (-{}¢)", def.file, def.price),
-        );
+        let cost = if def.price == 0 {
+            "free".to_string()
+        } else {
+            format!("-{}¢", def.price)
+        };
+        self.say(LogKind::Info, format!("downloaded {} ({cost})", def.file));
         self.grant(def.item);
         Ok(())
     }

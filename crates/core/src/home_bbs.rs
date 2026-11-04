@@ -267,7 +267,12 @@ impl Save {
         };
         self.bank -= f.price;
         self.home_bought.push((call.def.id.clone(), area, file));
-        Ok(format!("downloaded {} (-{}¢): {what}.", f.file, f.price))
+        let cost = if f.price == 0 {
+            "free".to_string()
+        } else {
+            format!("-{}¢", f.price)
+        };
+        Ok(format!("downloaded {} ({cost}): {what}.", f.file))
     }
 
     /// Takes a job from a board at home. It waits on its network until you dial it.
