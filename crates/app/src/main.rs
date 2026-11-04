@@ -159,6 +159,20 @@ const FALLBACK_PALETTE: Palette = Palette {
 
 /// The run screen's layout a deck firmware starts with: the chrome's own, with the secondary
 /// panes the player has (`extra`) beside the terminal.
+/// Adds a secondary pane to a layout once: beside the terminal, or else into the focused leaf.
+fn add_pane_to(dock: &mut DockState<Tab>, tab: Tab) {
+    if dock.find_tab(&tab).is_some() {
+        return;
+    }
+    match dock.find_tab(&Tab::Terminal) {
+        Some(at) if at.surface == egui_dock::SurfaceIndex::main() => {
+            dock.main_surface_mut()
+                .split_right(at.node, 0.55, vec![tab]);
+        }
+        _ => dock.push_to_focused_leaf(tab),
+    }
+}
+
 fn default_layout(chrome: Chrome, extra: &[Tab]) -> DockState<Tab> {
     chrome::view(chrome).default_layout(extra)
 }
@@ -363,17 +377,7 @@ impl App {
     /// Adds a secondary pane: the net pane goes beside the terminal; anything else into the
     /// focused leaf.
     fn add_pane(&mut self, tab: Tab) {
-        if self.dock.find_tab(&tab).is_some() {
-            return;
-        }
-        match self.dock.find_tab(&Tab::Terminal) {
-            Some(at) if at.surface == egui_dock::SurfaceIndex::main() => {
-                self.dock
-                    .main_surface_mut()
-                    .split_right(at.node, 0.55, vec![tab]);
-            }
-            _ => self.dock.push_to_focused_leaf(tab),
-        }
+        add_pane_to(&mut self.dock, tab);
     }
 
     /// Switches the theme, if the monitor can show it. Returns its label, or why not.
@@ -1157,7 +1161,20 @@ impl eframe::App for App {
                     WbOut::BuyPane(id) => {
                         let r = self.save.buy_pane(&self.data, &id);
                         self.save_dirty = true;
+                        let bought = r.is_ok();
                         self.home.say(r.unwrap_or_else(|e| e));
+                        // A pane you just bought shows up on this deck's run screen at once
+                        // (other decks: View > add pane).
+                        if bought
+                            && let Some(&(tab, _)) = Tab::SECONDARY.iter().find(|(_, t)| *t == id)
+                        {
+                            self.add_pane(tab);
+                            if let Ok(text) = ron::to_string(&self.dock) {
+                                self.save.set_layout(&self.data, text);
+                            }
+                            self.home
+                                .say("it's on your run screen now (other decks: View > add pane).");
+                        }
                     }
                     WbOut::Glitches(g) => {
                         self.save.glitches = g;
@@ -1463,6 +1480,29 @@ mod tests {
                 assert_eq!(tabs(&back), tabs(&dock));
                 assert_eq!(dock.find_tab(&Tab::Net).is_some(), !extra.is_empty());
             }
+        }
+    }
+
+    #[test]
+    fn a_bought_pane_joins_a_saved_layout_once() {
+        for chrome in Chrome::ALL {
+            // A layout saved before the pane was bought.
+            let mut dock = default_layout(chrome, &[]);
+            assert!(dock.find_tab(&Tab::Net).is_none());
+            add_pane_to(&mut dock, Tab::Net);
+            assert!(dock.find_tab(&Tab::Net).is_some(), "{chrome:?}");
+            let tabs =
+                |d: &DockState<Tab>| d.iter_all_tabs().filter(|(_, t)| **t == Tab::Net).count();
+            add_pane_to(&mut dock, Tab::Net);
+            assert_eq!(tabs(&dock), 1, "only once");
+            // And it reads back.
+            let text = ron::to_string(&dock).unwrap();
+            assert!(
+                parse_layout(&text, |_| true)
+                    .unwrap()
+                    .find_tab(&Tab::Net)
+                    .is_some()
+            );
         }
     }
 
