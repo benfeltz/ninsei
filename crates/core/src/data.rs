@@ -946,7 +946,10 @@ impl Data {
                     }
                     if let Drop::Text(id) = &f.item {
                         if !b.texts.iter().any(|t| &t.id == id) {
-                            return Err(err(format!("file `{}` names unknown text `{id}`", f.file)));
+                            return Err(err(format!(
+                                "file `{}` names unknown text `{id}`",
+                                f.file
+                            )));
                         }
                         if f.price != 0 {
                             return Err(err(format!("textfile `{}` must be free", f.file)));

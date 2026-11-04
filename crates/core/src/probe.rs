@@ -799,7 +799,9 @@ impl Probe {
             }
             let has_one = data.boards[board].areas.iter().any(|a| {
                 a.always
-                    && a.files.iter().any(|f| matches!(&f.item, Drop::Tool(t) if !save.has_tool(t)))
+                    && a.files
+                        .iter()
+                        .any(|f| matches!(&f.item, Drop::Tool(t) if !save.has_tool(t)))
             });
             if !has_one {
                 continue;

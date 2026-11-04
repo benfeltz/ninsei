@@ -58,7 +58,8 @@ const COMMANDS: [&str; 10] = [
     "clear",
 ];
 
-fn entries(fuzzy: bool) -> Vec<Entry> {
+/// The launcher's entries: the tools you have, and with fzf the Shell's commands.
+fn entries(fuzzy: bool, save: &ninsei_core::hub::Save) -> Vec<Entry> {
     let mut v = vec![
         Entry::Tool(Tool::Terminal, "CarrierTerm"),
         Entry::WarDial,
@@ -68,6 +69,11 @@ fn entries(fuzzy: bool) -> Vec<Entry> {
         Entry::Tool(Tool::Shell, "Shell"),
         Entry::Tool(Tool::Prefs, "Prefs"),
     ];
+    v.retain(|e| match e {
+        Entry::Tool(t, _) => save.opens(*t),
+        Entry::WarDial => save.has_tool("wardial"),
+        Entry::Command(_) => true,
+    });
     if fuzzy {
         v.extend(COMMANDS.iter().map(|c| Entry::Command(c)));
     }
@@ -362,7 +368,7 @@ impl TilingDesk {
         let fuzzy = cx
             .save
             .has_effect(cx.data, Desktop::Tiling, AddonEffect::Fuzzy);
-        let items = entries(fuzzy);
+        let items = entries(fuzzy, cx.save);
         let labels: Vec<String> = items.iter().map(Entry::label).collect();
         let screen = ui.ctx().content_rect();
         let r = Rect::from_center_size(

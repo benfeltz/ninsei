@@ -1574,8 +1574,7 @@ fn shell_knows(save: &Save, verb: &str) -> bool {
 
 /// Runs one Shell line. Returns the lines to print and what to do.
 pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect) {
-    let icons: Vec<&IconDef> =
-        data.icons.iter().filter(|i| save.opens(i.tool)).collect();
+    let icons: Vec<&IconDef> = data.icons.iter().filter(|i| save.opens(i.tool)).collect();
     let mut words = line.split_whitespace();
     let Some(cmd) = words.next() else {
         return (Vec::new(), ShellEffect::None);

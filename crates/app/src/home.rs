@@ -282,6 +282,9 @@ impl Home {
 
     /// Opens a stash program in HexEd.
     pub fn edit(&mut self, id: u32, save: &Save) {
+        if !save.opens(Tool::HexEd) {
+            return;
+        }
         if let Some(bin) = save.item(id).and_then(|i| i.bin()) {
             self.hex = Some((id, HexBuffer::open(0, bin)));
             self.open(Tool::HexEd);
@@ -378,7 +381,11 @@ impl Home {
         let mut dial = None;
         match tool {
             Tool::Terminal => {
-                if self.dialing.is_none() {
+                // No dialer, no WarDial tab: CarrierTerm is just the phonebook.
+                if !save.has_tool("wardial") {
+                    self.term_tab = TermTab::Phonebook;
+                }
+                if self.dialing.is_none() && save.has_tool("wardial") {
                     child.horizontal(|ui| {
                         for (tab, label) in [
                             (TermTab::Phonebook, " Phonebook "),

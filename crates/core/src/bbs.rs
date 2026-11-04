@@ -95,7 +95,9 @@ impl Line for Game {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Screen {
-    Dialing { t: f32 },
+    Dialing {
+        t: f32,
+    },
     Splash,
     Main,
     Bulletins,
@@ -104,10 +106,19 @@ pub enum Screen {
     Jobs,
     Areas,
     Area(usize),
-    Download { area: usize, file: usize, t: f32 },
+    Download {
+        area: usize,
+        file: usize,
+        t: f32,
+    },
     /// Reading a textfile from an area's listing.
-    Read { area: usize, file: usize },
-    Hangup { t: f32 },
+    Read {
+        area: usize,
+        file: usize,
+    },
+    Hangup {
+        t: f32,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]

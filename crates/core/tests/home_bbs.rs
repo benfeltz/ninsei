@@ -26,7 +26,10 @@ fn a_fresh_phonebook_has_the_gutter() {
     let d = data();
     let mut s = Save::default();
     s.ensure_phonebook(&d, 7);
-    assert!(s.knows_board("gutter"), "the starter tools must be reachable");
+    assert!(
+        s.knows_board("gutter"),
+        "the starter tools must be reachable"
+    );
 }
 
 /// A save that already knows every board.

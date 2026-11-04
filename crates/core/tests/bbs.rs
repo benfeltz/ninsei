@@ -340,7 +340,13 @@ fn textfiles_are_read_not_bought() {
     let mut s = Session::new();
     s.screen = Screen::Area(gfiles);
     assert_eq!(s.key(&g, '1'), Outcome::None);
-    assert_eq!(s.screen, Screen::Read { area: gfiles, file: 0 });
+    assert_eq!(
+        s.screen,
+        Screen::Read {
+            area: gfiles,
+            file: 0
+        }
+    );
     let text = s.render(&g).join("\n");
     assert!(text.contains("WARDIAL.ZIP"), "the primer names the dialer");
     s.key(&g, 'q');

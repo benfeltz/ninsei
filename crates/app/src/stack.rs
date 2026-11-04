@@ -260,7 +260,7 @@ impl ChromeView for Stack {
                     if button(ui, p, id, &w.file(), &sub, on, best == Some(i)) {
                         p.act(a);
                     }
-                    if ui.small_button("hex").clicked() {
+                    if p.game.has_tool("hexed") && ui.small_button("hex").clicked() {
                         p.out.push(Request::OpenHex(i));
                     }
                 });
