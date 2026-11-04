@@ -102,6 +102,10 @@ Every dial is a fresh layout with the same personality. Tiers, traits and compan
 
 A fresh deck has no wardialer and no hex editor. They're on **THE NEON GUTTER** (`555-0199`, in your phonebook from the start): **WAREZ TOOLS** always stocks `WARDIAL.ZIP` and `HEXED.ZIP`, free, and they're yours for good once downloaded, in a run or from home, even if you flatline. Until then they just aren't there: no icon, no menu item, no WarDial tab, and `wardial`, `hex` and `opt` are unknown commands. The Gutter's **G-FILES** are textfiles you read on the board (a wardialing primer, ranges, heat and the telco). Tools live in [`data/hub/tools.ron`](data/hub/tools.ron); a board lists them as `Tool(id)` files, and its textfiles as `Text(id)` files with their lines in the board's `texts`. Saves from before tools had to be found keep both.
 
+![the Gutter's G-FILES](docs/shots/bbs-gfiles.png)
+![the wardialing primer](docs/shots/bbs-primer.png)
+![the starter kit, downloaded](docs/shots/bbs-tools.png)
+
 ### Finding numbers: WarDial
 
 CarrierTerm's **WarDial** tab scans a number range you know, 100 numbers at a time, and the grid fills in as the modem chews through them: `.` voice, `-` busy, `F` fax, `C` **carrier** (straight into your phonebook), `!` **trap** (the telco is listening: your next call runs hotter). Each scan costs a phone bill.
