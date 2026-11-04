@@ -187,7 +187,7 @@ fn shell_dials_by_position_or_number() {
     );
     assert_eq!(run("dial 2 ff").1, ShellEffect::Dial(second.id, Some(0xff)));
     assert_eq!(run("dial 99").1, ShellEffect::None);
-    assert_eq!(run("pb").0.len(), s.phonebook.len());
+    assert_eq!(run("pb").0.len(), s.phonebook.len() + s.boards.len());
 }
 
 #[test]

@@ -24,6 +24,8 @@ pub struct HomeCall {
     jobs: Vec<(JobPost, PendingJob)>,
     bank: u32,
     stash_free: u32,
+    tools: Vec<String>,
+    defs: Vec<crate::data::ToolDef>,
 }
 
 impl Line for HomeCall {
@@ -47,6 +49,10 @@ impl Line for HomeCall {
         ("Stash room", self.stash_free)
     }
 
+    fn has_tool(&self, id: &str) -> bool {
+        self.tools.iter().any(|t| t == id)
+    }
+
     fn buy_blocker(&self, area: usize, file: usize) -> Option<String> {
         let s = self.stock.get(area).and_then(|a| a.get(file))?;
         let f = &self.def.areas[area].files[s.def];
@@ -61,6 +67,9 @@ impl Line for HomeCall {
         }
         if matches!(f.item, Drop::Warez(_)) && self.stash_free == 0 {
             return Some("your stash is full.".into());
+        }
+        if let Some(why) = crate::game::tool_blocker(&self.defs, &f.item, |t| self.has_tool(t)) {
+            return Some(why);
         }
         if self.bank < f.price {
             return Some(format!(
@@ -162,6 +171,8 @@ impl Save {
             stock,
             bank: self.bank,
             stash_free,
+            tools: self.tools.clone(),
+            defs: data.tools.clone(),
         }
     }
 
@@ -246,6 +257,11 @@ impl Save {
             Drop::Fragment(n) => {
                 self.fragments += n;
                 format!("+{n} optimizer fragment(s)")
+            }
+            Drop::Tool(id) => {
+                self.learn_tool(id);
+                let name = data.tool(id).map_or(id.as_str(), |t| t.name.as_str());
+                format!("{name} is on your desktop")
             }
             _ => return Err("deck mods go on a live deck. download it in a run.".into()),
         };

@@ -163,6 +163,13 @@ fn every_screen_fits_the_terminal() {
         ];
         screens.extend((0..g.bbs().bulletins.len()).map(Screen::Bulletin));
         screens.extend((0..g.bbs().areas.len()).map(Screen::Area));
+        for (area, files) in g.bbs_stock.iter().enumerate() {
+            for (file, f) in files.iter().enumerate() {
+                if matches!(g.bbs().areas[area].files[f.def].item, Drop::Text(_)) {
+                    screens.push(Screen::Read { area, file });
+                }
+            }
+        }
         for sc in screens {
             let s = Session {
                 screen: sc,
@@ -283,4 +290,68 @@ fn dialing_lasts_as_long_as_the_handshake() {
     assert!(lines.contains("CONNECT"));
     s.tick(&g, 0.1);
     assert_eq!(s.screen, Screen::Splash);
+}
+
+/// The Gutter's always-stocked area holding a tool.
+fn tool_file(g: &Game, id: &str) -> (usize, usize) {
+    for (a, files) in g.bbs_stock.iter().enumerate() {
+        for (f, s) in files.iter().enumerate() {
+            if matches!(&g.bbs().areas[a].files[s.def].item, Drop::Tool(t) if t == id) {
+                return (a, f);
+            }
+        }
+    }
+    panic!("no {id} on {}", g.bbs().id)
+}
+
+#[test]
+fn the_gutter_always_stocks_the_starter_kit() {
+    for seed in 0..20 {
+        let g = game_at_bbs(seed, 0);
+        assert_eq!(g.bbs().id, "gutter");
+        tool_file(&g, "wardial");
+        tool_file(&g, "hexed");
+    }
+}
+
+#[test]
+fn a_tool_downloads_free_once_and_comes_home() {
+    let mut g = game_at_bbs(3, 0);
+    g.tools.clear();
+    let (area, file) = tool_file(&g, "wardial");
+    assert!(g.buy_blocker(area, file).is_none());
+    g.apply(Action::Buy { area, file });
+    assert!(g.has_tool("wardial"));
+    assert!(g.buy_blocker(area, file).is_some());
+    let mut save = ninsei_core::hub::Save::default();
+    assert!(!save.has_tool("wardial"));
+    g.phase = Phase::Flatlined;
+    let report = save.record(&g, &[], &g.data.rig.clone()).unwrap();
+    assert!(save.has_tool("wardial"));
+    assert_eq!(report.tools, vec!["WarDial".to_string()]);
+}
+
+#[test]
+fn textfiles_are_read_not_bought() {
+    let g = game_at_bbs(5, 0);
+    let (area, _) = tool_file(&g, "wardial");
+    let gfiles = area + 1;
+    assert!(g.bbs().areas[gfiles].always);
+    let mut s = Session::new();
+    s.screen = Screen::Area(gfiles);
+    assert_eq!(s.key(&g, '1'), Outcome::None);
+    assert_eq!(s.screen, Screen::Read { area: gfiles, file: 0 });
+    let text = s.render(&g).join("\n");
+    assert!(text.contains("WARDIAL.ZIP"), "the primer names the dialer");
+    s.key(&g, 'q');
+    assert_eq!(s.screen, Screen::Area(gfiles));
+}
+
+#[test]
+fn without_hexed_there_is_no_compiler() {
+    let mut g = game_at_bbs(7, 0);
+    g.tools.push("hexed".into());
+    assert!(g.compile_blocker().is_none());
+    g.tools.retain(|t| t != "hexed");
+    assert!(g.compile_blocker().is_some());
 }

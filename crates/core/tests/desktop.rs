@@ -239,6 +239,7 @@ fn the_shell_completes_its_verbs_and_arguments() {
     let mut s = Save::default();
     s.ensure_hardware(&d);
     s.ensure_phonebook(&d, 7);
+    s.tools = vec!["wardial".into(), "hexed".into()];
     assert_eq!(hub::shell_complete("", &s, &d).len(), SHELL_VERBS.len());
     // Every verb is one the Shell answers (not "Unknown command").
     for v in SHELL_VERBS {
@@ -249,7 +250,7 @@ fn the_shell_completes_its_verbs_and_arguments() {
         );
     }
     let dial = hub::shell_complete("dial ", &s, &d);
-    assert_eq!(dial.len(), s.phonebook.len());
+    assert_eq!(dial.len(), s.phonebook.len() + s.boards.len());
     assert_eq!(dial.first().map(String::as_str), Some("1"));
     assert!(hub::shell_complete("run ", &s, &d).contains(&"carrierterm".to_string()));
     assert!(hub::shell_complete("theme ", &s, &d).contains(&"amber".to_string()));
@@ -262,8 +263,35 @@ fn the_shell_completes_its_verbs_and_arguments() {
         hub::shell_complete("dial 1 ", &s, &d).is_empty(),
         "no third word"
     );
-    // Old saves load without the history.
-    assert!(Save::load("(version: 1)").unwrap().shell_history.is_empty());
+    // Old saves load without the history, and with the tools a save from before had.
+    let old = Save::load("(version: 1)").unwrap();
+    assert!(old.shell_history.is_empty());
+    assert!(old.has_tool("wardial") && old.has_tool("hexed"));
+}
+
+#[test]
+fn a_tool_you_dont_have_isnt_there() {
+    use ninsei_core::hub::{self, Tool};
+    let d = data();
+    let mut s = Save::default();
+    s.ensure_hardware(&d);
+    s.ensure_phonebook(&d, 7);
+    assert!(s.tools.is_empty(), "a fresh save has no tools");
+    let (lines, _) = hub::shell("wardial local", &s, &d);
+    assert_eq!(lines, vec!["Unknown command wardial".to_string()]);
+    assert!(!hub::shell_complete("", &s, &d).contains(&"wardial".to_string()));
+    assert!(hub::shell_complete("wardial ", &s, &d).is_empty());
+    let (help, _) = hub::shell("help", &s, &d);
+    assert!(!help.iter().any(|l| l.contains("wardial")));
+    assert!(!s.opens(Tool::HexEd));
+    let (dir, _) = hub::shell("dir", &s, &d);
+    assert!(!dir.iter().any(|l| l.contains("HexEd")), "{dir:?}");
+    assert!(hub::shell("run hexed", &s, &d).0[0].contains("not found"));
+    assert!(s.wardial(&d, "local").is_err());
+    s.learn_tool("wardial");
+    s.learn_tool("hexed");
+    assert!(s.opens(Tool::HexEd));
+    assert!(hub::shell_complete("", &s, &d).contains(&"wardial".to_string()));
 }
 
 #[test]

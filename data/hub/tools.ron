@@ -1,0 +1,12 @@
+// Desktop tools you download. A new save starts with none: each is a file on a board (an item
+// `Tool(id)` in a board's FILES), and once you own one it's on your desktop for good.
+//   id     what boards and the save call it
+//   name   what the desktop and the Shell call it
+//   blurb  one line for the board's listing
+// What each one unlocks is the game's (hub::Save::has_tool):
+//   wardial  the `wardial` Shell command and CarrierTerm's WarDial tab
+//   hexed    the HexEd tool at home, and `hex`, patch and optimize in a run
+[
+    (id: "wardial", name: "WarDial", blurb: "A demon dialer: scans a block of numbers for carriers."),
+    (id: "hexed",   name: "HexEd",   blurb: "A hex editor for warez binaries. Patch, optimize, break things."),
+]
