@@ -234,6 +234,8 @@ pub struct Home {
     /// The QWK reader: which packet or message is open, and true ANSI colours or the desk's.
     pub(crate) qwk: ninsei_core::qwk::Reader,
     pub(crate) qwk_color: bool,
+    /// The ICE database's picked entry.
+    pub(crate) icedb_sel: Option<usize>,
 }
 
 impl Home {
@@ -254,6 +256,7 @@ impl Home {
             dial_started: None,
             qwk: ninsei_core::qwk::Reader::new(),
             qwk_color: false,
+            icedb_sel: None,
         }
     }
 
@@ -493,6 +496,7 @@ impl Home {
             Tool::Stash => hubtools::stash(child, data, save, out, &mut edit),
             Tool::HexEd => hubtools::hexed(child, save, &mut self.hex, out, &mut edit),
             Tool::Qwk => self.qwk_reader(child, data, save),
+            Tool::IceDb => hubtools::icedb(child, data, save, &mut self.icedb_sel),
             Tool::Shell => {}
         }
         if let Some(id) = dial {

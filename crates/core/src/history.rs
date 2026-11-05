@@ -47,8 +47,19 @@ pub struct History {
     pub runs: Vec<(u32, u32)>,
     /// The last time something hit the deck, for the damage glitches.
     pub last_hit: Option<Hit>,
+    /// Every fight this run, in order: for the ICE database at home.
+    pub met: Vec<Met>,
     /// Damage dealt so far this turn.
     pending: u32,
+}
+
+/// A fight met on a run: which ICE, its strength when the fight began, and whether it fell.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Met {
+    /// Index into `Data::ice`.
+    pub ice: usize,
+    pub strength: u32,
+    pub broken: bool,
 }
 
 /// A hit on the deck.
@@ -126,6 +137,13 @@ impl History {
         match (was.fight, now) {
             // A new fight: fresh graphs.
             (None, Some((_, strength, ..))) => {
+                if let Some(c) = &g.combat {
+                    self.met.push(Met {
+                        ice: c.ice,
+                        strength,
+                        broken: false,
+                    });
+                }
                 self.ice = vec![strength];
                 self.turns.clear();
                 self.pending = 0;
@@ -140,6 +158,9 @@ impl History {
                 if won {
                     self.pending += before;
                     push(&mut self.ice, 0);
+                    if let Some(m) = self.met.last_mut() {
+                        m.broken = true;
+                    }
                 }
                 self.close_turn(g, was);
             }
