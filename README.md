@@ -312,7 +312,7 @@ A phonebook number always reaches the same board: the one for its tier (picked b
 
 ### Where it starts: Sense/Net CustomerLink
 
-A new deck knows one number: **SENSE/NET CUSTOMERLINK** (`555-0001`), the free customer board. It's polite and a bit dull: News, Support Files, and **Message Boards**, where customers chat about modems and user groups. Its **BUSINESS PARTNERS DIRECTORY** bulletin puts the first corporate networks in your phonebook. And one post in GENERAL ("anyone else find the lines here kind of tame?") gives a number for the Gutter. Reading is how the Net opens up: a bulletin or a post can carry an `on_read` effect (a board's number, the starter networks, or a phone range), in a run or from home.
+A new deck knows **SENSE/NET CUSTOMERLINK** (`555-0001`), the free customer board, and **Ninsei Community College** (`555-0420`), a quiet, open, tier-1 network whose board is the Gutter. It's polite and a bit dull: News, Support Files, and **Message Boards**, where customers chat about modems and user groups. Its **BUSINESS PARTNERS DIRECTORY** bulletin puts the first corporate networks in your phonebook. And one post in GENERAL ("anyone else find the lines here kind of tame?") gives a number for the Gutter. Reading is how the Net opens up: a bulletin or a post can carry an `on_read` effect (a board's number, the starter networks, or a phone range), in a run or from home.
 
 ![the post that leads to the Gutter](docs/shots/sensenet-post.png)
 ![a phonebook that grew from one number](docs/shots/sensenet-after.png)

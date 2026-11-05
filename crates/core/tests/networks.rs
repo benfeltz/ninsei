@@ -282,3 +282,22 @@ fn kits_hand_out_what_they_say() {
         "unknown means default"
     );
 }
+
+#[test]
+fn the_school_nets_board_is_the_gutter() {
+    let d = data();
+    let mut s = Save::default();
+    s.ensure_phonebook(&d, 1);
+    let school = s
+        .phonebook
+        .iter()
+        .find(|e| e.name == "Ninsei Community College")
+        .unwrap()
+        .clone();
+    assert_eq!(d.boards[Save::site_board(&d, &school)].id, "gutter");
+    let g = s.dial(&d, school.id, 3).unwrap();
+    assert!(
+        g.net.bbs().is_some(),
+        "a way to the Gutter from the first network"
+    );
+}
