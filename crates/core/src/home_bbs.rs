@@ -25,6 +25,8 @@ pub struct HomeCall {
     bank: u32,
     stash_free: u32,
     tools: Vec<String>,
+    /// Textfiles from this board already on your disk (text ids).
+    texts: Vec<String>,
     defs: Vec<crate::data::ToolDef>,
 }
 
@@ -53,6 +55,10 @@ impl Line for HomeCall {
         self.tools.iter().any(|t| t == id)
     }
 
+    fn has_text(&self, id: &str) -> bool {
+        self.texts.iter().any(|t| t == id)
+    }
+
     fn buy_blocker(&self, area: usize, file: usize) -> Option<String> {
         let s = self.stock.get(area).and_then(|a| a.get(file))?;
         let f = &self.def.areas[area].files[s.def];
@@ -68,7 +74,12 @@ impl Line for HomeCall {
         if matches!(f.item, Drop::Warez(_)) && self.stash_free == 0 {
             return Some("your stash is full.".into());
         }
-        if let Some(why) = crate::game::tool_blocker(&self.defs, &f.item, |t| self.has_tool(t)) {
+        if let Some(why) = crate::game::tool_blocker(
+            &self.defs,
+            &f.item,
+            |t| self.has_tool(t),
+            |t| self.has_text(t),
+        ) {
             return Some(why);
         }
         if self.bank < f.price {
@@ -172,6 +183,12 @@ impl Save {
             bank: self.bank,
             stash_free,
             tools: self.tools.clone(),
+            texts: self
+                .texts
+                .iter()
+                .filter(|k| k.board == data.boards[board].id)
+                .map(|k| k.id.clone())
+                .collect(),
             defs: data.tools.clone(),
         }
     }
@@ -257,6 +274,10 @@ impl Save {
             Drop::Fragment(n) => {
                 self.fragments += n;
                 format!("+{n} optimizer fragment(s)")
+            }
+            Drop::Text(id) => {
+                self.keep_text(&call.def.id, id);
+                format!("{} is on your disk", f.file)
             }
             Drop::Tool(id) => {
                 self.learn_tool(id);

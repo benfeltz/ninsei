@@ -223,7 +223,7 @@ pub struct ToolDef {
 }
 
 /// Every tool's id: what `hub::Save::has_tool` and the desktops ask about.
-pub const TOOLS: &[&str] = &["wardial", "hexed"];
+pub const TOOLS: &[&str] = &["wardial", "hexed", "qwkread"];
 
 fn default_call_cost() -> u32 {
     crate::tuning::BBS_CALL_COST

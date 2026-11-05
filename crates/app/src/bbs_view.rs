@@ -56,20 +56,6 @@ impl BbsView {
         }
     }
 
-    fn fg(&self, i: u8, p: &Palette) -> Color32 {
-        if self.color { cga(i) } else { mono(i, p) }
-    }
-
-    fn bg(&self, i: u8, p: &Palette) -> Color32 {
-        if i == 0 {
-            Color32::TRANSPARENT
-        } else if self.color {
-            cga(i)
-        } else {
-            mono(i, p).gamma_multiply(0.5)
-        }
-    }
-
     /// Runs one frame: clock, keys, drawing. Returns what the game should do.
     pub fn show(&mut self, ctx: &Context, game: &dyn Line, p: &Palette) -> Vec<Outcome> {
         let mut out = Vec::new();
@@ -102,12 +88,6 @@ impl BbsView {
         }
 
         let b = game.board();
-        let font = FontId::new(FONT_SIZE, FontFamily::Monospace);
-        let cw = ctx.fonts_mut(|f| f.glyph_width(&font, 'M'));
-        let size = vec2(
-            cw * COLS as f32 + PAD * 2.0,
-            ROW_HEIGHT * ROWS as f32 + PAD * 2.0,
-        );
         let blink = (ctx.input(|i| i.time) * 2.0) as i64 % 2 == 0;
         let mut clicked: Option<char> = None;
 
@@ -125,63 +105,13 @@ impl BbsView {
                     .inner_margin(4.0),
             )
             .show(ctx, |ui| {
-                let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
-                let painter = ui.painter_at(rect);
-                let bg = if self.color { Color32::BLACK } else { p.bg };
-                painter.rect_filled(rect, 0.0, bg);
-                let (mut fg_c, mut bg_c) = (ansi::DEFAULT_FG, ansi::DEFAULT_BG);
-                for (row, line) in self.session.render(game).iter().enumerate() {
-                    let line = if blink {
-                        line.clone()
-                    } else {
-                        line.replace("|15_", "|15 ")
-                    };
-                    let top = rect.top() + PAD + row as f32 * ROW_HEIGHT;
-                    let mut col = 0usize;
-                    for span in ansi::parse_line(&line, &mut fg_c, &mut bg_c) {
-                        let fg = self.fg(span.fg, p);
-                        let bgc = self.bg(span.bg, p);
-                        let x0 = rect.left() + PAD + col as f32 * cw;
-                        let n = span.text.chars().count();
-                        if bgc != Color32::TRANSPARENT {
-                            let r =
-                                Rect::from_min_size(pos2(x0, top), vec2(cw * n as f32, ROW_HEIGHT));
-                            painter.rect_filled(r, 0.0, bgc);
-                        }
-                        // Runs of ordinary glyphs go out as text; block elements are painted as
-                        // solid cell rects so art joins up with no font gaps.
-                        let mut run = String::new();
-                        let mut run_col = col;
-                        for ch in span.text.chars() {
-                            if let Some(shape) = block(ch) {
-                                flush(
-                                    &painter,
-                                    &mut run,
-                                    pos2(rect.left() + PAD + run_col as f32 * cw, top),
-                                    &font,
-                                    fg,
-                                );
-                                let cell = Rect::from_min_size(
-                                    pos2(rect.left() + PAD + col as f32 * cw, top),
-                                    vec2(cw, ROW_HEIGHT),
-                                );
-                                paint_block(&painter, cell, shape, fg);
-                                col += 1;
-                                run_col = col;
-                            } else {
-                                run.push(ch);
-                                col += 1;
-                            }
-                        }
-                        flush(
-                            &painter,
-                            &mut run,
-                            pos2(rect.left() + PAD + run_col as f32 * cw, top),
-                            &font,
-                            fg,
-                        );
-                    }
-                }
+                let lines: Vec<String> = self
+                    .session
+                    .render(game)
+                    .into_iter()
+                    .map(|l| if blink { l } else { l.replace("|15_", "|15 ") })
+                    .collect();
+                paint_screen(ui, &lines, self.color, p);
 
                 // Hotkeys as buttons, for mice and thumbs.
                 ui.horizontal(|ui| {
@@ -214,6 +144,78 @@ impl BbsView {
         ctx.request_repaint();
         out.retain(|o| *o != Outcome::None);
         out
+    }
+}
+
+/// Paints pipe-coded lines as an 80x24 ANSI terminal: true CGA colours, or the phosphor (`p`)
+/// in four intensities. The BBS window and the QWK reader both draw through it.
+pub fn paint_screen(ui: &mut egui::Ui, lines: &[String], color: bool, p: &Palette) {
+    let font = FontId::new(FONT_SIZE, FontFamily::Monospace);
+    let cw = ui.ctx().fonts_mut(|f| f.glyph_width(&font, 'M'));
+    let size = vec2(
+        cw * COLS as f32 + PAD * 2.0,
+        ROW_HEIGHT * ROWS as f32 + PAD * 2.0,
+    );
+    let fgc = |i: u8| if color { cga(i) } else { mono(i, p) };
+    let bgc_of = |i: u8| {
+        if i == 0 {
+            Color32::TRANSPARENT
+        } else if color {
+            cga(i)
+        } else {
+            mono(i, p).gamma_multiply(0.5)
+        }
+    };
+    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+    let painter = ui.painter_at(rect);
+    let bg = if color { Color32::BLACK } else { p.bg };
+    painter.rect_filled(rect, 0.0, bg);
+    let (mut fg_c, mut bg_c) = (ansi::DEFAULT_FG, ansi::DEFAULT_BG);
+    for (row, line) in lines.iter().enumerate() {
+        let top = rect.top() + PAD + row as f32 * ROW_HEIGHT;
+        let mut col = 0usize;
+        for span in ansi::parse_line(line, &mut fg_c, &mut bg_c) {
+            let fg = fgc(span.fg);
+            let bgc = bgc_of(span.bg);
+            let x0 = rect.left() + PAD + col as f32 * cw;
+            let n = span.text.chars().count();
+            if bgc != Color32::TRANSPARENT {
+                let r = Rect::from_min_size(pos2(x0, top), vec2(cw * n as f32, ROW_HEIGHT));
+                painter.rect_filled(r, 0.0, bgc);
+            }
+            // Runs of ordinary glyphs go out as text; block elements are painted as
+            // solid cell rects so art joins up with no font gaps.
+            let mut run = String::new();
+            let mut run_col = col;
+            for ch in span.text.chars() {
+                if let Some(shape) = block(ch) {
+                    flush(
+                        &painter,
+                        &mut run,
+                        pos2(rect.left() + PAD + run_col as f32 * cw, top),
+                        &font,
+                        fg,
+                    );
+                    let cell = Rect::from_min_size(
+                        pos2(rect.left() + PAD + col as f32 * cw, top),
+                        vec2(cw, ROW_HEIGHT),
+                    );
+                    paint_block(&painter, cell, shape, fg);
+                    col += 1;
+                    run_col = col;
+                } else {
+                    run.push(ch);
+                    col += 1;
+                }
+            }
+            flush(
+                &painter,
+                &mut run,
+                pos2(rect.left() + PAD + run_col as f32 * cw, top),
+                &font,
+                fg,
+            );
+        }
     }
 }
 

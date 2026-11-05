@@ -100,11 +100,13 @@ Every dial is a fresh layout with the same personality. Tiers, traits and compan
 
 ### Tools you download
 
-A fresh deck has no wardialer and no hex editor. They're on **THE NEON GUTTER** (`555-0199`, in your phonebook from the start): **WAREZ TOOLS** always stocks `WARDIAL.ZIP` and `HEXED.ZIP`, free, and they're yours for good once downloaded, in a run or from home, even if you flatline. Until then they just aren't there: no icon, no menu item, no WarDial tab, and `wardial`, `hex` and `opt` are unknown commands. The Gutter's **G-FILES** are textfiles you read on the board (a wardialing primer, ranges, heat and the telco). Tools live in [`data/hub/tools.ron`](data/hub/tools.ron); a board lists them as `Tool(id)` files, and its textfiles as `Text(id)` files with their lines in the board's `texts`. Saves from before tools had to be found keep both.
+A fresh deck has no wardialer and no hex editor. They're on **THE NEON GUTTER** (`555-0199`, in your phonebook from the start): **WAREZ TOOLS** always stocks `WARDIAL.ZIP`, `HEXED.ZIP` and `QWKREAD.ZIP`, free, and they're yours for good once downloaded, in a run or from home, even if you flatline. Until then they just aren't there: no icon, no menu item, no WarDial tab, and `wardial`, `hex` and `opt` are unknown commands. The Gutter's **G-FILES** are textfiles you read on the board (a wardialing primer, ranges, heat and the telco); **[D]ownload** one to keep it on your disk. The **QWK reader** reads them at home, with the bulletins of every board you know, one packet per board, as BBS text. Tools live in [`data/hub/tools.ron`](data/hub/tools.ron); a board lists them as `Tool(id)` files, and its textfiles as `Text(id)` files with their lines in the board's `texts`. Saves from before tools had to be found keep both.
 
 ![the Gutter's G-FILES](docs/shots/bbs-gfiles.png)
 ![the wardialing primer](docs/shots/bbs-primer.png)
 ![the starter kit, downloaded](docs/shots/bbs-tools.png)
+![the QWK reader's packet](docs/shots/qwk-board.png)
+![reading a saved textfile at home](docs/shots/qwk-read.png)
 
 ### Finding numbers: WarDial
 

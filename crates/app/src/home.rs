@@ -231,6 +231,9 @@ pub struct Home {
     pub(crate) dialing: Option<Dialing>,
     /// A dial that just started (phonebook entry id), for the app to play its handshake.
     pub(crate) dial_started: Option<u32>,
+    /// The QWK reader: which packet or message is open, and true ANSI colours or the desk's.
+    pub(crate) qwk: ninsei_core::qwk::Reader,
+    pub(crate) qwk_color: bool,
 }
 
 impl Home {
@@ -249,6 +252,72 @@ impl Home {
             scan: None,
             dialing: None,
             dial_started: None,
+            qwk: ninsei_core::qwk::Reader::new(),
+            qwk_color: false,
+        }
+    }
+
+    /// The QWK reader's window body: the screen, its hotkeys as buttons, and keys while the
+    /// pointer is over it (the Shell keeps the keyboard otherwise).
+    fn qwk_reader(&mut self, ui: &mut Ui, data: &Data, save: &Save) {
+        // The desk's own colours when it isn't showing true ANSI.
+        let p = Palette {
+            bg: backdrop(),
+            panel: backdrop(),
+            faint: muted(),
+            dim: muted(),
+            fg: ink(),
+            bright: accent(),
+        };
+        let r = &mut self.qwk;
+        // The body hasn't grown yet, so test the window's visible area, not the ui's rect.
+        let over = ui
+            .ctx()
+            .pointer_hover_pos()
+            .is_some_and(|at| ui.clip_rect().contains(at));
+        if over {
+            let keys: Vec<char> = ui.input(|i| {
+                i.events
+                    .iter()
+                    .flat_map(|e| match e {
+                        egui::Event::Text(t) => t.chars().collect(),
+                        egui::Event::Key {
+                            key: egui::Key::Enter,
+                            pressed: true,
+                            ..
+                        } => vec!['\n'],
+                        egui::Event::Key {
+                            key: egui::Key::Escape,
+                            pressed: true,
+                            ..
+                        } => vec!['\x1b'],
+                        _ => Vec::new(),
+                    })
+                    .collect()
+            });
+            for k in keys {
+                r.key(save, data, k);
+            }
+        }
+        let lines = r.render(save, data);
+        egui::ScrollArea::both().show(ui, |ui| {
+            crate::bbs_view::paint_screen(ui, &lines, self.qwk_color, &p);
+        });
+        let mut pressed = None;
+        ui.horizontal_wrapped(|ui| {
+            for (k, label) in self.qwk.keys(save, data) {
+                let txt = format!("[{k}] {label}");
+                if ui.button(txt.trim_end()).clicked() {
+                    pressed = Some(k);
+                }
+            }
+            let mode = if self.qwk_color { "ANSI color" } else { "desk" };
+            if ui.button(format!("display: {mode}")).clicked() {
+                self.qwk_color = !self.qwk_color;
+            }
+        });
+        if let Some(k) = pressed {
+            self.qwk.key(save, data, k);
         }
     }
 
@@ -423,6 +492,7 @@ impl Home {
             Tool::Prefs => hubtools::prefs(child, data, save, out),
             Tool::Stash => hubtools::stash(child, data, save, out, &mut edit),
             Tool::HexEd => hubtools::hexed(child, save, &mut self.hex, out, &mut edit),
+            Tool::Qwk => self.qwk_reader(child, data, save),
             Tool::Shell => {}
         }
         if let Some(id) = dial {

@@ -33,6 +33,7 @@ enum Kind {
     Rig,
     Stash,
     HexEd,
+    Qwk,
     /// "Please insert volume X in any drive".
     Requester(Tool),
 }
@@ -53,6 +54,7 @@ impl Win {
             Kind::Rig => "RIG: deck shop".into(),
             Kind::Stash => "STASH".into(),
             Kind::HexEd => "HexEd".into(),
+            Kind::Qwk => "OLX QWK Reader".into(),
             Kind::Requester(_) => "System Request".into(),
         }
     }
@@ -88,6 +90,7 @@ impl Workbench {
             Tool::Rig => Kind::Rig,
             Tool::Stash => Kind::Stash,
             Tool::HexEd => Kind::HexEd,
+            Tool::Qwk => Kind::Qwk,
         };
         if let Some(i) = self.wins.iter().position(|w| w.kind == kind) {
             let w = self.wins.remove(i);
@@ -100,6 +103,7 @@ impl Workbench {
                 Kind::Rig => (pos2(170.0, 50.0), vec2(620.0, 330.0)),
                 Kind::Stash => (pos2(210.0, 80.0), vec2(640.0, 380.0)),
                 Kind::HexEd => (pos2(130.0, 36.0), vec2(800.0, 500.0)),
+                Kind::Qwk => (pos2(190.0, 46.0), vec2(700.0, 470.0)),
                 Kind::Requester(_) => (pos2(260.0, 150.0), vec2(330.0, 150.0)),
             };
             self.wins.push(Win { kind, pos, size });
@@ -338,7 +342,12 @@ impl DesktopView for Workbench {
             );
             match kind {
                 Kind::Shell => home.shell(ui, content, data, save, live && top, out),
-                Kind::Rig | Kind::Stash | Kind::HexEd | Kind::Terminal | Kind::Prefs => {
+                Kind::Rig
+                | Kind::Stash
+                | Kind::HexEd
+                | Kind::Qwk
+                | Kind::Terminal
+                | Kind::Prefs => {
                     let mut child = ui.new_child(
                         egui::UiBuilder::new()
                             .max_rect(content)
@@ -354,6 +363,7 @@ impl DesktopView for Workbench {
                         Kind::Rig => Tool::Rig,
                         Kind::Prefs => Tool::Prefs,
                         Kind::Stash => Tool::Stash,
+                        Kind::Qwk => Tool::Qwk,
                         _ => Tool::HexEd,
                     };
                     crate::home::scrolled(&mut child, ("wb-scroll", tool), |ui| {
@@ -653,6 +663,7 @@ mod tests {
             Tool::Rig => Kind::Rig,
             Tool::Stash => Kind::Stash,
             Tool::HexEd => Kind::HexEd,
+            Tool::Qwk => Kind::Qwk,
         }
     }
 }
