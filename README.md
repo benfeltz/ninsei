@@ -38,6 +38,9 @@ Between runs you're on your own machine, on the same monitor as your runs. What 
 
 New to the Net? **Welcome to the Net** is the HyperCard stack Sense/Net ships with the deck: it opens on a new save's first boot, lives on Liza's desktop (and under Special), and `help net` opens it from the Shell on any deck. One idea per card, ◀ ▶ to page, Home for the sections. It's data in [`data/stacks/welcome.ron`](data/stacks/welcome.ron), and its numbers come from the rules.
 
+![Welcome to the Net](docs/shots/welcome-home.png)
+![a card](docs/shots/welcome-card.png)
+
 ![the hub](docs/shots/hub.png)
 ![jacking in](docs/shots/hub-jackin.png)
 
