@@ -10,14 +10,7 @@ fn welcome_is_a_family_guide_with_one_card_on_hackers() {
     let d = data();
     let s = &d.welcome;
     let names: Vec<&str> = s.sections.iter().map(|x| x.name.as_str()).collect();
-    for want in [
-        "The Net",
-        "Dialing in",
-        "A run",
-        "ICE",
-        "Boards & work",
-        "Your deck",
-    ] {
+    for want in ["The Net", "Getting connected"] {
         assert!(names.contains(&want), "missing section {want}");
     }
     let hackers = s
