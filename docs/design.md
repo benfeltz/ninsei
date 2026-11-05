@@ -8,6 +8,7 @@ How ninsei should look and feel, and why. Read this before building UI. `CLAUDE.
 - **The look is hardware you own.** Colour comes from the **theme**. The CRT comes from the **monitor**, and a mono tube locks the theme. The UX comes from the **deck** and its firmware. A new look is something you buy, plug in, or flash; never a free toggle.
 - **Each deck is a point of view.** Same network, same rules, different lens. Swapping decks should feel like sitting down at someone else's computer.
 - **Readable before pretty.** Motion, glow and glitch sit on top of a screen you can always read and click. Click areas never move with an animation, and important numbers are never obscured.
+- **You start with nothing; it unfolds.** A new player has a deck, a friendly welcome stack and one number. Every tool, board, network and idea is found in the world, in order: the customer board leads to the first companies and to a message about an illicit board, that board's textfiles teach the next step, and so on. The OS never hints at what you haven't found; a thing you don't have simply isn't there. Each discovery should open a door, never a menu.
 - **Data, then code.** Looks are data (`themes.ron`, `displays.ron`, `hub/hardware.ron`, `netmap.ron`, `bbs/<id>/`). Code adds *parts*; data picks which parts a deck uses.
 
 ## How a look is put together
