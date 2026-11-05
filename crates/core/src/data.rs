@@ -555,6 +555,7 @@ pub struct Sources<'a> {
     pub panes: &'a str,
     pub sounds: &'a [PackSrc<'a>],
     pub intros: &'a [IntroSrc<'a>],
+    pub welcome: &'a str,
     pub rig: &'a str,
     pub networks: &'a str,
     pub exchanges: &'a str,
@@ -582,6 +583,7 @@ impl Sources<'static> {
             panes: include_str!("../../../data/hub/panes.ron"),
             sounds: BUILTIN_SOUNDS,
             intros: BUILTIN_INTROS,
+            welcome: include_str!("../../../data/stacks/welcome.ron"),
             rig: include_str!("../../../data/hub/rig.ron"),
             networks: include_str!("../../../data/hub/networks.ron"),
             exchanges: include_str!("../../../data/hub/exchanges.ron"),
@@ -622,6 +624,8 @@ pub struct Data {
     pub sounds: Vec<crate::cue::SoundPack>,
     /// Cracktros, one per file in `data/intros/`.
     pub intros: Vec<crate::intro::IntroDef>,
+    /// The Welcome to the Net stack (`data/stacks/welcome.ron`).
+    pub welcome: crate::cards::StackDef,
     /// RIG deck-shop upgrades.
     pub rig: Vec<crate::hub::UpgradeDef>,
     /// Network tiers, traits and companies for the phonebook.
@@ -669,6 +673,7 @@ impl Data {
             tools: ron::from_str(src.tools).map_err(|e| format!("hub/tools.ron: {e}"))?,
             addons: ron::from_str(src.addons).map_err(|e| format!("hub/desktops.ron: {e}"))?,
             panes: ron::from_str(src.panes).map_err(|e| format!("hub/panes.ron: {e}"))?,
+            welcome: ron::from_str(src.welcome).map_err(|e| format!("stacks/welcome.ron: {e}"))?,
             intros: src
                 .intros
                 .iter()
@@ -706,6 +711,7 @@ impl Data {
 
     /// Cross-file checks: every id a table names must exist, and nothing may be empty.
     pub fn validate(&self) -> Result<(), String> {
+        self.welcome.validate(self)?;
         for i in &self.intros {
             i.validate(self)?;
         }

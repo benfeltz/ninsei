@@ -85,6 +85,7 @@ const MENUS: &[(&str, &[(&str, Act)])] = &[
     (
         "Special",
         &[
+            ("Welcome to the Net", Act::Open(Tool::Guide)),
             ("Prefs", Act::Open(Tool::Prefs)),
             ("About Liza", Act::About),
         ],
@@ -102,6 +103,7 @@ fn title(tool: Tool) -> &'static str {
     match tool {
         Tool::Qwk => "QWK Reader",
         Tool::IceDb => "ICE DB",
+        Tool::Guide => "Welcome to the Net",
         Tool::Shell => "Shell",
         Tool::Terminal => "Phonebook",
         Tool::Prefs => "Prefs",
@@ -161,6 +163,7 @@ impl Liza {
             Tool::HexEd => (pos2(40.0, 40.0), vec2(800.0, 500.0)),
             Tool::Qwk => (pos2(70.0, 50.0), vec2(700.0, 470.0)),
             Tool::IceDb => (pos2(100.0, 60.0), vec2(700.0, 470.0)),
+            Tool::Guide => (pos2(150.0, 70.0), vec2(640.0, 440.0)),
         };
         self.wins.push(Win { tool, pos, size });
         // Without MultiFinder, Liza keeps a few windows: the oldest goes.
@@ -207,6 +210,11 @@ impl DesktopView for Liza {
         self.multifinder = addon(AddonEffect::MultiFinder);
         for t in home.take_opens() {
             self.open(t);
+        }
+        // A new save's first boot opens the Welcome to the Net stack, once.
+        if live && !save.guide_seen {
+            self.open(Tool::Guide);
+            out.push(WbOut::GuideSeen);
         }
         let theme = home::desk();
         let c = colours(theme);
@@ -777,6 +785,7 @@ mod tests {
                 .iter()
                 .map(|t| t.to_string())
                 .collect(),
+            guide_seen: true,
             ..Save::default()
         };
         let raw = RawInput {
