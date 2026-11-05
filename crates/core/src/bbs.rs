@@ -44,6 +44,8 @@ pub trait Line {
     fn buy_blocker(&self, area: usize, file: usize) -> Option<String>;
     /// Whether you own a desktop tool: an owned tool lists as yours, not for sale.
     fn has_tool(&self, id: &str) -> bool;
+    /// Whether a textfile on this board is already on your disk.
+    fn has_text(&self, id: &str) -> bool;
 }
 
 impl Line for Game {
@@ -90,6 +92,10 @@ impl Line for Game {
 
     fn has_tool(&self, id: &str) -> bool {
         Game::has_tool(self, id)
+    }
+
+    fn has_text(&self, id: &str) -> bool {
+        Game::has_text(self, id)
     }
 }
 
@@ -203,9 +209,15 @@ impl Session {
             Screen::Jobs => numbered(game.jobs().len(), "Q"),
             Screen::Areas => numbered(b.areas.len(), "Q"),
             Screen::Area(a) => numbered(game.stock()[a].len(), "Q"),
-            Screen::Bulletin(_) | Screen::Who | Screen::Read { .. } => {
-                vec![('Q', "back".into())]
+            Screen::Read { area, file } => {
+                let mut v = Vec::new();
+                if read_kept(game, area, file) == Some(false) {
+                    v.push(('D', "download".into()));
+                }
+                v.push(('Q', "back".into()));
+                v
             }
+            Screen::Bulletin(_) | Screen::Who => vec![('Q', "back".into())],
         }
     }
 
@@ -242,9 +254,14 @@ impl Session {
                     self.go(Screen::Main);
                 }
             }
-            Screen::Read { area, .. } => {
+            Screen::Read { area, file } => {
                 if back || k == '\n' {
                     self.go(Screen::Area(area));
+                } else if k == 'D' && read_kept(game, area, file) == Some(false) {
+                    match game.buy_blocker(area, file) {
+                        Some(why) => self.status = Some(format!("|12{why}")),
+                        None => self.go(Screen::Download { area, file, t: 0.0 }),
+                    }
                 }
             }
             Screen::Jobs => match digit {
@@ -479,7 +496,10 @@ impl Session {
                         ));
                     } else {
                         let price = if game.credits() >= f.price { &mo } else { &wn };
-                        let cost = if f.price == 0 {
+                        let kept = matches!(&f.item, Drop::Text(t) if game.has_text(t));
+                        let cost = if kept {
+                            "on disk".to_string()
+                        } else if f.price == 0 {
                             "free".to_string()
                         } else {
                             format!("{}¢", f.price)
@@ -544,7 +564,15 @@ impl Session {
                     out.extend(t.lines.iter().map(|line| format!("   {tx}{line}")));
                 }
                 out.push(String::new());
-                out.push(format!("   {} {tx}back", hot("Q")));
+                if read_kept(game, area, file) == Some(false) {
+                    out.push(format!(
+                        "   {} {tx}download to disk   {} {tx}back",
+                        hot("D"),
+                        hot("Q")
+                    ));
+                } else {
+                    out.push(format!("   {} {tx}back   {dm}on your disk", hot("Q")));
+                }
             }
             Screen::Hangup { t } => {
                 out.push(format!("|07{}", l.goodbye.replace("{board}", &b.name)));
@@ -626,6 +654,14 @@ fn header(out: &mut Vec<String>, b: &BbsDef, title: &str) {
 fn centered(line: &str) -> String {
     let pad = COLS.saturating_sub(crate::ansi::visible_len(line)) / 2;
     format!("{}{line}", " ".repeat(pad))
+}
+
+/// For a textfile in the listing: whether it's already on your disk. `None` if it isn't one.
+fn read_kept(game: &dyn Line, area: usize, file: usize) -> Option<bool> {
+    match &file_def(game, area, file).item {
+        Drop::Text(id) => Some(game.has_text(id)),
+        _ => None,
+    }
 }
 
 fn file_def(game: &dyn Line, area: usize, file: usize) -> &crate::data::BbsFileDef {

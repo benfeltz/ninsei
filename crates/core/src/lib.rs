@@ -24,6 +24,7 @@ pub mod network;
 pub mod panes;
 pub mod pattern;
 pub mod probe;
+pub mod qwk;
 pub mod rng;
 pub mod suite;
 pub mod tuning;

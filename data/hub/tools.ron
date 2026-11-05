@@ -6,7 +6,9 @@
 // What each one unlocks is the game's (hub::Save::has_tool):
 //   wardial  the `wardial` Shell command and CarrierTerm's WarDial tab
 //   hexed    the HexEd tool at home, and `hex`, patch and optimize in a run
+//   qwkread  the QWK mail reader at home: bulletins and saved textfiles from your boards
 [
     (id: "wardial", name: "WarDial", blurb: "A demon dialer: scans a block of numbers for carriers."),
     (id: "hexed",   name: "HexEd",   blurb: "A hex editor for warez binaries. Patch, optimize, break things."),
+    (id: "qwkread", name: "QWK Reader", blurb: "Offline mail: read your boards' bulletins and saved textfiles at home."),
 ]

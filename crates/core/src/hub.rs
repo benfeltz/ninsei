@@ -33,14 +33,17 @@ pub enum Tool {
     Shell,
     /// Prefs: themes and display settings.
     Prefs,
+    /// The QWK mail reader: boards' bulletins and saved textfiles, offline.
+    Qwk,
 }
 
 impl Tool {
-    pub const ALL: [Tool; 6] = [
+    pub const ALL: [Tool; 7] = [
         Tool::Terminal,
         Tool::Rig,
         Tool::Stash,
         Tool::HexEd,
+        Tool::Qwk,
         Tool::Shell,
         Tool::Prefs,
     ];
@@ -59,6 +62,7 @@ impl Tool {
             Tool::HexEd => "HexEd",
             Tool::Shell => "Shell",
             Tool::Prefs => "Prefs",
+            Tool::Qwk => "QWK",
         }
     }
 }
@@ -654,6 +658,16 @@ pub struct Save {
     /// tools had to be found has the wardialer and HexEd already.
     #[serde(default = "legacy_tools")]
     pub tools: Vec<String>,
+    /// Textfiles downloaded from boards, for the QWK reader.
+    #[serde(default)]
+    pub texts: Vec<KeptText>,
+}
+
+/// A textfile on your disk: which board it came from and its id in that board's `texts`.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct KeptText {
+    pub board: String,
+    pub id: String,
 }
 
 fn legacy_tools() -> Vec<String> {
@@ -733,6 +747,7 @@ impl Default for Save {
             term_history: Vec::new(),
             shell_history: Vec::new(),
             tools: Vec::new(),
+            texts: Vec::new(),
         }
     }
 }
@@ -767,6 +782,18 @@ impl Save {
         self.tools.iter().any(|t| t == id)
     }
 
+    /// Puts a board's textfile on your disk. False if it was already there.
+    pub fn keep_text(&mut self, board: &str, id: &str) -> bool {
+        if self.texts.iter().any(|k| k.board == board && k.id == id) {
+            return false;
+        }
+        self.texts.push(KeptText {
+            board: board.into(),
+            id: id.into(),
+        });
+        true
+    }
+
     /// Adds a tool you downloaded. False if you had it.
     pub fn learn_tool(&mut self, id: &str) -> bool {
         if self.has_tool(id) {
@@ -778,7 +805,11 @@ impl Save {
 
     /// Whether a desktop tool is there at all: HexEd only once you've downloaded it.
     pub fn opens(&self, tool: Tool) -> bool {
-        tool != Tool::HexEd || self.has_tool("hexed")
+        match tool {
+            Tool::HexEd => self.has_tool("hexed"),
+            Tool::Qwk => self.has_tool("qwkread"),
+            _ => true,
+        }
     }
 
     pub fn ensure_key(&mut self, fresh: u64) -> bool {
@@ -1271,6 +1302,11 @@ impl Save {
             jobs: Vec::new(),
             trust: self.trust.clone(),
             tools: self.tools.clone(),
+            texts: self
+                .texts
+                .iter()
+                .map(|k| (k.board.clone(), k.id.clone()))
+                .collect(),
         }
     }
 
@@ -1333,6 +1369,9 @@ impl Save {
             .filter(|t| self.learn_tool(t))
             .map(|t| game.data.tool(t).map_or(t.clone(), |d| d.name.clone()))
             .collect();
+        for (b, t) in &game.texts {
+            self.keep_text(b, t);
+        }
         let mut boards = Vec::new();
         if game.bbs_seen {
             let b = game.bbs();

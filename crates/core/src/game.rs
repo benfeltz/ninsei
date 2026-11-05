@@ -77,6 +77,8 @@ pub struct Kit {
     pub trust: Vec<(String, u32)>,
     /// Desktop tools you own (ids in `hub/tools.ron`): HexEd lets you patch on a board.
     pub tools: Vec<String>,
+    /// Textfiles already on your disk, as (board id, text id).
+    pub texts: Vec<(String, String)>,
 }
 
 /// Run-wide modifiers from the network's tier, traits and heat.
@@ -303,6 +305,9 @@ pub struct Game {
     /// Desktop tools you own, the kit's plus any downloaded this run. They come home even on
     /// a flatline.
     pub tools: Vec<String>,
+    /// Textfiles on your disk, as (board id, text id): the kit's plus any downloaded this run.
+    /// They come home even on a flatline, for the QWK reader.
+    pub texts: Vec<(String, String)>,
 }
 
 impl Game {
@@ -365,6 +370,7 @@ impl Game {
             trust: kit.trust.clone(),
             sold_out: 0,
             tools: kit.tools.clone(),
+            texts: kit.texts.clone(),
         };
         let programs: Vec<(usize, Bin)> = if kit.programs.is_empty() {
             START_WAREZ
@@ -1461,7 +1467,12 @@ impl Game {
         if matches!(def.item, Drop::Warez(_)) && self.hdd.len() as u32 >= self.deck.hdd_max {
             return Some("hdd full. free a slot before downloading warez.".into());
         }
-        if let Some(why) = tool_blocker(&self.data.tools, &def.item, |t| self.has_tool(t)) {
+        if let Some(why) = tool_blocker(
+            &self.data.tools,
+            &def.item,
+            |t| self.has_tool(t),
+            |t| self.has_text(t),
+        ) {
             return Some(why);
         }
         None
@@ -1470,6 +1481,12 @@ impl Game {
     /// Whether you own a desktop tool (an id in `hub/tools.ron`).
     pub fn has_tool(&self, id: &str) -> bool {
         self.tools.iter().any(|t| t == id)
+    }
+
+    /// Whether a textfile on this run's board is already on your disk.
+    pub fn has_text(&self, id: &str) -> bool {
+        let board = &self.bbs().id;
+        self.texts.iter().any(|(b, t)| b == board && t == id)
     }
 
     fn buy(&mut self, area: usize, file: usize) -> Result<(), String> {
@@ -1641,18 +1658,24 @@ impl Game {
                 }
                 self.say(LogKind::Loot, format!("+ tool: {name}"));
             }
-            // Textfiles are read on the board, never downloaded.
-            Drop::Text(_) => {}
+            Drop::Text(id) => {
+                if !self.has_text(&id) {
+                    let board = self.bbs().id.clone();
+                    self.texts.push((board, id));
+                }
+                self.say(LogKind::Loot, "+ textfile, for your mail reader");
+            }
             Drop::Nothing => self.say(LogKind::Sys, "nothing worth taking."),
         }
     }
 }
 
-/// Why a tool or textfile can't be downloaded, wherever you are: you own it, or it's for reading.
+/// Why a tool or textfile can't be downloaded, wherever you are: it's already yours.
 pub fn tool_blocker(
     tools: &[crate::data::ToolDef],
     item: &Drop,
     has: impl Fn(&str) -> bool,
+    has_text: impl Fn(&str) -> bool,
 ) -> Option<String> {
     match item {
         Drop::Tool(id) if has(id) => Some(format!(
@@ -1662,7 +1685,7 @@ pub fn tool_blocker(
                 .find(|t| t.id == *id)
                 .map_or(id.as_str(), |t| t.name.as_str())
         )),
-        Drop::Text(_) => Some("that's a textfile. read it here.".into()),
+        Drop::Text(id) if has_text(id) => Some("that textfile's already on your disk.".into()),
         _ => None,
     }
 }

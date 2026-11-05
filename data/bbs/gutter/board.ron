@@ -32,6 +32,7 @@
             "|07New area: OPTIMIZERS. Fragments raise a binary's opt level.",
             "|07Pro tip: |15hex <slot>|07 opens your warez. Mind the checksum.",
             "|07TEXTFILES has leaked phone ranges. New here? Start in G-FILES.",
+            "|07QWKREAD.ZIP in WAREZ TOOLS: save the G-FILES, read them at home.",
         ]),
     ],
     users: [
@@ -64,9 +65,10 @@
             (file: "OPTFRAG.ZIP",  item: Fragment(1),       price: 70,  desc: "Optimizer fragment. +2 budget"),
         ]),
         // The starter kit: always here, free, yours for good. Nothing on the desktop says so.
-        (name: "WAREZ TOOLS", stock: 2, always: true, files: [
+        (name: "WAREZ TOOLS", stock: 3, always: true, files: [
             (file: "WARDIAL.ZIP",  item: Tool("wardial"),   price: 0,   desc: "m0th's demon dialer. Finds carriers"),
             (file: "HEXED.ZIP",    item: Tool("hexed"),     price: 0,   desc: "Hex editor. Patch your warez"),
+            (file: "QWKREAD.ZIP",  item: Tool("qwkread"),   price: 0,   desc: "Offline mail reader. Read at home"),
         ]),
         (name: "G-FILES", stock: 4, always: true, files: [
             (file: "WARDIAL.TXT",  item: Text("primer"),    price: 0,   desc: "Wardialing for the clueless"),
