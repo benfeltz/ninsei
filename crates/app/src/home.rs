@@ -242,6 +242,16 @@ pub struct Home {
     /// intro), and the intros playing now with the time each started.
     intro_drawn: std::collections::HashMap<&'static str, u64>,
     intro_playing: std::collections::HashMap<&'static str, f64>,
+    /// For the app's speaker: an intro whose tune should start (its id), or stop.
+    pub(crate) tune: Option<TuneCue>,
+}
+
+/// What the speaker should do with the cracktro's tune this frame.
+#[derive(Clone, Debug, PartialEq)]
+pub enum TuneCue {
+    /// Start the tune of this intro (an id in `data/intros/`).
+    Play(String),
+    Stop,
 }
 
 /// The desk's colours as a run palette, for screens drawn like a BBS (QWK, cracktros).
@@ -277,6 +287,7 @@ impl Home {
             icedb_sel: None,
             intro_drawn: Default::default(),
             intro_playing: Default::default(),
+            tune: None,
         }
     }
 
@@ -357,6 +368,7 @@ impl Home {
             .is_none_or(|last| last + 1 < pass);
         if fresh && save.intros {
             self.intro_playing.insert(id, now);
+            self.tune = Some(TuneCue::Play(def.id.clone()));
         }
         let Some(&start) = self.intro_playing.get(id) else {
             return false;
@@ -375,6 +387,9 @@ impl Home {
         let t = (now - start) as f32;
         if skip || def.done(t) {
             self.intro_playing.remove(id);
+            if skip {
+                self.tune = Some(TuneCue::Stop);
+            }
             return false;
         }
         let calm = save.glitches != ninsei_core::glitch::Glitches::On;
@@ -382,6 +397,18 @@ impl Home {
         crate::bbs_view::paint_screen(ui, &lines, false, &desk_palette());
         ui.ctx().request_repaint();
         true
+    }
+
+    /// Forgets intros whose windows closed while they played (not drawn since the last pass),
+    /// and asks for their tune to stop.
+    pub fn drop_closed_intros(&mut self, pass: u64) {
+        let drawn = &self.intro_drawn;
+        let before = self.intro_playing.len();
+        self.intro_playing
+            .retain(|id, _| drawn.get(id).is_some_and(|&p| p + 1 >= pass));
+        if self.intro_playing.len() < before {
+            self.tune = Some(TuneCue::Stop);
+        }
     }
 
     /// Gives the Shell the keyboard next time it's drawn.

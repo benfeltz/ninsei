@@ -86,3 +86,31 @@ fn a_bad_intro_is_caught() {
     i.effects[0].to = ART_ROWS + 1;
     assert!(i.validate(&d).is_err());
 }
+
+#[test]
+fn every_intro_has_a_tune_that_renders() {
+    let d = data();
+    for i in &d.intros {
+        let tune = i.tune.as_ref().expect("every intro plays a tune");
+        let a = tune.render(8000, i.secs);
+        assert_eq!(a.len(), (i.secs * 8000.0) as usize, "{}", i.id);
+        assert!(a.iter().all(|s| (-1.0..=1.0).contains(s)));
+        let loud = a.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+        assert!(loud > 0.1, "{} is silent", i.id);
+        assert!(a.last().unwrap().abs() < 0.01, "{} fades out", i.id);
+        assert_eq!(a, tune.render(8000, i.secs), "same tune, same samples");
+    }
+}
+
+#[test]
+fn notes_have_their_pitches() {
+    let near = |n: &str, hz: f32| (intro::pitch(n).unwrap() - hz).abs() < 0.5;
+    assert!(near("A4", 440.0));
+    assert!(near("C4", 261.63));
+    assert!(near("F#3", 185.0));
+    assert!(near("Bb2", 116.54));
+    assert!(intro::pitch("H4").is_none() && intro::pitch("C9").is_none());
+    let mut i = data().intro("hexed").unwrap().clone();
+    i.tune.as_mut().unwrap().tracks[0].pattern = "C4 Q7 .".into();
+    assert!(i.validate(&data()).unwrap_err().contains("bad step"));
+}

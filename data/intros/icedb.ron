@@ -4,7 +4,7 @@
 (
     board: "gutter",
     group: "m0th",
-    secs: 3.0,
+    secs: 5.0,
     frame_secs: 0.4,
     frames: [
         [
@@ -88,4 +88,10 @@
         (fx: Cycle, from: 1, to: 6),
     ],
     greetz: ["everyone who flatlined so we could write this", "c4se", "ratz", "zero_kool", "kr4ken", "the Hydra (we're coming for you)"],
+    tune: Some((bpm: 96, tracks: [
+        (wave: Saw, vol: 0.13, pattern: "D4 - F4 - A4 - G#4 - A4 - - . D5 - - ."),
+        (wave: Square, vol: 0.08, pattern: ". . D5 . . . F5 . . . E5 . . . C#5 ."),
+        (wave: Triangle, vol: 0.32, pattern: "D2 - - - D2 - - - Bb1 - - - A1 - - -"),
+        (wave: Noise, vol: 0.09, pattern: "x . . . . . . . x . . x . . . ."),
+    ])),
 )

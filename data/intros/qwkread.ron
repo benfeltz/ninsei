@@ -4,7 +4,7 @@
 (
     board: "gutter",
     group: "m0th & OLX",
-    secs: 3.0,
+    secs: 5.0,
     frame_secs: 0.6,
     frames: [
         [
@@ -88,4 +88,9 @@
         (fx: Bounce, from: 1, to: 6),
     ],
     greetz: ["ratz (who never reads her mail)", "c4se", "zero_kool", "all the sysops still running FidoNet", "THE NEON GUTTER 1:337/23"],
+    tune: Some((bpm: 124, tracks: [
+        (wave: Triangle, vol: 0.26, pattern: "C5 E5 G5 E5 F5 A5 C6 A5 G5 E5 C5 E5 D5 G5 B5 G5"),
+        (wave: Square, vol: 0.1, pattern: "C3 - . C3 F3 - . F3 G3 - . G3 G3 - B2 -"),
+        (wave: Noise, vol: 0.08, pattern: "x . . . . . x . x . . . . . x ."),
+    ])),
 )

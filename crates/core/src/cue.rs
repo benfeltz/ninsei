@@ -65,6 +65,30 @@ pub enum Wave {
     Noise,
 }
 
+impl Wave {
+    /// One sample of the wave at `phase` (0..1). Noise draws from `seed` instead.
+    pub fn sample(self, phase: f32, seed: &mut u32) -> f32 {
+        match self {
+            Wave::Square => {
+                if phase < 0.5 {
+                    1.0
+                } else {
+                    -1.0
+                }
+            }
+            Wave::Saw => phase * 2.0 - 1.0,
+            Wave::Triangle => 1.0 - 4.0 * (phase - 0.5).abs(),
+            Wave::Sine => (phase * std::f32::consts::TAU).sin(),
+            Wave::Noise => {
+                *seed ^= *seed << 13;
+                *seed ^= *seed >> 17;
+                *seed ^= *seed << 5;
+                (*seed % 2001) as f32 / 1000.0 - 1.0
+            }
+        }
+    }
+}
+
 #[derive(Deserialize, Clone, Copy, Debug, PartialEq)]
 pub struct Note {
     pub wave: Wave,

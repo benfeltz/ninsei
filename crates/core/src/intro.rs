@@ -1,7 +1,8 @@
 //! Cracktros: the ANSI intro a cracking crew put on the front of a release. A tool (or, later,
 //! a door game) names one in `data/intros/<id>.ron`, and it plays every time the program opens:
 //! a few frames of pipe-coded art with text effects, the board's ad, and greetz scrolling along
-//! the bottom row. Everything here is a pure function of time; the app only paints it.
+//! the bottom row, over a chiptune synthesized from its tune (never sampled). Everything here
+//! is a pure function of time; the app only paints and plays it.
 
 use serde::Deserialize;
 
@@ -70,6 +71,183 @@ pub struct IntroDef {
     pub effects: Vec<FxDef>,
     /// Handles, crews and boards to greet, in order.
     pub greetz: Vec<String>,
+    /// The chiptune it plays, if any.
+    #[serde(default)]
+    pub tune: Option<TuneDef>,
+}
+
+/// A chiptune as a tiny tracker pattern: every track is a row of steps that loops for as long
+/// as the intro plays. A step is a note (`C4`, `F#3`, `Bb2`), `x` (a hit, for noise drums),
+/// `-` (hold the last note) or `.` (rest).
+#[derive(Deserialize, Clone, Debug)]
+pub struct TuneDef {
+    pub bpm: u32,
+    /// Steps per beat (4: sixteenth notes).
+    #[serde(default = "four")]
+    pub steps: u32,
+    pub tracks: Vec<TrackDef>,
+}
+
+fn four() -> u32 {
+    4
+}
+
+#[derive(Deserialize, Clone, Debug)]
+pub struct TrackDef {
+    pub wave: crate::cue::Wave,
+    pub vol: f32,
+    pub pattern: String,
+}
+
+/// One parsed step.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Step {
+    Note(f32),
+    Hit,
+    Hold,
+    Rest,
+}
+
+/// A note name's frequency: `A4` is 440 Hz.
+pub fn pitch(name: &str) -> Option<f32> {
+    let mut c = name.chars();
+    let base = match c.next()? {
+        'C' => 0,
+        'D' => 2,
+        'E' => 4,
+        'F' => 5,
+        'G' => 7,
+        'A' => 9,
+        'B' => 11,
+        _ => return None,
+    };
+    let rest: String = c.collect();
+    let (shift, oct) = match rest.strip_prefix('#') {
+        Some(o) => (1, o),
+        None => match rest.strip_prefix('b') {
+            Some(o) => (-1, o),
+            None => (0, rest.as_str()),
+        },
+    };
+    let oct: i32 = oct.parse().ok().filter(|o| (0..=8).contains(o))?;
+    let midi = 12 * (oct + 1) + base + shift;
+    Some(440.0 * 2f32.powf((midi - 69) as f32 / 12.0))
+}
+
+fn steps(pattern: &str) -> Result<Vec<Step>, String> {
+    pattern
+        .split_whitespace()
+        .map(|t| match t {
+            "." => Ok(Step::Rest),
+            "-" => Ok(Step::Hold),
+            "x" => Ok(Step::Hit),
+            n => pitch(n).map(Step::Note).ok_or(format!("bad step `{n}`")),
+        })
+        .collect()
+}
+
+impl TuneDef {
+    pub fn validate(&self) -> Result<(), String> {
+        if !(40..=300).contains(&self.bpm) || !(1..=8).contains(&self.steps) {
+            return Err(format!(
+                "bpm {} / steps {} out of range",
+                self.bpm, self.steps
+            ));
+        }
+        if self.tracks.is_empty() || self.tracks.len() > 4 {
+            return Err("a tune has 1 to 4 tracks".into());
+        }
+        for t in &self.tracks {
+            if !(0.0..=1.0).contains(&t.vol) {
+                return Err(format!("track volume {} (0-1)", t.vol));
+            }
+            if steps(&t.pattern)?.is_empty() {
+                return Err("an empty track".into());
+            }
+        }
+        Ok(())
+    }
+
+    /// Seconds per step.
+    pub fn step_secs(&self) -> f32 {
+        60.0 / (self.bpm.max(1) * self.steps.max(1)) as f32
+    }
+
+    /// `secs` of the tune at `rate` samples a second, every track looped and mixed, fading
+    /// out at the end. The same tune always renders the same samples.
+    pub fn render(&self, rate: u32, secs: f32) -> Vec<f32> {
+        let rate = rate.max(1) as f32;
+        let len = (secs.max(0.0) * rate) as usize;
+        let step = (self.step_secs() * rate).max(1.0) as usize;
+        let mut out = vec![0.0f32; len];
+        for t in &self.tracks {
+            let Ok(pat) = steps(&t.pattern) else { continue };
+            let mut seed = 0x9E37_79B9_u32;
+            let (mut freq, mut start, mut sounding) = (0.0f32, 0usize, false);
+            let mut phase = 0.0f32;
+            let mut held = 0.0f32;
+            // How long each note runs, counting the holds after it.
+            let run = |at: usize| {
+                1 + (1..pat.len())
+                    .take_while(|k| pat[(at + k) % pat.len()] == Step::Hold)
+                    .count()
+            };
+            let mut length = step;
+            for (i, o) in out.iter_mut().enumerate() {
+                if i % step == 0 {
+                    let at = (i / step) % pat.len();
+                    match pat[at] {
+                        Step::Note(f) => {
+                            (freq, start, sounding, length) = (f, i, true, run(at) * step);
+                        }
+                        Step::Hit => {
+                            (freq, start, sounding, length) = (0.0, i, true, step);
+                        }
+                        Step::Rest => sounding = false,
+                        Step::Hold => {}
+                    }
+                }
+                if !sounding {
+                    continue;
+                }
+                let k = (i - start) as f32 / length.max(1) as f32;
+                if k >= 1.0 {
+                    sounding = false;
+                    continue;
+                }
+                let s = if freq == 0.0 {
+                    // A drum hit: noise, changing every few samples.
+                    if i % 3 == 0 {
+                        seed ^= seed << 13;
+                        seed ^= seed >> 17;
+                        seed ^= seed << 5;
+                        held = (seed % 2001) as f32 / 1000.0 - 1.0;
+                    }
+                    held * (1.0 - k).powi(4)
+                } else {
+                    phase = (phase + freq / rate).fract();
+                    let w = crate::cue::Wave::sample(t.wave, phase, &mut seed);
+                    // A pluck: a quick attack, then down to a sustain, released at the end.
+                    let attack = ((i - start) as f32 / (0.003 * rate)).min(1.0);
+                    let body = 0.55 + 0.45 * (1.0 - k).powi(3);
+                    let release = ((1.0 - k) / 0.15).min(1.0);
+                    w * attack * body * release
+                };
+                *o += s * t.vol;
+            }
+        }
+        let fade = (0.25 * rate) as usize;
+        for (i, o) in out.iter_mut().enumerate() {
+            let tail = len - i;
+            let g = if tail < fade {
+                tail as f32 / fade as f32
+            } else {
+                1.0
+            };
+            *o = (*o * g).clamp(-1.0, 1.0);
+        }
+        out
+    }
 }
 
 impl IntroDef {
@@ -102,6 +280,11 @@ impl IntroDef {
         }
         if self.greetz.is_empty() {
             return err("no greetz".into());
+        }
+        if let Some(t) = &self.tune
+            && let Err(e) = t.validate()
+        {
+            return err(format!("tune: {e}"));
         }
         Ok(())
     }

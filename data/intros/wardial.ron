@@ -4,7 +4,7 @@
 (
     board: "gutter",
     group: "m0th & the NiGHTMOTHS",
-    secs: 3.5,
+    secs: 5.0,
     frame_secs: 0.35,
     frames: [
         [
@@ -81,4 +81,9 @@
         (fx: Cycle, from: 7, to: 8),
     ],
     greetz: ["c4se", "ratz", "zero_kool", "everyone on the Gutter", "the DEAD SECTOR crew", "kr4ken (no hard feelings)", "phreaks of 555-7"],
+    tune: Some((bpm: 140, tracks: [
+        (wave: Square, vol: 0.16, pattern: "A4 C5 E5 C5 A4 C5 E5 A5 G4 B4 D5 B4 G4 B4 D5 G5 F4 A4 C5 A4 F4 A4 C5 F5 E4 G#4 B4 G#4 E4 G#4 B4 E5"),
+        (wave: Triangle, vol: 0.3, pattern: "A2 - - . A2 - . . G2 - - . G2 - . . F2 - - . F2 - . . E2 - - . E2 - E3 ."),
+        (wave: Noise, vol: 0.1, pattern: "x . . . x . . . x . . . x . x ."),
+    ])),
 )
