@@ -1,6 +1,8 @@
 //! The QWK mail reader: an offline reader for the boards you know. Each board's packet holds
 //! its bulletins and the textfiles you downloaded from it (`Save::texts`). It draws pipe-coded
 //! text at most [`COLS`]x[`ROWS`], like a BBS screen, and reading never changes play.
+//! Messages show as written: a board's l33t (`Look::leet`) is how it speaks on the line, so
+//! the reader at home doesn't apply it.
 
 use crate::bbs::{COLS, ROWS};
 use crate::data::Data;
