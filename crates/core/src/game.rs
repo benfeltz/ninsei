@@ -75,6 +75,8 @@ pub struct Kit {
     pub jobs: Vec<crate::hub::PendingJob>,
     /// Clean jobs done for each client (from the save): trusted clients betray less.
     pub trust: Vec<(String, u32)>,
+    /// Desktop tools you own (ids in `hub/tools.ron`): HexEd lets you patch on a board.
+    pub tools: Vec<String>,
 }
 
 /// Run-wide modifiers from the network's tier, traits and heat.
@@ -298,12 +300,19 @@ pub struct Game {
     pub trust: Vec<(String, u32)>,
     /// Heat a client's sell-out adds to this network's phonebook entry, booked by `Save::record`.
     pub sold_out: u32,
+    /// Desktop tools you own, the kit's plus any downloaded this run. They come home even on
+    /// a flatline.
+    pub tools: Vec<String>,
 }
 
 impl Game {
-    /// A run with the starter deck and starter programs.
+    /// A run with the starter deck and starter programs, and every tool.
     pub fn new(data: Data, seed: u64) -> Self {
-        Self::start(data, seed, &Kit::default())
+        let kit = Kit {
+            tools: crate::data::TOOLS.iter().map(|t| t.to_string()).collect(),
+            ..Kit::default()
+        };
+        Self::start(data, seed, &kit)
     }
 
     /// A run with a kit from home: RIG bonuses and the chosen loadout.
@@ -355,6 +364,7 @@ impl Game {
             site: kit.site.clone(),
             trust: kit.trust.clone(),
             sold_out: 0,
+            tools: kit.tools.clone(),
         };
         let programs: Vec<(usize, Bin)> = if kit.programs.is_empty() {
             START_WAREZ
@@ -1451,7 +1461,15 @@ impl Game {
         if matches!(def.item, Drop::Warez(_)) && self.hdd.len() as u32 >= self.deck.hdd_max {
             return Some("hdd full. free a slot before downloading warez.".into());
         }
+        if let Some(why) = tool_blocker(&self.data.tools, &def.item, |t| self.has_tool(t)) {
+            return Some(why);
+        }
         None
+    }
+
+    /// Whether you own a desktop tool (an id in `hub/tools.ron`).
+    pub fn has_tool(&self, id: &str) -> bool {
+        self.tools.iter().any(|t| t == id)
     }
 
     fn buy(&mut self, area: usize, file: usize) -> Result<(), String> {
@@ -1462,17 +1480,21 @@ impl Game {
         let def = self.bbs().areas[area].files[s.def].clone();
         self.deck.credits -= def.price;
         self.bbs_stock[area][file].bought = true;
-        self.say(
-            LogKind::Info,
-            format!("downloaded {} (-{}¢)", def.file, def.price),
-        );
+        let cost = if def.price == 0 {
+            "free".to_string()
+        } else {
+            format!("-{}¢", def.price)
+        };
+        self.say(LogKind::Info, format!("downloaded {} ({cost})", def.file));
         self.grant(def.item);
         Ok(())
     }
 
     /// Why the hex editor can't write right now, if it can't. In a run you need a BBS's compiler.
     pub fn compile_blocker(&self) -> Option<&'static str> {
-        if self.phase == Phase::Combat {
+        if !self.has_tool("hexed") {
+            Some("hex: unknown command.")
+        } else if self.phase == Phase::Combat {
             Some("can't recompile mid-fight. the ICE won't wait.")
         } else if !self.at_bbs() {
             Some("no compiler out here. connect to a BBS, or wait till you're home.")
@@ -1612,8 +1634,36 @@ impl Game {
                 self.deck.trace = self.deck.trace.saturating_sub(n);
                 self.say(LogKind::Loot, format!("+ trace scrubbed by {n}"));
             }
+            Drop::Tool(id) => {
+                let name = self.data.tool(&id).map_or(id.clone(), |t| t.name.clone());
+                if !self.has_tool(&id) {
+                    self.tools.push(id);
+                }
+                self.say(LogKind::Loot, format!("+ tool: {name}"));
+            }
+            // Textfiles are read on the board, never downloaded.
+            Drop::Text(_) => {}
             Drop::Nothing => self.say(LogKind::Sys, "nothing worth taking."),
         }
+    }
+}
+
+/// Why a tool or textfile can't be downloaded, wherever you are: you own it, or it's for reading.
+pub fn tool_blocker(
+    tools: &[crate::data::ToolDef],
+    item: &Drop,
+    has: impl Fn(&str) -> bool,
+) -> Option<String> {
+    match item {
+        Drop::Tool(id) if has(id) => Some(format!(
+            "you already have {}.",
+            tools
+                .iter()
+                .find(|t| t.id == *id)
+                .map_or(id.as_str(), |t| t.name.as_str())
+        )),
+        Drop::Text(_) => Some("that's a textfile. read it here.".into()),
+        _ => None,
     }
 }
 
@@ -1622,6 +1672,12 @@ pub fn roll_stock(def: &crate::data::BbsDef, rng: &mut Rng) -> Vec<Vec<StockFile
     def.areas
         .iter()
         .map(|a| {
+            // Always-stocked areas take no roll: they never touch the RNG.
+            if a.always {
+                return (0..a.files.len())
+                    .map(|def| StockFile { def, bought: false })
+                    .collect();
+            }
             let mut pool: Vec<usize> = (0..a.files.len()).collect();
             let mut picked = Vec::new();
             while picked.len() < a.stock as usize && !pool.is_empty() {

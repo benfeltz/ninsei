@@ -403,10 +403,11 @@ impl Panes<'_> {
                                             acts.push(Action::Load(i));
                                         }
                                     }
-                                    if ui
-                                        .small_button("hx")
-                                        .on_hover_text("open in hexedit")
-                                        .clicked()
+                                    if g.has_tool("hexed")
+                                        && ui
+                                            .small_button("hx")
+                                            .on_hover_text("open in hexedit")
+                                            .clicked()
                                     {
                                         hex = Some(i);
                                     }

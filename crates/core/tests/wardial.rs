@@ -12,6 +12,7 @@ fn save(bank: u32) -> Save {
     let d = data();
     let mut s = Save::default();
     s.ensure_key(0xFACE);
+    s.learn_tool("wardial");
     s.ensure_phonebook(&d, 1);
     s.bank = bank;
     s
@@ -124,6 +125,7 @@ fn tighter_ranges_hit_more_often() {
         for key in 1..30u64 {
             let mut s = Save::default();
             s.ensure_key(key);
+            s.learn_tool("wardial");
             s.bank = 1000;
             s.learn_range(id, "test");
             let r = s.wardial(&d, id).unwrap();

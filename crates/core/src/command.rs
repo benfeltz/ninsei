@@ -45,6 +45,38 @@ pub const SLOT_VERBS: &[&str] = &["run", "load", "unload", "hex", "opt"];
 /// Commands kept in the terminal's history (`Save::term_history`).
 pub const HISTORY_KEEP: usize = 100;
 
+/// The tool a verb needs, if any: `hex` and `opt` are HexEd's.
+pub fn needs_tool(verb: &str) -> Option<&'static str> {
+    match verb.to_ascii_lowercase().as_str() {
+        "hex" | "hexedit" | "xxd" | "opt" | "optimize" => Some("hexed"),
+        _ => None,
+    }
+}
+
+/// Whether a run knows a verb: a tool's verbs only once you own the tool.
+pub fn knows(g: &crate::game::Game, verb: &str) -> bool {
+    needs_tool(verb).is_none_or(|t| g.has_tool(t))
+}
+
+/// The terminal's verbs and help lines as this run knows them.
+pub fn verbs(g: &crate::game::Game) -> impl Iterator<Item = &'static str> {
+    VERBS.iter().copied().filter(|v| knows(g, v))
+}
+
+pub fn help(g: &crate::game::Game) -> impl Iterator<Item = &'static str> {
+    HELP.iter()
+        .copied()
+        .filter(|l| knows(g, l.split_whitespace().next().unwrap_or("")))
+}
+
+/// Parses a line the way this run's terminal does: a tool's verbs are unknown until you own it.
+pub fn parse_in(g: &crate::game::Game, line: &str) -> Result<Command, String> {
+    match line.split_whitespace().next() {
+        Some(v) if !knows(g, v) => Err(format!("command not found: {v}")),
+        _ => parse_command(line),
+    }
+}
+
 pub fn parse_command(line: &str) -> Result<Command, String> {
     let mut words = line.split_whitespace();
     let Some(verb) = words.next() else {

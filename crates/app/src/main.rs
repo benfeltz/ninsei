@@ -32,7 +32,7 @@ use egui_dock::{DockArea, DockState};
 use ninsei_core::bbs::Outcome;
 use ninsei_core::hexedit::HexBuffer;
 use ninsei_core::hub::{Answer, DEFAULT_RUN_THEME, RunEnd, RunReport, SAVE_KEY, Save, Screen};
-use ninsei_core::{Action, Command, Data, Game, LogKind, Phase, command::HELP, parse_command};
+use ninsei_core::{Action, Command, Data, Game, LogKind, Phase};
 
 use bbs_view::BbsView;
 use encounter_view::EncounterView;
@@ -170,6 +170,18 @@ fn add_pane_to(dock: &mut DockState<Tab>, tab: Tab) {
                 .split_right(at.node, 0.55, vec![tab]);
         }
         _ => dock.push_to_focused_leaf(tab),
+    }
+}
+
+/// The hex pane is HexEd's: gone until you've downloaded it, back the moment you do.
+fn fit_tools(dock: &mut DockState<Tab>, game: &Game) {
+    let at = dock.find_tab(&Tab::Hex);
+    match (at, game.has_tool("hexed")) {
+        (Some(at), false) => {
+            dock.remove_tab(at);
+        }
+        (None, true) => add_pane_to(dock, Tab::Hex),
+        _ => {}
     }
 }
 
@@ -363,7 +375,9 @@ impl App {
 
     /// Writes the layout into the save when it's changed (checked every couple of seconds).
     fn keep_layout(&mut self, now: f64) {
-        if now - self.layout_checked < LAYOUT_CHECK_SECS {
+        // A layout without HexEd's pane isn't a whole one: keep the last that was.
+        if now - self.layout_checked < LAYOUT_CHECK_SECS || self.dock.find_tab(&Tab::Hex).is_none()
+        {
             return;
         }
         self.layout_checked = now;
@@ -541,6 +555,9 @@ impl App {
             if !r.boards.is_empty() {
                 self.home
                     .say(format!("New BBS in CarrierTerm: {}", r.boards.join(", ")));
+            }
+            if !r.tools.is_empty() {
+                self.home.say(format!("Unpacked: {}", r.tools.join(", ")));
             }
             self.booked = Some(r);
         }
@@ -731,7 +748,7 @@ impl App {
                     self.save.term_history = self.term.history().to_vec();
                     self.save_dirty = true;
                 }
-                match parse_command(&line) {
+                match ninsei_core::command::parse_in(&self.game, &line) {
                     Ok(c) => c,
                     Err(e) => {
                         self.game.say(LogKind::Sys, format!("err: {e}"));
@@ -755,8 +772,9 @@ impl App {
             Command::Game(a) => self.game.apply(a),
             Command::Hex(slot) => self.open_hex(slot),
             Command::Help => {
-                for l in HELP {
-                    self.game.say(LogKind::Sys, *l);
+                let lines: Vec<&str> = ninsei_core::command::help(&self.game).collect();
+                for l in lines {
+                    self.game.say(LogKind::Sys, l);
                 }
             }
             Command::Clear => self.game.log.clear(),
@@ -786,6 +804,9 @@ impl App {
     }
 
     fn open_hex(&mut self, slot: usize) {
+        if !self.game.has_tool("hexed") {
+            return;
+        }
         let Some(s) = self.game.hdd.get(slot) else {
             self.game
                 .say(LogKind::Sys, format!("err: no program in slot {slot}."));
@@ -1359,6 +1380,7 @@ impl App {
                 });
         }
 
+        fit_tools(&mut self.dock, &self.game);
         let mut panes = Panes {
             game: &self.game,
             pal,

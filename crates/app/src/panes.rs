@@ -354,10 +354,11 @@ impl Panes<'_> {
                     // Buttons first, from the right; the name and stats get what's left and
                     // shorten rather than run under the buttons.
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if ui
-                            .small_button("hex")
-                            .on_hover_text("open in hexedit")
-                            .clicked()
+                        if self.game.has_tool("hexed")
+                            && ui
+                                .small_button("hex")
+                                .on_hover_text("open in hexedit")
+                                .clicked()
                         {
                             self.out.push(Request::OpenHex(i));
                         }
@@ -789,12 +790,9 @@ fn complete_run(g: &Game, before: &str) -> Vec<String> {
     let fresh = before.ends_with(char::is_whitespace) || before.is_empty();
     let arg = words.len() + usize::from(fresh) - 1;
     if arg == 0 {
-        return ninsei_core::command::VERBS
-            .iter()
-            .map(|v| v.to_string())
-            .collect();
+        return ninsei_core::command::verbs(g).map(String::from).collect();
     }
-    if arg > 1 {
+    if arg > 1 || !ninsei_core::command::knows(g, words[0]) {
         return Vec::new();
     }
     match words[0] {

@@ -125,6 +125,7 @@ fn credits_and_fragments_bank_on_exit_only() {
 fn a_hand_tuned_program_survives_the_trip_home_and_back() {
     let d = data();
     let mut s = save();
+    s.learn_tool("hexed");
     let mut g = s.jack_in(&d, &d.rig, 7);
     // Tune icepick at a BBS: optimize to O1, then spend the budget on power.
     let here = g.at;

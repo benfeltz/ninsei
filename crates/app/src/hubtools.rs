@@ -334,7 +334,9 @@ pub fn stash(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>, edit: 
                         {
                             out.push(WbOut::Scrap(item.id));
                         }
-                        if ui.small_button("hex").clicked() {
+                        if save.opens(ninsei_core::hub::Tool::HexEd)
+                            && ui.small_button("hex").clicked()
+                        {
                             *edit = Some(item.id);
                         }
                     });

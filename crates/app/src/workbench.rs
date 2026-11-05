@@ -116,7 +116,7 @@ impl DesktopView for Workbench {
         for t in home.take_opens() {
             self.open(t);
         }
-        let icons = &data.icons;
+        let icons: Vec<_> = data.icons.iter().filter(|i| save.opens(i.tool)).collect();
         let screen = ui.ctx().content_rect().translate(vec2(0.0, offset));
         let painter = ui.painter_at(screen);
         let at = |p: Pos2| screen.min + p.to_vec2();
@@ -589,7 +589,13 @@ mod tests {
     #[test]
     fn double_clicking_an_icon_raises_its_window() {
         let data = Data::builtin().unwrap();
-        let save = Save::default();
+        let save = Save {
+            tools: ninsei_core::data::TOOLS
+                .iter()
+                .map(|t| t.to_string())
+                .collect(),
+            ..Save::default()
+        };
         let ctx = egui::Context::default();
         let mut wb = Workbench::new();
         let mut home = Home::new(Vec::new());

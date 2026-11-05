@@ -718,7 +718,7 @@ impl Panes<'_> {
                             {
                                 acts.push(act(Action::Run(slot)));
                             }
-                            if ui.button("Open in hexedit  F4").clicked() {
+                            if g.has_tool("hexed") && ui.button("Open in hexedit  F4").clicked() {
                                 acts.push(Request::OpenHex(slot));
                             }
                         });
@@ -1107,7 +1107,7 @@ fn fkey(k: Key, st: &State, g: &Game) -> Option<Request> {
         Key::F1 => Request::Cmd(Command::Help),
         Key::F2 => act(Action::Load(slot?)),
         Key::F3 => act(Action::Unload(slot?)),
-        Key::F4 => Request::OpenHex(slot?),
+        Key::F4 if g.has_tool("hexed") => Request::OpenHex(slot?),
         Key::F8 => Request::Type("jack ".into()),
         Key::F10 => act(Action::EndTurn),
         _ => return None,
@@ -1234,6 +1234,9 @@ impl ChromeView for Suite {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 4.0;
             for (k, cap, label) in FKEYS {
+                if k == Key::F4 && !cx.game.has_tool("hexed") {
+                    continue;
+                }
                 let r = ui.add(
                     egui::Label::new(t(cap, p.bg).background_color(p.fg)).sense(Sense::click()),
                 );

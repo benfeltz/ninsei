@@ -98,6 +98,14 @@ Every dial is a fresh layout with the same personality. Tiers, traits and compan
 ![carrierterm](docs/shots/carrierterm.png)
 ![dialing](docs/shots/dialing.png)
 
+### Tools you download
+
+A fresh deck has no wardialer and no hex editor. They're on **THE NEON GUTTER** (`555-0199`, in your phonebook from the start): **WAREZ TOOLS** always stocks `WARDIAL.ZIP` and `HEXED.ZIP`, free, and they're yours for good once downloaded, in a run or from home, even if you flatline. Until then they just aren't there: no icon, no menu item, no WarDial tab, and `wardial`, `hex` and `opt` are unknown commands. The Gutter's **G-FILES** are textfiles you read on the board (a wardialing primer, ranges, heat and the telco). Tools live in [`data/hub/tools.ron`](data/hub/tools.ron); a board lists them as `Tool(id)` files, and its textfiles as `Text(id)` files with their lines in the board's `texts`. Saves from before tools had to be found keep both.
+
+![the Gutter's G-FILES](docs/shots/bbs-gfiles.png)
+![the wardialing primer](docs/shots/bbs-primer.png)
+![the starter kit, downloaded](docs/shots/bbs-tools.png)
+
 ### Finding numbers: WarDial
 
 CarrierTerm's **WarDial** tab scans a number range you know, 100 numbers at a time, and the grid fills in as the modem chews through them: `.` voice, `-` busy, `F` fax, `C` **carrier** (straight into your phonebook), `!` **trap** (the telco is listening: your next call runs hotter). Each scan costs a phone bill.
@@ -112,7 +120,7 @@ Runs are for taking things; home is for building. **Reach the exit** and the run
 
 - **RIG**: spend banked credits on permanent upgrades: RAM, CPU, HDD, integrity, stash slots. Each level costs more than the last ([`data/hub/rig.ron`](data/hub/rig.ron)).
 - **STASH**: programs you kept (2 slots to start) and your loadout for the next run. The four starter programs are always free. Stash programs you take into a run leave the stash: they come back only if you do.
-- **HexEd**: the hex editor, at home, on your stash, with banked fragments to optimize. In a run you can only compile while connected to a BBS.
+- **HexEd** (once downloaded): the hex editor, at home, on your stash, with banked fragments to optimize. In a run you can only compile while connected to a BBS.
 
 ![rig](docs/shots/rig.png)
 ![stash](docs/shots/stash.png)
@@ -329,7 +337,7 @@ Everything is data in [`data/`](data), compiled into the binary:
 - `netmap.ron`: the network map's shape and drafting symbol for each kind of node
 - `sounds/<pack>.ron`: a sound pack, what each cue plays (a deck's firmware picks one)
 - `patterns.ron`: the 1-bit fill patterns the Sense/Net deck shades with
-- `hub/`: desktop icons, RIG upgrades, hardware, desktop add-ons, run panes, network tiers/traits/companies, wardial ranges
+- `hub/`: desktop icons, RIG upgrades, hardware, desktop add-ons, run panes, network tiers/traits/companies, wardial ranges, downloadable tools
 - `bbs/<id>/splash.txt`: that board's splash art. Colours use Mystic/Renegade **pipe codes** (`|00`-`|15` foreground, `|16`-`|23` background); raw ANSI `ESC[...m` escapes work too, so `.ans` art from PabloDraw or Moebius can be pasted in.
 
 `Data::validate` cross-checks the files (every id a table names must exist), and the tests run it.

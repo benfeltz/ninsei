@@ -42,6 +42,8 @@ pub trait Line {
     fn room(&self) -> (&'static str, u32);
     /// Why a file can't be bought right now, if it can't.
     fn buy_blocker(&self, area: usize, file: usize) -> Option<String>;
+    /// Whether you own a desktop tool: an owned tool lists as yours, not for sale.
+    fn has_tool(&self, id: &str) -> bool;
 }
 
 impl Line for Game {
@@ -85,11 +87,17 @@ impl Line for Game {
     fn buy_blocker(&self, area: usize, file: usize) -> Option<String> {
         Game::buy_blocker(self, area, file)
     }
+
+    fn has_tool(&self, id: &str) -> bool {
+        Game::has_tool(self, id)
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Screen {
-    Dialing { t: f32 },
+    Dialing {
+        t: f32,
+    },
     Splash,
     Main,
     Bulletins,
@@ -98,8 +106,19 @@ pub enum Screen {
     Jobs,
     Areas,
     Area(usize),
-    Download { area: usize, file: usize, t: f32 },
-    Hangup { t: f32 },
+    Download {
+        area: usize,
+        file: usize,
+        t: f32,
+    },
+    /// Reading a textfile from an area's listing.
+    Read {
+        area: usize,
+        file: usize,
+    },
+    Hangup {
+        t: f32,
+    },
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -184,7 +203,9 @@ impl Session {
             Screen::Jobs => numbered(game.jobs().len(), "Q"),
             Screen::Areas => numbered(b.areas.len(), "Q"),
             Screen::Area(a) => numbered(game.stock()[a].len(), "Q"),
-            Screen::Bulletin(_) | Screen::Who => vec![('Q', "back".into())],
+            Screen::Bulletin(_) | Screen::Who | Screen::Read { .. } => {
+                vec![('Q', "back".into())]
+            }
         }
     }
 
@@ -221,6 +242,11 @@ impl Session {
                     self.go(Screen::Main);
                 }
             }
+            Screen::Read { area, .. } => {
+                if back || k == '\n' {
+                    self.go(Screen::Area(area));
+                }
+            }
             Screen::Jobs => match digit {
                 Some(n) if (1..=game.jobs().len()).contains(&n) => {
                     if !game.jobs()[n - 1].taken {
@@ -242,6 +268,10 @@ impl Session {
             Screen::Area(a) => match digit {
                 Some(n) if (1..=game.stock()[a].len()).contains(&n) => {
                     let file = n - 1;
+                    if matches!(file_def(game, a, file).item, Drop::Text(_)) {
+                        self.go(Screen::Read { area: a, file });
+                        return Outcome::None;
+                    }
                     match game.buy_blocker(a, file) {
                         Some(why) => self.status = Some(format!("|12{why}")),
                         None => self.go(Screen::Download {
@@ -409,7 +439,13 @@ impl Session {
                 header(&mut out, b, "FILE AREAS");
                 out.push(String::new());
                 for (i, a) in b.areas.iter().enumerate() {
-                    let left = game.stock()[i].iter().filter(|f| !f.bought).count();
+                    let left = game.stock()[i]
+                        .iter()
+                        .filter(|s| {
+                            !s.bought
+                                && !matches!(&a.files[s.def].item, Drop::Tool(t) if game.has_tool(t))
+                        })
+                        .count();
                     out.push(format!(
                         "   {} {lb}{:<26}{dm}{left} file(s)",
                         hot(&(i + 1).to_string()),
@@ -431,9 +467,11 @@ impl Session {
                 for (i, s) in game.stock()[a].iter().enumerate() {
                     let f = &area.files[s.def];
                     let size = file_size(&f.file);
-                    if s.bought {
+                    let owned = matches!(&f.item, Drop::Tool(t) if game.has_tool(t));
+                    if s.bought || owned {
+                        let note = if owned { "[yours]" } else { "[downloaded]" };
                         out.push(format!(
-                            "   {dm}{:<3}{:<14}{:>7}k{:>7}  [downloaded]",
+                            "   {dm}{:<3}{:<14}{:>7}k{:>7}  {note}",
                             i + 1,
                             f.file,
                             size / 1024,
@@ -441,12 +479,16 @@ impl Session {
                         ));
                     } else {
                         let price = if game.credits() >= f.price { &mo } else { &wn };
+                        let cost = if f.price == 0 {
+                            "free".to_string()
+                        } else {
+                            format!("{}¢", f.price)
+                        };
                         out.push(format!(
-                            "   {k}{:<3}{lb}{:<14}{tx}{:>7}k{price}{:>6}¢  {tx}{}{}",
+                            "   {k}{:<3}{lb}{:<14}{tx}{:>7}k{price}{cost:>7}  {tx}{}{}",
                             i + 1,
                             f.file,
                             size / 1024,
-                            f.price,
                             f.desc,
                             drop_tag(&f.item, l)
                         ));
@@ -488,6 +530,21 @@ impl Session {
                 ));
                 out.push(String::new());
                 out.push(format!("   {dm}rz waiting to receive.**B0100000023be50"));
+            }
+            Screen::Read { area, file } => {
+                let f = file_def(game, area, file);
+                header(&mut out, b, &f.file);
+                let text = match &f.item {
+                    Drop::Text(id) => b.texts.iter().find(|t| t.id == *id),
+                    _ => None,
+                };
+                if let Some(t) = text {
+                    out.push(format!("   {mo}{}", t.title));
+                    out.push(format!("   {dm}{}", "─".repeat(t.title.chars().count())));
+                    out.extend(t.lines.iter().map(|line| format!("   {tx}{line}")));
+                }
+                out.push(String::new());
+                out.push(format!("   {} {tx}back", hot("Q")));
             }
             Screen::Hangup { t } => {
                 out.push(format!("|07{}", l.goodbye.replace("{board}", &b.name)));
@@ -592,6 +649,8 @@ fn drop_tag(item: &Drop, l: &Look) -> String {
     match item {
         Drop::Warez(_) => String::new(),
         Drop::Hint(_) => format!(" {}[TXT]", pipe(l.ok)),
+        Drop::Text(_) => format!(" {}[READ]", pipe(l.ok)),
+        Drop::Tool(_) => format!(" {}[EXE]", pipe(l.key)),
         _ => format!(" {}[MOD]", pipe(l.aside)),
     }
 }

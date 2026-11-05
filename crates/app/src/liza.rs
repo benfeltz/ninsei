@@ -233,7 +233,7 @@ impl DesktopView for Liza {
 
         // Icons down the right, then the Trash in the corner.
         let col = screen.right() - look::ICON_COL_W;
-        for (n, icon) in data.icons.iter().enumerate() {
+        for (n, icon) in data.icons.iter().filter(|i| save.opens(i.tool)).enumerate() {
             let cell = Rect::from_min_size(
                 pos2(
                     col,
@@ -456,6 +456,11 @@ impl Liza {
                 // Sliding along the bar with a menu open opens the next one.
                 self.menu = Some(m);
             }
+            // A tool you haven't downloaded isn't on the menu.
+            let items: Vec<&(&str, Act)> = items
+                .iter()
+                .filter(|(_, a)| !matches!(a, Act::Open(t) if !cx.save.opens(*t)))
+                .collect();
             if self.menu == Some(m) {
                 let drop = Rect::from_min_size(
                     pos2(r.left(), bar.bottom()),
@@ -756,7 +761,13 @@ mod tests {
         events: Vec<Event>,
         t: f64,
     ) {
-        let save = Save::default();
+        let save = Save {
+            tools: ninsei_core::data::TOOLS
+                .iter()
+                .map(|t| t.to_string())
+                .collect(),
+            ..Save::default()
+        };
         let raw = RawInput {
             screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1280.0, 800.0))),
             time: Some(t),

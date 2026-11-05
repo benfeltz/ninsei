@@ -650,6 +650,14 @@ pub struct Save {
     /// The home Shell's command history, oldest first (capped at `command::HISTORY_KEEP`).
     #[serde(default)]
     pub shell_history: Vec<String>,
+    /// Desktop tools downloaded from boards (ids in `data/hub/tools.ron`). A save from before
+    /// tools had to be found has the wardialer and HexEd already.
+    #[serde(default = "legacy_tools")]
+    pub tools: Vec<String>,
+}
+
+fn legacy_tools() -> Vec<String> {
+    vec!["wardial".into(), "hexed".into()]
 }
 
 /// A BBS whose number you know, and how you found it.
@@ -724,6 +732,7 @@ impl Default for Save {
             panes: Vec::new(),
             term_history: Vec::new(),
             shell_history: Vec::new(),
+            tools: Vec::new(),
         }
     }
 }
@@ -753,6 +762,25 @@ impl Save {
     }
 
     /// Gives a save without a signing key one. Call with something unpredictable.
+    /// Whether you own a desktop tool (an id in `hub/tools.ron`).
+    pub fn has_tool(&self, id: &str) -> bool {
+        self.tools.iter().any(|t| t == id)
+    }
+
+    /// Adds a tool you downloaded. False if you had it.
+    pub fn learn_tool(&mut self, id: &str) -> bool {
+        if self.has_tool(id) {
+            return false;
+        }
+        self.tools.push(id.into());
+        true
+    }
+
+    /// Whether a desktop tool is there at all: HexEd only once you've downloaded it.
+    pub fn opens(&self, tool: Tool) -> bool {
+        tool != Tool::HexEd || self.has_tool("hexed")
+    }
+
     pub fn ensure_key(&mut self, fresh: u64) -> bool {
         if self.key == 0 {
             self.key = fresh | 1;
@@ -761,7 +789,8 @@ impl Save {
         false
     }
 
-    /// Fills an empty phonebook with a few starter numbers. Returns true if it did.
+    /// Fills an empty phonebook with a few starter numbers, and the default board's: the one
+    /// every kid knows, where the starter tools are. Returns true if it did.
     pub fn ensure_phonebook(&mut self, data: &Data, seed: u64) -> bool {
         if !self.phonebook.is_empty() {
             return false;
@@ -769,6 +798,9 @@ impl Save {
         let mut rng = Rng::new(seed ^ 0x5EED_B00C);
         for &tier in PHONEBOOK_START {
             self.add_number(data, &mut rng, tier);
+        }
+        if let Some(b) = data.boards.first() {
+            self.learn_board(&b.id, "a number every kid in Ninsei knows");
         }
         true
     }
@@ -1000,6 +1032,9 @@ impl Save {
             .find(|r| r.id == range)
             .ok_or("no such range.")?
             .clone();
+        if !self.has_tool("wardial") {
+            return Err("wardial: unknown command.".into());
+        }
         if !self.knows_range(range) {
             return Err(format!("you don't know any {} numbers yet.", def.label));
         }
@@ -1235,6 +1270,7 @@ impl Save {
             board: 0,
             jobs: Vec::new(),
             trust: self.trust.clone(),
+            tools: self.tools.clone(),
         }
     }
 
@@ -1290,6 +1326,12 @@ impl Save {
             .iter()
             .filter(|h| self.learn_range(h, &format!("found on {source}")))
             .cloned()
+            .collect();
+        let tools: Vec<String> = game
+            .tools
+            .iter()
+            .filter(|t| self.learn_tool(t))
+            .map(|t| game.data.tool(t).map_or(t.clone(), |d| d.name.clone()))
             .collect();
         let mut boards = Vec::new();
         if game.bbs_seen {
@@ -1350,6 +1392,7 @@ impl Save {
             kept,
             learned,
             boards,
+            tools,
         })
     }
 }
@@ -1375,6 +1418,8 @@ pub struct RunReport {
     pub learned: Vec<String>,
     /// BBS numbers found on the run, as "NAME (555-0199)".
     pub boards: Vec<String>,
+    /// Desktop tools downloaded on the run, by name.
+    pub tools: Vec<String>,
 }
 
 /// Which machine is on screen, and the drags between them.
@@ -1487,7 +1532,14 @@ pub fn shell_complete(before: &str, save: &Save, data: &Data) -> Vec<String> {
     let fresh = before.is_empty() || before.ends_with(char::is_whitespace);
     let arg = (words.len() + usize::from(fresh)).saturating_sub(1);
     if arg == 0 {
-        return SHELL_VERBS.iter().map(|v| v.to_string()).collect();
+        return SHELL_VERBS
+            .iter()
+            .filter(|v| shell_knows(save, v))
+            .map(|v| v.to_string())
+            .collect();
+    }
+    if !shell_knows(save, words[0]) {
+        return Vec::new();
     }
     if arg > 1 {
         return Vec::new();
@@ -1501,6 +1553,7 @@ pub fn shell_complete(before: &str, save: &Save, data: &Data) -> Vec<String> {
         "run" | "open" => data
             .icons
             .iter()
+            .filter(|i| save.opens(i.tool))
             .map(|i| i.label.to_ascii_lowercase())
             .collect(),
         "theme" => data.themes.iter().map(|t| t.id.clone()).collect(),
@@ -1511,13 +1564,24 @@ pub fn shell_complete(before: &str, save: &Save, data: &Data) -> Vec<String> {
     }
 }
 
+/// Whether the Shell knows a verb: a tool's commands only once you've downloaded the tool.
+fn shell_knows(save: &Save, verb: &str) -> bool {
+    match verb.to_ascii_lowercase().as_str() {
+        "wardial" | "scan" => save.has_tool("wardial"),
+        _ => true,
+    }
+}
+
 /// Runs one Shell line. Returns the lines to print and what to do.
 pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect) {
-    let icons = &data.icons;
+    let icons: Vec<&IconDef> = data.icons.iter().filter(|i| save.opens(i.tool)).collect();
     let mut words = line.split_whitespace();
     let Some(cmd) = words.next() else {
         return (Vec::new(), ShellEffect::None);
     };
+    if !shell_knows(save, cmd) {
+        return (vec![format!("Unknown command {cmd}")], ShellEffect::None);
+    }
     let arg = words.next();
     let lines = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
     match cmd.to_ascii_lowercase().as_str() {
@@ -1539,7 +1603,10 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
                 "leet <text>      say it in l33t",
                 "clear            clear the window",
                 "probe [n|stop]   balance check: bots play n careers (20)",
-            ]),
+            ])
+            .into_iter()
+            .filter(|l| shell_knows(save, l.split_whitespace().next().unwrap_or("")))
+            .collect(),
             ShellEffect::None,
         ),
         "dir" | "ls" => {

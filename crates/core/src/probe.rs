@@ -13,6 +13,7 @@
 //! command can run it a little each frame in the browser, where there are no threads. The CLI
 //! is `cargo run -p ninsei-core --example balance`. Same seed, same report.
 
+use crate::bbs::Line;
 use crate::data::{ChoiceEffect, Data, Drop, Effect, Intent, Penalty};
 use crate::fight::Outcome;
 use crate::game::{Action, ContractStatus, Game, Phase};
@@ -331,6 +332,8 @@ fn worth(g: &Game, d: &Drop, known: &[String]) -> i64 {
         Drop::Repair(n) if deck.integrity + n <= deck.integrity_max => 6 * i64::from(*n),
         Drop::Scrub(n) if deck.trace >= 30 => 3 * i64::from(*n),
         Drop::Fragment(n) => 10 * i64::from(*n),
+        // A tool is for good: the wardialer is how a career finds its next tier.
+        Drop::Tool(id) if !g.has_tool(id) => 500,
         Drop::Hint(id) if !known.contains(id) && !g.hints.contains(id) => g
             .data
             .exchanges
@@ -348,7 +351,8 @@ fn kind(d: &Drop) -> &'static str {
         Drop::Ram(_) | Drop::Cpu(_) | Drop::Hdd(_) => "deck mod",
         Drop::Repair(_) | Drop::Scrub(_) => "repair/scrub",
         Drop::Fragment(_) => "fragment",
-        Drop::Credits(..) | Drop::Nothing => "other",
+        Drop::Tool(_) => "tool",
+        Drop::Credits(..) | Drop::Text(_) | Drop::Nothing => "other",
     }
 }
 
@@ -371,7 +375,7 @@ fn shop_bbs(g: &mut Game, known: &[String], log: &mut RunLog) {
                     continue;
                 }
                 let def = &g.bbs().areas[a].files[s.def];
-                if g.deck.credits < def.price + BBS_RESERVE {
+                if def.price > 0 && g.deck.credits < def.price + BBS_RESERVE {
                     continue;
                 }
                 let v = worth(g, &def.item, known);
@@ -787,6 +791,33 @@ impl Probe {
             return;
         };
         let data = &self.data;
+        // Missing a tool? Call a board you know that has it and download it.
+        let need = |s: &Save| crate::data::TOOLS.iter().any(|t| !s.has_tool(t));
+        for board in save.known_boards(data) {
+            if !need(save) {
+                break;
+            }
+            let has_one = data.boards[board].areas.iter().any(|a| {
+                a.always
+                    && a.files
+                        .iter()
+                        .any(|f| matches!(&f.item, Drop::Tool(t) if !save.has_tool(t)))
+            });
+            if !has_one {
+                continue;
+            }
+            let Ok(call) = save.call_board(data, &data.rig, board) else {
+                continue;
+            };
+            for (a, files) in call.stock().iter().enumerate() {
+                for (f, s) in files.iter().enumerate() {
+                    let item = &call.board().areas[a].files[s.def].item;
+                    if matches!(item, Drop::Tool(_)) && call.buy_blocker(a, f).is_none() {
+                        let _ = save.home_buy(data, &data.rig, board, a, f);
+                    }
+                }
+            }
+        }
         let want_tier = (self.tier + 1).min(3);
         let lacks_next = !save.phonebook.iter().any(|e| e.tier >= want_tier);
         if lacks_next {

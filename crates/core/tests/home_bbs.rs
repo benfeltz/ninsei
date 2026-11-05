@@ -13,9 +13,23 @@ fn save(bank: u32) -> Save {
     let d = data();
     let mut s = Save::default();
     s.ensure_key(0xB0A2D);
+    s.learn_tool("wardial");
     s.ensure_phonebook(&d, 7);
+    // These tests learn boards themselves.
+    s.boards.clear();
     s.bank = bank;
     s
+}
+
+#[test]
+fn a_fresh_phonebook_has_the_gutter() {
+    let d = data();
+    let mut s = Save::default();
+    s.ensure_phonebook(&d, 7);
+    assert!(
+        s.knows_board("gutter"),
+        "the starter tools must be reachable"
+    );
 }
 
 /// A save that already knows every board.

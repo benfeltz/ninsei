@@ -115,6 +115,10 @@ pub enum Drop {
     Scrub(u32),
     /// A number range for the wardialer (id in `hub/exchanges.ron`). Comes home even on a flatline.
     Hint(String),
+    /// A desktop tool (id in `hub/tools.ron`): yours for good once downloaded, even on a flatline.
+    Tool(String),
+    /// A textfile on a board (id in the board's `texts`): you read it there, free.
+    Text(String),
     Nothing,
 }
 
@@ -164,6 +168,9 @@ pub struct BbsAreaDef {
     pub name: String,
     /// Files stocked per run, picked at random from `files`.
     pub stock: u32,
+    /// Every file is always stocked (no roll): tools and textfiles you can count on.
+    #[serde(default)]
+    pub always: bool,
     pub files: Vec<BbsFileDef>,
 }
 
@@ -191,10 +198,32 @@ pub struct BbsDef {
     pub bulletins: Vec<BulletinDef>,
     pub users: Vec<BbsUser>,
     pub areas: Vec<BbsAreaDef>,
+    /// Textfiles you read on the board (`Text(id)` files).
+    #[serde(default)]
+    pub texts: Vec<TextDef>,
     /// Pipe-coded splash art, from the board's `splash.txt`.
     #[serde(skip)]
     pub splash: String,
 }
+
+/// A textfile on a board: a title and pipe-coded lines, read on a BBS screen.
+#[derive(Deserialize, Clone, Debug)]
+pub struct TextDef {
+    pub id: String,
+    pub title: String,
+    pub lines: Vec<String>,
+}
+
+/// A desktop tool you download (`data/hub/tools.ron`).
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct ToolDef {
+    pub id: String,
+    pub name: String,
+    pub blurb: String,
+}
+
+/// Every tool's id: what `hub::Save::has_tool` and the desktops ask about.
+pub const TOOLS: &[&str] = &["wardial", "hexed"];
 
 fn default_call_cost() -> u32 {
     crate::tuning::BBS_CALL_COST
@@ -508,6 +537,7 @@ pub struct Sources<'a> {
     pub patterns: &'a str,
     pub netmap: &'a str,
     pub hardware: &'a str,
+    pub tools: &'a str,
     pub addons: &'a str,
     pub panes: &'a str,
     pub sounds: &'a [PackSrc<'a>],
@@ -533,6 +563,7 @@ impl Sources<'static> {
             patterns: include_str!("../../../data/patterns.ron"),
             netmap: include_str!("../../../data/netmap.ron"),
             hardware: include_str!("../../../data/hub/hardware.ron"),
+            tools: include_str!("../../../data/hub/tools.ron"),
             addons: include_str!("../../../data/hub/desktops.ron"),
             panes: include_str!("../../../data/hub/panes.ron"),
             sounds: BUILTIN_SOUNDS,
@@ -566,6 +597,8 @@ pub struct Data {
     pub netmap: Vec<crate::netview::MapStyleDef>,
     /// Monitors and decks you can own.
     pub hardware: crate::hardware::HardwareDef,
+    /// Desktop tools you download from boards.
+    pub tools: Vec<ToolDef>,
     /// Desktop add-ons you can buy.
     pub addons: Vec<crate::desktop::AddonDef>,
     /// Secondary panes you can buy for the run screen.
@@ -616,6 +649,7 @@ impl Data {
             patterns: ron::from_str(src.patterns).map_err(|e| format!("patterns.ron: {e}"))?,
             netmap: ron::from_str(src.netmap).map_err(|e| format!("netmap.ron: {e}"))?,
             hardware: ron::from_str(src.hardware).map_err(|e| format!("hub/hardware.ron: {e}"))?,
+            tools: ron::from_str(src.tools).map_err(|e| format!("hub/tools.ron: {e}"))?,
             addons: ron::from_str(src.addons).map_err(|e| format!("hub/desktops.ron: {e}"))?,
             panes: ron::from_str(src.panes).map_err(|e| format!("hub/panes.ron: {e}"))?,
             sounds: src
@@ -905,6 +939,22 @@ impl Data {
                     if matches!(f.item, Drop::Nothing | Drop::Credits(..)) {
                         return Err(err(format!("file `{}` sells nothing", f.file)));
                     }
+                    if let Drop::Tool(id) = &f.item
+                        && self.tool(id).is_none()
+                    {
+                        return Err(err(format!("file `{}` names unknown tool `{id}`", f.file)));
+                    }
+                    if let Drop::Text(id) = &f.item {
+                        if !b.texts.iter().any(|t| &t.id == id) {
+                            return Err(err(format!(
+                                "file `{}` names unknown text `{id}`",
+                                f.file
+                            )));
+                        }
+                        if f.price != 0 {
+                            return Err(err(format!("textfile `{}` must be free", f.file)));
+                        }
+                    }
                 }
             }
         }
@@ -956,6 +1006,10 @@ impl Data {
 
     pub fn pattern(&self, id: &str) -> Option<&crate::pattern::PatternDef> {
         self.patterns.iter().find(|p| p.id == id)
+    }
+
+    pub fn tool(&self, id: &str) -> Option<&ToolDef> {
+        self.tools.iter().find(|t| t.id == id)
     }
 
     pub fn warez_ix(&self, id: &str) -> Option<usize> {
