@@ -657,6 +657,7 @@ impl App {
             | WbOut::Crt
             | WbOut::Sound
             | WbOut::Glitches(_)
+            | WbOut::Intros(_)
             | WbOut::HelpSeen
             | WbOut::Tiling(_)
             | WbOut::BuyAddon(_)
@@ -1201,6 +1202,12 @@ impl eframe::App for App {
                         self.save.glitches = g;
                         self.save_dirty = true;
                         self.home.say(format!("damage glitches {}", g.label()));
+                    }
+                    WbOut::Intros(on) => {
+                        self.save.intros = on;
+                        self.save_dirty = true;
+                        self.home
+                            .say(format!("cracktros {}", if on { "on" } else { "off" }));
                     }
                     WbOut::Monitor(id) => {
                         let r = self.hardware(&ctx, |s, d| s.plug_monitor(d, &id));

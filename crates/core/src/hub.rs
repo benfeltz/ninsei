@@ -669,6 +669,13 @@ pub struct Save {
     /// database, and never changes play.
     #[serde(default)]
     pub ice_seen: Vec<IceSeen>,
+    /// Programs open with their cracktros (`data/intros/`). On unless switched off in Prefs.
+    #[serde(default = "default_intros")]
+    pub intros: bool,
+}
+
+fn default_intros() -> bool {
+    true
 }
 
 /// What you know about one ICE: by id in `data/ice.ron`.
@@ -768,6 +775,7 @@ impl Default for Save {
             tools: Vec::new(),
             texts: Vec::new(),
             ice_seen: Vec::new(),
+            intros: default_intros(),
         }
     }
 }

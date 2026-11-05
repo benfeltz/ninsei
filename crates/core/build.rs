@@ -1,6 +1,6 @@
 //! Finds every BBS under `data/bbs/<id>/` (a `board.ron` and a `splash.txt`) and every sound
-//! pack under `data/sounds/<id>.ron`, and compiles them in, so a new board is a new folder and a
-//! new sound pack a new file.
+//! pack under `data/sounds/<id>.ron` and intro under `data/intros/<id>.ron`, and compiles them in,
+//! so a new board is a new folder and a new sound pack or intro a new file.
 
 use std::fmt::Write;
 use std::path::Path;
@@ -40,14 +40,18 @@ fn main() {
     out.push(']');
     let dest = Path::new(&std::env::var("OUT_DIR").unwrap()).join("boards.rs");
     std::fs::write(dest, out).unwrap();
-    sound_packs();
+    ron_dir("sounds", "sounds.rs", "PackSrc", "sounds");
+    ron_dir("intros", "intros.rs", "IntroSrc", "intro");
 }
 
-fn sound_packs() {
-    let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../data/sounds");
+/// Every `data/<dir>/<id>.ron` as `Ty { id, field: include_str!(..) }`, in file order.
+fn ron_dir(dir: &str, out_file: &str, ty: &str, field: &str) {
+    let root = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../data")
+        .join(dir);
     println!("cargo:rerun-if-changed={}", root.display());
     let mut files: Vec<_> = std::fs::read_dir(&root)
-        .expect("data/sounds")
+        .expect(dir)
         .filter_map(|e| e.ok())
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|x| x == "ron"))
@@ -60,11 +64,11 @@ fn sound_packs() {
         let path = format!("{:?}", f.canonicalize().unwrap().display().to_string());
         writeln!(
             out,
-            "    PackSrc {{ id: {id:?}, sounds: include_str!({path}) }},"
+            "    {ty} {{ id: {id:?}, {field}: include_str!({path}) }},"
         )
         .unwrap();
     }
     out.push(']');
-    let dest = Path::new(&std::env::var("OUT_DIR").unwrap()).join("sounds.rs");
+    let dest = Path::new(&std::env::var("OUT_DIR").unwrap()).join(out_file);
     std::fs::write(dest, out).unwrap();
 }

@@ -3,14 +3,15 @@
 //   id     what boards and the save call it
 //   name   what the desktop and the Shell call it
 //   blurb  one line for the board's listing
+//   intro  the cracktro it opens with every time (an id in data/intros/), or leave it out
 // What each one unlocks is the game's (hub::Save::has_tool):
 //   wardial  the `wardial` Shell command and CarrierTerm's WarDial tab
 //   hexed    the HexEd tool at home, and `hex`, patch and optimize in a run
 //   qwkread  the QWK mail reader at home: bulletins and saved textfiles from your boards
 //   icedb    the ICE database at home: every ICE you've fought, and what breaks it
 [
-    (id: "wardial", name: "WarDial", blurb: "A demon dialer: scans a block of numbers for carriers."),
-    (id: "hexed",   name: "HexEd",   blurb: "A hex editor for warez binaries. Patch, optimize, break things."),
-    (id: "icedb",   name: "ICE DB",  blurb: "A bestiary of intrusion countermeasures. Fills in as you meet them."),
-    (id: "qwkread", name: "QWK Reader", blurb: "Offline mail: read your boards' bulletins and saved textfiles at home."),
+    (id: "wardial", name: "WarDial", blurb: "A demon dialer: scans a block of numbers for carriers.", intro: Some("wardial")),
+    (id: "hexed",   name: "HexEd",   blurb: "A hex editor for warez binaries. Patch, optimize, break things.", intro: Some("hexed")),
+    (id: "icedb",   name: "ICE DB",  blurb: "A bestiary of intrusion countermeasures. Fills in as you meet them.", intro: Some("icedb")),
+    (id: "qwkread", name: "QWK Reader", blurb: "Offline mail: read your boards' bulletins and saved textfiles at home.", intro: Some("qwkread")),
 ]
