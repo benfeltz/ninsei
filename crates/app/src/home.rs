@@ -270,7 +270,12 @@ impl Home {
             bright: accent(),
         };
         let r = &mut self.qwk;
-        if ui.ui_contains_pointer() {
+        // The body hasn't grown yet, so test the window's visible area, not the ui's rect.
+        let over = ui
+            .ctx()
+            .pointer_hover_pos()
+            .is_some_and(|at| ui.clip_rect().contains(at));
+        if over {
             let keys: Vec<char> = ui.input(|i| {
                 i.events
                     .iter()
