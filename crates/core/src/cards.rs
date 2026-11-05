@@ -50,7 +50,6 @@ pub const PLACEHOLDERS: &[&str] = &[
     "gutter",
     "gutter_phone",
     "call_cost",
-    "boards",
 ];
 
 fn value(key: &str, data: &Data) -> Option<String> {
@@ -66,7 +65,6 @@ fn value(key: &str, data: &Data) -> Option<String> {
         "gutter" => gutter?.name.clone(),
         "gutter_phone" => gutter?.phone.clone(),
         "call_cost" => gutter?.call_cost.to_string(),
-        "boards" => data.boards.len().to_string(),
         _ => return None,
     })
 }
