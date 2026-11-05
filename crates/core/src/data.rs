@@ -220,6 +220,9 @@ pub struct ToolDef {
     pub id: String,
     pub name: String,
     pub blurb: String,
+    /// The cracktro it opens with (an id in `data/intros/`), if any.
+    #[serde(default)]
+    pub intro: Option<String>,
 }
 
 /// Every tool's id: what `hub::Save::has_tool` and the desktops ask about.
@@ -374,6 +377,16 @@ pub struct PackSrc<'a> {
     pub id: &'a str,
     pub sounds: &'a str,
 }
+
+/// One intro's raw file, found under `data/intros/<id>.ron` at build time.
+#[derive(Clone, Copy, Debug)]
+pub struct IntroSrc<'a> {
+    pub id: &'a str,
+    pub intro: &'a str,
+}
+
+/// Every intro in `data/intros/`, in file order.
+pub const BUILTIN_INTROS: &[IntroSrc<'static>] = include!(concat!(env!("OUT_DIR"), "/intros.rs"));
 
 /// Every sound pack in `data/sounds/`, in file order.
 pub const BUILTIN_SOUNDS: &[PackSrc<'static>] = include!(concat!(env!("OUT_DIR"), "/sounds.rs"));
@@ -541,6 +554,7 @@ pub struct Sources<'a> {
     pub addons: &'a str,
     pub panes: &'a str,
     pub sounds: &'a [PackSrc<'a>],
+    pub intros: &'a [IntroSrc<'a>],
     pub rig: &'a str,
     pub networks: &'a str,
     pub exchanges: &'a str,
@@ -567,6 +581,7 @@ impl Sources<'static> {
             addons: include_str!("../../../data/hub/desktops.ron"),
             panes: include_str!("../../../data/hub/panes.ron"),
             sounds: BUILTIN_SOUNDS,
+            intros: BUILTIN_INTROS,
             rig: include_str!("../../../data/hub/rig.ron"),
             networks: include_str!("../../../data/hub/networks.ron"),
             exchanges: include_str!("../../../data/hub/exchanges.ron"),
@@ -605,6 +620,8 @@ pub struct Data {
     pub panes: Vec<crate::panes::PaneDef>,
     /// Sound packs: what each cue plays, one pack per file in `data/sounds/`.
     pub sounds: Vec<crate::cue::SoundPack>,
+    /// Cracktros, one per file in `data/intros/`.
+    pub intros: Vec<crate::intro::IntroDef>,
     /// RIG deck-shop upgrades.
     pub rig: Vec<crate::hub::UpgradeDef>,
     /// Network tiers, traits and companies for the phonebook.
@@ -652,6 +669,18 @@ impl Data {
             tools: ron::from_str(src.tools).map_err(|e| format!("hub/tools.ron: {e}"))?,
             addons: ron::from_str(src.addons).map_err(|e| format!("hub/desktops.ron: {e}"))?,
             panes: ron::from_str(src.panes).map_err(|e| format!("hub/panes.ron: {e}"))?,
+            intros: src
+                .intros
+                .iter()
+                .map(|i| {
+                    ron::from_str::<crate::intro::IntroDef>(i.intro)
+                        .map(|mut d| {
+                            d.id = i.id.to_string();
+                            d
+                        })
+                        .map_err(|e| format!("intros/{}.ron: {e}", i.id))
+                })
+                .collect::<Result<_, _>>()?,
             sounds: src
                 .sounds
                 .iter()
@@ -677,6 +706,16 @@ impl Data {
 
     /// Cross-file checks: every id a table names must exist, and nothing may be empty.
     pub fn validate(&self) -> Result<(), String> {
+        for i in &self.intros {
+            i.validate(self)?;
+        }
+        for t in &self.tools {
+            if let Some(id) = &t.intro
+                && self.intro(id).is_none()
+            {
+                return Err(format!("tool `{}` names unknown intro `{id}`", t.id));
+            }
+        }
         for (i, w) in self.warez.iter().enumerate() {
             if self.warez[..i].iter().any(|o| o.id == w.id) {
                 return Err(format!("duplicate warez id `{}`", w.id));
@@ -1006,6 +1045,10 @@ impl Data {
 
     pub fn pattern(&self, id: &str) -> Option<&crate::pattern::PatternDef> {
         self.patterns.iter().find(|p| p.id == id)
+    }
+
+    pub fn intro(&self, id: &str) -> Option<&crate::intro::IntroDef> {
+        self.intros.iter().find(|i| i.id == id)
     }
 
     pub fn tool(&self, id: &str) -> Option<&ToolDef> {

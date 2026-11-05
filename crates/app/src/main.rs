@@ -472,6 +472,18 @@ impl App {
         {
             self.speaker.dial(&number);
         }
+        // A cracktro started or was skipped: its tune goes with it.
+        match self.home.tune.take() {
+            Some(home::TuneCue::Play(id)) => {
+                if let Some(def) = self.data.intro(&id)
+                    && let Some(tune) = &def.tune
+                {
+                    self.speaker.tune(tune, def.secs);
+                }
+            }
+            Some(home::TuneCue::Stop) => self.speaker.stop_tune(),
+            None => {}
+        }
         let open = self.bbs.is_some() || self.home_bbs.is_some();
         if open && !self.bbs_heard {
             // A call from home dials that board's number; in a run, the network's board.
@@ -657,6 +669,7 @@ impl App {
             | WbOut::Crt
             | WbOut::Sound
             | WbOut::Glitches(_)
+            | WbOut::Intros(_)
             | WbOut::HelpSeen
             | WbOut::Tiling(_)
             | WbOut::BuyAddon(_)
@@ -1079,6 +1092,7 @@ impl eframe::App for App {
         let pal = self.pal;
         let dt = ctx.input(|i| i.stable_dt).min(0.1);
         self.screen = self.screen.tick(dt);
+        self.home.drop_closed_intros(ctx.cumulative_pass_nr());
         self.sync_sound();
         // The run's sound cues: whatever happened since last frame, played together.
         // The deck's firmware picks the sound pack.
@@ -1201,6 +1215,12 @@ impl eframe::App for App {
                         self.save.glitches = g;
                         self.save_dirty = true;
                         self.home.say(format!("damage glitches {}", g.label()));
+                    }
+                    WbOut::Intros(on) => {
+                        self.save.intros = on;
+                        self.save_dirty = true;
+                        self.home
+                            .say(format!("cracktros {}", if on { "on" } else { "off" }));
                     }
                     WbOut::Monitor(id) => {
                         let r = self.hardware(&ctx, |s, d| s.plug_monitor(d, &id));

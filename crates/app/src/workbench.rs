@@ -107,7 +107,7 @@ impl Workbench {
                 Kind::Stash => (pos2(210.0, 80.0), vec2(640.0, 380.0)),
                 Kind::HexEd => (pos2(130.0, 36.0), vec2(800.0, 500.0)),
                 Kind::Qwk => (pos2(190.0, 46.0), vec2(700.0, 470.0)),
-                Kind::IceDb => (pos2(220.0, 60.0), vec2(640.0, 420.0)),
+                Kind::IceDb => (pos2(220.0, 60.0), vec2(700.0, 470.0)),
                 Kind::Requester(_) => (pos2(260.0, 150.0), vec2(330.0, 150.0)),
             };
             self.wins.push(Win { kind, pos, size });

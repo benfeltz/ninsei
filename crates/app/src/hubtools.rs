@@ -852,6 +852,16 @@ pub fn prefs(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
     if ui.checkbox(&mut sound, "Modem sounds").changed() {
         out.push(WbOut::Sound);
     }
+    let mut intros = save.intros;
+    if ui
+        .checkbox(&mut intros, "Cracktros")
+        .on_hover_text(
+            "Programs from the boards open with their crew's intro. Any key or click skips it.",
+        )
+        .changed()
+    {
+        out.push(WbOut::Intros(intros));
+    }
     ui.horizontal(|ui| {
         ui.label(RichText::new("Damage glitches").color(ink()));
         for g in ninsei_core::glitch::Glitches::ALL {

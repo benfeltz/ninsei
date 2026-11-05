@@ -1,5 +1,6 @@
 //! The speaker: one small mixer for everything the game plays. The modem handshake
-//! (`ninsei_core::modem`) has its own channel, so hanging up can cut it; sound cues
+//! (`ninsei_core::modem`) has its own channel, so hanging up can cut it; so does music (a
+//! cracktro's chiptune, `ninsei_core::intro`), so skipping the intro can cut it; sound cues
 //! (`ninsei_core::cue`) are short clips that layer over each other and play out.
 //! Native output goes through cpal; the browser uses Web Audio. If there's no audio device
 //! (or the browser refuses), it stays quiet and the game carries on.
@@ -12,6 +13,8 @@ use ninsei_core::modem::Handshake;
 
 /// How loud cues play, under the modem.
 const CUE_GAIN: f32 = 0.8;
+/// How loud a cracktro's tune plays.
+const MUSIC_GAIN: f32 = 0.7;
 /// Most cue clips playing at once; more are dropped (a burst of cues is still one moment).
 pub const MAX_VOICES: usize = 8;
 
@@ -63,6 +66,25 @@ impl Speaker {
         }
     }
 
+    /// Plays a cracktro's tune on the music channel, cutting off any tune still playing.
+    pub fn tune(&mut self, tune: &ninsei_core::intro::TuneDef, secs: f32) {
+        if let Some(out) = self.out() {
+            let samples = tune
+                .render(out.rate(), secs)
+                .iter()
+                .map(|s| s * MUSIC_GAIN)
+                .collect();
+            out.music(samples);
+        }
+    }
+
+    /// Cuts the tune (the intro was skipped or closed).
+    pub fn stop_tune(&mut self) {
+        if let Some(out) = &mut self.out {
+            out.music(Vec::new());
+        }
+    }
+
     /// Stops the modem (a BBS line dropped). Cues play out.
     pub fn stop(&mut self) {
         if let Some(out) = &mut self.out {
@@ -104,6 +126,7 @@ mod backend {
     #[derive(Default)]
     struct Mix {
         dial: (Vec<f32>, usize),
+        music: (Vec<f32>, usize),
         voices: Vec<(Arc<Vec<f32>>, usize)>,
     }
 
@@ -112,6 +135,9 @@ mod backend {
             let (samples, pos) = &mut self.dial;
             let mut s = samples.get(*pos).copied().unwrap_or(0.0);
             *pos += 1;
+            let (tune, at) = &mut self.music;
+            s += tune.get(*at).copied().unwrap_or(0.0);
+            *at += 1;
             for (clip, at) in &mut self.voices {
                 s += clip.get(*at).copied().unwrap_or(0.0);
                 *at += 1;
@@ -154,6 +180,12 @@ mod backend {
         pub fn dial(&mut self, samples: Vec<f32>) {
             if let Ok(mut m) = self.mix.lock() {
                 m.dial = (samples, 0);
+            }
+        }
+
+        pub fn music(&mut self, samples: Vec<f32>) {
+            if let Ok(mut m) = self.mix.lock() {
+                m.music = (samples, 0);
             }
         }
 
@@ -208,6 +240,8 @@ mod backend {
         ctx: AudioContext,
         /// The modem channel, so a hang-up can stop it.
         dialing: Option<AudioBufferSourceNode>,
+        /// The music channel, so skipping an intro can stop its tune.
+        playing: Option<AudioBufferSourceNode>,
         /// Cue clips still sounding (pruned as they end).
         voices: Vec<(AudioBufferSourceNode, f64)>,
     }
@@ -217,6 +251,7 @@ mod backend {
             Some(Self {
                 ctx: AudioContext::new().ok()?,
                 dialing: None,
+                playing: None,
                 voices: Vec::new(),
             })
         }
@@ -253,6 +288,14 @@ mod backend {
             self.dialing = self.start(&samples);
         }
 
+        pub fn music(&mut self, samples: Vec<f32>) {
+            if let Some(src) = self.playing.take() {
+                #[allow(deprecated)]
+                let _ = src.stop();
+            }
+            self.playing = self.start(&samples);
+        }
+
         pub fn cue(&mut self, clip: Arc<Vec<f32>>) {
             let now = self.ctx.current_time();
             self.voices.retain(|(_, ends)| *ends > now);
@@ -267,6 +310,7 @@ mod backend {
 
         pub fn hush(&mut self) {
             self.dial(Vec::new());
+            self.music(Vec::new());
             for (src, _) in self.voices.drain(..) {
                 #[allow(deprecated)]
                 let _ = src.stop();

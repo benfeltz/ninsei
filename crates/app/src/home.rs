@@ -124,6 +124,8 @@ pub enum WbOut {
     Firmware(String),
     /// Damage glitches on, reduced or off.
     Glitches(ninsei_core::glitch::Glitches),
+    /// Cracktros on or off.
+    Intros(bool),
     /// The Shell ran a command: keep its history in the save.
     ShellHistory(Vec<String>),
     /// Buy a secondary pane for the run screen in RIG (id).
@@ -236,6 +238,32 @@ pub struct Home {
     pub(crate) qwk_color: bool,
     /// The ICE database's picked entry.
     pub(crate) icedb_sel: Option<usize>,
+    /// Cracktros: the pass each tool's body was last drawn on (so a fresh open replays its
+    /// intro), and the intros playing now with the time each started.
+    intro_drawn: std::collections::HashMap<&'static str, u64>,
+    intro_playing: std::collections::HashMap<&'static str, f64>,
+    /// For the app's speaker: an intro whose tune should start (its id), or stop.
+    pub(crate) tune: Option<TuneCue>,
+}
+
+/// What the speaker should do with the cracktro's tune this frame.
+#[derive(Clone, Debug, PartialEq)]
+pub enum TuneCue {
+    /// Start the tune of this intro (an id in `data/intros/`).
+    Play(String),
+    Stop,
+}
+
+/// The desk's colours as a run palette, for screens drawn like a BBS (QWK, cracktros).
+fn desk_palette() -> Palette {
+    Palette {
+        bg: backdrop(),
+        panel: backdrop(),
+        faint: muted(),
+        dim: muted(),
+        fg: ink(),
+        bright: accent(),
+    }
 }
 
 impl Home {
@@ -257,6 +285,9 @@ impl Home {
             qwk: ninsei_core::qwk::Reader::new(),
             qwk_color: false,
             icedb_sel: None,
+            intro_drawn: Default::default(),
+            intro_playing: Default::default(),
+            tune: None,
         }
     }
 
@@ -264,14 +295,7 @@ impl Home {
     /// pointer is over it (the Shell keeps the keyboard otherwise).
     fn qwk_reader(&mut self, ui: &mut Ui, data: &Data, save: &Save) {
         // The desk's own colours when it isn't showing true ANSI.
-        let p = Palette {
-            bg: backdrop(),
-            panel: backdrop(),
-            faint: muted(),
-            dim: muted(),
-            fg: ink(),
-            bright: accent(),
-        };
+        let p = desk_palette();
         let r = &mut self.qwk;
         // The body hasn't grown yet, so test the window's visible area, not the ui's rect.
         let over = ui
@@ -321,6 +345,69 @@ impl Home {
         });
         if let Some(k) = pressed {
             self.qwk.key(save, data, k);
+        }
+    }
+
+    /// Plays tool `id`'s cracktro in its window, every time the window opens, until it ends or
+    /// a click or key skips it. True while it's showing (draw nothing else). A tool with no
+    /// intro, or intros switched off in Prefs, opens straight away.
+    fn intro_gate(&mut self, ui: &mut Ui, data: &Data, save: &Save, id: &'static str) -> bool {
+        let Some(def) = data
+            .tool(id)
+            .and_then(|t| t.intro.as_deref())
+            .and_then(|i| data.intro(i))
+        else {
+            return false;
+        };
+        let pass = ui.ctx().cumulative_pass_nr();
+        let now = ui.input(|i| i.time);
+        // Not drawn last pass: the window (or tab) just opened.
+        let fresh = self
+            .intro_drawn
+            .insert(id, pass)
+            .is_none_or(|last| last + 1 < pass);
+        if fresh && save.intros {
+            self.intro_playing.insert(id, now);
+            self.tune = Some(TuneCue::Play(def.id.clone()));
+        }
+        let Some(&start) = self.intro_playing.get(id) else {
+            return false;
+        };
+        let over = |p: egui::Pos2| ui.clip_rect().contains(p);
+        let skip = ui.input(|i| {
+            i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(over)
+                || i.pointer.hover_pos().is_some_and(over)
+                    && i.events.iter().any(|e| {
+                        matches!(
+                            e,
+                            egui::Event::Key { pressed: true, .. } | egui::Event::Text(_)
+                        )
+                    })
+        });
+        let t = (now - start) as f32;
+        if skip || def.done(t) {
+            self.intro_playing.remove(id);
+            if skip {
+                self.tune = Some(TuneCue::Stop);
+            }
+            return false;
+        }
+        let calm = save.glitches != ninsei_core::glitch::Glitches::On;
+        let lines = def.screen(data, t, calm);
+        crate::bbs_view::paint_screen(ui, &lines, false, &desk_palette());
+        ui.ctx().request_repaint();
+        true
+    }
+
+    /// Forgets intros whose windows closed while they played (not drawn since the last pass),
+    /// and asks for their tune to stop.
+    pub fn drop_closed_intros(&mut self, pass: u64) {
+        let drawn = &self.intro_drawn;
+        let before = self.intro_playing.len();
+        self.intro_playing
+            .retain(|id, _| drawn.get(id).is_some_and(|&p| p + 1 >= pass));
+        if self.intro_playing.len() < before {
+            self.tune = Some(TuneCue::Stop);
         }
     }
 
@@ -471,6 +558,9 @@ impl Home {
                     child.separator();
                 }
                 if self.term_tab == TermTab::WarDial && self.dialing.is_none() {
+                    if self.intro_gate(child, data, save, "wardial") {
+                        return;
+                    }
                     hubtools::wardial(
                         child,
                         data,
@@ -494,6 +584,9 @@ impl Home {
             Tool::Rig => hubtools::rig(child, data, save, out),
             Tool::Prefs => hubtools::prefs(child, data, save, out),
             Tool::Stash => hubtools::stash(child, data, save, out, &mut edit),
+            Tool::HexEd if self.intro_gate(child, data, save, "hexed") => return,
+            Tool::Qwk if self.intro_gate(child, data, save, "qwkread") => return,
+            Tool::IceDb if self.intro_gate(child, data, save, "icedb") => return,
             Tool::HexEd => hubtools::hexed(child, save, &mut self.hex, out, &mut edit),
             Tool::Qwk => self.qwk_reader(child, data, save),
             Tool::IceDb => hubtools::icedb(child, data, save, &mut self.icedb_sel),
