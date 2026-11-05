@@ -17,6 +17,7 @@ pub mod hexedit;
 pub mod history;
 pub mod home_bbs;
 pub mod hub;
+pub mod icedb;
 pub mod leet;
 pub mod modem;
 pub mod netview;

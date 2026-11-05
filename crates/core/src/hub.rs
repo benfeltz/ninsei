@@ -35,15 +35,18 @@ pub enum Tool {
     Prefs,
     /// The QWK mail reader: boards' bulletins and saved textfiles, offline.
     Qwk,
+    /// The ICE database: every ICE you've fought.
+    IceDb,
 }
 
 impl Tool {
-    pub const ALL: [Tool; 7] = [
+    pub const ALL: [Tool; 8] = [
         Tool::Terminal,
         Tool::Rig,
         Tool::Stash,
         Tool::HexEd,
         Tool::Qwk,
+        Tool::IceDb,
         Tool::Shell,
         Tool::Prefs,
     ];
@@ -63,6 +66,7 @@ impl Tool {
             Tool::Shell => "Shell",
             Tool::Prefs => "Prefs",
             Tool::Qwk => "QWK",
+            Tool::IceDb => "ICE DB",
         }
     }
 }
@@ -661,6 +665,21 @@ pub struct Save {
     /// Textfiles downloaded from boards, for the QWK reader.
     #[serde(default)]
     pub texts: Vec<KeptText>,
+    /// Every ICE you've fought, for the ICE database. It fills in whether or not you own the
+    /// database, and never changes play.
+    #[serde(default)]
+    pub ice_seen: Vec<IceSeen>,
+}
+
+/// What you know about one ICE: by id in `data/ice.ron`.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct IceSeen {
+    pub id: String,
+    pub met: u32,
+    pub broken: u32,
+    /// The weakest and strongest you've met it at.
+    pub lo: u32,
+    pub hi: u32,
 }
 
 /// A textfile on your disk: which board it came from and its id in that board's `texts`.
@@ -748,6 +767,7 @@ impl Default for Save {
             shell_history: Vec::new(),
             tools: Vec::new(),
             texts: Vec::new(),
+            ice_seen: Vec::new(),
         }
     }
 }
@@ -808,6 +828,7 @@ impl Save {
         match tool {
             Tool::HexEd => self.has_tool("hexed"),
             Tool::Qwk => self.has_tool("qwkread"),
+            Tool::IceDb => self.has_tool("icedb"),
             _ => true,
         }
     }
@@ -1371,6 +1392,26 @@ impl Save {
             .collect();
         for (b, t) in &game.texts {
             self.keep_text(b, t);
+        }
+        for m in &game.history.met {
+            let Some(def) = game.data.ice.get(m.ice) else {
+                continue;
+            };
+            match self.ice_seen.iter_mut().find(|s| s.id == def.id) {
+                Some(s) => {
+                    s.met += 1;
+                    s.broken += u32::from(m.broken);
+                    s.lo = s.lo.min(m.strength);
+                    s.hi = s.hi.max(m.strength);
+                }
+                None => self.ice_seen.push(IceSeen {
+                    id: def.id.clone(),
+                    met: 1,
+                    broken: u32::from(m.broken),
+                    lo: m.strength,
+                    hi: m.strength,
+                }),
+            }
         }
         let mut boards = Vec::new();
         if game.bbs_seen {

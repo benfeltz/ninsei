@@ -366,6 +366,49 @@ pub fn stash(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>, edit: 
     ));
 }
 
+/// The ICE database: every ICE down the left (`????` until you've met it), the picked one's
+/// page on the right. Read-only; the save fills it in after each run.
+pub fn icedb(ui: &mut Ui, data: &Data, save: &Save, sel: &mut Option<usize>) {
+    let all = ninsei_core::icedb::entries(save, data);
+    let known = all.iter().filter(|e| e.seen.is_some()).count();
+    ui.label(
+        RichText::new(format!("ICE DB  {known}/{} on file", all.len()))
+            .monospace()
+            .strong()
+            .color(ink()),
+    );
+    ui.separator();
+    ui.horizontal_top(|ui| {
+        ui.vertical(|ui| {
+            ui.set_width(170.0);
+            for (i, e) in all.iter().enumerate() {
+                let label = RichText::new(format!("{:<12}", e.name()))
+                    .monospace()
+                    .color(if e.seen.is_some() { ink() } else { muted() });
+                if ui.selectable_label(*sel == Some(i), label).clicked() {
+                    *sel = Some(i);
+                }
+            }
+        });
+        ui.separator();
+        ui.vertical(|ui| match sel.and_then(|i| all.get(i)) {
+            Some(e) => {
+                for (n, l) in e.lines(save, data).iter().enumerate() {
+                    let t = RichText::new(l).monospace();
+                    ui.label(if n == 0 {
+                        t.strong().color(accent())
+                    } else {
+                        t.color(ink())
+                    });
+                }
+            }
+            None => {
+                ui.label(RichText::new("pick an entry.").monospace().color(muted()));
+            }
+        });
+    });
+}
+
 /// HexEd at home: pick a stash program, then edit it with no time pressure.
 pub fn hexed(
     ui: &mut Ui,

@@ -34,6 +34,7 @@ enum Kind {
     Stash,
     HexEd,
     Qwk,
+    IceDb,
     /// "Please insert volume X in any drive".
     Requester(Tool),
 }
@@ -55,6 +56,7 @@ impl Win {
             Kind::Stash => "STASH".into(),
             Kind::HexEd => "HexEd".into(),
             Kind::Qwk => "OLX QWK Reader".into(),
+            Kind::IceDb => "ICE DB".into(),
             Kind::Requester(_) => "System Request".into(),
         }
     }
@@ -91,6 +93,7 @@ impl Workbench {
             Tool::Stash => Kind::Stash,
             Tool::HexEd => Kind::HexEd,
             Tool::Qwk => Kind::Qwk,
+            Tool::IceDb => Kind::IceDb,
         };
         if let Some(i) = self.wins.iter().position(|w| w.kind == kind) {
             let w = self.wins.remove(i);
@@ -104,6 +107,7 @@ impl Workbench {
                 Kind::Stash => (pos2(210.0, 80.0), vec2(640.0, 380.0)),
                 Kind::HexEd => (pos2(130.0, 36.0), vec2(800.0, 500.0)),
                 Kind::Qwk => (pos2(190.0, 46.0), vec2(700.0, 470.0)),
+                Kind::IceDb => (pos2(220.0, 60.0), vec2(640.0, 420.0)),
                 Kind::Requester(_) => (pos2(260.0, 150.0), vec2(330.0, 150.0)),
             };
             self.wins.push(Win { kind, pos, size });
@@ -346,6 +350,7 @@ impl DesktopView for Workbench {
                 | Kind::Stash
                 | Kind::HexEd
                 | Kind::Qwk
+                | Kind::IceDb
                 | Kind::Terminal
                 | Kind::Prefs => {
                     let mut child = ui.new_child(
@@ -364,6 +369,7 @@ impl DesktopView for Workbench {
                         Kind::Prefs => Tool::Prefs,
                         Kind::Stash => Tool::Stash,
                         Kind::Qwk => Tool::Qwk,
+                        Kind::IceDb => Tool::IceDb,
                         _ => Tool::HexEd,
                     };
                     crate::home::scrolled(&mut child, ("wb-scroll", tool), |ui| {
@@ -664,6 +670,7 @@ mod tests {
             Tool::Stash => Kind::Stash,
             Tool::HexEd => Kind::HexEd,
             Tool::Qwk => Kind::Qwk,
+            Tool::IceDb => Kind::IceDb,
         }
     }
 }

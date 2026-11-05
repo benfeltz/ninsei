@@ -79,6 +79,7 @@ const MENUS: &[(&str, &[(&str, Act)])] = &[
             ("RIG", Act::Open(Tool::Rig)),
             ("Stash", Act::Open(Tool::Stash)),
             ("HexEd", Act::Open(Tool::HexEd)),
+            ("ICE DB", Act::Open(Tool::IceDb)),
         ],
     ),
     (
@@ -100,6 +101,7 @@ struct Win {
 fn title(tool: Tool) -> &'static str {
     match tool {
         Tool::Qwk => "QWK Reader",
+        Tool::IceDb => "ICE DB",
         Tool::Shell => "Shell",
         Tool::Terminal => "Phonebook",
         Tool::Prefs => "Prefs",
@@ -158,6 +160,7 @@ impl Liza {
             Tool::Stash => (pos2(110.0, 84.0), vec2(640.0, 380.0)),
             Tool::HexEd => (pos2(40.0, 40.0), vec2(800.0, 500.0)),
             Tool::Qwk => (pos2(70.0, 50.0), vec2(700.0, 470.0)),
+            Tool::IceDb => (pos2(100.0, 60.0), vec2(640.0, 420.0)),
         };
         self.wins.push(Win { tool, pos, size });
         // Without MultiFinder, Liza keeps a few windows: the oldest goes.
