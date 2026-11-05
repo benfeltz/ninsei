@@ -80,6 +80,10 @@
             (file: "BW-CORE.TXT",  item: Hint("brightwater_core"), price: 240, desc: "Brightwater core prefix. Fresh"),
             (file: "SAITO-LB.TXT", item: Hint("saito_core"),       price: 240, desc: "Saito lab lines"),
         ]),
+        // The terminal the scene runs: what CarrierTerm won't tell you about a number.
+        (name: "COMMS", stock: 1, always: true, files: [
+            (file: "NIGHTCOM.ZIP", item: Tool("nightcomm"), price: 120, desc: "NiGHTCOMM 3.1. Know your lines"),
+        ]),
         (name: "WAREZ TOOLS", stock: 1, files: [
             (file: "FRAG-HOT.ZIP", item: Fragment(1),       price: 90,  desc: "Optimizer fragment, cracked"),
             (file: "FRAG2-X.ZIP",  item: Fragment(2),       price: 170, desc: "Fragments x2, no serials"),

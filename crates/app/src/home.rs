@@ -357,11 +357,23 @@ impl Home {
     /// a click or key skips it. True while it's showing (draw nothing else). A tool with no
     /// intro, or intros switched off in Prefs, opens straight away.
     fn intro_gate(&mut self, ui: &mut Ui, data: &Data, save: &Save, id: &'static str) -> bool {
-        let Some(def) = data
-            .tool(id)
-            .and_then(|t| t.intro.as_deref())
-            .and_then(|i| data.intro(i))
-        else {
+        match data.tool(id).and_then(|t| t.intro.clone()) {
+            Some(intro) => self.splash_gate(ui, data, save, id, &intro),
+            None => false,
+        }
+    }
+
+    /// Plays intro `intro` (an id in `data/intros/`) under the key `id`, as [`Home::intro_gate`]
+    /// does for a tool's cracktro: CarrierTerm's own splash goes through here too.
+    fn splash_gate(
+        &mut self,
+        ui: &mut Ui,
+        data: &Data,
+        save: &Save,
+        id: &'static str,
+        intro: &str,
+    ) -> bool {
+        let Some(def) = data.intro(intro) else {
             return false;
         };
         let pass = ui.ctx().cumulative_pass_nr();
@@ -544,6 +556,13 @@ impl Home {
         let mut edit = None;
         let mut dial = None;
         match tool {
+            // CarrierTerm's splash, unless a dial is already under way.
+            Tool::Terminal
+                if self.dialing.is_none()
+                    && self.splash_gate(child, data, save, "carrierterm", "carrierterm") =>
+            {
+                return;
+            }
             Tool::Terminal => {
                 // No dialer, no WarDial tab: CarrierTerm is just the phonebook.
                 if !save.has_tool("wardial") {
@@ -592,6 +611,10 @@ impl Home {
             Tool::HexEd if self.intro_gate(child, data, save, "hexed") => return,
             Tool::Qwk if self.intro_gate(child, data, save, "qwkread") => return,
             Tool::IceDb if self.intro_gate(child, data, save, "icedb") => return,
+            Tool::NightComm if self.intro_gate(child, data, save, "nightcomm") => return,
+            Tool::NightComm => {
+                hubtools::nightcomm(child, data, save, &mut self.term_sel, &mut dial);
+            }
             Tool::HexEd => hubtools::hexed(child, save, &mut self.hex, out, &mut edit),
             Tool::Qwk => self.qwk_reader(child, data, save),
             Tool::IceDb => hubtools::icedb(child, data, save, &mut self.icedb_sel),

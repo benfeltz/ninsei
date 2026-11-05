@@ -631,11 +631,75 @@ pub fn carrierterm(
     if sel.is_none_or(|id| save.entry(id).is_none()) {
         *sel = save.phonebook.first().map(|e| e.id);
     }
+    // A business directory: who they are and how to reach them. What's behind a number is
+    // NiGHTCOMM's business, not CarrierTerm's.
+    ui.label(mono(
+        format!("{:<3} {:<9} {:<26} {}", "#", "NUMBER", "NAME", "BUSINESS"),
+        ink(),
+    ));
+    egui::ScrollArea::vertical()
+        .max_height(150.0)
+        .show(ui, |ui| {
+            for (i, e) in save.phonebook.iter().enumerate() {
+                let line = format!("{:<3} {:<9} {:<26} {}", i + 1, e.number, e.name, e.business);
+                let on = *sel == Some(e.id);
+                let r = ui.selectable_label(on, mono(line, if on { shadow() } else { ink() }));
+                if r.clicked() {
+                    *sel = Some(e.id);
+                }
+                if r.double_clicked() {
+                    *dial = Some(e.id);
+                }
+            }
+        });
+    ui.add_space(6.0);
+    let Some(e) = sel.and_then(|id| save.entry(id)) else {
+        return;
+    };
+    ui.label(
+        RichText::new(format!("{}  ·  {}", e.name, e.business))
+            .color(accent())
+            .strong(),
+    );
+    ui.label(dim(format!("Dial-up line {}.", e.number)));
+    ui.add_space(6.0);
+    ui.horizontal(|ui| {
+        if ui.button(format!(" Dial {} ", e.number)).clicked() {
+            *dial = Some(e.id);
+        }
+        ui.label(dim("double-click a number to dial it"));
+    });
+}
+
+/// NiGHTCOMM, the hacker terminal: every number you know with its tier and heat, and what's
+/// behind it (layers, ICE, pay, trace, quirks). Dialing goes through CarrierTerm's modem.
+pub fn nightcomm(
+    ui: &mut Ui,
+    data: &Data,
+    save: &Save,
+    sel: &mut Option<u32>,
+    dial: &mut Option<u32>,
+) {
+    let mono = |t: String, c| RichText::new(t).monospace().color(c);
+    ui.label(
+        RichText::new("NiGHTCOMM 3.1  ·  know your lines")
+            .monospace()
+            .strong()
+            .color(accent()),
+    );
+    ui.separator();
+    if save.phonebook.is_empty() {
+        ui.label(dim("The phonebook is empty."));
+        return;
+    }
+    if sel.is_none_or(|id| save.entry(id).is_none()) {
+        *sel = save.phonebook.first().map(|e| e.id);
+    }
 
     ui.label(mono(
         format!(
-            "{:<3} {:<9} {:<22} {:<5} {}",
-            "#", "NUMBER", "NAME", "TIER", "HEAT"
+            "{:<3} {:<9} {:<22} {:<5} {:<7} {}",
+            "#", "NUMBER", "NAME", "TIER", "HEAT", "RUNS"
         ),
         ink(),
     ));
@@ -648,11 +712,12 @@ pub fn carrierterm(
                     .map(|h| if h < e.heat { '█' } else { '░' })
                     .collect();
                 let line = format!(
-                    "{:<3} {:<9} {:<22} {:<5} {heat}",
+                    "{:<3} {:<9} {:<22} {:<5} {heat:<7} {}",
                     i + 1,
                     e.number,
                     e.name,
-                    tier
+                    tier,
+                    e.runs
                 );
                 let on = *sel == Some(e.id);
                 let r = ui.selectable_label(on, mono(line, if on { shadow() } else { ink() }));

@@ -1,0 +1,25 @@
+// CarrierTerm's splash (see crates/core/src/intro.rs): Sense/Net's own, calm, no tune.
+(
+    board: "sensenet",
+    group: "Sense/Net",
+    secs: 2.5,
+    frame_secs: 1.0,
+    frames: [
+        [
+            "",
+            "|15▄████ ▄███▄ ████▄ ████▄ █████ █████ ████▄ █████ █████ ████▄ █▄ ▄█",
+            "|15█     █   █ █   █ █   █   █   █     █   █   █   █     █   █ █ ▀ █",
+            "|15█     █████ ████▀ ████▀   █   ████  ████▀   █   ████  ████▀ █   █",
+            "|15█     █   █ █  █  █  █    █   █     █  █    █   █     █  █  █   █",
+            "|15▀████ █   █ █   █ █   █ █████ █████ █   █   █   █████ █   █ █   █",
+            "",
+            "|11                      C A R R I E R T E R M   2 . 0",
+            "",
+            "|07                 Connecting you to the people who matter.",
+            "",
+            "|08      (c) Sense/Net. All rights reserved. Licensed to: Personal Deck",
+        ],
+    ],
+    effects: [],
+    tagline: Some("CarrierTerm 2.0 ▪ the friendly way to dial the Net ▪ Thank you for choosing Sense/Net"),
+)
