@@ -591,6 +591,9 @@ impl App {
                 Outcome::Act(ninsei_core::Action::TakeJob { job }) => {
                     self.save.home_take(&self.data, board, job)
                 }
+                Outcome::Act(ninsei_core::Action::Read(r)) => {
+                    self.save.home_read(&self.data, board, r)
+                }
                 Outcome::Closed => {
                     self.home_bbs = None;
                     self.home.say("NO CARRIER");
@@ -603,6 +606,7 @@ impl App {
             if let Some((view, call)) = &mut self.home_bbs {
                 *call = fresh;
                 match result {
+                    Ok(msg) if msg.is_empty() => {}
                     Ok(msg) => self.home.say(msg),
                     Err(e) => view.session.status = Some(format!("|12{e}")),
                 }
@@ -654,10 +658,14 @@ impl App {
                         let mut view = BbsView::new();
                         view.order = egui::Order::Foreground;
                         let d = &self.data.boards[board];
-                        let msg = format!(
-                            "CONNECT {} to {}. Phone bill -{}¢.",
-                            d.baud, d.name, d.call_cost
-                        );
+                        let msg = if d.call_cost == 0 {
+                            format!("CONNECT {} to {}. A local call: free.", d.baud, d.name)
+                        } else {
+                            format!(
+                                "CONNECT {} to {}. Phone bill -{}¢.",
+                                d.baud, d.name, d.call_cost
+                            )
+                        };
                         self.home_bbs = Some((view, call));
                         Ok(msg)
                     }

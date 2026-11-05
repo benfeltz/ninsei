@@ -12,6 +12,11 @@ fn book() -> (Data, Save) {
     let mut s = Save::default();
     s.ensure_key(7);
     assert!(s.ensure_phonebook(&d, 99));
+    assert!(
+        s.phonebook.is_empty(),
+        "a new deck knows one board, no networks"
+    );
+    s.add_starters(&d);
     (d, s)
 }
 
@@ -33,7 +38,7 @@ fn entry(s: &mut Save, tier: u32, traits: &[&str]) -> u32 {
 }
 
 #[test]
-fn a_new_save_gets_a_handful_of_numbers() {
+fn the_partner_directory_gives_a_handful_of_numbers() {
     let (d, s) = book();
     assert_eq!(s.phonebook.len(), tuning::PHONEBOOK_START.len());
     let tiers: Vec<u32> = s.phonebook.iter().map(|e| e.tier).collect();
@@ -54,6 +59,14 @@ fn a_new_save_gets_a_handful_of_numbers() {
         !again.ensure_phonebook(&d, 1),
         "an existing book is left alone"
     );
+    assert!(
+        again.add_starters(&d).is_empty(),
+        "the directory hands them out once"
+    );
+    let mut twin = Save::default();
+    twin.ensure_key(7);
+    twin.add_starters(&d);
+    assert_eq!(twin.phonebook, s.phonebook, "same save, same partners");
 }
 
 #[test]

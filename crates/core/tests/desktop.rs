@@ -239,6 +239,8 @@ fn the_shell_completes_its_verbs_and_arguments() {
     let mut s = Save::default();
     s.ensure_hardware(&d);
     s.ensure_phonebook(&d, 7);
+    s.add_starters(&d);
+    s.learn_board("gutter", "test");
     s.tools = vec!["wardial".into(), "hexed".into()];
     assert_eq!(hub::shell_complete("", &s, &d).len(), SHELL_VERBS.len());
     // Every verb is one the Shell answers (not "Unknown command").
@@ -276,6 +278,8 @@ fn a_tool_you_dont_have_isnt_there() {
     let mut s = Save::default();
     s.ensure_hardware(&d);
     s.ensure_phonebook(&d, 7);
+    s.add_starters(&d);
+    s.learn_board("gutter", "test");
     assert!(s.tools.is_empty(), "a fresh save has no tools");
     let (lines, _) = hub::shell("wardial local", &s, &d);
     assert_eq!(lines, vec!["Unknown command wardial".to_string()]);

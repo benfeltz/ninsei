@@ -1,0 +1,15 @@
+|17|15                                                                              |16
+|17|15   ▄████ █████ █   █ ▄████ █████    █  █   █ █████ █████                     |16
+|17|15   █     █     ██  █ █     █       █   ██  █ █       █                       |16
+|17|15   ▀███▄ ████  █ █ █ ▀███▄ ████   █    █ █ █ ████    █                       |16
+|17|15       █ █     █  ██     █ █     █     █  ██ █       █                       |16
+|17|15   ████▀ █████ █   █ ████▀ █████ █     █   █ █████   █                       |16
+|17|15                                                                              |16
+|17|11   C U S T O M E R L I N K                                                    |16
+|17|15                                                                              |16
+
+|07              Welcome, valued customer. You are connected to the
+|07              official Sense/Net support and community service.
+
+|08              Free to call  ·  open day and night  ·  no modem too slow
+|08              Please be courteous. All sessions may be monitored.

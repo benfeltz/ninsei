@@ -1,0 +1,137 @@
+// SENSE/NET CUSTOMERLINK: the customer board every new deck comes with (hub::FIRST_BOARD). It's
+// never a network's BBS in a run (no tiers); you call it from home, free. It's where everything
+// starts: its partner directory hands out the first corporate networks, and one post in its
+// message bases leads to the first illicit board.
+(
+    name: "SENSE/NET CUSTOMERLINK",
+    sysop: "Customer Care",
+    phone: "555-0001",
+    baud: 2400,
+    tiers: [],
+    call_cost: 0,  // a customer line: free
+    jobs: false,
+    look: (
+        software: "CustomerLink 2.0 (c) Sense/Net",
+        header: Inverse,
+        frame: 15,
+        bar: 1,
+        key: 14,
+        label: 15,
+        dim: 8,
+        text: 7,
+        money: 10,
+        ok: 10,
+        warn: 12,
+        aside: 3,
+        prompt: ">",
+        handle: "customer",
+        menu: (
+            files: ("Support Files", "drivers, guides, wallpaper"),
+            messages: ("Message Boards", "talk to other customers"),
+            bulletins: ("News", "from Sense/Net"),
+            who: ("Who's Online", ""),
+            goodbye: ("Log Off", "thank you for calling"),
+        ),
+        goodbye: "Thank you for calling {board}. Have a productive day!",
+        leet: false,
+    ),
+    bulletins: [
+        (title: "WELCOME TO CUSTOMERLINK", body: [
+            "|15Thank you for choosing Sense/Net!",
+            "",
+            "|07CustomerLink is your free line to Sense/Net. Read the News,",
+            "|07download drivers from Support Files, and meet other customers",
+            "|07on the Message Boards.",
+            "",
+            "|07New to the Net? Start with |15BUSINESS PARTNERS|07, below.",
+            "",
+            "|08-- Sense/Net Customer Care",
+        ]),
+        (title: "BUSINESS PARTNERS DIRECTORY", on_read: Some(Starters), body: [
+            "|15Sense/Net is proud to work with these fine companies.",
+            "",
+            "|07Our partners keep their dial-ups open to Sense/Net customers.",
+            "|07Their numbers are now in your phonebook: open CarrierTerm,",
+            "|07pick one, and dial in with your new deck!",
+            "",
+            "|07Please respect each company's systems. Stay where you're",
+            "|07welcome, and log off when you're done.",
+        ]),
+        (title: "SERVICE NOTICE", body: [
+            "|07Some customers report strange calls and offers from unknown",
+            "|07numbers. Sense/Net will never ask for your password.",
+            "",
+            "|07If you're unsure about a number, don't dial it.",
+        ]),
+    ],
+    users: [
+        (handle: "Customer Care", location: "Sense/Net HQ", doing: "Answering mail"),
+        (handle: "dot_matrix",    location: "Ninsei",       doing: "Message Boards"),
+        (handle: "n1ghtowl",      location: "unlisted",     doing: "Message Boards"),
+    ],
+    areas: [
+        (name: "SUPPORT FILES", stock: 3, always: true, files: [
+            (file: "MODEM.TXT",    item: Text("modem"),     price: 0,   desc: "Getting the best from your modem"),
+            (file: "TIPS.TXT",     item: Text("tips"),      price: 0,   desc: "Tips & tricks for your deck"),
+            (file: "MANNERS.TXT",  item: Text("manners"),   price: 0,   desc: "Bulletin board manners"),
+        ]),
+    ],
+    texts: [
+        (id: "modem", title: "GETTING THE BEST FROM YOUR MODEM", lines: [
+            "|07Your Sense/Net modem connects at up to 2400 baud.",
+            "",
+            "|07- Keep the line free while you're dialing.",
+            "|07- If you hear a voice or a fax, hang up and try again later.",
+            "|07- A busy signal means the system is in use. Be patient!",
+        ]),
+        (id: "tips", title: "TIPS & TRICKS", lines: [
+            "|07- Your Security Suite is free and yours to keep: load it before",
+            "|07  every session.",
+            "|07- The Welcome stack lives on your desktop. Read it any time.",
+            "|07- Write down every number you're given. A number is the only",
+            "|07  way back.",
+        ]),
+        (id: "manners", title: "BULLETIN BOARD MANNERS", lines: [
+            "|07- Read the bulletins before you post.",
+            "|07- Keep messages short and polite.",
+            "|07- Don't share numbers you weren't given. Some boards are not",
+            "|07  what they seem.",
+        ]),
+    ],
+    messages: [
+        (name: "GENERAL", posts: [
+            (from: "dot_matrix", subject: "hello from a new user!", body: [
+                "|07Just got my Sense/Net deck. This is my first time on a",
+                "|07board! Is there a way to make the text bigger?",
+            ]),
+            (from: "Customer Care", subject: "RE: hello from a new user!", body: [
+                "|07Welcome! Text size is set by your monitor. See Prefs on",
+                "|07your desktop. Enjoy your new deck!",
+            ]),
+            (from: "n1ghtowl", subject: "kind of tame here", on_read: Some(Board("gutter")), body: [
+                "|07anyone else find the lines here kind of tame?",
+                "",
+                "|07call |15555-0199|07 after midnight. ask for m0th.",
+            ]),
+            (from: "Customer Care", subject: "RE: kind of tame here", body: [
+                "|07This message violates the CustomerLink terms of service",
+                "|07and will be removed.",
+            ]),
+        ]),
+        (name: "MODEMS & HARDWARE", posts: [
+            (from: "pixelpusher", subject: "2400 vs 14400?", body: [
+                "|07Is it worth upgrading? Some boards connect at 14400.",
+            ]),
+            (from: "Customer Care", subject: "RE: 2400 vs 14400?", body: [
+                "|07Your deck connects at the speed of the board you call.",
+                "|07No upgrade needed!",
+            ]),
+        ]),
+        (name: "USER GROUPS", posts: [
+            (from: "ninsei_users", subject: "monthly meetup", body: [
+                "|07The Ninsei Sense/Net User Group meets the first Tuesday of",
+                "|07the month at the noodle bar on 4th. Bring your questions!",
+            ]),
+        ]),
+    ],
+)

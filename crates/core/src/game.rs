@@ -259,6 +259,27 @@ pub enum Action {
     TakeJob {
         job: usize,
     },
+    /// Read a bulletin or a post on the board you're connected to: some open doors.
+    Read(Reading),
+}
+
+/// A bulletin or post on a board, by index.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Reading {
+    Bulletin(usize),
+    Post { base: usize, post: usize },
+}
+
+impl Reading {
+    /// What reading it does on `board`, if anything.
+    pub fn effect(self, board: &crate::data::BbsDef) -> Option<&crate::data::ReadEffect> {
+        match self {
+            Reading::Bulletin(i) => board.bulletins.get(i)?.on_read.as_ref(),
+            Reading::Post { base, post } => {
+                board.messages.get(base)?.posts.get(post)?.on_read.as_ref()
+            }
+        }
+    }
 }
 
 #[derive(Clone, Debug)]
@@ -298,6 +319,10 @@ pub struct Game {
     pub site: Option<Site>,
     /// Number ranges learned this run (exchange ids). They come home even on a flatline.
     pub hints: Vec<String>,
+    /// Boards learned from what you read this run (ids). They come home even on a flatline.
+    pub boards_read: Vec<String>,
+    /// You read a partner directory this run: the starter networks come home with you.
+    pub starters_read: bool,
     /// What the run has been doing, for the graphs. Watches the rules, never changes them.
     pub history: crate::history::History,
     /// Sound cues waiting to be played. The app drains them each frame.
@@ -369,6 +394,8 @@ impl Game {
             next_uid: 1,
             mods: kit.mods,
             hints: Vec::new(),
+            boards_read: Vec::new(),
+            starters_read: false,
             history: crate::history::History::default(),
             cues: Vec::new(),
             site: kit.site.clone(),
@@ -609,6 +636,7 @@ impl Game {
                 Ok(())
             }
             Action::TakeJob { job } => self.take_job(job),
+            Action::Read(r) => self.read(r),
             Action::Run(slot) => self.run(slot),
             Action::Load(slot) => self.load(slot),
             Action::Unload(slot) => self.unload(slot),
@@ -1514,6 +1542,43 @@ impl Game {
         };
         self.say(LogKind::Info, format!("downloaded {} ({cost})", def.file));
         self.grant(def.item);
+        Ok(())
+    }
+
+    fn read(&mut self, r: Reading) -> Result<(), String> {
+        if !self.at_bbs() {
+            return Err("carrier lost. you're not on the board.".into());
+        }
+        let Some(effect) = r.effect(self.bbs()).cloned() else {
+            return Err("nothing to note.".into());
+        };
+        match effect {
+            crate::data::ReadEffect::Board(id) => {
+                let Some(b) = self.data.board(&id) else {
+                    return Err("a dead number.".into());
+                };
+                if self.boards_read.contains(&id) {
+                    return Ok(());
+                }
+                let d = &self.data.boards[b];
+                let line = format!("+ number noted: {} ({})", d.name, d.phone);
+                self.boards_read.push(id);
+                self.say(LogKind::Loot, line);
+            }
+            crate::data::ReadEffect::Starters => {
+                if self.starters_read {
+                    return Ok(());
+                }
+                self.starters_read = true;
+                self.say(LogKind::Loot, "+ partner numbers noted for your phonebook");
+            }
+            crate::data::ReadEffect::Hint(range) => {
+                if self.hints.contains(&range) {
+                    return Ok(());
+                }
+                self.grant(Drop::Hint(range));
+            }
+        }
         Ok(())
     }
 

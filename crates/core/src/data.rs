@@ -145,6 +145,37 @@ pub struct LootTables {
 pub struct BulletinDef {
     pub title: String,
     pub body: Vec<String>,
+    /// What reading it does, if anything.
+    #[serde(default)]
+    pub on_read: Option<ReadEffect>,
+}
+
+/// What reading a bulletin or a post does: the way a board's words open doors.
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+pub enum ReadEffect {
+    /// A board's number goes in the phonebook (an id in `data/bbs/`).
+    Board(String),
+    /// The starter networks go in the phonebook (`tuning::PHONEBOOK_START`), once.
+    Starters,
+    /// A number range, as `Drop::Hint` teaches.
+    Hint(String),
+}
+
+/// A message base on a board: a name and its posts, oldest first.
+#[derive(Deserialize, Clone, Debug)]
+pub struct BaseDef {
+    pub name: String,
+    pub posts: Vec<PostDef>,
+}
+
+/// One post in a message base.
+#[derive(Deserialize, Clone, Debug)]
+pub struct PostDef {
+    pub from: String,
+    pub subject: String,
+    pub body: Vec<String>,
+    #[serde(default)]
+    pub on_read: Option<ReadEffect>,
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -201,6 +232,12 @@ pub struct BbsDef {
     /// Textfiles you read on the board (`Text(id)` files).
     #[serde(default)]
     pub texts: Vec<TextDef>,
+    /// Message bases (none on most boards).
+    #[serde(default)]
+    pub messages: Vec<BaseDef>,
+    /// Whether it posts contracts. A corporate customer line doesn't.
+    #[serde(default = "yes")]
+    pub jobs: bool,
     /// Pipe-coded splash art, from the board's `splash.txt`.
     #[serde(skip)]
     pub splash: String,
@@ -227,6 +264,10 @@ pub struct ToolDef {
 
 /// Every tool's id: what `hub::Save::has_tool` and the desktops ask about.
 pub const TOOLS: &[&str] = &["wardial", "hexed", "qwkread", "icedb"];
+
+fn yes() -> bool {
+    true
+}
 
 fn default_call_cost() -> u32 {
     crate::tuning::BBS_CALL_COST
@@ -310,6 +351,7 @@ impl Default for Look {
 #[serde(default)]
 pub struct MenuText {
     pub files: (String, String),
+    pub messages: (String, String),
     pub jobs: (String, String),
     pub bulletins: (String, String),
     pub who: (String, String),
@@ -321,6 +363,7 @@ impl Default for MenuText {
         let p = |a: &str, b: &str| (a.to_string(), b.to_string());
         Self {
             files: p("File Areas", "warez, utilities, deck mods"),
+            messages: p("Message Bases", "read the boards"),
             jobs: p("Jobs Board", "contracts. no names, just creds"),
             bulletins: p("Bulletins", "read before you leech"),
             who: p("Who's Online", ""),
@@ -358,6 +401,12 @@ impl BbsDef {
         }
         if self.areas.len() > 9 || self.bulletins.len() > 9 {
             return Err("at most 9 areas and 9 bulletins (one keypress each)".into());
+        }
+        if self.messages.len() > 9 || self.messages.iter().any(|b| b.posts.len() > 9) {
+            return Err("at most 9 message bases of 9 posts (one keypress each)".into());
+        }
+        if self.messages.iter().any(|b| b.posts.is_empty()) {
+            return Err("a message base with no posts".into());
         }
         Ok(())
     }
@@ -970,9 +1019,28 @@ impl Data {
             if self.boards[..i].iter().any(|o| o.id == b.id) {
                 return Err(err("listed twice".into()));
             }
+            if let Some(o) = self.boards[..i].iter().find(|o| o.phone == b.phone) {
+                return Err(err(format!("shares its number with {}", o.id)));
+            }
             b.validate().map_err(err)?;
             if let Some(t) = b.tiers.iter().find(|&&t| self.networks.tier(t).is_none()) {
                 return Err(err(format!("names unknown tier {t}")));
+            }
+            let effects = b.bulletins.iter().filter_map(|x| x.on_read.as_ref()).chain(
+                b.messages
+                    .iter()
+                    .flat_map(|m| m.posts.iter().filter_map(|p| p.on_read.as_ref())),
+            );
+            for e in effects {
+                match e {
+                    ReadEffect::Board(id) if self.board(id).is_none() => {
+                        return Err(err(format!("a post names unknown board `{id}`")));
+                    }
+                    ReadEffect::Hint(r) if !self.exchanges.iter().any(|x| x.id == *r) => {
+                        return Err(err(format!("a post names unknown range `{r}`")));
+                    }
+                    _ => {}
+                }
             }
             for area in &b.areas {
                 if area.files.is_empty() || area.stock == 0 {

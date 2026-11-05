@@ -42,7 +42,11 @@ fn render(g: &Game, screen: Screen) -> Vec<String> {
 fn the_shipped_boards() {
     let d = data();
     let ids: Vec<&str> = d.boards.iter().map(|b| b.id.as_str()).collect();
-    assert_eq!(ids, ["gutter", "corplink", "deadsector"], "default first");
+    assert_eq!(
+        ids,
+        ["gutter", "corplink", "deadsector", "sensenet"],
+        "default first"
+    );
     assert!(d.boards[0].default);
     assert_eq!(d.boards[0].name, "THE NEON GUTTER");
     assert!(d.boards.iter().all(|b| !b.splash.is_empty()));

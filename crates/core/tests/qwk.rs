@@ -11,6 +11,10 @@ fn fresh(d: &Data) -> Save {
     let mut s = Save::default();
     s.ensure_key(0x0C0C);
     s.ensure_phonebook(d, 3);
+    s.add_starters(d);
+    // These tests read the Gutter's packet alone.
+    s.boards.clear();
+    s.learn_board("gutter", "test");
     s
 }
 
