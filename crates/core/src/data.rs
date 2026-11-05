@@ -996,6 +996,14 @@ impl Data {
                 ));
             }
         }
+        let default_free = &self.starts.kit("").free;
+        if default_free
+            .iter()
+            .map(String::as_str)
+            .ne(crate::tuning::START_WAREZ.iter().copied())
+        {
+            return Err("tuning::START_WAREZ must match the default kit's free programs".into());
+        }
         for id in crate::tuning::START_WAREZ
             .iter()
             .chain(crate::tuning::CLASSIC_WAREZ)

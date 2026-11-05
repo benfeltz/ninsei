@@ -19,10 +19,11 @@
          traits: ["graveyard", "skint", "mesh"]),
     ],
     kits: [
-        // Today's start: the Security Suite and nothing else.
-        (id: "nothing", default: true, free: ["firewall", "patch"]),
-        // A generic breaker in the box; the specialists are found on the boards.
-        (id: "pick", free: ["firewall", "patch", "icepick"]),
+        // The Security Suite and nothing else: every breaker is found.
+        (id: "nothing", free: ["firewall", "patch"]),
+        // The start players get: the suite and a generic breaker in the box; the specialists
+        // (Decoder, Garrote, Crowbar) are found on the boards.
+        (id: "pick", default: true, free: ["firewall", "patch", "icepick"]),
         // The start before #103 and #105.
         (id: "classic", free: ["icepick", "firewall", "patch", "decoder"], boards: ["gutter"],
          numbers: true, tools: ["wardial", "hexed"]),
