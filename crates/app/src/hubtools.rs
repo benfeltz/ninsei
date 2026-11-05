@@ -350,7 +350,8 @@ pub fn stash(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>, edit: 
             .strong(),
     );
     ui.horizontal_wrapped(|ui| {
-        for id in tuning::START_WAREZ {
+        for id in save.free(data) {
+            let id = id.as_str();
             let mut on = save.loadout.starters.iter().any(|s| s == id);
             let name = data
                 .warez_ix(id)

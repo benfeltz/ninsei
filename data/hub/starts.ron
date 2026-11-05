@@ -1,0 +1,31 @@
+// How a new deck starts. Every save gets `always` plus one kit, applied once on its first boot
+// (hub::Save::ensure_phonebook); the default kit is the one players get. Kits are for trying
+// starts against each other in the balance probe (`balance careers --kit <id>`).
+//
+// always: networks every deck starts with, whatever the kit. Sense/Net's customer board
+//         (hub::FIRST_BOARD) is always known too.
+// kits:
+//   free     programs the deck ships with: free, always in the loadout, never lost
+//   boards   board numbers already in the phonebook
+//   numbers  the starter networks (tuning::PHONEBOOK_START) already in the phonebook
+//   tools    desktop tools already installed
+//   ranges   number ranges already known (the local exchange always is)
+//   bank     credits in the bank
+(
+    always: [
+        // The college's network: lightly watched, little worth taking, wide open. Its board
+        // is a tier-1 one: usually the Gutter.
+        (name: "Ninsei Community College", business: "school", number: "555-0420", tier: 1,
+         traits: ["graveyard", "skint", "mesh"]),
+    ],
+    kits: [
+        // The Security Suite and nothing else: every breaker is found.
+        (id: "nothing", free: ["firewall", "patch"]),
+        // The start players get: the suite and a generic breaker in the box; the specialists
+        // (Decoder, Garrote, Crowbar) are found on the boards.
+        (id: "pick", default: true, free: ["firewall", "patch", "icepick"]),
+        // The start before #103 and #105.
+        (id: "classic", free: ["icepick", "firewall", "patch", "decoder"], boards: ["gutter"],
+         numbers: true, tools: ["wardial", "hexed"]),
+    ],
+)

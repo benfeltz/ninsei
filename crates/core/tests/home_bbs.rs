@@ -32,11 +32,15 @@ fn knows_all(bank: u32) -> Save {
 }
 
 #[test]
-fn a_fresh_phonebook_has_only_sense_net() {
+fn a_fresh_phonebook_has_sense_net_and_the_school() {
     let d = data();
     let mut s = Save::default();
     s.ensure_phonebook(&d, 7);
-    assert!(s.phonebook.is_empty());
+    assert_eq!(
+        s.phonebook.len(),
+        d.starts.always.len(),
+        "only the networks everyone gets"
+    );
     assert_eq!(s.boards.len(), 1);
     assert!(s.knows_board(ninsei_core::hub::FIRST_BOARD));
     let b = d.board(ninsei_core::hub::FIRST_BOARD).unwrap();

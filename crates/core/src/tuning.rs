@@ -7,8 +7,10 @@ pub const START_HDD: u32 = 6;
 pub const START_INTEGRITY: u32 = 18;
 
 /// Warez on the HDD at the start of a run. The first ones that fit in RAM start loaded.
-/// What a new deck ships with: the Sense/Net Security Suite. Breakers come from the boards.
-pub const START_WAREZ: &[&str] = &["firewall", "patch"];
+/// What a new deck ships with before its kit is applied: the default kit's free programs
+/// (`data/hub/starts.ron`; `Data::validate` keeps them the same). The Security Suite and a
+/// generic breaker; the specialists come from the boards.
+pub const START_WAREZ: &[&str] = &["firewall", "patch", "icepick"];
 /// The four a deck shipped with before the suite: still free on saves from then, and what a
 /// bare `Game::new` carries.
 pub const CLASSIC_WAREZ: &[&str] = &["icepick", "firewall", "patch", "decoder"];

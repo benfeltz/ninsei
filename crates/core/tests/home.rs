@@ -83,10 +83,10 @@ fn loadout_respects_the_hdd_and_never_goes_empty() {
     let mut s = save();
     // Starters fill 4 of 6.
     assert_eq!(s.loadout_size(), tuning::START_WAREZ.len());
-    s.toggle_starter(&d.rig, "patch").unwrap();
+    s.toggle_starter(&d, &d.rig, "patch").unwrap();
     assert_eq!(s.loadout_size(), tuning::START_WAREZ.len() - 1);
     assert!(
-        s.toggle_starter(&d.rig, "torch").is_err(),
+        s.toggle_starter(&d, &d.rig, "torch").is_err(),
         "torch isn't a starter"
     );
     s.loadout.starters.clear();
@@ -262,15 +262,22 @@ fn saves_from_before_the_stash_still_load() {
 }
 
 #[test]
-fn a_new_deck_ships_with_the_security_suite_only() {
+fn a_new_deck_ships_with_the_suite_and_a_generic_breaker() {
     let d = data();
     let mut s = save();
     let g = s.jack_in(&d, &d.rig, 3);
     let mut names: Vec<String> = g.hdd.iter().map(|p| d.warez[p.warez].id.clone()).collect();
     names.sort();
-    assert_eq!(names, vec!["firewall", "patch"], "no breakers in the box");
-    assert!(s.toggle_starter(&d.rig, "icepick").is_err());
-    // An older save's breakers in the loadout don't come free any more.
+    assert_eq!(
+        names,
+        vec!["firewall", "icepick", "patch"],
+        "the default kit"
+    );
+    assert!(
+        s.toggle_starter(&d, &d.rig, "decoder").is_err(),
+        "specialists are found, not free"
+    );
+    // An older save's Decoder in the loadout doesn't come free any more.
     s.loadout.starters = tuning::CLASSIC_WAREZ
         .iter()
         .map(|w| w.to_string())

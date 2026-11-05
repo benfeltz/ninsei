@@ -619,7 +619,10 @@ impl App {
         let rig = self.data.rig.clone();
         let result = match o {
             WbOut::Buy(u) => self.save.buy(&rig, u),
-            WbOut::ToggleStarter(id) => self.save.toggle_starter(&rig, &id).map(|()| String::new()),
+            WbOut::ToggleStarter(id) => self
+                .save
+                .toggle_starter(&self.data, &rig, &id)
+                .map(|()| String::new()),
             WbOut::ToggleStash(id) => self.save.toggle_stash(&rig, id).map(|()| String::new()),
             WbOut::Scrap(id) => Ok(self
                 .save
