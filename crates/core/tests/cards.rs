@@ -42,7 +42,7 @@ fn facts_come_from_the_rules() {
         .join("\n");
     assert!(all.contains(&format!("At {}%", tuning::TRACE_MAX)));
     assert!(all.contains(&format!("{} CPU", tuning::START_CPU)));
-    assert!(all.contains(&d.boards[0].phone));
+    assert!(all.contains(&format!("{}¢", d.boards[0].call_cost)));
     assert_eq!(cards::fill("{nope} x", &d), "{nope} x");
 }
 
