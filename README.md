@@ -131,7 +131,7 @@ You always know the wide, sparse local exchange (`555-xxxx`). Better targets liv
 Runs are for taking things; home is for building. **Reach the exit** and the run's credits and fragments are banked, and you pick programs to keep in your stash. **Flatline** and you lose it all, except the 10% your dead man's switch wires out.
 
 - **RIG**: spend banked credits on permanent upgrades: RAM, CPU, HDD, integrity, stash slots. Each level costs more than the last ([`data/hub/rig.ron`](data/hub/rig.ron)).
-- **STASH**: programs you kept (2 slots to start) and your loadout for the next run. The four starter programs are always free. Stash programs you take into a run leave the stash: they come back only if you do.
+- **STASH**: programs you kept (2 slots to start) and your loadout for the next run. Your deck's **Security Suite** (Firewall and Patch) is always free. Breakers aren't in the box: the Gutter's FREEWARE has IcePick and Decoder, free, and the Gutter is a local call. Stash programs you take into a run leave the stash: they come back only if you do.
 - **HexEd** (once downloaded): the hex editor, at home, on your stash, with banked fragments to optimize. In a run you can only compile while connected to a BBS.
 
 ![rig](docs/shots/rig.png)

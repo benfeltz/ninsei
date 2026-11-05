@@ -113,25 +113,30 @@ fn wardialing_a_boards_block_finds_it() {
 fn a_call_costs_the_phone_bill() {
     let d = data();
     let rig = &d.rig;
-    let gutter = d.board("gutter").unwrap();
+    let far = d.board("deadsector").unwrap();
     let mut s = save(100);
     assert!(
-        s.call_board(&d, rig, gutter)
+        s.call_board(&d, rig, far)
             .unwrap_err()
             .contains("don't have")
     );
-    s.learn_board("gutter", "a test");
-    let cost = d.boards[gutter].call_cost;
-    let call = s.call_board(&d, rig, gutter).unwrap();
+    s.learn_board("deadsector", "a test");
+    let cost = d.boards[far].call_cost;
+    assert!(cost > 0);
+    let call = s.call_board(&d, rig, far).unwrap();
     assert_eq!(s.bank, 100 - cost);
     assert_eq!(call.credits(), s.bank);
     let mut broke = knows_all(0);
     assert!(
         broke
-            .call_board(&d, rig, gutter)
+            .call_board(&d, rig, far)
             .unwrap_err()
             .contains("phone bill")
     );
+    // The Gutter is a local number: free, even with an empty bank.
+    let gutter = d.board("gutter").unwrap();
+    assert_eq!(d.boards[gutter].call_cost, 0);
+    assert!(broke.call_board(&d, rig, gutter).is_ok());
 }
 
 #[test]
