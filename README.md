@@ -107,6 +107,7 @@ A fresh deck has no wardialer and no hex editor. They're on **THE NEON GUTTER** 
 ![the starter kit, downloaded](docs/shots/bbs-tools.png)
 ![the QWK reader's packet](docs/shots/qwk-board.png)
 ![reading a saved textfile at home](docs/shots/qwk-read.png)
+![the ICE database](docs/shots/icedb.png)
 
 ### Finding numbers: WarDial
 
