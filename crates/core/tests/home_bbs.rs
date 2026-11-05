@@ -23,6 +23,14 @@ fn save(bank: u32) -> Save {
     s
 }
 
+fn knows_all(bank: u32) -> Save {
+    let mut s = save(bank);
+    for b in &data().boards {
+        s.learn_board(&b.id, "a test");
+    }
+    s
+}
+
 #[test]
 fn a_fresh_phonebook_has_only_sense_net() {
     let d = data();
