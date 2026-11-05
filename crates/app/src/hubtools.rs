@@ -382,10 +382,18 @@ pub fn icedb(ui: &mut Ui, data: &Data, save: &Save, sel: &mut Option<usize>) {
         ui.vertical(|ui| {
             ui.set_width(170.0);
             for (i, e) in all.iter().enumerate() {
+                let on = *sel == Some(i);
+                // A picked row is filled with the accent, so its text takes the selection's
+                // own colour (as `wb_visuals` sets it), never the ink it would vanish into.
+                let colour = match (on, e.seen.is_some()) {
+                    (true, _) => shadow(),
+                    (false, true) => ink(),
+                    (false, false) => muted(),
+                };
                 let label = RichText::new(format!("{:<12}", e.name()))
                     .monospace()
-                    .color(if e.seen.is_some() { ink() } else { muted() });
-                if ui.selectable_label(*sel == Some(i), label).clicked() {
+                    .color(colour);
+                if ui.selectable_label(on, label).clicked() {
                     *sel = Some(i);
                 }
             }
