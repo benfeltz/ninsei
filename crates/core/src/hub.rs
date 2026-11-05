@@ -37,16 +37,19 @@ pub enum Tool {
     Qwk,
     /// The ICE database: every ICE you've fought.
     IceDb,
+    /// The Welcome to the Net stack (`data/stacks/welcome.ron`).
+    Guide,
 }
 
 impl Tool {
-    pub const ALL: [Tool; 8] = [
+    pub const ALL: [Tool; 9] = [
         Tool::Terminal,
         Tool::Rig,
         Tool::Stash,
         Tool::HexEd,
         Tool::Qwk,
         Tool::IceDb,
+        Tool::Guide,
         Tool::Shell,
         Tool::Prefs,
     ];
@@ -67,6 +70,7 @@ impl Tool {
             Tool::Prefs => "Prefs",
             Tool::Qwk => "QWK",
             Tool::IceDb => "ICE DB",
+            Tool::Guide => "Welcome",
         }
     }
 }
@@ -672,6 +676,14 @@ pub struct Save {
     /// Programs open with their cracktros (`data/intros/`). On unless switched off in Prefs.
     #[serde(default = "default_intros")]
     pub intros: bool,
+    /// The Welcome to the Net stack has opened (on a new save's first boot). Old saves have
+    /// seen it: they know the Net.
+    #[serde(default = "seen")]
+    pub guide_seen: bool,
+}
+
+fn seen() -> bool {
+    true
 }
 
 fn default_intros() -> bool {
@@ -776,6 +788,7 @@ impl Default for Save {
             texts: Vec::new(),
             ice_seen: Vec::new(),
             intros: default_intros(),
+            guide_seen: false,
         }
     }
 }
@@ -1648,6 +1661,7 @@ pub fn shell_complete(before: &str, save: &Save, data: &Data) -> Vec<String> {
         "monitor" | "display" => save.monitors.clone(),
         "deck" => save.decks.clone(),
         "probe" => vec!["stop".into()],
+        "help" | "?" => vec!["net".into()],
         _ => Vec::new(),
     }
 }
@@ -1673,8 +1687,13 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
     let arg = words.next();
     let lines = |v: &[&str]| v.iter().map(|s| s.to_string()).collect::<Vec<_>>();
     match cmd.to_ascii_lowercase().as_str() {
+        "help" | "?" if arg == Some("net") => (
+            vec!["opening Welcome to the Net...".into()],
+            ShellEffect::Open(Tool::Guide),
+        ),
         "help" | "?" => (
             lines(&[
+                "help net         a guide to the Net",
                 "dir              list the desktop",
                 "run <tool>       open a tool (jackin, shell, ...)",
                 "phonebook        list numbers you can dial",

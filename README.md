@@ -36,6 +36,11 @@ Every push to `main` builds `dist/` and publishes it to GitHub Pages (`.github/w
 
 Between runs you're on your own machine, on the same monitor as your runs. What the desktop looks like is up to the deck's OS: the starter Sense/Net runs **Liza**, a 1-bit desktop after the first Mac; the Ono-Sendai runs **AnarchyOS**, a tiling desktop after Omarchy; the Hosaka runs **Desktop**, after Amiga Workbench 1.3. One theme colours the desktop and your runs; pick it in **Prefs**. Open **CarrierTerm**, pick a number from your phonebook and dial it: the modem handshakes, then the desktop drags down like an Amiga screen to reveal the run behind it. Reach the exit and you jack out home; flatline and the deck crashes first.
 
+New to the Net? **Welcome to the Net** is the HyperCard stack Sense/Net ships with the deck: it opens on a new save's first boot, lives on Liza's desktop (and under Special), and `help net` opens it from the Shell on any deck. One idea per card, ◀ ▶ to page, Home for the sections. It's data in [`data/stacks/welcome.ron`](data/stacks/welcome.ron), and its numbers come from the rules.
+
+![Welcome to the Net](docs/shots/welcome-home.png)
+![a card](docs/shots/welcome-card.png)
+
 ![the hub](docs/shots/hub.png)
 ![jacking in](docs/shots/hub-jackin.png)
 

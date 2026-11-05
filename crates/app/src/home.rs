@@ -126,6 +126,8 @@ pub enum WbOut {
     Glitches(ninsei_core::glitch::Glitches),
     /// Cracktros on or off.
     Intros(bool),
+    /// The Welcome to the Net stack opened on first boot.
+    GuideSeen,
     /// The Shell ran a command: keep its history in the save.
     ShellHistory(Vec<String>),
     /// Buy a secondary pane for the run screen in RIG (id).
@@ -244,6 +246,8 @@ pub struct Home {
     intro_playing: std::collections::HashMap<&'static str, f64>,
     /// For the app's speaker: an intro whose tune should start (its id), or stop.
     pub(crate) tune: Option<TuneCue>,
+    /// Where the Welcome to the Net stack is open.
+    pub(crate) guide_at: ninsei_core::cards::Place,
 }
 
 /// What the speaker should do with the cracktro's tune this frame.
@@ -288,6 +292,7 @@ impl Home {
             intro_drawn: Default::default(),
             intro_playing: Default::default(),
             tune: None,
+            guide_at: ninsei_core::cards::Place::Home,
         }
     }
 
@@ -590,6 +595,7 @@ impl Home {
             Tool::HexEd => hubtools::hexed(child, save, &mut self.hex, out, &mut edit),
             Tool::Qwk => self.qwk_reader(child, data, save),
             Tool::IceDb => hubtools::icedb(child, data, save, &mut self.icedb_sel),
+            Tool::Guide => hubtools::guide(child, data, &mut self.guide_at),
             Tool::Shell => {}
         }
         if let Some(id) = dial {

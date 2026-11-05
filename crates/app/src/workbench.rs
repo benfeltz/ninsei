@@ -35,6 +35,7 @@ enum Kind {
     HexEd,
     Qwk,
     IceDb,
+    Guide,
     /// "Please insert volume X in any drive".
     Requester(Tool),
 }
@@ -57,6 +58,7 @@ impl Win {
             Kind::HexEd => "HexEd".into(),
             Kind::Qwk => "OLX QWK Reader".into(),
             Kind::IceDb => "ICE DB".into(),
+            Kind::Guide => "Welcome to the Net".into(),
             Kind::Requester(_) => "System Request".into(),
         }
     }
@@ -94,6 +96,7 @@ impl Workbench {
             Tool::HexEd => Kind::HexEd,
             Tool::Qwk => Kind::Qwk,
             Tool::IceDb => Kind::IceDb,
+            Tool::Guide => Kind::Guide,
         };
         if let Some(i) = self.wins.iter().position(|w| w.kind == kind) {
             let w = self.wins.remove(i);
@@ -108,6 +111,7 @@ impl Workbench {
                 Kind::HexEd => (pos2(130.0, 36.0), vec2(800.0, 500.0)),
                 Kind::Qwk => (pos2(190.0, 46.0), vec2(700.0, 470.0)),
                 Kind::IceDb => (pos2(220.0, 60.0), vec2(700.0, 470.0)),
+                Kind::Guide => (pos2(240.0, 70.0), vec2(640.0, 440.0)),
                 Kind::Requester(_) => (pos2(260.0, 150.0), vec2(330.0, 150.0)),
             };
             self.wins.push(Win { kind, pos, size });
@@ -124,7 +128,12 @@ impl DesktopView for Workbench {
         for t in home.take_opens() {
             self.open(t);
         }
-        let icons: Vec<_> = data.icons.iter().filter(|i| save.opens(i.tool)).collect();
+        // The Welcome stack is the Sense/Net's: this desktop reaches it with `help net`.
+        let icons: Vec<_> = data
+            .icons
+            .iter()
+            .filter(|i| save.opens(i.tool) && i.tool != Tool::Guide)
+            .collect();
         let screen = ui.ctx().content_rect().translate(vec2(0.0, offset));
         let painter = ui.painter_at(screen);
         let at = |p: Pos2| screen.min + p.to_vec2();
@@ -351,6 +360,7 @@ impl DesktopView for Workbench {
                 | Kind::HexEd
                 | Kind::Qwk
                 | Kind::IceDb
+                | Kind::Guide
                 | Kind::Terminal
                 | Kind::Prefs => {
                     let mut child = ui.new_child(
@@ -370,6 +380,7 @@ impl DesktopView for Workbench {
                         Kind::Stash => Tool::Stash,
                         Kind::Qwk => Tool::Qwk,
                         Kind::IceDb => Tool::IceDb,
+                        Kind::Guide => Tool::Guide,
                         _ => Tool::HexEd,
                     };
                     crate::home::scrolled(&mut child, ("wb-scroll", tool), |ui| {
@@ -615,10 +626,15 @@ mod tests {
         let ctx = egui::Context::default();
         let mut wb = Workbench::new();
         let mut home = Home::new(Vec::new());
-        // Every icon, with another window opened over its own.
-        for (n, icon) in data.icons.iter().enumerate() {
+        // Every icon this desktop shows, with another window opened over its own.
+        let icons: Vec<_> = data
+            .icons
+            .iter()
+            .filter(|i| i.tool != Tool::Guide)
+            .collect();
+        for (n, icon) in icons.iter().enumerate() {
             wb.open(icon.tool);
-            let other = data.icons[(n + 1) % data.icons.len()].tool;
+            let other = icons[(n + 1) % icons.len()].tool;
             wb.open(other);
             let at = pos2(60.0, SCREEN_BAR_H + 16.0 + n as f32 * ICON_PITCH + 20.0);
             let t = n as f64 * 10.0;
@@ -671,6 +687,7 @@ mod tests {
             Tool::HexEd => Kind::HexEd,
             Tool::Qwk => Kind::Qwk,
             Tool::IceDb => Kind::IceDb,
+            Tool::Guide => Kind::Guide,
         }
     }
 }

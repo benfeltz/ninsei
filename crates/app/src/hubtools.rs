@@ -366,6 +366,107 @@ pub fn stash(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>, edit: 
     ));
 }
 
+/// The Welcome to the Net stack as a HyperCard card: ink on paper, the card's picture on the
+/// left and its text on the right, ◀ Home ▶ along the bottom. The Home card lists the
+/// sections. Arrow keys page while the pointer is over it.
+pub fn guide(ui: &mut Ui, data: &Data, at: &mut ninsei_core::cards::Place) {
+    use ninsei_core::cards::{self, Place};
+    let stack = &data.welcome;
+    let all = stack.cards();
+    let (ink, paper) = (ink(), backdrop());
+    let over = ui
+        .ctx()
+        .pointer_hover_pos()
+        .is_some_and(|p| ui.clip_rect().contains(p));
+    if over {
+        let (l, r, h) = ui.input(|i| {
+            (
+                i.key_pressed(egui::Key::ArrowLeft),
+                i.key_pressed(egui::Key::ArrowRight),
+                i.key_pressed(egui::Key::Home),
+            )
+        });
+        if l {
+            *at = at.prev();
+        } else if r {
+            *at = at.next(stack);
+        } else if h {
+            *at = Place::Home;
+        }
+    }
+    let mono = |s: &str, size: f32| RichText::new(s).monospace().size(size).color(ink);
+    egui::Frame::new()
+        .fill(paper)
+        .stroke(egui::Stroke::new(2.0, ink))
+        .corner_radius(8.0)
+        .inner_margin(14.0)
+        .show(ui, |ui| {
+            ui.set_min_size(egui::vec2(560.0, 300.0));
+            match *at {
+                Place::Home => {
+                    ui.label(mono(&stack.title, 20.0).strong());
+                    ui.label(mono("from your friends at Sense/Net", 12.0));
+                    ui.add_space(10.0);
+                    for (i, s) in stack.sections.iter().enumerate() {
+                        let n = s.cards.len();
+                        if ui
+                            .button(mono(&format!("{:<16} {n} card(s)", s.name), 14.0))
+                            .clicked()
+                        {
+                            *at = Place::Card(stack.section_start(i));
+                        }
+                    }
+                }
+                Place::Card(i) => {
+                    let Some((sec, card)) = all.get(i) else {
+                        *at = Place::Home;
+                        return;
+                    };
+                    ui.horizontal(|ui| {
+                        ui.label(mono(&card.title, 18.0).strong());
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(mono(&stack.sections[*sec].name, 12.0));
+                        });
+                    });
+                    ui.add_space(8.0);
+                    ui.horizontal_top(|ui| {
+                        if let Some(rows) =
+                            card.picture.as_ref().and_then(|p| stack.pictures.get(p))
+                        {
+                            let scale = 3.0;
+                            let size = crate::patterns::bitmap_size(rows, scale);
+                            let (r, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+                            crate::patterns::bitmap(ui.painter(), rows, r.min, scale, ink, paper);
+                            ui.add_space(12.0);
+                        }
+                        ui.vertical(|ui| {
+                            for l in &card.text {
+                                ui.label(mono(&cards::fill(l, data), 13.0));
+                            }
+                        });
+                    });
+                }
+            }
+        });
+    ui.add_space(6.0);
+    ui.horizontal(|ui| {
+        if ui.button(mono("◀", 14.0)).clicked() {
+            *at = at.prev();
+        }
+        if ui.button(mono("Home", 14.0)).clicked() {
+            *at = Place::Home;
+        }
+        if ui.button(mono("▶", 14.0)).clicked() {
+            *at = at.next(stack);
+        }
+        let where_ = match *at {
+            Place::Home => "Home".to_string(),
+            Place::Card(i) => format!("card {} of {}", i + 1, all.len()),
+        };
+        ui.label(RichText::new(where_).monospace().color(muted()));
+    });
+}
+
 /// The ICE database: every ICE down the left (`????` until you've met it), the picked one's
 /// page on the right. Read-only; the save fills it in after each run.
 pub fn icedb(ui: &mut Ui, data: &Data, save: &Save, sel: &mut Option<usize>) {

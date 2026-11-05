@@ -670,6 +670,7 @@ impl App {
             | WbOut::Sound
             | WbOut::Glitches(_)
             | WbOut::Intros(_)
+            | WbOut::GuideSeen
             | WbOut::HelpSeen
             | WbOut::Tiling(_)
             | WbOut::BuyAddon(_)
@@ -1215,6 +1216,10 @@ impl eframe::App for App {
                         self.save.glitches = g;
                         self.save_dirty = true;
                         self.home.say(format!("damage glitches {}", g.label()));
+                    }
+                    WbOut::GuideSeen => {
+                        self.save.guide_seen = true;
+                        self.save_dirty = true;
                     }
                     WbOut::Intros(on) => {
                         self.save.intros = on;
