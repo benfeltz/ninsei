@@ -7,7 +7,11 @@ pub const START_HDD: u32 = 6;
 pub const START_INTEGRITY: u32 = 18;
 
 /// Warez on the HDD at the start of a run. The first ones that fit in RAM start loaded.
-pub const START_WAREZ: &[&str] = &["icepick", "firewall", "patch", "decoder"];
+/// What a new deck ships with: the Sense/Net Security Suite. Breakers come from the boards.
+pub const START_WAREZ: &[&str] = &["firewall", "patch"];
+/// The four a deck shipped with before the suite: still free on saves from then, and what a
+/// bare `Game::new` carries.
+pub const CLASSIC_WAREZ: &[&str] = &["icepick", "firewall", "patch", "decoder"];
 
 /// Trace is the doom clock: at `TRACE_MAX` you are flatlined.
 pub const TRACE_MAX: u32 = 100;

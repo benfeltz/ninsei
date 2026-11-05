@@ -11,6 +11,18 @@ fn fresh(d: &Data) -> Save {
     s.ensure_key(0x1CE);
     s.ensure_phonebook(d, 3);
     s.ensure_hardware(d);
+    // Breakers from the Gutter's FREEWARE, so the fights can be won.
+    for id in ["icepick", "decoder"] {
+        let w = d.warez_ix(id).unwrap();
+        let item = s.next_item;
+        s.next_item += 1;
+        s.stash.push(ninsei_core::hub::StashItem {
+            id: item,
+            origin: id.into(),
+            hex: ninsei_core::binary::to_hex(&ninsei_core::binary::encode(&d.warez[w], s.key)),
+        });
+        s.toggle_stash(&d.rig, item).unwrap();
+    }
     s
 }
 
@@ -43,7 +55,12 @@ fn fight_once(s: &mut Save, d: &Data, seed: u64, win: bool) -> Option<String> {
             if g.phase != Phase::Combat {
                 break;
             }
-            let ran = (0..g.hdd.len()).find(|&i| g.preview(i).is_ok());
+            let ok = |i: &usize| g.preview(*i).is_ok();
+            let breaks = |i: &usize| matches!(g.hdd[*i].spec.effect, Effect::Break { .. });
+            let ran = (0..g.hdd.len())
+                .filter(ok)
+                .find(breaks)
+                .or_else(|| (0..g.hdd.len()).find(ok));
             match ran {
                 Some(i) => g.apply(Action::Run(i)),
                 None => g.apply(Action::EndTurn),

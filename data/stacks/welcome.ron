@@ -147,7 +147,7 @@
                 "3. A bulletin board opens in its own window. Press",
                 "   the keys in [brackets] to find your way around.",
                 "",
-                "Calls to bulletin boards cost {call_cost}¢ on your phone bill.",
+                "Local calls are free. Long distance goes on your bill.",
                 "You can also type `phonebook` and `dial 1` in Shell.",
             ]),
             (title: "Your Security Suite", picture: Some("shield"), text: [

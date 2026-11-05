@@ -1318,7 +1318,13 @@ impl Save {
     /// An empty loadout falls back to the starters, so you can never jack in with nothing.
     pub fn kit(&self, data: &Data, defs: &[UpgradeDef]) -> Kit {
         let mut programs = Vec::new();
-        for id in &self.loadout.starters {
+        // Only the Security Suite is free: a loadout from an older save loses its breakers.
+        for id in self
+            .loadout
+            .starters
+            .iter()
+            .filter(|id| START_WAREZ.contains(&id.as_str()))
+        {
             if let Some(w) = data.warez_ix(id) {
                 programs.push((w, binary::encode(&data.warez[w], self.key)));
             }
@@ -1344,6 +1350,7 @@ impl Save {
             jobs: Vec::new(),
             trust: self.trust.clone(),
             tools: self.tools.clone(),
+            free: starter_ids(),
             texts: self
                 .texts
                 .iter()

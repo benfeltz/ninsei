@@ -40,7 +40,6 @@ fn facts_come_from_the_rules() {
         .collect::<Vec<_>>()
         .join("\n");
     assert!(all.contains(&format!("{} CPU", tuning::START_CPU)));
-    assert!(all.contains(&format!("{}¢", d.boards[0].call_cost)));
     assert_eq!(cards::fill("{nope} x", &d), "{nope} x");
 }
 
