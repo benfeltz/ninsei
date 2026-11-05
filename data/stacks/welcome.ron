@@ -5,6 +5,21 @@
 (
     title: "Welcome to the Net",
     pictures: {
+        "shield": [
+            "......############......",
+            "....##............##....",
+            "...#................#...",
+            "...#.....######.....#...",
+            "...#....#......#....#...",
+            "...#....#......#....#...",
+            "...#...##########...#...",
+            "...#...##########...#...",
+            "....#..####..####..#....",
+            ".....#.##########.#.....",
+            "......#..........#......",
+            ".......##......##.......",
+            ".........######.........",
+        ],
         "deck": [
             "................................",
             "..##########################....",
@@ -134,6 +149,17 @@
                 "",
                 "Calls to bulletin boards cost {call_cost}¢ on your phone bill.",
                 "You can also type `phonebook` and `dial 1` in Shell.",
+            ]),
+            (title: "Your Security Suite", picture: Some("shield"), text: [
+                "Your deck comes with the Sense/Net Security Suite,",
+                "two programs to keep you safe on the Net:",
+                "",
+                "  FIREWALL soaks up harm before it reaches your deck.",
+                "  PATCH repairs your deck when something gets through.",
+                "",
+                "Load them from your warez and run them when you need",
+                "them. They're yours to keep, free, for as long as you",
+                "own your deck.",
             ]),
             (title: "That's the tour", picture: Some("deck"), text: [
                 "That's everything you need to get started.",
