@@ -658,10 +658,14 @@ impl App {
                         let mut view = BbsView::new();
                         view.order = egui::Order::Foreground;
                         let d = &self.data.boards[board];
-                        let msg = format!(
-                            "CONNECT {} to {}. Phone bill -{}¢.",
-                            d.baud, d.name, d.call_cost
-                        );
+                        let msg = if d.call_cost == 0 {
+                            format!("CONNECT {} to {}. A local call: free.", d.baud, d.name)
+                        } else {
+                            format!(
+                                "CONNECT {} to {}. Phone bill -{}¢.",
+                                d.baud, d.name, d.call_cost
+                            )
+                        };
                         self.home_bbs = Some((view, call));
                         Ok(msg)
                     }
