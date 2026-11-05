@@ -9,9 +9,11 @@
 //   hexed    the HexEd tool at home, and `hex`, patch and optimize in a run
 //   qwkread  the QWK mail reader at home: bulletins and saved textfiles from your boards
 //   icedb    the ICE database at home: every ICE you've fought, and what breaks it
+//   nightcomm the hacker terminal at home: heat, tiers and traits on every number you know
 [
     (id: "wardial", name: "WarDial", blurb: "A demon dialer: scans a block of numbers for carriers.", intro: Some("wardial")),
     (id: "hexed",   name: "HexEd",   blurb: "A hex editor for warez binaries. Patch, optimize, break things.", intro: Some("hexed")),
     (id: "icedb",   name: "ICE DB",  blurb: "A bestiary of intrusion countermeasures. Fills in as you meet them.", intro: Some("icedb")),
+    (id: "nightcomm", name: "NiGHTCOMM", blurb: "A hacker's terminal: heat, tier and quirks on every number you know.", intro: Some("nightcomm")),
     (id: "qwkread", name: "QWK Reader", blurb: "Offline mail: read your boards' bulletins and saved textfiles at home.", intro: Some("qwkread")),
 ]

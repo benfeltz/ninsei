@@ -26,6 +26,6 @@
         (id: "pick", default: true, free: ["firewall", "patch", "icepick"]),
         // The start before #103 and #105.
         (id: "classic", free: ["icepick", "firewall", "patch", "decoder"], boards: ["gutter"],
-         numbers: true, tools: ["wardial", "hexed"]),
+         numbers: true, tools: ["wardial", "hexed", "nightcomm"]),
     ],
 )

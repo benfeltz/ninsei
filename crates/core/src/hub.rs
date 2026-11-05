@@ -40,18 +40,21 @@ pub enum Tool {
     Qwk,
     /// The ICE database: every ICE you've fought.
     IceDb,
+    /// NiGHTCOMM, the hacker terminal: heat, tiers and traits on every number you know.
+    NightComm,
     /// The Welcome to the Net stack (`data/stacks/welcome.ron`).
     Guide,
 }
 
 impl Tool {
-    pub const ALL: [Tool; 9] = [
+    pub const ALL: [Tool; 10] = [
         Tool::Terminal,
         Tool::Rig,
         Tool::Stash,
         Tool::HexEd,
         Tool::Qwk,
         Tool::IceDb,
+        Tool::NightComm,
         Tool::Guide,
         Tool::Shell,
         Tool::Prefs,
@@ -73,6 +76,7 @@ impl Tool {
             Tool::Prefs => "Prefs",
             Tool::Qwk => "QWK",
             Tool::IceDb => "ICE DB",
+            Tool::NightComm => "NiGHTCOMM",
             Tool::Guide => "Welcome",
         }
     }
@@ -963,6 +967,7 @@ impl Save {
             Tool::HexEd => self.has_tool("hexed"),
             Tool::Qwk => self.has_tool("qwkread"),
             Tool::IceDb => self.has_tool("icedb"),
+            Tool::NightComm => self.has_tool("nightcomm"),
             _ => true,
         }
     }
@@ -1969,19 +1974,25 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
             if save.phonebook.is_empty() && boards.is_empty() {
                 return (vec!["the phonebook is empty.".into()], ShellEffect::None);
             }
+            // CarrierTerm's directory is names and numbers; NiGHTCOMM knows the rest.
+            let intel = save.has_tool("nightcomm");
             let mut out: Vec<String> = save
                 .phonebook
                 .iter()
                 .enumerate()
                 .map(|(i, e)| {
-                    format!(
-                        "{:>2}  {}  {:<22} T{}  heat {}",
-                        i + 1,
-                        e.number,
-                        e.name,
-                        e.tier,
-                        e.heat
-                    )
+                    if intel {
+                        format!(
+                            "{:>2}  {}  {:<22} T{}  heat {}",
+                            i + 1,
+                            e.number,
+                            e.name,
+                            e.tier,
+                            e.heat
+                        )
+                    } else {
+                        format!("{:>2}  {}  {:<22} {}", i + 1, e.number, e.name, e.business)
+                    }
                 })
                 .collect();
             let first = save.phonebook.len() + 1;

@@ -301,3 +301,29 @@ fn the_school_nets_board_is_the_gutter() {
         "a way to the Gutter from the first network"
     );
 }
+
+#[test]
+fn the_phonebook_is_a_directory_until_nightcomm() {
+    let (d, mut s) = book();
+    let (plain, _) = hub::shell("phonebook", &s, &d);
+    assert!(plain.iter().all(|l| !l.contains("heat")), "{plain:?}");
+    assert!(plain[0].contains(&s.phonebook[0].business));
+    s.learn_tool("nightcomm");
+    let (intel, _) = hub::shell("phonebook", &s, &d);
+    assert!(
+        intel[0].contains("T1") && intel[0].contains("heat"),
+        "{intel:?}"
+    );
+}
+
+#[test]
+fn nightcomm_comes_from_dead_sector() {
+    let d = data();
+    let b = &d.boards[d.board("deadsector").unwrap()];
+    assert!(b.areas.iter().any(|a| {
+        a.always
+            && a.files
+                .iter()
+                .any(|f| f.item == ninsei_core::data::Drop::Tool("nightcomm".into()))
+    }));
+}

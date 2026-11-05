@@ -70,7 +70,11 @@ pub struct IntroDef {
     #[serde(default)]
     pub effects: Vec<FxDef>,
     /// Handles, crews and boards to greet, in order.
+    #[serde(default)]
     pub greetz: Vec<String>,
+    /// A splash instead of a crack: the scroller shows this line, no crew and no greetz.
+    #[serde(default)]
+    pub tagline: Option<String>,
     /// The chiptune it plays, if any.
     #[serde(default)]
     pub tune: Option<TuneDef>,
@@ -278,8 +282,8 @@ impl IntroDef {
                 return err(format!("effect rows {}..{} out of range", e.from, e.to));
             }
         }
-        if self.greetz.is_empty() {
-            return err("no greetz".into());
+        if self.greetz.is_empty() && self.tagline.is_none() {
+            return err("no greetz (or a tagline)".into());
         }
         if let Some(t) = &self.tune
             && let Err(e) = t.validate()
@@ -296,6 +300,9 @@ impl IntroDef {
 
     /// The scroller's whole loop: who cracked it, the board, then the greetz.
     pub fn scroller(&self, data: &Data) -> String {
+        if let Some(t) = &self.tagline {
+            return format!("{t} ▪ ");
+        }
         let board = data
             .board(&self.board)
             .map(|b| &data.boards[b])

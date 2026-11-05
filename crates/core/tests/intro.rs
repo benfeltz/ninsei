@@ -90,8 +90,10 @@ fn a_bad_intro_is_caught() {
 #[test]
 fn every_intro_has_a_tune_that_renders() {
     let d = data();
-    for i in &d.intros {
-        let tune = i.tune.as_ref().expect("every intro plays a tune");
+    // The Gutter's cracktros play a tune; the terminals' splashes are silent.
+    let silent = ["carrierterm", "nightcomm"];
+    for i in d.intros.iter().filter(|i| !silent.contains(&i.id.as_str())) {
+        let tune = i.tune.as_ref().expect("every cracktro plays a tune");
         let a = tune.render(8000, i.secs);
         assert_eq!(a.len(), (i.secs * 8000.0) as usize, "{}", i.id);
         assert!(a.iter().all(|s| (-1.0..=1.0).contains(s)));
@@ -113,4 +115,14 @@ fn notes_have_their_pitches() {
     let mut i = data().intro("hexed").unwrap().clone();
     i.tune.as_mut().unwrap().tracks[0].pattern = "C4 Q7 .".into();
     assert!(i.validate(&data()).unwrap_err().contains("bad step"));
+}
+
+#[test]
+fn the_terminals_splashes_are_silent() {
+    let d = data();
+    for id in ["carrierterm", "nightcomm"] {
+        assert!(d.intro(id).unwrap().tune.is_none(), "{id}");
+    }
+    let c = d.intro("carrierterm").unwrap();
+    assert!(c.scroller(&d).contains("Sense/Net") && !c.scroller(&d).contains("CRACKED"));
 }

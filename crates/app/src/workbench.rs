@@ -35,6 +35,7 @@ enum Kind {
     HexEd,
     Qwk,
     IceDb,
+    NightComm,
     Guide,
     /// "Please insert volume X in any drive".
     Requester(Tool),
@@ -58,6 +59,7 @@ impl Win {
             Kind::HexEd => "HexEd".into(),
             Kind::Qwk => "OLX QWK Reader".into(),
             Kind::IceDb => "ICE DB".into(),
+            Kind::NightComm => "NiGHTCOMM 3.1".into(),
             Kind::Guide => "Welcome to the Net".into(),
             Kind::Requester(_) => "System Request".into(),
         }
@@ -96,6 +98,7 @@ impl Workbench {
             Tool::HexEd => Kind::HexEd,
             Tool::Qwk => Kind::Qwk,
             Tool::IceDb => Kind::IceDb,
+            Tool::NightComm => Kind::NightComm,
             Tool::Guide => Kind::Guide,
         };
         if let Some(i) = self.wins.iter().position(|w| w.kind == kind) {
@@ -111,6 +114,7 @@ impl Workbench {
                 Kind::HexEd => (pos2(130.0, 36.0), vec2(800.0, 500.0)),
                 Kind::Qwk => (pos2(190.0, 46.0), vec2(700.0, 470.0)),
                 Kind::IceDb => (pos2(220.0, 60.0), vec2(700.0, 470.0)),
+                Kind::NightComm => (pos2(180.0, 50.0), vec2(720.0, 470.0)),
                 Kind::Guide => (pos2(240.0, 70.0), vec2(640.0, 440.0)),
                 Kind::Requester(_) => (pos2(260.0, 150.0), vec2(330.0, 150.0)),
             };
@@ -360,6 +364,7 @@ impl DesktopView for Workbench {
                 | Kind::HexEd
                 | Kind::Qwk
                 | Kind::IceDb
+                | Kind::NightComm
                 | Kind::Guide
                 | Kind::Terminal
                 | Kind::Prefs => {
@@ -380,6 +385,7 @@ impl DesktopView for Workbench {
                         Kind::Stash => Tool::Stash,
                         Kind::Qwk => Tool::Qwk,
                         Kind::IceDb => Tool::IceDb,
+                        Kind::NightComm => Tool::NightComm,
                         Kind::Guide => Tool::Guide,
                         _ => Tool::HexEd,
                     };
@@ -687,6 +693,7 @@ mod tests {
             Tool::HexEd => Kind::HexEd,
             Tool::Qwk => Kind::Qwk,
             Tool::IceDb => Kind::IceDb,
+            Tool::NightComm => Kind::NightComm,
             Tool::Guide => Kind::Guide,
         }
     }
