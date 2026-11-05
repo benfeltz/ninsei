@@ -40,7 +40,10 @@ fn sense_net_hands_out_the_first_numbers_and_the_gutter() {
         .expect("a partner directory");
     let msg = s.home_read(&d, board, Reading::Bulletin(dir)).unwrap();
     assert!(msg.starts_with("New numbers in CarrierTerm"), "{msg}");
-    assert_eq!(s.phonebook.len(), tuning::PHONEBOOK_START.len());
+    assert_eq!(
+        s.phonebook.len(),
+        d.starts.always.len() + tuning::PHONEBOOK_START.len()
+    );
     assert_eq!(
         s.home_read(&d, board, Reading::Bulletin(dir)).unwrap(),
         "",

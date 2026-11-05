@@ -12,9 +12,10 @@ fn book() -> (Data, Save) {
     let mut s = Save::default();
     s.ensure_key(7);
     assert!(s.ensure_phonebook(&d, 99));
-    assert!(
-        s.phonebook.is_empty(),
-        "a new deck knows one board, no networks"
+    assert_eq!(
+        s.phonebook.len(),
+        d.starts.always.len(),
+        "a new deck knows one board and the networks everyone starts with"
     );
     s.add_starters(&d);
     (d, s)
@@ -40,10 +41,11 @@ fn entry(s: &mut Save, tier: u32, traits: &[&str]) -> u32 {
 #[test]
 fn the_partner_directory_gives_a_handful_of_numbers() {
     let (d, s) = book();
-    assert_eq!(s.phonebook.len(), tuning::PHONEBOOK_START.len());
-    let tiers: Vec<u32> = s.phonebook.iter().map(|e| e.tier).collect();
+    let fixed = d.starts.always.len();
+    assert_eq!(s.phonebook.len(), fixed + tuning::PHONEBOOK_START.len());
+    let tiers: Vec<u32> = s.phonebook[fixed..].iter().map(|e| e.tier).collect();
     assert_eq!(tiers, tuning::PHONEBOOK_START);
-    for (i, e) in s.phonebook.iter().enumerate() {
+    for (i, e) in s.phonebook.iter().enumerate().skip(fixed) {
         assert!(e.number.starts_with("555-") && e.number.len() == 8);
         assert!(
             !s.phonebook[..i]
@@ -65,6 +67,7 @@ fn the_partner_directory_gives_a_handful_of_numbers() {
     );
     let mut twin = Save::default();
     twin.ensure_key(7);
+    twin.ensure_phonebook(&d, 1);
     twin.add_starters(&d);
     assert_eq!(twin.phonebook, s.phonebook, "same save, same partners");
 }
@@ -145,8 +148,10 @@ fn trace_and_pay_scale() {
 #[test]
 fn heat_builds_on_a_network_and_cools_elsewhere() {
     let (d, mut s) = book();
-    let a = s.phonebook[0].id;
-    let b = s.phonebook[1].id;
+    // Two of the generated numbers (the school net's quiet traits would muddy the trace).
+    let fixed = d.starts.always.len();
+    let a = s.phonebook[fixed].id;
+    let b = s.phonebook[fixed + 1].id;
     for _ in 0..2 {
         let mut g = s.dial(&d, a, 1).unwrap();
         g.phase = Phase::JackedOut;
@@ -204,10 +209,76 @@ fn shell_dials_by_position_or_number() {
 }
 
 #[test]
-fn old_saves_get_a_phonebook() {
+fn old_saves_keep_their_start() {
     let d = data();
     let mut s = Save::load("(version: 1, runs: 4)").unwrap();
-    assert!(s.phonebook.is_empty());
-    assert!(s.ensure_phonebook(&d, 3));
+    assert!(s.started, "a save from before kits has started");
+    assert!(!s.ensure_phonebook(&d, 3), "no kit is applied to it");
     assert_eq!(Save::load(&s.to_text()).unwrap(), s);
+}
+
+#[test]
+fn every_deck_starts_with_the_school_net() {
+    let d = data();
+    for kit in &d.starts.kits {
+        let mut s = Save {
+            kit: kit.id.clone(),
+            ..Save::default()
+        };
+        s.ensure_key(5);
+        assert!(s.ensure_phonebook(&d, 1));
+        assert!(
+            s.phonebook
+                .iter()
+                .any(|e| e.name == "Ninsei Community College"),
+            "{}",
+            kit.id
+        );
+        assert!(s.knows_board(ninsei_core::hub::FIRST_BOARD));
+        assert_eq!(s.kit, kit.id);
+        assert_eq!(s.free(&d), &kit.free[..]);
+        assert_eq!(s.loadout.starters, kit.free);
+        assert!(!s.ensure_phonebook(&d, 1), "once");
+    }
+}
+
+#[test]
+fn kits_hand_out_what_they_say() {
+    let d = data();
+    let mut s = Save {
+        kit: "classic".into(),
+        ..Save::default()
+    };
+    s.ensure_key(9);
+    s.ensure_phonebook(&d, 1);
+    assert!(s.knows_board("gutter") && s.has_tool("wardial") && s.has_tool("hexed"));
+    assert_eq!(
+        s.phonebook.len(),
+        d.starts.always.len() + tuning::PHONEBOOK_START.len()
+    );
+    let e = s.phonebook[0].id;
+    let g = s.dial(&d, e, 4).unwrap();
+    assert!(
+        g.hdd.iter().any(|p| p.spec.name == "IcePick"),
+        "classic ships a breaker"
+    );
+    let mut p = Save {
+        kit: "pick".into(),
+        ..Save::default()
+    };
+    p.ensure_phonebook(&d, 1);
+    assert!(p.free(&d).iter().any(|w| w == "icepick"));
+    assert!(
+        !p.free(&d).iter().any(|w| w == "decoder"),
+        "specialists are found"
+    );
+    let unknown = Save {
+        kit: "nope".into(),
+        ..Save::default()
+    };
+    assert_eq!(
+        unknown.free(&d),
+        d.starts.kit("").free.as_slice(),
+        "unknown means default"
+    );
 }

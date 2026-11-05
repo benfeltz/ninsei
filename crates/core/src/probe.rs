@@ -652,9 +652,17 @@ pub struct Probe {
     recent: Vec<bool>,
     first: [u32; 2],
     t3_range: u32,
+    /// The starting kit careers begin with (an id in `data/hub/starts.ron`; empty: the default).
+    kit: String,
 }
 
 impl Probe {
+    /// Careers start from starting kit `id` instead of the default.
+    pub fn with_kit(mut self, id: &str) -> Probe {
+        self.kit = id.to_string();
+        self
+    }
+
     pub fn new(data: &Data, cfg: Config) -> Probe {
         Probe {
             cfg,
@@ -668,6 +676,7 @@ impl Probe {
             recent: Vec::new(),
             first: [0, 0],
             t3_range: 0,
+            kit: String::new(),
         }
     }
 
@@ -741,8 +750,12 @@ impl Probe {
                 ^ u64::from(self.run).wrapping_mul(0x9E37_79B9),
         );
         let data = self.data.clone();
+        let kit = self.kit.clone();
         let save = self.save.get_or_insert_with(|| {
-            let mut s = Save::default();
+            let mut s = Save {
+                kit,
+                ..Save::default()
+            };
             let seed = rng.next_u64();
             s.ensure_key(seed);
             s.ensure_phonebook(&data, seed);
@@ -778,9 +791,7 @@ impl Probe {
         let (g, log) = play_knowing(g, Bot::Smart, &known);
         // Take home every program that isn't a starter, while the stash has room.
         let keep: Vec<usize> = (0..g.hdd.len())
-            .filter(|&i| {
-                !crate::tuning::START_WAREZ.contains(&g.data.warez[g.hdd[i].warez].id.as_str())
-            })
+            .filter(|&i| !save.free(&data).contains(&g.data.warez[g.hdd[i].warez].id))
             .collect();
         let report = save.record(&g, &keep, &data.rig);
         let banked = report.as_ref().map_or(0, |r| r.banked);
@@ -971,8 +982,12 @@ impl Probe {
         let cfg = self.cfg;
         let mut out = Vec::new();
         out.push(format!(
-            "PROBE  seed {:x}  {} careers x {} runs, {} spot runs a tier",
-            cfg.seed, cfg.careers, cfg.career_runs, cfg.spot_runs
+            "PROBE  seed {:x}  {} careers x {} runs, {} spot runs a tier  kit {}",
+            cfg.seed,
+            cfg.careers,
+            cfg.career_runs,
+            cfg.spot_runs,
+            self.data.starts.kit(&self.kit).id
         ));
         out.push(String::new());
         out.push("single runs, plain network       dumb bot    smart bot".into());
