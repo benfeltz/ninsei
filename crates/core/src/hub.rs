@@ -206,6 +206,103 @@ pub struct CompanyDef {
     pub business: String,
 }
 
+/// How a new deck starts (`data/hub/starts.ron`): what every deck gets, and the kits.
+#[derive(Deserialize, Clone, Debug)]
+pub struct StartsDef {
+    pub always: Vec<FixedNet>,
+    pub kits: Vec<KitDef>,
+}
+
+/// A network every deck starts with, with its own name, number and traits.
+#[derive(Deserialize, Clone, Debug)]
+pub struct FixedNet {
+    pub name: String,
+    pub business: String,
+    pub number: String,
+    pub tier: u32,
+    #[serde(default)]
+    pub traits: Vec<String>,
+}
+
+/// One starting kit.
+#[derive(Deserialize, Clone, Debug)]
+pub struct KitDef {
+    pub id: String,
+    #[serde(default)]
+    pub default: bool,
+    /// Programs the deck ships with (warez ids): free, always in the loadout, never lost.
+    pub free: Vec<String>,
+    #[serde(default)]
+    pub boards: Vec<String>,
+    /// The starter networks (`PHONEBOOK_START`) already in the phonebook.
+    #[serde(default)]
+    pub numbers: bool,
+    #[serde(default)]
+    pub tools: Vec<String>,
+    #[serde(default)]
+    pub ranges: Vec<String>,
+    #[serde(default)]
+    pub bank: u32,
+}
+
+impl StartsDef {
+    /// The kit called `id`, or the default kit.
+    pub fn kit(&self, id: &str) -> &KitDef {
+        self.kits
+            .iter()
+            .find(|k| k.id == id)
+            .or_else(|| self.kits.iter().find(|k| k.default))
+            .unwrap_or(&self.kits[0])
+    }
+
+    pub fn validate(&self, data: &Data) -> Result<(), String> {
+        if self.kits.iter().filter(|k| k.default).count() != 1 {
+            return Err("starts.ron: exactly one kit must be `default: true`".into());
+        }
+        for (i, k) in self.kits.iter().enumerate() {
+            let err = |m: String| Err(format!("starts.ron: kit `{}`: {m}", k.id));
+            if self.kits[..i].iter().any(|o| o.id == k.id) {
+                return err("listed twice".into());
+            }
+            if let Some(w) = k.free.iter().find(|w| data.warez_ix(w).is_none()) {
+                return err(format!("unknown warez `{w}`"));
+            }
+            if let Some(b) = k.boards.iter().find(|b| data.board(b).is_none()) {
+                return err(format!("unknown board `{b}`"));
+            }
+            if let Some(t) = k.tools.iter().find(|t| data.tool(t).is_none()) {
+                return err(format!("unknown tool `{t}`"));
+            }
+            if let Some(r) = k
+                .ranges
+                .iter()
+                .find(|r| !data.exchanges.iter().any(|x| x.id == **r))
+            {
+                return err(format!("unknown range `{r}`"));
+            }
+        }
+        for n in &self.always {
+            if data.networks.tier(n.tier).is_none() {
+                return Err(format!(
+                    "starts.ron: `{}` has unknown tier {}",
+                    n.name, n.tier
+                ));
+            }
+            if let Some(t) = n
+                .traits
+                .iter()
+                .find(|t| data.networks.trait_def(t).is_none())
+            {
+                return Err(format!("starts.ron: `{}` has unknown trait `{t}`", n.name));
+            }
+            if data.boards.iter().any(|b| b.phone == n.number) {
+                return Err(format!("starts.ron: `{}` shares a board's number", n.name));
+            }
+        }
+        Ok(())
+    }
+}
+
 #[derive(Deserialize, Clone, Debug)]
 pub struct NetworksDef {
     pub tiers: Vec<TierDef>,
@@ -686,6 +783,13 @@ pub struct Save {
     /// The starter networks have been handed out (by reading Sense/Net's partner directory).
     #[serde(default)]
     pub starters_given: bool,
+    /// The starting kit this deck began with (an id in `data/hub/starts.ron`; empty is the
+    /// default kit). Its free programs stay free.
+    #[serde(default)]
+    pub kit: String,
+    /// The kit has been applied (a new save's first boot). Old saves have started.
+    #[serde(default = "seen")]
+    pub started: bool,
 }
 
 fn seen() -> bool {
@@ -796,6 +900,8 @@ impl Default for Save {
             intros: default_intros(),
             guide_seen: false,
             starters_given: false,
+            kit: String::new(),
+            started: false,
         }
     }
 }
@@ -869,13 +975,56 @@ impl Save {
         false
     }
 
-    /// A new deck knows one number: Sense/Net's customer board. Everything else is found from
-    /// there. Returns true if it learned it (an empty phonebook and no boards).
+    /// A new deck's first boot: Sense/Net's customer board, the networks every deck starts with,
+    /// and the starting kit (`self.kit`, or the default). Once only. Returns true if it did.
     pub fn ensure_phonebook(&mut self, data: &Data, _seed: u64) -> bool {
-        if !self.phonebook.is_empty() || !self.boards.is_empty() {
+        if self.started {
             return false;
         }
-        data.board(FIRST_BOARD).is_some() && self.learn_board(FIRST_BOARD, "came with your deck")
+        self.started = true;
+        let kit = data.starts.kit(&self.kit).clone();
+        self.kit = kit.id.clone();
+        let came = "came with your deck";
+        if data.board(FIRST_BOARD).is_some() {
+            self.learn_board(FIRST_BOARD, came);
+        }
+        for n in &data.starts.always {
+            if self.phonebook.iter().any(|e| e.number == n.number) {
+                continue;
+            }
+            let id = self.next_entry;
+            self.next_entry += 1;
+            self.phonebook.push(Entry {
+                id,
+                name: n.name.clone(),
+                business: n.business.clone(),
+                number: n.number.clone(),
+                tier: n.tier,
+                traits: n.traits.clone(),
+                heat: 0,
+                runs: 0,
+            });
+        }
+        for b in &kit.boards {
+            self.learn_board(b, came);
+        }
+        if kit.numbers {
+            self.add_starters(data);
+        }
+        for t in &kit.tools {
+            self.learn_tool(t);
+        }
+        for r in &kit.ranges {
+            self.learn_range(r, came);
+        }
+        self.bank += kit.bank;
+        self.loadout.starters = kit.free.clone();
+        true
+    }
+
+    /// The programs this deck shipped with: free, and never lost (its kit's `free`).
+    pub fn free<'a>(&self, data: &'a Data) -> &'a [String] {
+        &data.starts.kit(&self.kit).free
     }
 
     /// The starter networks (`PHONEBOOK_START`), handed out once: Sense/Net's partner
@@ -1276,12 +1425,17 @@ impl Save {
     }
 
     /// Adds or removes a starter program from the loadout.
-    pub fn toggle_starter(&mut self, defs: &[UpgradeDef], id: &str) -> Result<(), String> {
+    pub fn toggle_starter(
+        &mut self,
+        data: &Data,
+        defs: &[UpgradeDef],
+        id: &str,
+    ) -> Result<(), String> {
         if let Some(i) = self.loadout.starters.iter().position(|s| s == id) {
             self.loadout.starters.remove(i);
             return Ok(());
         }
-        if !START_WAREZ.contains(&id) {
+        if !self.free(data).iter().any(|f| f == id) {
             return Err(format!("{id} isn't a starter program."));
         }
         self.room_in_loadout(defs)?;
@@ -1366,7 +1520,7 @@ impl Save {
             .loadout
             .starters
             .iter()
-            .filter(|id| START_WAREZ.contains(&id.as_str()))
+            .filter(|id| self.free(data).contains(id))
         {
             if let Some(w) = data.warez_ix(id) {
                 programs.push((w, binary::encode(&data.warez[w], self.key)));
@@ -1393,7 +1547,7 @@ impl Save {
             jobs: Vec::new(),
             trust: self.trust.clone(),
             tools: self.tools.clone(),
-            free: starter_ids(),
+            free: self.free(data).to_vec(),
             texts: self
                 .texts
                 .iter()
