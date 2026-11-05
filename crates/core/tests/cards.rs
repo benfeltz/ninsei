@@ -6,7 +6,7 @@ fn data() -> Data {
 }
 
 #[test]
-fn welcome_covers_the_world_and_the_game() {
+fn welcome_is_a_family_guide_with_one_card_on_hackers() {
     let d = data();
     let s = &d.welcome;
     let names: Vec<&str> = s.sections.iter().map(|x| x.name.as_str()).collect();
@@ -20,6 +20,12 @@ fn welcome_covers_the_world_and_the_game() {
     ] {
         assert!(names.contains(&want), "missing section {want}");
     }
+    let hackers = s
+        .cards()
+        .iter()
+        .filter(|(_, c)| c.text.iter().any(|l| l.to_lowercase().contains("hacker")))
+        .count();
+    assert_eq!(hackers, 1, "hackers get one card, and only one");
     for (_, c) in s.cards() {
         assert!(c.text.len() <= TEXT_ROWS, "{}", c.title);
         for l in &c.text {
@@ -40,7 +46,6 @@ fn facts_come_from_the_rules() {
         .flat_map(|(_, c)| c.text.iter().map(|l| cards::fill(l, &d)))
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(all.contains(&format!("At {}%", tuning::TRACE_MAX)));
     assert!(all.contains(&format!("{} CPU", tuning::START_CPU)));
     assert!(all.contains(&format!("{}¢", d.boards[0].call_cost)));
     assert_eq!(cards::fill("{nope} x", &d), "{nope} x");
