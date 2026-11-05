@@ -941,7 +941,10 @@ impl Data {
                 ));
             }
         }
-        for id in crate::tuning::START_WAREZ {
+        for id in crate::tuning::START_WAREZ
+            .iter()
+            .chain(crate::tuning::CLASSIC_WAREZ)
+        {
             if self.warez_ix(id).is_none() {
                 return Err(format!("starting warez `{id}` is not defined"));
             }

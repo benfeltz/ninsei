@@ -126,6 +126,16 @@ fn a_hand_tuned_program_survives_the_trip_home_and_back() {
     let d = data();
     let mut s = save();
     s.learn_tool("hexed");
+    // IcePick, downloaded from the Gutter's FREEWARE into the stash: a breaker to tune.
+    let w = d.warez_ix("icepick").unwrap();
+    let item = s.next_item;
+    s.next_item += 1;
+    s.stash.push(ninsei_core::hub::StashItem {
+        id: item,
+        origin: "icepick".into(),
+        hex: binary::to_hex(&binary::encode(&d.warez[w], s.key)),
+    });
+    s.toggle_stash(&d.rig, item).unwrap();
     let mut g = s.jack_in(&d, &d.rig, 7);
     // Tune icepick at a BBS: optimize to O1, then spend the budget on power.
     let here = g.at;
@@ -153,7 +163,6 @@ fn a_hand_tuned_program_survives_the_trip_home_and_back() {
 
     // Take it into the next run: it leaves the stash and arrives intact.
     let id = s.stash[0].id;
-    s.toggle_starter(&d.rig, "icepick").unwrap();
     s.toggle_stash(&d.rig, id).unwrap();
     let g = s.jack_in(&d, &d.rig, 8);
     assert!(s.stash.is_empty(), "programs in a run aren't in the stash");
@@ -168,7 +177,7 @@ fn flatlining_loses_programs_you_brought() {
     exit(&mut g, 0);
     s.record(&g, &[0], &d.rig);
     let id = s.stash[0].id;
-    s.toggle_stash(&d.rig, id).unwrap(); // 4 starters + 1 on a 6-slot HDD
+    s.toggle_stash(&d.rig, id).unwrap(); // the suite + 1 on a 6-slot HDD
     let mut g = s.jack_in(&d, &d.rig, 2);
     g.phase = Phase::Flatlined;
     s.record(&g, &[0, 1, 2], &d.rig);
@@ -250,4 +259,21 @@ fn saves_from_before_the_stash_still_load() {
     assert!(s.ensure_key(42));
     assert!(!s.ensure_key(99), "a key is set once");
     assert_eq!(Save::load(&s.to_text()).unwrap(), s);
+}
+
+#[test]
+fn a_new_deck_ships_with_the_security_suite_only() {
+    let d = data();
+    let mut s = save();
+    let g = s.jack_in(&d, &d.rig, 3);
+    let mut names: Vec<String> = g.hdd.iter().map(|p| d.warez[p.warez].id.clone()).collect();
+    names.sort();
+    assert_eq!(names, vec!["firewall", "patch"], "no breakers in the box");
+    assert!(s.toggle_starter(&d.rig, "icepick").is_err());
+    // An older save's breakers in the loadout don't come free any more.
+    s.loadout.starters = tuning::CLASSIC_WAREZ
+        .iter()
+        .map(|w| w.to_string())
+        .collect();
+    assert_eq!(s.kit(&d, &d.rig).programs.len(), tuning::START_WAREZ.len());
 }

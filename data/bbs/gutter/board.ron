@@ -29,6 +29,7 @@
         ]),
         (title: "NEW IN THE FILE AREAS", body: [
             "|07Fresh TORCH build in icebreakers. Mil-spec, eats RAM.",
+            "|07New deck? FREEWARE has your first breakers. On the house.",
             "|07Deck mods restocked. Want an overclock? Ask a corp.",
             "|07New area: OPTIMIZERS. Fragments raise a binary's opt level.",
             "|07Pro tip: |15hex <slot>|07 opens your warez. Mind the checksum.",
@@ -71,6 +72,12 @@
             (file: "HEXED.ZIP",    item: Tool("hexed"),     price: 0,   desc: "Hex editor. Patch your warez"),
             (file: "QWKREAD.ZIP",  item: Tool("qwkread"),   price: 0,   desc: "Offline mail reader. Read at home"),
             (file: "ICEDB.ZIP",    item: Tool("icedb"),     price: 0,   desc: "ICE bestiary. Know what you fight"),
+        ]),
+        // Your first breakers. A consumer deck ships with a shield and a repair kit; this is
+        // where you get something that breaks ICE.
+        (name: "FREEWARE", stock: 2, always: true, files: [
+            (file: "ICEPICK.ZIP",  item: Warez("icepick"),  price: 0,   desc: "IcePick - chips at anything. Free"),
+            (file: "DECODER.ZIP",  item: Warez("decoder"),  price: 0,   desc: "Decoder - code gates. Free"),
         ]),
         (name: "G-FILES", stock: 4, always: true, files: [
             (file: "WARDIAL.TXT",  item: Text("primer"),    price: 0,   desc: "Wardialing for the clueless"),

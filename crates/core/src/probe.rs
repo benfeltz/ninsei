@@ -791,18 +791,24 @@ impl Probe {
             return;
         };
         let data = &self.data;
-        // Missing a tool? Call a board you know that has it and download it.
-        let need = |s: &Save| crate::data::TOOLS.iter().any(|t| !s.has_tool(t));
-        for board in save.known_boards(data) {
-            if !need(save) {
-                break;
+        // Missing a tool, or a free breaker the stash doesn't hold? Call a board you know
+        // that always stocks it and download it, like a player would.
+        let wanted = |s: &Save, f: &crate::data::BbsFileDef| match &f.item {
+            Drop::Tool(t) => !s.has_tool(t),
+            Drop::Warez(w) => {
+                f.price == 0
+                    && data
+                        .warez_ix(w)
+                        .is_some_and(|i| matches!(data.warez[i].effect, Effect::Break { .. }))
+                    && !s.stash.iter().any(|x| x.origin == *w)
             }
-            let has_one = data.boards[board].areas.iter().any(|a| {
-                a.always
-                    && a.files
-                        .iter()
-                        .any(|f| matches!(&f.item, Drop::Tool(t) if !save.has_tool(t)))
-            });
+            _ => false,
+        };
+        for board in save.known_boards(data) {
+            let has_one = data.boards[board]
+                .areas
+                .iter()
+                .any(|a| a.always && a.files.iter().any(|f| wanted(save, f)));
             if !has_one {
                 continue;
             }
@@ -810,9 +816,9 @@ impl Probe {
                 continue;
             };
             for (a, files) in call.stock().iter().enumerate() {
-                for (f, s) in files.iter().enumerate() {
-                    let item = &call.board().areas[a].files[s.def].item;
-                    if matches!(item, Drop::Tool(_)) && call.buy_blocker(a, f).is_none() {
+                for (f, st) in files.iter().enumerate() {
+                    let def = &call.board().areas[a].files[st.def];
+                    if wanted(save, def) && call.buy_blocker(a, f).is_none() {
                         let _ = save.home_buy(data, &data.rig, board, a, f);
                     }
                 }

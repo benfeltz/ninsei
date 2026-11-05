@@ -334,8 +334,12 @@ fn a_tool_downloads_free_once_and_comes_home() {
 #[test]
 fn textfiles_are_read_not_bought() {
     let g = game_at_bbs(5, 0);
-    let (area, _) = tool_file(&g, "wardial");
-    let gfiles = area + 1;
+    let gfiles = g
+        .bbs()
+        .areas
+        .iter()
+        .position(|a| a.name == "G-FILES")
+        .expect("the Gutter has G-FILES");
     assert!(g.bbs().areas[gfiles].always);
     let mut s = Session::new();
     s.screen = Screen::Area(gfiles);

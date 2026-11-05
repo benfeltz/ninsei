@@ -79,6 +79,10 @@ pub struct Kit {
     pub tools: Vec<String>,
     /// Textfiles already on your disk, as (board id, text id).
     pub texts: Vec<(String, String)>,
+    /// Programs that are free for this deck (warez ids): what goes on the HDD when `programs`
+    /// is empty. A save always passes its own (`Save::free`); empty means the classic four
+    /// (`CLASSIC_WAREZ`), for a bare run.
+    pub free: Vec<String>,
 }
 
 /// Run-wide modifiers from the network's tier, traits and heat.
@@ -311,10 +315,11 @@ pub struct Game {
 }
 
 impl Game {
-    /// A run with the starter deck and starter programs, and every tool.
+    /// A run with the starter deck, the classic four programs (breakers too), and every tool.
     pub fn new(data: Data, seed: u64) -> Self {
         let kit = Kit {
             tools: crate::data::TOOLS.iter().map(|t| t.to_string()).collect(),
+            free: CLASSIC_WAREZ.iter().map(|t| t.to_string()).collect(),
             ..Kit::default()
         };
         Self::start(data, seed, &kit)
@@ -372,9 +377,14 @@ impl Game {
             tools: kit.tools.clone(),
             texts: kit.texts.clone(),
         };
+        let classic: Vec<String> = CLASSIC_WAREZ.iter().map(|s| s.to_string()).collect();
+        let free = if kit.free.is_empty() {
+            &classic
+        } else {
+            &kit.free
+        };
         let programs: Vec<(usize, Bin)> = if kit.programs.is_empty() {
-            START_WAREZ
-                .iter()
+            free.iter()
                 .filter_map(|id| game.data.warez_ix(id))
                 .filter_map(|w| game.factory_slot(w).map(|s| (w, s.bin)))
                 .collect()
