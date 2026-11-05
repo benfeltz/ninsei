@@ -306,6 +306,73 @@ fn best_route(g: &Game) -> Option<usize> {
     })
 }
 
+/// What a player does at home before dialing: call the boards you know and read what opens
+/// doors (the partner directory, a post about another board), then download any tool or free
+/// breaker you're missing.
+fn errands(save: &mut Save, data: &Data) {
+    use crate::game::Reading;
+    // Reading can learn boards, so read until nothing new turns up.
+    loop {
+        let known = save.boards.len();
+        for board in save.known_boards(data) {
+            let b = &data.boards[board];
+            let mut reads: Vec<Reading> = (0..b.bulletins.len())
+                .map(Reading::Bulletin)
+                .filter(|r| r.effect(b).is_some())
+                .collect();
+            for (base, m) in b.messages.iter().enumerate() {
+                reads.extend(
+                    (0..m.posts.len())
+                        .map(|post| Reading::Post { base, post })
+                        .filter(|r| r.effect(b).is_some()),
+                );
+            }
+            if reads.is_empty() || save.call_board(data, &data.rig, board).is_err() {
+                continue;
+            }
+            for r in reads {
+                let _ = save.home_read(data, board, r);
+            }
+        }
+        if save.boards.len() == known {
+            break;
+        }
+    }
+    // Missing a tool, or a free breaker the stash doesn't hold? Call a board you know
+    // that always stocks it and download it, like a player would.
+    let wanted = |s: &Save, f: &crate::data::BbsFileDef| match &f.item {
+        Drop::Tool(t) => !s.has_tool(t),
+        Drop::Warez(w) => {
+            f.price == 0
+                && data
+                    .warez_ix(w)
+                    .is_some_and(|i| matches!(data.warez[i].effect, Effect::Break { .. }))
+                && !s.stash.iter().any(|x| x.origin == *w)
+        }
+        _ => false,
+    };
+    for board in save.known_boards(data) {
+        let has_one = data.boards[board]
+            .areas
+            .iter()
+            .any(|a| a.always && a.files.iter().any(|f| wanted(save, f)));
+        if !has_one {
+            continue;
+        }
+        let Ok(call) = save.call_board(data, &data.rig, board) else {
+            continue;
+        };
+        for (a, files) in call.stock().iter().enumerate() {
+            for (f, st) in files.iter().enumerate() {
+                let def = &call.board().areas[a].files[st.def];
+                if wanted(save, def) && call.buy_blocker(a, f).is_none() {
+                    let _ = save.home_buy(data, &data.rig, board, a, f);
+                }
+            }
+        }
+    }
+}
+
 /// Credits a runner keeps when shopping, for whatever comes next.
 const BBS_RESERVE: u32 = 20;
 
@@ -682,6 +749,8 @@ impl Probe {
             s.ensure_hardware(&data);
             s
         });
+        // Call the boards you know first: they're where numbers, tools and breakers come from.
+        errands(save, &data);
         // Bring everything stashed that fits.
         let ids: Vec<u32> = save.stash.iter().map(|s| s.id).collect();
         for id in ids {
@@ -791,39 +860,7 @@ impl Probe {
             return;
         };
         let data = &self.data;
-        // Missing a tool, or a free breaker the stash doesn't hold? Call a board you know
-        // that always stocks it and download it, like a player would.
-        let wanted = |s: &Save, f: &crate::data::BbsFileDef| match &f.item {
-            Drop::Tool(t) => !s.has_tool(t),
-            Drop::Warez(w) => {
-                f.price == 0
-                    && data
-                        .warez_ix(w)
-                        .is_some_and(|i| matches!(data.warez[i].effect, Effect::Break { .. }))
-                    && !s.stash.iter().any(|x| x.origin == *w)
-            }
-            _ => false,
-        };
-        for board in save.known_boards(data) {
-            let has_one = data.boards[board]
-                .areas
-                .iter()
-                .any(|a| a.always && a.files.iter().any(|f| wanted(save, f)));
-            if !has_one {
-                continue;
-            }
-            let Ok(call) = save.call_board(data, &data.rig, board) else {
-                continue;
-            };
-            for (a, files) in call.stock().iter().enumerate() {
-                for (f, st) in files.iter().enumerate() {
-                    let def = &call.board().areas[a].files[st.def];
-                    if wanted(save, def) && call.buy_blocker(a, f).is_none() {
-                        let _ = save.home_buy(data, &data.rig, board, a, f);
-                    }
-                }
-            }
-        }
+        errands(save, data);
         let want_tier = (self.tier + 1).min(3);
         let lacks_next = !save.phonebook.iter().any(|e| e.tier >= want_tier);
         if lacks_next {

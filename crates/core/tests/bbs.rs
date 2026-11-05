@@ -163,6 +163,11 @@ fn every_screen_fits_the_terminal() {
         ];
         screens.extend((0..g.bbs().bulletins.len()).map(Screen::Bulletin));
         screens.extend((0..g.bbs().areas.len()).map(Screen::Area));
+        screens.push(Screen::Messages);
+        for (base, m) in g.bbs().messages.iter().enumerate() {
+            screens.push(Screen::Base(base));
+            screens.extend((0..m.posts.len()).map(|post| Screen::Post { base, post }));
+        }
         for (area, files) in g.bbs_stock.iter().enumerate() {
             for (file, f) in files.iter().enumerate() {
                 if matches!(g.bbs().areas[area].files[f.def].item, Drop::Text(_)) {

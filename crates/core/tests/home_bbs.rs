@@ -15,6 +15,8 @@ fn save(bank: u32) -> Save {
     s.ensure_key(0xB0A2D);
     s.learn_tool("wardial");
     s.ensure_phonebook(&d, 7);
+    s.add_starters(&d);
+    s.learn_board("gutter", "test");
     // These tests learn boards themselves.
     s.boards.clear();
     s.bank = bank;
@@ -22,23 +24,16 @@ fn save(bank: u32) -> Save {
 }
 
 #[test]
-fn a_fresh_phonebook_has_the_gutter() {
+fn a_fresh_phonebook_has_only_sense_net() {
     let d = data();
     let mut s = Save::default();
     s.ensure_phonebook(&d, 7);
-    assert!(
-        s.knows_board("gutter"),
-        "the starter tools must be reachable"
-    );
-}
-
-/// A save that already knows every board.
-fn knows_all(bank: u32) -> Save {
-    let mut s = save(bank);
-    for b in &data().boards {
-        s.learn_board(&b.id, "a test");
-    }
-    s
+    assert!(s.phonebook.is_empty());
+    assert_eq!(s.boards.len(), 1);
+    assert!(s.knows_board(ninsei_core::hub::FIRST_BOARD));
+    let b = d.board(ninsei_core::hub::FIRST_BOARD).unwrap();
+    assert_eq!(d.boards[b].call_cost, 0, "a customer line is free");
+    assert!(d.boards[b].tiers.is_empty(), "never a run's board");
 }
 
 #[test]

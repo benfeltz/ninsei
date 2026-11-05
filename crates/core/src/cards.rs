@@ -50,6 +50,8 @@ pub const PLACEHOLDERS: &[&str] = &[
     "gutter",
     "gutter_phone",
     "call_cost",
+    "first_board",
+    "first_phone",
 ];
 
 fn value(key: &str, data: &Data) -> Option<String> {
@@ -65,6 +67,12 @@ fn value(key: &str, data: &Data) -> Option<String> {
         "gutter" => gutter?.name.clone(),
         "gutter_phone" => gutter?.phone.clone(),
         "call_cost" => gutter?.call_cost.to_string(),
+        "first_board" => data.boards[data.board(crate::hub::FIRST_BOARD)?]
+            .name
+            .clone(),
+        "first_phone" => data.boards[data.board(crate::hub::FIRST_BOARD)?]
+            .phone
+            .clone(),
         _ => return None,
     })
 }

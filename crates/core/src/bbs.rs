@@ -3,7 +3,7 @@
 //! [`Session::key`] takes single keypresses like a real board, [`Session::tick`] runs the modem clock.
 
 use crate::data::{BbsDef, Drop, HeaderStyle, Look};
-use crate::game::{Action, ContractStatus, Game, StockFile};
+use crate::game::{Action, ContractStatus, Game, Reading, StockFile};
 use crate::modem::Handshake;
 use crate::tuning::{BBS_CPS, BBS_HANGUP_SECS};
 
@@ -122,6 +122,15 @@ pub enum Screen {
         area: usize,
         file: usize,
     },
+    /// The message bases.
+    Messages,
+    /// One base's posts.
+    Base(usize),
+    /// Reading a post.
+    Post {
+        base: usize,
+        post: usize,
+    },
     Hangup {
         t: f32,
     },
@@ -198,13 +207,24 @@ impl Session {
         match self.screen {
             Screen::Dialing { .. } | Screen::Download { .. } | Screen::Hangup { .. } => Vec::new(),
             Screen::Splash => vec![('\n', "continue".into())],
-            Screen::Main => vec![
-                ('F', "files".into()),
-                ('J', "jobs".into()),
-                ('B', "bulletins".into()),
-                ('W', "who".into()),
-                ('G', "bye".into()),
-            ],
+            Screen::Main => {
+                let mut v = vec![('F', "files".into())];
+                if !b.messages.is_empty() {
+                    v.push(('M', "messages".into()));
+                }
+                if b.jobs {
+                    v.push(('J', "jobs".into()));
+                }
+                v.extend([
+                    ('B', "bulletins".into()),
+                    ('W', "who".into()),
+                    ('G', "bye".into()),
+                ]);
+                v
+            }
+            Screen::Messages => numbered(b.messages.len(), "Q"),
+            Screen::Base(i) => numbered(b.messages.get(i).map_or(0, |m| m.posts.len()), "Q"),
+            Screen::Post { .. } => vec![('Q', "back".into())],
             Screen::Bulletins => numbered(b.bulletins.len(), "Q"),
             Screen::Jobs => numbered(game.jobs().len(), "Q"),
             Screen::Areas => numbered(b.areas.len(), "Q"),
@@ -231,7 +251,8 @@ impl Session {
             Screen::Splash => self.go(Screen::Main),
             Screen::Main => match k {
                 'F' => self.go(Screen::Areas),
-                'J' => self.go(Screen::Jobs),
+                'M' if !game.board().messages.is_empty() => self.go(Screen::Messages),
+                'J' if game.board().jobs => self.go(Screen::Jobs),
                 'B' => self.go(Screen::Bulletins),
                 'W' => self.go(Screen::Who),
                 'G' | '\x1b' => self.go(Screen::Hangup { t: 0.0 }),
@@ -239,7 +260,8 @@ impl Session {
             },
             Screen::Bulletins => match digit {
                 Some(n) if (1..=game.board().bulletins.len()).contains(&n) => {
-                    self.go(Screen::Bulletin(n - 1))
+                    self.go(Screen::Bulletin(n - 1));
+                    return read(game, Reading::Bulletin(n - 1));
                 }
                 _ if back => self.go(Screen::Main),
                 _ => {}
@@ -252,6 +274,27 @@ impl Session {
             Screen::Who => {
                 if back || k == '\n' {
                     self.go(Screen::Main);
+                }
+            }
+            Screen::Messages => match digit {
+                Some(n) if (1..=game.board().messages.len()).contains(&n) => {
+                    self.go(Screen::Base(n - 1))
+                }
+                _ if back => self.go(Screen::Main),
+                _ => {}
+            },
+            Screen::Base(base) => match digit {
+                Some(n) if (1..=game.board().messages[base].posts.len()).contains(&n) => {
+                    let post = n - 1;
+                    self.go(Screen::Post { base, post });
+                    return read(game, Reading::Post { base, post });
+                }
+                _ if back => self.go(Screen::Messages),
+                _ => {}
+            },
+            Screen::Post { base, .. } => {
+                if back || k == '\n' {
+                    self.go(Screen::Base(base));
                 }
             }
             Screen::Read { area, file } => {
@@ -352,13 +395,15 @@ impl Session {
                 header(&mut out, b, "MAIN MENU");
                 out.push(String::new());
                 let m = &l.menu;
-                for (key, (label, note)) in [
-                    ('F', &m.files),
-                    ('J', &m.jobs),
-                    ('B', &m.bulletins),
-                    ('W', &m.who),
-                    ('G', &m.goodbye),
-                ] {
+                let mut items = vec![('F', &m.files)];
+                if !b.messages.is_empty() {
+                    items.push(('M', &m.messages));
+                }
+                if b.jobs {
+                    items.push(('J', &m.jobs));
+                }
+                items.extend([('B', &m.bulletins), ('W', &m.who), ('G', &m.goodbye)]);
+                for (key, (label, note)) in items {
                     out.push(format!(
                         "   {} {lb}{label:<20}{dm}{note}",
                         hot(&key.to_string())
@@ -390,6 +435,50 @@ impl Session {
                 out.push(format!("   {mo}{}", bl.title));
                 out.push(format!("   {dm}{}", "─".repeat(bl.title.chars().count())));
                 out.extend(bl.body.iter().map(|line| format!("   {tx}{line}")));
+                out.push(String::new());
+                out.push(format!("   {} {tx}back", hot("Q")));
+            }
+            Screen::Messages => {
+                header(&mut out, b, &l.menu.messages.0.to_uppercase());
+                out.push(String::new());
+                for (i, m) in b.messages.iter().enumerate() {
+                    out.push(format!(
+                        "   {} {lb}{:<26}{dm}{} message(s)",
+                        hot(&(i + 1).to_string()),
+                        m.name,
+                        m.posts.len()
+                    ));
+                }
+                out.push(String::new());
+                out.push(pick("Read which base?"));
+            }
+            Screen::Base(i) => {
+                let m = &b.messages[i];
+                header(&mut out, b, &m.name);
+                out.push(String::new());
+                out.push(format!("   {dm}{:<4}{:<16}{}", "#", "FROM", "SUBJECT"));
+                out.push(format!("   {dm}{}", "─".repeat(60)));
+                for (n, p) in m.posts.iter().enumerate() {
+                    let subject: String = p.subject.chars().take(50).collect();
+                    out.push(format!(
+                        "   {} {k}{:<16}{tx}{subject}",
+                        hot(&(n + 1).to_string()),
+                        p.from.chars().take(15).collect::<String>()
+                    ));
+                }
+                out.push(String::new());
+                out.push(pick("Read which?"));
+            }
+            Screen::Post { base, post } => {
+                let m = &b.messages[base];
+                let p = &m.posts[post];
+                header(&mut out, b, &format!("{} #{}", m.name, post + 1));
+                out.push(format!(
+                    "   {dm}From: {k}{}   {dm}Subj: {mo}{}",
+                    p.from, p.subject
+                ));
+                out.push(format!("   {dm}{}", "─".repeat(60)));
+                out.extend(p.body.iter().map(|line| format!("   {tx}{line}")));
                 out.push(String::new());
                 out.push(format!("   {} {tx}back", hot("Q")));
             }
@@ -604,6 +693,14 @@ impl Session {
             out = out.iter().map(|l| crate::leet::translate(l)).collect();
         }
         out
+    }
+}
+
+/// Reading a bulletin or post: its effect, if it has one, goes to the game.
+fn read(game: &dyn Line, r: Reading) -> Outcome {
+    match r.effect(game.board()) {
+        Some(_) => Outcome::Act(Action::Read(r)),
+        None => Outcome::None,
     }
 }
 

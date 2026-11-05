@@ -10,6 +10,8 @@ fn fresh(d: &Data) -> Save {
     let mut s = Save::default();
     s.ensure_key(0x1CE);
     s.ensure_phonebook(d, 3);
+    s.add_starters(d);
+    s.learn_board("gutter", "test");
     s.ensure_hardware(d);
     // Breakers from the Gutter's FREEWARE, so the fights can be won.
     for id in ["icepick", "decoder"] {

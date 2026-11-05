@@ -14,6 +14,8 @@ fn save(bank: u32) -> Save {
     s.ensure_key(0xFACE);
     s.learn_tool("wardial");
     s.ensure_phonebook(&d, 1);
+    s.add_starters(&d);
+    s.learn_board("gutter", "test");
     s.bank = bank;
     s
 }

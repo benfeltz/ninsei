@@ -19,6 +19,9 @@ pub const SAVE_VERSION: u32 = 1;
 /// Run theme a new save starts with.
 pub const DEFAULT_RUN_THEME: &str = "amber";
 
+/// The one number a new deck comes with: Sense/Net's customer board (`data/bbs/sensenet/`).
+pub const FIRST_BOARD: &str = "sensenet";
+
 /// Storage key the app saves under.
 pub const SAVE_KEY: &str = "ninsei.save";
 
@@ -680,6 +683,9 @@ pub struct Save {
     /// seen it: they know the Net.
     #[serde(default = "seen")]
     pub guide_seen: bool,
+    /// The starter networks have been handed out (by reading Sense/Net's partner directory).
+    #[serde(default)]
+    pub starters_given: bool,
 }
 
 fn seen() -> bool {
@@ -789,6 +795,7 @@ impl Default for Save {
             ice_seen: Vec::new(),
             intros: default_intros(),
             guide_seen: false,
+            starters_given: false,
         }
     }
 }
@@ -862,20 +869,56 @@ impl Save {
         false
     }
 
-    /// Fills an empty phonebook with a few starter numbers, and the default board's: the one
-    /// every kid knows, where the starter tools are. Returns true if it did.
-    pub fn ensure_phonebook(&mut self, data: &Data, seed: u64) -> bool {
-        if !self.phonebook.is_empty() {
+    /// A new deck knows one number: Sense/Net's customer board. Everything else is found from
+    /// there. Returns true if it learned it (an empty phonebook and no boards).
+    pub fn ensure_phonebook(&mut self, data: &Data, _seed: u64) -> bool {
+        if !self.phonebook.is_empty() || !self.boards.is_empty() {
             return false;
         }
-        let mut rng = Rng::new(seed ^ 0x5EED_B00C);
-        for &tier in PHONEBOOK_START {
-            self.add_number(data, &mut rng, tier);
+        data.board(FIRST_BOARD).is_some() && self.learn_board(FIRST_BOARD, "came with your deck")
+    }
+
+    /// The starter networks (`PHONEBOOK_START`), handed out once: Sense/Net's partner
+    /// directory reads them out. Seeded from the save, so a save always gets the same ones.
+    /// Returns their names.
+    pub fn add_starters(&mut self, data: &Data) -> Vec<String> {
+        if self.starters_given {
+            return Vec::new();
         }
-        if let Some(b) = data.boards.first() {
-            self.learn_board(&b.id, "a number every kid in Ninsei knows");
+        self.starters_given = true;
+        let mut rng = Rng::new(self.key ^ 0x5EED_B00C);
+        let ids: Vec<u32> = PHONEBOOK_START
+            .iter()
+            .filter_map(|&tier| self.add_number(data, &mut rng, tier))
+            .collect();
+        ids.into_iter()
+            .filter_map(|id| self.entry(id).map(|e| format!("{} ({})", e.name, e.number)))
+            .collect()
+    }
+
+    /// What reading `effect` on `source` does for the save. Returns what it added, if anything.
+    pub fn read_effect(
+        &mut self,
+        data: &Data,
+        effect: &crate::data::ReadEffect,
+        source: &str,
+    ) -> Option<String> {
+        use crate::data::ReadEffect;
+        match effect {
+            ReadEffect::Board(id) => {
+                let b = &data.boards[data.board(id)?];
+                self.learn_board(id, &format!("a message on {source}"))
+                    .then(|| format!("New BBS in CarrierTerm: {} ({})", b.name, b.phone))
+            }
+            ReadEffect::Starters => {
+                let names = self.add_starters(data);
+                (!names.is_empty())
+                    .then(|| format!("New numbers in CarrierTerm: {}", names.join(", ")))
+            }
+            ReadEffect::Hint(r) => self
+                .learn_range(r, &format!("a post on {source}"))
+                .then(|| format!("new numbers to wardial: {r}")),
         }
-        true
     }
 
     /// Adds a fresh number of `tier` with a company not already in the book.
@@ -1420,6 +1463,17 @@ impl Save {
             .collect();
         for (b, t) in &game.texts {
             self.keep_text(b, t);
+        }
+        let here = game.bbs().name.clone();
+        for id in &game.boards_read {
+            self.read_effect(
+                &game.data,
+                &crate::data::ReadEffect::Board(id.clone()),
+                &here,
+            );
+        }
+        if game.starters_read {
+            self.add_starters(&game.data);
         }
         for m in &game.history.met {
             let Some(def) = game.data.ice.get(m.ice) else {

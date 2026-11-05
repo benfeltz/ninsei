@@ -176,6 +176,8 @@ fn selling_you_out_heats_the_number_and_betrayals_cost_trust() {
     let mut s = Save::default();
     s.ensure_key(1);
     s.ensure_phonebook(&d, 1);
+    s.add_starters(&d);
+    s.learn_board("gutter", "test");
     s.ensure_hardware(&d);
     let entry = s.phonebook[0].id;
     let mut g = betrayed(&d, 3, 200);

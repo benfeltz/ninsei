@@ -195,7 +195,7 @@ impl Save {
 
     /// Jobs a board posts at home: contracts on networks already in your phonebook.
     fn home_jobs(&self, data: &Data, board: usize) -> Vec<(JobPost, PendingJob)> {
-        if self.phonebook.is_empty() || data.contracts.is_empty() {
+        if self.phonebook.is_empty() || data.contracts.is_empty() || !data.boards[board].jobs {
             return Vec::new();
         }
         let id = &data.boards[board].id;
@@ -294,6 +294,21 @@ impl Save {
             format!("-{}¢", f.price)
         };
         Ok(format!("downloaded {} ({cost}): {what}.", f.file))
+    }
+
+    /// Reads a bulletin or post on a board at home: what it does, if anything, lands on the
+    /// save. Returns the line to print: empty if it was already noted.
+    pub fn home_read(
+        &mut self,
+        data: &Data,
+        board: usize,
+        r: crate::game::Reading,
+    ) -> Result<String, String> {
+        let def = data.boards.get(board).ok_or("no such board.")?;
+        let effect = r.effect(def).ok_or("nothing to note.")?.clone();
+        Ok(self
+            .read_effect(data, &effect, &def.name)
+            .unwrap_or_default())
     }
 
     /// Takes a job from a board at home. It waits on its network until you dial it.
