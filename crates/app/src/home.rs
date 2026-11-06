@@ -516,6 +516,21 @@ impl Home {
         self.dial_started = Some(entry);
     }
 
+    /// A dial asked for in `tool`'s window. A program with its own modem terminal plays the
+    /// call there (NiGHTCOMM on TERM); anything else hands it to CarrierTerm.
+    fn dial_from(&mut self, tool: Tool, entry: u32, save: &Save) {
+        let number = save.entry(entry).map(|e| e.number.clone());
+        match (tool, number) {
+            (Tool::NightComm, Some(n)) => {
+                self.nightcomm.tab = ninsei_core::nightcomm::Tab::Term;
+                self.nightcomm
+                    .term_say(&[format!("> ATDT {n}"), format!("DIALING {n}")]);
+                self.start_dial_here(entry);
+            }
+            _ => self.start_dial(entry, None),
+        }
+    }
+
     /// `ATH`: drops a call under way, and the modem sound with it.
     pub fn hang_up(&mut self) {
         if self.dialing.take().is_some() {
@@ -680,7 +695,7 @@ impl Home {
             Tool::Shell => {}
         }
         if let Some(id) = dial {
-            self.start_dial(id, None);
+            self.dial_from(tool, id, save);
         } else if let Some(id) = edit {
             self.edit(id, save);
         }
@@ -1019,5 +1034,45 @@ pub(crate) mod tests {
         click(&mut h, &mut home, &data, &save, Tool::Terminal, "Hang up");
         assert!(home.dialing.is_none(), "the call is over");
         assert!(home.dial_cut, "and the modem sound with it");
+    }
+
+    #[test]
+    fn dialing_from_nightcomm_plays_on_term_not_in_carrierterm() {
+        let data = Data::builtin().unwrap();
+        let mut save = deck(&data);
+        save.tools = vec!["nightcomm".into()];
+        let (mut h, mut home) = (Harness::new(1280.0, 800.0), Home::new(Vec::new()));
+        // Open it (it takes the keys), then `d` dials the picked number.
+        for events in [Vec::new(), Vec::new(), text("d"), Vec::new()] {
+            frame(&mut h, &mut home, &data, &save, Tool::NightComm, events);
+        }
+        let d = home.dialing.expect("d dials the picked number");
+        assert_eq!(
+            home.nightcomm.tab,
+            ninsei_core::nightcomm::Tab::Term,
+            "the call plays on TERM"
+        );
+        let number = &save.entry(d.entry).unwrap().number;
+        assert!(
+            home.nightcomm
+                .term_lines
+                .iter()
+                .any(|l| l == &format!("DIALING {number}"))
+        );
+        assert!(
+            !home.take_opens().contains(&Tool::Terminal),
+            "CarrierTerm stays closed"
+        );
+    }
+
+    #[test]
+    fn dialing_from_carrierterm_still_plays_there() {
+        let data = Data::builtin().unwrap();
+        let save = deck(&data);
+        let mut home = Home::new(Vec::new());
+        let id = save.phonebook[0].id;
+        home.dial_from(Tool::Terminal, id, &save);
+        assert!(home.dialing.is_some());
+        assert!(home.take_opens().contains(&Tool::Terminal));
     }
 }
