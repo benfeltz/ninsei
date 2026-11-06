@@ -830,3 +830,153 @@ pub(crate) fn hint(painter: &egui::Painter, rect: Rect, text: &str) {
         muted(),
     );
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::uitest::{Harness, key, text};
+    use egui::{Key, Pos2, UiBuilder};
+    use ninsei_core::directory::Listed;
+
+    /// A started deck with a phonebook, no splashes to wait through.
+    pub(crate) fn deck(data: &Data) -> Save {
+        let mut s = Save {
+            intros: false,
+            guide_seen: true,
+            ..Save::default()
+        };
+        s.ensure_key(0x7E57);
+        s.ensure_phonebook(data, 1);
+        s
+    }
+
+    /// One frame of `tool`'s window, 880 × 500, with these events. Returns what it sent.
+    pub(crate) fn frame(
+        h: &mut Harness,
+        home: &mut Home,
+        data: &Data,
+        save: &Save,
+        tool: Tool,
+        events: Vec<egui::Event>,
+    ) -> Vec<WbOut> {
+        let mut out = Vec::new();
+        h.frame(events, |ui| {
+            let mut child = ui.new_child(
+                UiBuilder::new().max_rect(Rect::from_min_size(Pos2::ZERO, vec2(880.0, 500.0))),
+            );
+            home.tool_body(&mut child, tool, data, save, &mut out);
+        });
+        out
+    }
+
+    /// Clicks the widget in `tool`'s window whose text starts with `label`.
+    pub(crate) fn click(
+        h: &mut Harness,
+        home: &mut Home,
+        data: &Data,
+        save: &Save,
+        tool: Tool,
+        label: &str,
+    ) -> Vec<WbOut> {
+        let at = h
+            .find(label)
+            .unwrap_or_else(|| panic!("no {label:?} on screen: {:?}", h.texts()))
+            .center();
+        let mut out = frame(h, home, data, save, tool, crate::uitest::click(at));
+        out.extend(frame(h, home, data, save, tool, Vec::new()));
+        out
+    }
+
+    #[test]
+    fn carrierterm_takes_the_keys_when_it_opens() {
+        let data = Data::builtin().unwrap();
+        let save = deck(&data);
+        let (mut h, mut home) = (Harness::new(1280.0, 800.0), Home::new(Vec::new()));
+        for _ in 0..2 {
+            frame(&mut h, &mut home, &data, &save, Tool::Terminal, Vec::new());
+        }
+        frame(&mut h, &mut home, &data, &save, Tool::Terminal, text("gut"));
+        assert_eq!(
+            home.directory.query, "gut",
+            "typing goes straight into Find"
+        );
+    }
+
+    #[test]
+    fn typing_a_number_picks_it_and_enter_dials_it() {
+        let data = Data::builtin().unwrap();
+        let save = deck(&data);
+        let e = save.phonebook.last().unwrap();
+        let (mut h, mut home) = (Harness::new(1280.0, 800.0), Home::new(Vec::new()));
+        for events in [Vec::new(), Vec::new(), text(&e.number), Vec::new()] {
+            frame(&mut h, &mut home, &data, &save, Tool::Terminal, events);
+        }
+        assert_eq!(home.directory.sel, Some(Listed::Entry(e.id)));
+        frame(
+            &mut h,
+            &mut home,
+            &data,
+            &save,
+            Tool::Terminal,
+            key(Key::Enter),
+        );
+        assert_eq!(home.dialing.map(|d| d.entry), Some(e.id), "Enter dials it");
+    }
+
+    #[test]
+    fn arrows_step_through_the_list() {
+        let data = Data::builtin().unwrap();
+        let save = deck(&data);
+        let (mut h, mut home) = (Harness::new(1280.0, 800.0), Home::new(Vec::new()));
+        for _ in 0..2 {
+            frame(&mut h, &mut home, &data, &save, Tool::Terminal, Vec::new());
+        }
+        let first = home.directory.sel.expect("the first line is picked");
+        frame(
+            &mut h,
+            &mut home,
+            &data,
+            &save,
+            Tool::Terminal,
+            key(Key::ArrowDown),
+        );
+        let second = home.directory.sel.unwrap();
+        assert_ne!(first, second, "down moves on");
+        frame(
+            &mut h,
+            &mut home,
+            &data,
+            &save,
+            Tool::Terminal,
+            key(Key::ArrowUp),
+        );
+        assert_eq!(home.directory.sel, Some(first), "up comes back");
+    }
+
+    #[test]
+    fn the_cards_big_button_dials_the_line() {
+        let data = Data::builtin().unwrap();
+        let save = deck(&data);
+        let e = save.phonebook.last().unwrap();
+        let (mut h, mut home) = (Harness::new(1280.0, 800.0), Home::new(Vec::new()));
+        home.directory.sel = Some(Listed::Entry(e.id));
+        for _ in 0..2 {
+            frame(&mut h, &mut home, &data, &save, Tool::Terminal, Vec::new());
+        }
+        let label = format!("Dial {}", e.number);
+        click(&mut h, &mut home, &data, &save, Tool::Terminal, &label);
+        assert_eq!(home.dialing.map(|d| d.entry), Some(e.id));
+    }
+
+    #[test]
+    fn hang_up_ends_the_call_and_cuts_the_modem() {
+        let data = Data::builtin().unwrap();
+        let save = deck(&data);
+        let (mut h, mut home) = (Harness::new(1280.0, 800.0), Home::new(Vec::new()));
+        home.start_dial(save.phonebook[0].id, None);
+        frame(&mut h, &mut home, &data, &save, Tool::Terminal, Vec::new());
+        click(&mut h, &mut home, &data, &save, Tool::Terminal, "Hang up");
+        assert!(home.dialing.is_none(), "the call is over");
+        assert!(home.dial_cut, "and the modem sound with it");
+    }
+}

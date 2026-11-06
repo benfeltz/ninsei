@@ -25,6 +25,8 @@ mod stack;
 mod suite;
 mod theme;
 mod tiling;
+#[cfg(test)]
+mod uitest;
 mod workbench;
 
 use egui::{Key, RichText};

@@ -578,8 +578,9 @@ pub struct Directory {
     pub sel: Option<Listed>,
     pub query: String,
     pub filter: Filter,
-    /// The pass the directory was last drawn on: a gap means it just came back.
-    drawn: u64,
+    /// The pass the directory was last drawn on (none yet: it has just opened); a gap means
+    /// it just came back.
+    drawn: Option<u64>,
     /// The search box should take the keys at the next chance (an enabled frame).
     want_focus: bool,
 }
@@ -696,10 +697,10 @@ pub fn carrierterm(
     // Not drawn last pass: the window just opened, or a splash or a call just ended. The
     // search box takes the keys, so ↑↓ and Enter work straight away.
     let pass = ui.ctx().cumulative_pass_nr();
-    if dir.drawn + 1 < pass {
+    if dir.drawn.is_none_or(|d| d + 1 < pass) {
         dir.want_focus = true;
     }
-    dir.drawn = pass;
+    dir.drawn = Some(pass);
     let find = egui::Id::new(FIND_ID);
     // `/` searches, when nothing else has the keys and the pointer is over the directory.
     let over = ui.clip_rect();
