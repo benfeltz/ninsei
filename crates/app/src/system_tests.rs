@@ -96,6 +96,83 @@ fn the_panel_list_switches_panels() {
 }
 
 #[test]
+fn liza_arrows_walk_the_panel_list_once_it_has_been_clicked() {
+    let (d, s) = (data(), save(&data()));
+    let mut h = Harness::new(900.0, 700.0);
+    let mut p = SystemUi::default();
+    frame(&mut h, &d, &s, &mut p, Vec::new());
+    // Nothing has the list yet: the arrows belong to whatever else is open.
+    frame(&mut h, &d, &s, &mut p, key(Key::ArrowDown));
+    assert_eq!(p.panel, Panel::Overview, "the list isn't focused yet");
+    let ev = press(&h, Panel::Monitor.label());
+    frame(&mut h, &d, &s, &mut p, ev);
+    assert_eq!(p.panel, Panel::Monitor);
+    for want in [Panel::Theme, Panel::Disk, Panel::Disk] {
+        frame(&mut h, &d, &s, &mut p, key(Key::ArrowDown));
+        assert_eq!(p.panel, want, "down, held at the end");
+    }
+    for want in [
+        Panel::Theme,
+        Panel::Monitor,
+        Panel::Overview,
+        Panel::Overview,
+    ] {
+        frame(&mut h, &d, &s, &mut p, key(Key::ArrowUp));
+        assert_eq!(p.panel, want, "up, held at the top");
+    }
+}
+
+#[test]
+fn liza_panel_list_runs_the_window_height_with_the_version_under_it() {
+    let (d, s) = (data(), save(&data()));
+    let mut h = Harness::new(700.0, 480.0);
+    let mut p = SystemUi::default();
+    frame(&mut h, &d, &s, &mut p, Vec::new());
+    let label = &s.firmware_def(&d).label;
+    let version = h.find(label).expect("the version under the list");
+    assert!(
+        version.bottom() > 480.0 - 30.0,
+        "the version sits at the bottom of the window, not mid-way: {version:?}"
+    );
+    let disk = h.find(Panel::Disk.label()).unwrap();
+    assert!(disk.bottom() < version.top(), "every panel shows above it");
+}
+
+#[test]
+fn the_monitor_panel_is_headed_monitor_and_names_the_tube_once() {
+    let d = data();
+    let s = save(&d);
+    let mut h = Harness::new(900.0, 700.0);
+    let mut p = SystemUi {
+        panel: Panel::Monitor,
+        ..SystemUi::default()
+    };
+    frame(&mut h, &d, &s, &mut p, Vec::new());
+    // Where each text was drawn, once per place (the harness keeps both frames' widgets).
+    let places = |t: &str| {
+        let mut r: Vec<_> = h
+            .all(t)
+            .into_iter()
+            .map(|r| (r.left() as i32, r.top() as i32))
+            .collect();
+        r.sort();
+        r.dedup();
+        r
+    };
+    let heading = places("Monitor")
+        .into_iter()
+        .filter(|&(x, _)| x as f32 > cp::LIST_W)
+        .count();
+    assert_eq!(heading, 1, "the panel says what it is, beside the list");
+    let title = s.monitor_def(&d).title();
+    assert_eq!(
+        places(&title).len(),
+        1,
+        "the tube is named once, by its radio button"
+    );
+}
+
+#[test]
 fn about_this_deck_shows_the_deck_and_only_owned_software() {
     let d = data();
     let mut s = save(&d);

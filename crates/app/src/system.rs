@@ -7,16 +7,31 @@ use ninsei_core::disk::{self, Disk, Program};
 use ninsei_core::system::{self, Panel};
 use ninsei_core::{Data, hub::Save};
 
-use crate::home::{WbOut, accent, fill, ink, muted, shadow};
+use crate::home::{WbOut, accent, backdrop, fill, font, ink, muted, shadow};
 use crate::theme::Palette;
 
 #[cfg(test)]
 #[path = "system_tests.rs"]
 mod tests;
 
-/// Room the panel list takes on the left, and its height.
-const LIST_W: f32 = 150.0;
-const LIST_H: f32 = 300.0;
+/// Liza's Control Panel list, after System 6's: a framed list of icons with their names under
+/// them, an (inactive) scroll bar down its right side, and the system's version beneath.
+mod cp {
+    /// The list's width, scroll bar included.
+    pub const LIST_W: f32 = 150.0;
+    /// The scroll bar's width, and the size of its arrow boxes.
+    pub const SCROLL_W: f32 = 16.0;
+    /// Icons draw at twice their pixels: 32x32, the Control Panel's size.
+    pub const ICON_SCALE: f32 = 2.0;
+    /// One panel's cell: icon, gap, name, gap.
+    pub const CELL_H: f32 = 64.0;
+    /// Space above the first cell.
+    pub const TOP: f32 = 8.0;
+    /// Room under the list for the version line.
+    pub const VERSION_H: f32 = 22.0;
+    /// Space between the list and the open panel, and on the panel's far side.
+    pub const GAP: f32 = 12.0;
+}
 /// A level bar's size: one cell per upgrade level.
 const BAR: egui::Vec2 = egui::vec2(96.0, 12.0);
 
@@ -70,33 +85,137 @@ fn panel_body(
     });
 }
 
-/// Liza: a System 6 Control Panel. The panels in a framed list down the left (the system's
-/// version under it), the open one on the right.
+/// Liza: a System 6 Control Panel. The panels in a framed list of icons down the left, the full
+/// height of the window with the system's version under it; the open one on the right.
 fn control_panel(ui: &mut Ui, data: &Data, save: &Save, st: &mut SystemUi, out: &mut Vec<WbOut>) {
     let fw = save.firmware_def(data);
     ui.horizontal_top(|ui| {
         ui.vertical(|ui| {
-            ui.set_width(LIST_W);
-            egui::Frame::new()
-                .stroke(egui::Stroke::new(1.0, ink()))
-                .inner_margin(4.0)
-                .show(ui, |ui| {
-                    ui.set_width(LIST_W - 10.0);
-                    ui.set_min_height(LIST_H);
-                    for p in Panel::ALL {
-                        let on = st.panel == p;
-                        let text =
-                            RichText::new(p.label()).color(if on { shadow() } else { ink() });
-                        if ui.selectable_label(on, text).clicked() {
-                            st.panel = p;
-                        }
-                    }
-                });
+            let fit = cp::TOP * 2.0 + Panel::ALL.len() as f32 * cp::CELL_H;
+            let h = (ui.available_height() - cp::VERSION_H).max(fit);
+            panel_list(ui, data, st, h);
             ui.label(dim(&fw.label));
         });
-        ui.add_space(8.0);
-        panel_body(ui, data, save, Look::Mac, st, out);
+        ui.add_space(cp::GAP);
+        ui.vertical(|ui| {
+            ui.set_max_width(ui.available_width() - cp::GAP);
+            panel_body(ui, data, save, Look::Mac, st, out);
+        });
     });
+}
+
+/// The Control Panel's list: each panel's icon over its name, the open one inverted, icon and
+/// name together. Click one to open it; then ↑↓ walk the list.
+fn panel_list(ui: &mut Ui, data: &Data, st: &mut SystemUi, height: f32) {
+    use egui::{Rect, Sense, Stroke, pos2, vec2};
+    let id = egui::Id::new("system-panel-list");
+    let (rect, _) = ui.allocate_exact_size(vec2(cp::LIST_W, height), Sense::hover());
+    // The list itself takes focus (a click anywhere in it), so the arrows can walk it.
+    let list = ui.interact(rect, id, Sense::click());
+    if list.clicked() {
+        list.request_focus();
+    }
+    if list.has_focus() {
+        ui.memory_mut(|m| {
+            m.set_focus_lock_filter(
+                id,
+                egui::EventFilter {
+                    vertical_arrows: true,
+                    ..Default::default()
+                },
+            )
+        });
+        let (up, down) = ui.input(|i| {
+            (
+                i.key_pressed(egui::Key::ArrowUp),
+                i.key_pressed(egui::Key::ArrowDown),
+            )
+        });
+        let at = Panel::ALL.iter().position(|&p| p == st.panel).unwrap_or(0);
+        if up && at > 0 {
+            st.panel = Panel::ALL[at - 1];
+        }
+        if down && at + 1 < Panel::ALL.len() {
+            st.panel = Panel::ALL[at + 1];
+        }
+    }
+
+    let (paper, ink) = (backdrop(), ink());
+    let line = Stroke::new(1.0, ink);
+    let p = ui.painter_at(rect);
+    p.rect_filled(rect, 0.0, paper);
+    p.rect_stroke(rect, 0.0, line, egui::StrokeKind::Inside);
+    // The scroll bar: inactive, since every panel fits, so arrows and an empty track.
+    let bar = Rect::from_min_max(pos2(rect.right() - cp::SCROLL_W, rect.top()), rect.max);
+    p.vline(bar.left(), bar.y_range(), line);
+    let up = Rect::from_min_size(bar.min, vec2(cp::SCROLL_W, cp::SCROLL_W));
+    let down = Rect::from_min_max(pos2(bar.left(), bar.bottom() - cp::SCROLL_W), bar.max);
+    p.hline(bar.x_range(), up.bottom(), line);
+    p.hline(bar.x_range(), down.top(), line);
+    scroll_arrow(&p, up, -1.0, line);
+    scroll_arrow(&p, down, 1.0, line);
+
+    let cells_w = rect.width() - cp::SCROLL_W;
+    for (i, &panel) in Panel::ALL.iter().enumerate() {
+        let on = st.panel == panel;
+        let cell = Rect::from_min_size(
+            rect.min + vec2(0.0, cp::TOP + i as f32 * cp::CELL_H),
+            vec2(cells_w, cp::CELL_H),
+        );
+        let r = ui.interact(cell, id.with(i), Sense::click());
+        r.widget_info(|| {
+            egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, panel.label())
+        });
+        if r.clicked() {
+            st.panel = panel;
+            ui.memory_mut(|m| m.request_focus(id));
+        }
+        let (fg, bg) = if on { (paper, ink) } else { (ink, paper) };
+        // The icon, pixel-aligned, centred at the top of the cell.
+        let px = ninsei_core::system::panel_icon(data, panel);
+        let side = ninsei_core::system::PANEL_ICON as f32 * cp::ICON_SCALE;
+        let art = pos2((cell.center().x - side / 2.0).round(), cell.top().round());
+        for (y, row) in px.iter().enumerate() {
+            for (x, ch) in row.chars().enumerate() {
+                let col = match ch {
+                    'k' => fg,
+                    'w' => bg,
+                    _ => continue,
+                };
+                let at = art + vec2(x as f32, y as f32) * cp::ICON_SCALE;
+                p.rect_filled(
+                    Rect::from_min_size(at, egui::Vec2::splat(cp::ICON_SCALE)),
+                    0.0,
+                    col,
+                );
+            }
+        }
+        // The name under it, on a solid backing (inverse when open).
+        let galley = p.layout_no_wrap(panel.label().to_string(), font(), fg);
+        let name = Rect::from_center_size(
+            pos2(
+                cell.center().x,
+                art.y + side + 4.0 + galley.size().y / 2.0 + 1.0,
+            ),
+            galley.size() + vec2(6.0, 2.0),
+        );
+        p.rect_filled(name, 0.0, bg);
+        p.galley(name.min + vec2(3.0, 1.0), galley, fg);
+    }
+}
+
+/// A scroll bar's arrow in its box, outlined: pointing up (`dir` -1) or down (1).
+fn scroll_arrow(p: &egui::Painter, b: egui::Rect, dir: f32, line: egui::Stroke) {
+    use egui::pos2;
+    let c = b.center();
+    let (tip, base) = (c.y + dir * 4.0, c.y - dir * 3.0);
+    let pts = vec![
+        pos2(c.x, tip),
+        pos2(c.x + 5.0, base),
+        pos2(c.x - 5.0, base),
+        pos2(c.x, tip),
+    ];
+    p.add(egui::Shape::line(pts, line));
 }
 
 /// Desktop: Workbench 1.3's Preferences. A row of chunky gadgets across the top picks the
@@ -243,9 +362,7 @@ fn overview(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
 /// The monitors you own, the one plugged in, and the CRT.
 fn monitor(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
     let m = save.monitor_def(data);
-    head(ui, &m.title());
-    ui.label(dim(&m.blurb));
-    ui.add_space(6.0);
+    head(ui, "Monitor");
     for id in &save.monitors {
         let Some(m) = data.hardware.monitor(id) else {
             continue;
@@ -261,6 +378,8 @@ fn monitor(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
             ui.label(dim(if m.colour { "colour" } else { "mono" }));
         });
     }
+    ui.add_space(4.0);
+    ui.label(dim(&m.blurb));
     ui.add_space(6.0);
     let mut crt = save.crt;
     if ui.checkbox(&mut crt, "CRT effects").changed() {
