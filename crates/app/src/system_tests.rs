@@ -2,7 +2,7 @@
 //! `WbOut`s they send.
 
 use super::*;
-use crate::uitest::Harness;
+use crate::uitest::{Harness, key};
 use egui::Key;
 use ninsei_core::binary;
 use ninsei_core::glitch::Glitches;
@@ -397,5 +397,248 @@ fn defragment_takes_its_time() {
         show(ui, &d, &s, &mut st, &mut sent)
     });
     assert!(sent.is_empty());
+    assert!(st.defrag.is_some());
+}
+
+/// `save` on another deck (its first firmware), owning all three decks.
+fn on_deck(d: &Data, deck: &str) -> Save {
+    let mut s = save(d);
+    s.decks = d.hardware.decks.iter().map(|x| x.id.clone()).collect();
+    s.deck = deck.into();
+    s.firmware = String::new();
+    s.ensure_hardware(d);
+    s
+}
+
+/// AnarchyOS's System, focused (its keys live), on `panel`.
+fn tui(d: &Data, s: &Save, panel: Panel) -> (Harness, SystemUi) {
+    assert_eq!(
+        s.firmware_def(d).desktop,
+        ninsei_core::hardware::Desktop::Tiling
+    );
+    let mut h = Harness::new(900.0, 700.0);
+    let mut st = SystemUi {
+        panel,
+        keys: true,
+        ..SystemUi::default()
+    };
+    frame(&mut h, d, s, &mut st, Vec::new());
+    (h, st)
+}
+
+#[test]
+fn workbench_gadgets_pick_the_panel() {
+    let d = data();
+    let s = on_deck(&d, "hosaka");
+    assert_eq!(
+        s.firmware_def(&d).desktop,
+        ninsei_core::hardware::Desktop::Workbench
+    );
+    let mut h = Harness::new(900.0, 700.0);
+    let mut st = SystemUi::default();
+    frame(&mut h, &d, &s, &mut st, Vec::new());
+    for want in [Panel::Monitor, Panel::Theme, Panel::Disk, Panel::Overview] {
+        let ev = press(&h, want.label());
+        assert!(frame(&mut h, &d, &s, &mut st, ev).is_empty());
+        assert_eq!(st.panel, want);
+    }
+    // The panels are the shared ones: About's switches still send.
+    let ev = press(&h, "Sound");
+    assert_eq!(frame(&mut h, &d, &s, &mut st, ev), [WbOut::Sound]);
+}
+
+#[test]
+fn anarchy_keys_switch_tabs_and_tabs_click() {
+    let d = data();
+    let s = on_deck(&d, "onosendai");
+    let (mut h, mut st) = tui(&d, &s, Panel::Overview);
+    for (k, want) in [
+        (Key::Num2, Panel::Monitor),
+        (Key::Num3, Panel::Theme),
+        (Key::Num4, Panel::Disk),
+        (Key::Num1, Panel::Overview),
+        (Key::CloseBracket, Panel::Monitor),
+        (Key::OpenBracket, Panel::Overview),
+        (Key::OpenBracket, Panel::Disk),
+    ] {
+        frame(&mut h, &d, &s, &mut st, key(k));
+        assert_eq!(st.panel, want, "{k:?}");
+    }
+    let ev = press(&h, "2 monitor");
+    frame(&mut h, &d, &s, &mut st, ev);
+    assert_eq!(st.panel, Panel::Monitor);
+    // Tab isn't System's: it moves the focus in egui and in the page.
+    frame(&mut h, &d, &s, &mut st, key(Key::Tab));
+    frame(&mut h, &d, &s, &mut st, key(Key::Num4));
+    assert_eq!(st.panel, Panel::Disk, "Tab didn't take the keys away");
+}
+
+#[test]
+fn anarchy_keys_are_quiet_unless_the_tile_is_focused() {
+    let d = data();
+    let s = on_deck(&d, "onosendai");
+    let (mut h, mut st) = tui(&d, &s, Panel::Overview);
+    st.keys = false;
+    frame(&mut h, &d, &s, &mut st, key(Key::Num2));
+    assert_eq!(st.panel, Panel::Overview);
+}
+
+#[test]
+fn anarchy_settings_move_with_arrows_and_change_with_enter() {
+    let d = data();
+    let s = on_deck(&d, "onosendai");
+    let (mut h, mut st) = tui(&d, &s, Panel::Overview);
+    // Row 0 is sound.
+    assert_eq!(
+        frame(&mut h, &d, &s, &mut st, key(Key::Enter)),
+        [WbOut::Sound]
+    );
+    // j (or ↓) to cracktros; Space works like Enter.
+    frame(&mut h, &d, &s, &mut st, key(Key::J));
+    assert_eq!(
+        frame(&mut h, &d, &s, &mut st, key(Key::Space)),
+        [WbOut::Intros(!s.intros)]
+    );
+    // Glitches: → and ← step through on / reduced / off.
+    frame(&mut h, &d, &s, &mut st, key(Key::ArrowDown));
+    let all = Glitches::ALL;
+    let i = all.iter().position(|&g| g == s.glitches).unwrap();
+    assert_eq!(
+        frame(&mut h, &d, &s, &mut st, key(Key::ArrowRight)),
+        [WbOut::Glitches(all[(i + 1) % all.len()])]
+    );
+    assert_eq!(
+        frame(&mut h, &d, &s, &mut st, key(Key::ArrowLeft)),
+        [WbOut::Glitches(all[(i + all.len() - 1) % all.len()])]
+    );
+    // Deck: → plugs in the next one you own.
+    frame(&mut h, &d, &s, &mut st, key(Key::ArrowDown));
+    let next =
+        s.decks[(s.decks.iter().position(|x| *x == s.deck).unwrap() + 1) % s.decks.len()].clone();
+    assert_eq!(
+        frame(&mut h, &d, &s, &mut st, key(Key::ArrowRight)),
+        [WbOut::Deck(next)]
+    );
+    // Clicking a row is Enter on it.
+    let ev = press(&h, "cracktros");
+    assert_eq!(
+        frame(&mut h, &d, &s, &mut st, ev),
+        [WbOut::Intros(!s.intros)]
+    );
+    assert_eq!(st.cursor, 1);
+}
+
+#[test]
+fn anarchy_monitor_and_theme_lists() {
+    let d = data();
+    let s = on_deck(&d, "onosendai");
+    let (mut h, mut st) = tui(&d, &s, Panel::Monitor);
+    frame(&mut h, &d, &s, &mut st, key(Key::ArrowDown));
+    assert_eq!(
+        frame(&mut h, &d, &s, &mut st, key(Key::Enter)),
+        [WbOut::Monitor(s.monitors[1].clone())]
+    );
+    // The last row is the CRT.
+    for _ in 0..s.monitors.len() {
+        frame(&mut h, &d, &s, &mut st, key(Key::ArrowDown));
+    }
+    assert_eq!(
+        frame(&mut h, &d, &s, &mut st, key(Key::Enter)),
+        [WbOut::Crt]
+    );
+
+    // On a mono tube, Enter on any other theme does nothing.
+    let mut mono = s.clone();
+    let m = d.hardware.monitors.iter().find(|m| !m.colour).unwrap();
+    mono.monitor = m.id.clone();
+    mono.phosphor = m.locked_theme(&d).unwrap().to_string();
+    let (mut h, mut st) = tui(&d, &mono, Panel::Theme);
+    for (i, t) in d.themes.iter().enumerate() {
+        st.cursor = i;
+        let out = frame(&mut h, &d, &mono, &mut st, key(Key::Enter));
+        if t.id == mono.phosphor {
+            assert_eq!(out, [WbOut::Theme(t.id.clone())]);
+        } else {
+            assert!(out.is_empty(), "{} is locked", t.id);
+        }
+    }
+}
+
+#[test]
+fn anarchy_disk_picks_installs_scraps_and_defrags_by_key() {
+    let d = data();
+    let mut s = on_deck(&d, "onosendai");
+    stash(&d, &mut s, "torch", 7);
+    let (mut h, mut st) = tui(&d, &s, Panel::Disk);
+    let on = disk::installed(&s, &d);
+    // j picks the first installed program; Enter takes it off.
+    frame(&mut h, &d, &s, &mut st, key(Key::J));
+    assert_eq!(st.picked, Some(on[0].at.clone()));
+    assert_eq!(
+        frame(&mut h, &d, &s, &mut st, key(Key::Enter)),
+        [WbOut::Remove(on[0].at.clone())]
+    );
+    // Down past the disk to the torch in the box: Enter installs it.
+    for _ in 0..on.len() {
+        frame(&mut h, &d, &s, &mut st, key(Key::J));
+    }
+    assert_eq!(st.picked, Some(Disk::Stash(7)));
+    assert_eq!(
+        frame(&mut h, &d, &s, &mut st, key(Key::Enter)),
+        [WbOut::Install(Disk::Stash(7))]
+    );
+    // x asks, n cancels; x then y scraps.
+    frame(&mut h, &d, &s, &mut st, key(Key::X));
+    assert_eq!(st.confirm_scrap, Some(7));
+    assert!(frame(&mut h, &d, &s, &mut st, key(Key::N)).is_empty());
+    assert_eq!(st.confirm_scrap, None);
+    frame(&mut h, &d, &s, &mut st, key(Key::X));
+    assert_eq!(
+        frame(&mut h, &d, &s, &mut st, key(Key::Y)),
+        [WbOut::Scrap(7)]
+    );
+    // d defrags.
+    frame(&mut h, &d, &s, &mut st, key(Key::D));
+    assert!(st.defrag.is_some());
+}
+
+#[test]
+fn anarchy_disk_clicks_pick_and_the_hints_click() {
+    let d = data();
+    let mut s = on_deck(&d, "onosendai");
+    stash(&d, &mut s, "torch", 7);
+    let (mut h, mut st) = tui(&d, &s, Panel::Disk);
+    let ev = press(&h, &file_of(&d, &s, &Disk::Stash(7)));
+    frame(&mut h, &d, &s, &mut st, ev);
+    assert_eq!(st.picked, Some(Disk::Stash(7)));
+    let ev = press(&h, "enter install");
+    assert_eq!(
+        frame(&mut h, &d, &s, &mut st, ev),
+        [WbOut::Install(Disk::Stash(7))]
+    );
+}
+
+#[test]
+fn anarchy_fits_a_half_screen_tile() {
+    // The tile next to the Shell: every key hint is still there and clickable.
+    let d = data();
+    let mut s = on_deck(&d, "onosendai");
+    stash(&d, &mut s, "torch", 7);
+    let mut h = Harness::new(460.0, 700.0);
+    let mut st = SystemUi {
+        panel: Panel::Disk,
+        keys: true,
+        picked: Some(Disk::Stash(7)),
+        ..SystemUi::default()
+    };
+    frame(&mut h, &d, &s, &mut st, Vec::new());
+    for hint in ["] next", "x scrap", "d defrag", "enter install"] {
+        let r = h
+            .find(hint)
+            .unwrap_or_else(|| panic!("{hint}: {:?}", h.texts()));
+        assert!(r.right() <= 460.0, "{hint} runs off the tile: {r:?}");
+    }
+    let ev = press(&h, "d defrag");
+    frame(&mut h, &d, &s, &mut st, ev);
     assert!(st.defrag.is_some());
 }

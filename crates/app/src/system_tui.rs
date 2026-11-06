@@ -3,7 +3,7 @@
 //! neofetch, Disk is a DEFRAG-style text block map. It draws a character grid in the desk's
 //! colours and sends the same `WbOut`s as the other looks. Every key has a click.
 
-use egui::{Align2, Color32, FontId, Pos2, Rect, Sense, Ui, vec2};
+use egui::{Align2, Color32, FontId, Rect, Sense, Ui, vec2};
 use ninsei_core::disk::{self, Disk, Program};
 use ninsei_core::glitch::Glitches;
 use ninsei_core::hardware::Desktop;
@@ -30,6 +30,7 @@ fn font() -> FontId {
 enum Cmd {
     Panel(Panel),
     NextPanel,
+    PrevPanel,
     Up,
     Down,
     Left,
@@ -56,7 +57,8 @@ struct Item {
 struct Grid {
     cols: usize,
     cells: Vec<(usize, usize, char, Color32, Option<Color32>)>,
-    hits: Vec<(usize, usize, usize, Cmd)>,
+    /// Clickable runs: (col, row, len, what it does, its name if not its text).
+    hits: Vec<(usize, usize, usize, Cmd, Option<String>)>,
     rows: usize,
 }
 
@@ -92,7 +94,12 @@ impl Grid {
 
     /// Makes `len` cells from (col, row) clickable.
     fn hit(&mut self, col: usize, row: usize, len: usize, cmd: Cmd) {
-        self.hits.push((col, row, len, cmd));
+        self.hits.push((col, row, len, cmd, None));
+    }
+
+    /// Like `hit`, named `label` for a screen reader instead of the glyphs it shows.
+    fn hit_as(&mut self, col: usize, row: usize, len: usize, cmd: Cmd, label: String) {
+        self.hits.push((col, row, len, cmd, Some(label)));
     }
 
     /// A key hint: the key in the accent, what it does muted. Clickable when `cmd` is given.
@@ -103,6 +110,18 @@ impl Grid {
             self.hit(col, row, end - col, cmd);
         }
         end + 2
+    }
+
+    /// The text in `len` cells from (col, row), trimmed: what a hit there says.
+    fn text(&self, col: usize, row: usize, len: usize) -> String {
+        let mut line = vec![' '; len];
+        for &(c, r, ch, _, _) in &self.cells {
+            if r == row && (col..col + len).contains(&c) {
+                line[c - col] = ch;
+            }
+        }
+        let s: String = line.into_iter().collect();
+        s.split_whitespace().collect::<Vec<_>>().join(" ")
     }
 
     fn rule(&mut self, row: usize) {
@@ -172,7 +191,8 @@ pub fn show(ui: &mut Ui, data: &Data, save: &Save, st: &mut SystemUi, out: &mut 
     let (mut c, mut fy) = (1, foot + 1);
     let all = [
         ("1-4", "panel", None),
-        ("tab", "next", Some(Cmd::NextPanel)),
+        ("[", "prev", Some(Cmd::PrevPanel)),
+        ("]", "next", Some(Cmd::NextPanel)),
     ];
     for (k, what, cmd) in all.into_iter().chain(hints) {
         if c > 1 && c + k.chars().count() + what.chars().count() + 1 > g.cols {
@@ -183,7 +203,7 @@ pub fn show(ui: &mut Ui, data: &Data, save: &Save, st: &mut SystemUi, out: &mut 
 
     // Paint the grid and read clicks.
     let size = vec2(cols as f32 * cw, g.rows as f32 * ch);
-    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
     let p = ui.painter_at(rect);
     let cell = |c: usize, r: usize| {
         Rect::from_min_size(rect.min + vec2(c as f32 * cw, r as f32 * ch), vec2(cw, ch))
@@ -197,17 +217,20 @@ pub fn show(ui: &mut Ui, data: &Data, save: &Save, st: &mut SystemUi, out: &mut 
             p.text(cr.min, Align2::LEFT_TOP, chr, font(), fg);
         }
     }
+    // Every clickable run of cells is a widget, labelled with its text, so a screen reader
+    // (or a test) can find it. The last one added wins where they overlap.
     let mut cmds = Vec::new();
-    if resp.clicked()
-        && let Some(pos) = resp.interact_pointer_pos()
-        && let Some(cmd) = hit_at(&g, rect.min, cw, ch, pos)
-    {
-        cmds.push(cmd);
-    }
-    if let Some(pos) = resp.hover_pos()
-        && hit_at(&g, rect.min, cw, ch, pos).is_some()
-    {
-        ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+    for (i, (hc, hr, len, cmd, name)) in g.hits.iter().enumerate() {
+        let r = cell(*hc, *hr).union(cell(hc + len.saturating_sub(1), *hr));
+        let hit = ui.interact(r, ui.id().with(("system-hit", i)), Sense::CLICK);
+        let label = name.clone().unwrap_or_else(|| g.text(*hc, *hr, *len));
+        hit.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &label));
+        if hit.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        if hit.clicked() {
+            cmds.push(cmd.clone());
+        }
     }
     keys(ui, st, &mut cmds);
     for cmd in cmds {
@@ -225,21 +248,12 @@ pub fn show(ui: &mut Ui, data: &Data, save: &Save, st: &mut SystemUi, out: &mut 
     }
 }
 
-fn hit_at(g: &Grid, min: Pos2, cw: f32, ch: f32, pos: Pos2) -> Option<Cmd> {
-    let v = pos - min;
-    let (c, r) = ((v.x / cw) as usize, (v.y / ch) as usize);
-    g.hits
-        .iter()
-        .rev()
-        .find(|(hc, hr, len, _)| *hr == r && (*hc..hc + len).contains(&c))
-        .map(|h| h.3.clone())
-}
-
 /// Keys, while the tile is focused (or, outside a tile, while the pointer's over it) and
-/// nothing else is typing. No Ctrl or Alt: the browser owns those.
+/// nothing else is typing. No Ctrl or Alt: the browser owns those, and no Tab: it moves the
+/// focus (in egui and in the page).
 fn keys(ui: &Ui, st: &SystemUi, cmds: &mut Vec<Cmd>) {
     let live = st.keys || ui.rect_contains_pointer(ui.max_rect());
-    if !live || ui.memory(|m| m.focused().is_some()) {
+    if !live || ui.ctx().text_edit_focused() {
         return;
     }
     ui.input(|i| {
@@ -254,7 +268,8 @@ fn keys(ui: &Ui, st: &SystemUi, cmds: &mut Vec<Cmd>) {
             }
         }
         let map = [
-            (Key::Tab, Cmd::NextPanel),
+            (Key::CloseBracket, Cmd::NextPanel),
+            (Key::OpenBracket, Cmd::PrevPanel),
             (Key::ArrowUp, Cmd::Up),
             (Key::K, Cmd::Up),
             (Key::ArrowDown, Cmd::Down),
@@ -299,6 +314,11 @@ fn apply(
         Cmd::NextPanel => {
             let i = Panel::ALL.iter().position(|&p| p == st.panel).unwrap_or(0);
             return goto(st, Panel::ALL[(i + 1) % Panel::ALL.len()]);
+        }
+        Cmd::PrevPanel => {
+            let i = Panel::ALL.iter().position(|&p| p == st.panel).unwrap_or(0);
+            let n = Panel::ALL.len();
+            return goto(st, Panel::ALL[(i + n - 1) % n]);
         }
         _ => {}
     }
@@ -819,7 +839,7 @@ fn disk_panel(
                     } else {
                         g.put(col, yy, &s, fg);
                     }
-                    g.hit(col, yy, 2, Cmd::Pick(prog.at.clone()));
+                    g.hit_as(col, yy, 2, Cmd::Pick(prog.at.clone()), prog.spec.file());
                 }
                 None if preview.contains(&i) => {
                     g.put(col, yy, "::", accent());
@@ -910,7 +930,7 @@ fn disk_panel(
             } else {
                 g.put(x + 4, y + k, &name, ink())
             };
-            g.hit(x, y + k, end - x, Cmd::Pick(prog.at.clone()));
+            g.hit_as(x, y + k, end - x, Cmd::Pick(prog.at.clone()), name);
         }
         if progs.is_empty() {
             g.put(x + 2, y, "empty", fill());

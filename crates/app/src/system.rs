@@ -126,6 +126,9 @@ fn gadget(ui: &mut Ui, label: &str, on: bool) -> egui::Response {
     let galley = ui.painter().layout_no_wrap(label.to_string(), font, ink());
     let size = galley.size() + egui::vec2(18.0, 10.0);
     let (r, resp) = ui.allocate_exact_size(size, egui::Sense::click());
+    resp.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, label)
+    });
     let p = ui.painter();
     p.rect_filled(r, 0.0, if on { accent() } else { fill() });
     let (lt, rb) = if on {
@@ -797,7 +800,7 @@ fn keys(
     shelf: &[Program],
     out: &mut Vec<WbOut>,
 ) {
-    if !ui.rect_contains_pointer(ui.max_rect()) || ui.memory(|m| m.focused().is_some()) {
+    if !ui.rect_contains_pointer(ui.max_rect()) || ui.ctx().text_edit_focused() {
         return;
     }
     let all: Vec<&Disk> = on.iter().chain(shelf).map(|p| &p.at).collect();
