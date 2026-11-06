@@ -166,6 +166,16 @@ pub fn stash(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>, edit: 
 /// The Welcome to the Net stack as a HyperCard card: ink on paper, the card's picture on the
 /// left and its text on the right, ◀ Home ▶ along the bottom. The Home card lists the
 /// sections. Arrow keys page while the pointer is over it.
+/// A card's type and picture, sized so a full card (`cards::TEXT_COLS` x `TEXT_ROWS`) fills the
+/// book's page the way a HyperCard card filled the screen.
+mod card {
+    pub const TITLE: f32 = 24.0;
+    /// 54 columns of this beside the widest picture fit the page without wrapping.
+    pub const TEXT: f32 = 15.0;
+    pub const SMALL: f32 = 13.0;
+    pub const PICTURE: f32 = 4.0;
+}
+
 pub fn guide(ui: &mut Ui, data: &Data, at: &mut ninsei_core::cards::Place) {
     use ninsei_core::book::Turn;
     use ninsei_core::cards::{self, Place};
@@ -182,7 +192,11 @@ pub fn guide(ui: &mut Ui, data: &Data, at: &mut ninsei_core::cards::Place) {
             format!("card {} of {}", i + 1, all.len()),
             stack.sections[all[i].0].name.clone(),
         ),
-        _ => ("Home".to_string(), stack.title.clone()),
+        // The window already says the stack's name; Home's status says what's in it.
+        _ => (
+            "Home".to_string(),
+            format!("{} sections", stack.sections.len()),
+        ),
     };
     let mono = |s: &str, size: f32| RichText::new(s).monospace().size(size).color(ink);
     let book = crate::pager::Book {
@@ -205,13 +219,13 @@ pub fn guide(ui: &mut Ui, data: &Data, at: &mut ninsei_core::cards::Place) {
         let mut to = None;
         match *at {
             Place::Home => {
-                ui.label(mono(&stack.title, 20.0).strong());
-                ui.label(mono("from your friends at Sense/Net", 12.0));
-                ui.add_space(10.0);
+                ui.label(mono(&stack.title, card::TITLE).strong());
+                ui.label(mono("from your friends at Sense/Net", card::SMALL));
+                ui.add_space(14.0);
                 for (i, s) in stack.sections.iter().enumerate() {
                     let n = s.cards.len();
                     if ui
-                        .button(mono(&format!("{:<16} {n} card(s)", s.name), 14.0))
+                        .button(mono(&format!("{:<16} {n} card(s)", s.name), card::TEXT))
                         .clicked()
                     {
                         to = Some(Turn::To(stack.section_start(i) + 1));
@@ -223,22 +237,22 @@ pub fn guide(ui: &mut Ui, data: &Data, at: &mut ninsei_core::cards::Place) {
                     return Some(Turn::Home);
                 };
                 ui.horizontal(|ui| {
-                    ui.label(mono(&card.title, 18.0).strong());
+                    ui.label(mono(&card.title, card::TITLE).strong());
                     ui.add_space(12.0);
-                    ui.label(mono(&stack.sections[*sec].name, 12.0));
+                    ui.label(mono(&stack.sections[*sec].name, card::SMALL));
                 });
-                ui.add_space(8.0);
+                ui.add_space(12.0);
                 ui.horizontal_top(|ui| {
                     if let Some(rows) = card.picture.as_ref().and_then(|p| stack.pictures.get(p)) {
-                        let scale = 3.0;
+                        let scale = card::PICTURE;
                         let size = crate::patterns::bitmap_size(rows, scale);
                         let (r, _) = ui.allocate_exact_size(size, egui::Sense::hover());
                         crate::patterns::bitmap(ui.painter(), rows, r.min, scale, ink, paper);
-                        ui.add_space(12.0);
+                        ui.add_space(16.0);
                     }
                     ui.vertical(|ui| {
                         for l in &card.text {
-                            ui.label(mono(&cards::fill(l, data), 13.0));
+                            ui.label(mono(&cards::fill(l, data), card::TEXT));
                         }
                     });
                 });

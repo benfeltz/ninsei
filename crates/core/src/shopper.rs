@@ -547,7 +547,6 @@ pub enum Page {
         vendor: String,
         blocks: Vec<(Block, Cell)>,
     },
-    Index,
 }
 
 /// A section page's grid.
@@ -585,7 +584,8 @@ fn fit(used: &[Cell], cols: usize, rows: usize) -> Option<Cell> {
     None
 }
 
-/// The whole issue: cover, contents, every section's pages, then the index of advertisers.
+/// The whole issue: the cover, the contents (with the index of advertisers), then every
+/// section's pages.
 /// Every listing appears exactly once, and every block gets its own cells on one page.
 pub fn layout(def: &ShopperDef, catalog: &[Listing]) -> Vec<Page> {
     let mut pages = vec![Page::Cover, Page::Contents];
@@ -689,7 +689,6 @@ pub fn layout(def: &ShopperDef, catalog: &[Listing]) -> Vec<Page> {
             blocks,
         });
     }
-    pages.push(Page::Index);
     pages
 }
 

@@ -46,7 +46,7 @@ fn every_listing_is_on_exactly_one_page() {
         let pages = shopper::layout(&d.shopper, &cat);
         assert_eq!(pages.first(), Some(&Page::Cover));
         assert_eq!(pages[1], Page::Contents);
-        assert_eq!(pages.last(), Some(&Page::Index));
+        assert!(matches!(pages.last(), Some(Page::Section { .. })));
         let mut seen = shown(&pages);
         seen.sort_unstable();
         assert_eq!(seen, (0..cat.len()).collect::<Vec<_>>());
