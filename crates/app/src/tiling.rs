@@ -63,7 +63,7 @@ fn entries(fuzzy: bool, save: &ninsei_core::hub::Save) -> Vec<Entry> {
     let mut v = vec![
         Entry::Tool(Tool::Terminal, "CarrierTerm"),
         Entry::WarDial,
-        Entry::Tool(Tool::Rig, "RIG"),
+        Entry::Tool(Tool::Rig, "CPU Shopper"),
         Entry::Tool(Tool::Stash, "STASH"),
         Entry::Tool(Tool::HexEd, "HexEd"),
         Entry::Tool(Tool::Qwk, "QWK Reader"),

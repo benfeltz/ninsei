@@ -1,5 +1,5 @@
 //! The hub's tool windows: CarrierTerm (phonebook), STASH (programs and loadout) and HexEd.
-//! RIG is CPU Shopper, in `shopper.rs`.
+//! CPU Shopper is in `shopper.rs`.
 //! They draw from the save and report what you clicked as [`WbOut`]s; the app applies those
 //! through `Save`'s methods in core.
 
@@ -1029,7 +1029,9 @@ pub fn prefs(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
     let deck = save.deck_def(data);
 
     ui.label(RichText::new("MONITOR").color(ink()).strong());
-    ui.label(dim("Your monitor sets the CRT look. RIG sells more."));
+    ui.label(dim(
+        "Your monitor sets the CRT look. CPU Shopper sells more.",
+    ));
     for id in &save.monitors {
         let Some(m) = data.hardware.monitor(id) else {
             continue;
@@ -1102,7 +1104,7 @@ pub fn prefs(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
     ui.add_space(8.0);
 
     ui.label(RichText::new("DECK").color(ink()).strong());
-    ui.label(dim("Your deck sets how runs look. RIG sells more."));
+    ui.label(dim("Your deck sets how runs look. CPU Shopper sells more."));
     for id in &save.decks {
         let Some(d) = data.hardware.deck(id) else {
             continue;

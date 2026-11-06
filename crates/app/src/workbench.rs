@@ -71,7 +71,7 @@ impl Win {
             Kind::Shell => "NinShell".into(),
             Kind::Prefs => "Prefs".into(),
             Kind::Terminal => "CarrierTerm 1.0: Dialing Directory".into(),
-            Kind::Rig => "RIG: CPU Shopper".into(),
+            Kind::Rig => "CPU Shopper".into(),
             Kind::Stash => "STASH".into(),
             Kind::HexEd => "HexEd".into(),
             Kind::Qwk => "OLX QWK Reader".into(),

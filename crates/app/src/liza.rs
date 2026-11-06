@@ -80,7 +80,7 @@ const MENUS: &[(&str, &[(&str, Act)])] = &[
     (
         "Deck",
         &[
-            ("RIG", Act::Open(Tool::Rig)),
+            ("CPU Shopper", Act::Open(Tool::Rig)),
             ("Stash", Act::Open(Tool::Stash)),
             ("HexEd", Act::Open(Tool::HexEd)),
             ("ICE DB", Act::Open(Tool::IceDb)),
@@ -129,7 +129,7 @@ fn title(tool: Tool) -> &'static str {
         Tool::Shell => "Shell",
         Tool::Terminal => "CarrierTerm",
         Tool::Prefs => "Prefs",
-        Tool::Rig => "RIG",
+        Tool::Rig => "CPU Shopper",
         Tool::Stash => "Stash",
         Tool::HexEd => "HexEd",
     }

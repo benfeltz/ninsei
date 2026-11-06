@@ -1039,7 +1039,7 @@ impl App {
                     }
                     if !any {
                         ui.label(
-                            RichText::new("every pane you own is open. more in RIG.")
+                            RichText::new("every pane you own is open. more in CPU Shopper.")
                                 .color(pal.dim),
                         );
                     }

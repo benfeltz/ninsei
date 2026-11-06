@@ -73,7 +73,7 @@ impl Tool {
     pub fn volume(self) -> &'static str {
         match self {
             Tool::Terminal => "CarrierTerm",
-            Tool::Rig => "RIG",
+            Tool::Rig => "CPU Shopper",
             Tool::Stash => "STASH",
             Tool::HexEd => "HexEd",
             Tool::Shell => "Shell",
@@ -2066,7 +2066,7 @@ pub fn shell_complete(before: &str, save: &Save, data: &Data) -> Vec<String> {
             .icons
             .iter()
             .filter(|i| save.opens(i.tool))
-            .map(|i| i.label.to_ascii_lowercase())
+            .map(|i| i.label.replace(' ', "").to_ascii_lowercase())
             .collect(),
         "theme" => data.themes.iter().map(|t| t.id.clone()).collect(),
         "monitor" | "display" => save.monitors.clone(),
@@ -2271,12 +2271,27 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
             ShellEffect::None,
         ),
         "run" | "open" => {
-            let Some(name) = arg else {
+            if arg.is_none() {
                 return (vec!["run what? try `dir`.".into()], ShellEffect::None);
+            }
+            // The whole rest of the line, so names with spaces work: `run cpu shopper`,
+            // `run cpushopper` and `run ice db` all open their tool.
+            let name = line
+                .trim()
+                .split_once(char::is_whitespace)
+                .map_or("", |(_, rest)| rest.trim());
+            let key = |s: &str| s.replace(' ', "").to_ascii_lowercase();
+            let alias = |name: &str| match key(name).as_str() {
+                // RIG was CPU Shopper's old name.
+                "rig" => Some(Tool::Rig),
+                _ => None,
             };
-            match icons.iter().find(|i| i.label.eq_ignore_ascii_case(name)) {
+            match icons.iter().find(|i| key(&i.label) == key(name)) {
                 Some(i) => (Vec::new(), ShellEffect::Open(i.tool)),
-                None => (vec![format!("{name}: object not found")], ShellEffect::None),
+                None => match alias(name) {
+                    Some(t) => (Vec::new(), ShellEffect::Open(t)),
+                    None => (vec![format!("{name}: object not found")], ShellEffect::None),
+                },
             }
         }
         "theme" => match arg.and_then(|t| data.theme(t)) {
@@ -2299,7 +2314,9 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
                 (Vec::new(), ShellEffect::Monitor(id.to_string()))
             }
             Some(id) => (
-                vec![format!("{id}: you don't own that monitor. RIG sells them.")],
+                vec![format!(
+                    "{id}: you don't own that monitor. CPU Shopper sells them."
+                )],
                 ShellEffect::None,
             ),
             None => (
@@ -2319,7 +2336,9 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
                 (Vec::new(), ShellEffect::Deck(id.to_string()))
             }
             Some(id) => (
-                vec![format!("{id}: you don't own that deck. RIG sells them.")],
+                vec![format!(
+                    "{id}: you don't own that deck. CPU Shopper sells them."
+                )],
                 ShellEffect::None,
             ),
             None => (
