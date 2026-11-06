@@ -851,7 +851,7 @@ pub(crate) fn hint(painter: &egui::Painter, rect: Rect, text: &str) {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::uitest::{Harness, key, text};
     use egui::{Key, Pos2, UiBuilder};

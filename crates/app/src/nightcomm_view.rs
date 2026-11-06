@@ -23,7 +23,8 @@ pub struct NightComm {
     pub sel: Option<u32>,
     /// The range picked on WARDiAL and RANGES.
     pub range: Option<String>,
-    drawn: u64,
+    /// The frame it was last drawn on (none yet: it has just opened).
+    drawn: Option<u64>,
     want_focus: bool,
     want_filter: bool,
 }
@@ -74,10 +75,10 @@ pub fn show(
 
     // Not drawn last pass: the window just opened (or a splash ended). It takes the keys.
     let pass = ui.ctx().cumulative_pass_nr();
-    if nc.drawn + 1 < pass {
+    if nc.drawn.is_none_or(|d| d + 1 < pass) {
         nc.want_focus = true;
     }
-    nc.drawn = pass;
+    nc.drawn = Some(pass);
     if resp.clicked() {
         nc.want_focus = true;
     }
@@ -884,5 +885,105 @@ fn ranges(
                 muted(),
             );
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::home::Home;
+    use crate::home::tests::{deck, frame};
+    use crate::uitest::{Harness, key, text};
+    use ninsei_core::hub::Tool;
+
+    /// NiGHTCOMM open for a couple of frames, so it has the keys.
+    fn opened(data: &Data, save: &Save) -> (Harness, Home) {
+        let (mut h, mut home) = (Harness::new(1280.0, 800.0), Home::new(Vec::new()));
+        for _ in 0..2 {
+            frame(&mut h, &mut home, data, save, Tool::NightComm, Vec::new());
+        }
+        (h, home)
+    }
+
+    fn nightcomm_deck(data: &Data) -> Save {
+        let mut s = deck(data);
+        s.add_starters(data);
+        s.tools = vec!["nightcomm".into()];
+        s.bank = 10_000;
+        s
+    }
+
+    #[test]
+    fn digits_pick_the_page() {
+        let data = Data::builtin().unwrap();
+        let save = nightcomm_deck(&data);
+        let (mut h, mut home) = opened(&data, &save);
+        for (c, tab) in [("2", Tab::Wardial), ("3", Tab::Ranges), ("1", Tab::Intel)] {
+            frame(&mut h, &mut home, &data, &save, Tool::NightComm, text(c));
+            assert_eq!(home.nightcomm.tab, tab, "{c}");
+        }
+    }
+
+    #[test]
+    fn s_turns_the_sort_and_slash_filters() {
+        let data = Data::builtin().unwrap();
+        let save = nightcomm_deck(&data);
+        let (mut h, mut home) = opened(&data, &save);
+        frame(&mut h, &mut home, &data, &save, Tool::NightComm, text("s"));
+        assert_eq!(home.nightcomm.sort, Sort::default().next());
+        for events in [text("/"), Vec::new(), text("gut")] {
+            frame(&mut h, &mut home, &data, &save, Tool::NightComm, events);
+        }
+        assert_eq!(
+            home.nightcomm.query, "gut",
+            "/ opens the filter and it takes the typing"
+        );
+        assert_eq!(
+            home.nightcomm.sort,
+            Sort::default().next(),
+            "typed s's don't sort"
+        );
+    }
+
+    #[test]
+    fn arrows_pick_a_number_and_d_dials_it() {
+        let data = Data::builtin().unwrap();
+        let save = nightcomm_deck(&data);
+        let (mut h, mut home) = opened(&data, &save);
+        let first = home.nightcomm.sel.expect("a number is picked");
+        frame(
+            &mut h,
+            &mut home,
+            &data,
+            &save,
+            Tool::NightComm,
+            key(egui::Key::ArrowDown),
+        );
+        let picked = home.nightcomm.sel.unwrap();
+        assert_ne!(picked, first, "down moves on");
+        frame(&mut h, &mut home, &data, &save, Tool::NightComm, text("d"));
+        assert_eq!(home.dialing.map(|d| d.entry), Some(picked));
+    }
+
+    #[test]
+    fn space_on_wardial_scans_the_picked_range() {
+        let data = Data::builtin().unwrap();
+        let save = nightcomm_deck(&data);
+        let (mut h, mut home) = opened(&data, &save);
+        frame(&mut h, &mut home, &data, &save, Tool::NightComm, text("2"));
+        let out = frame(&mut h, &mut home, &data, &save, Tool::NightComm, text(" "));
+        let range = home.nightcomm.range.clone().expect("a range is picked");
+        assert!(
+            out.iter()
+                .any(|o| matches!(o, WbOut::Scan(r) if *r == range)),
+            "space scans {range}"
+        );
+        let mut broke = save.clone();
+        broke.bank = 0;
+        let out = frame(&mut h, &mut home, &data, &broke, Tool::NightComm, text(" "));
+        assert!(
+            !out.iter().any(|o| matches!(o, WbOut::Scan(_))),
+            "no scan you can't pay for"
+        );
     }
 }
