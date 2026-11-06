@@ -79,6 +79,9 @@ pub struct Kit {
     pub tools: Vec<String>,
     /// Textfiles already on your disk, as (board id, text id).
     pub texts: Vec<(String, String)>,
+    /// For each of `programs`, the stash id it came from (`None` for a free program). The run
+    /// remembers them so the loadout comes home in its place.
+    pub origins: Vec<Option<u32>>,
     /// Programs that are free for this deck (warez ids): what goes on the HDD when `programs`
     /// is empty. A save always passes its own (`Save::free`); empty means the classic four
     /// (`CLASSIC_WAREZ`), for a bare run.
@@ -337,6 +340,9 @@ pub struct Game {
     /// Textfiles on your disk, as (board id, text id): the kit's plus any downloaded this run.
     /// They come home even on a flatline, for the QWK reader.
     pub texts: Vec<(String, String)>,
+    /// Programs that came from the stash's loadout: (slot uid, stash id). At the exit they're
+    /// ticked to keep, and a kept one goes home under its old id, installed again.
+    pub from_stash: Vec<(u32, u32)>,
 }
 
 impl Game {
@@ -403,6 +409,7 @@ impl Game {
             sold_out: 0,
             tools: kit.tools.clone(),
             texts: kit.texts.clone(),
+            from_stash: Vec::new(),
         };
         let classic: Vec<String> = CLASSIC_WAREZ.iter().map(|s| s.to_string()).collect();
         let free = if kit.free.is_empty() {
@@ -418,10 +425,11 @@ impl Game {
         } else {
             kit.programs.clone()
         };
-        for (w, mut bin) in programs {
+        for (n, (w, mut bin)) in programs.into_iter().enumerate() {
             if game.hdd.len() as u32 >= game.deck.hdd_max || w >= game.data.warez.len() {
                 break;
             }
+            let origin = kit.origins.get(n).copied().flatten();
             // Home binaries carry home's signature; the run signs its own.
             binary::seal(&mut bin, game.key());
             if let Ok(spec) = binary::check(&bin, game.key()) {
@@ -433,6 +441,9 @@ impl Game {
                     bin,
                     spec,
                 });
+                if let (Some(id), Some(slot)) = (origin, game.hdd.last()) {
+                    game.from_stash.push((slot.uid, id));
+                }
             }
         }
         game.say(LogKind::Sys, format!("ninsei v0.0.1 // seed {seed:016x}"));
@@ -487,6 +498,15 @@ impl Game {
     /// The key binaries are signed with this run.
     pub fn key(&self) -> u64 {
         self.seed
+    }
+
+    /// The programs to tick at the exit: the loadout's, still on the HDD (by uid).
+    pub fn loadout_keep(&self) -> Vec<u32> {
+        self.from_stash
+            .iter()
+            .filter(|(uid, _)| self.hdd.iter().any(|s| s.uid == *uid))
+            .map(|(uid, _)| *uid)
+            .collect()
     }
 
     /// A fresh, sealed copy of factory program `w`.

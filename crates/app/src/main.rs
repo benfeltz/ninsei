@@ -561,7 +561,8 @@ impl App {
         }
         self.save_dirty = true;
         self.home_bbs = None;
-        self.keep.clear();
+        // The exit's keep picker starts with the loadout ticked: it comes home with you.
+        self.keep = self.game.loadout_keep();
         self.last_at = self.game.at;
         self.last_phase = self.game.phase;
         self.bbs = None;

@@ -1312,7 +1312,8 @@ impl Save {
             tier: e.tier,
             traits: labels,
         });
-        let taken: Vec<u32> = std::mem::take(&mut self.loadout.stash);
+        // Stash programs on the disk leave the stash for the run; the loadout remembers them.
+        let taken: Vec<u32> = kit.origins.iter().flatten().copied().collect();
         self.stash.retain(|s| !taken.contains(&s.id));
         Ok(Game::start(data.clone(), seed, &kit))
     }
@@ -1708,6 +1709,7 @@ impl Save {
     /// An empty loadout falls back to the starters, so you can never jack in with nothing.
     pub fn kit(&self, data: &Data, defs: &[UpgradeDef]) -> Kit {
         let mut programs = Vec::new();
+        let mut origins = Vec::new();
         // Only the Security Suite is free: a loadout from an older save loses its breakers.
         for id in self
             .loadout
@@ -1717,6 +1719,7 @@ impl Save {
         {
             if let Some(w) = data.warez_ix(id) {
                 programs.push((w, binary::encode(&data.warez[w], self.key)));
+                origins.push(None);
             }
         }
         for id in &self.loadout.stash {
@@ -1724,9 +1727,11 @@ impl Save {
                 && let (Some(w), Some(bin)) = (data.warez_ix(&item.origin), item.bin())
             {
                 programs.push((w, bin));
+                origins.push(Some(*id));
             }
         }
         programs.truncate(self.hdd_cap(defs) as usize);
+        origins.truncate(programs.len());
         Kit {
             ram: self.rig.bonus(Upgrade::Ram, defs),
             cpu: self.rig.bonus(Upgrade::Cpu, defs),
@@ -1746,14 +1751,16 @@ impl Save {
                 .iter()
                 .map(|k| (k.board.clone(), k.id.clone()))
                 .collect(),
+            origins,
         }
     }
 
     /// Starts a run. Stash programs in the loadout leave the stash: they come back only
-    /// if you reach the exit and keep them.
+    /// if you reach the exit and keep them. The loadout itself is remembered: a program that
+    /// comes home goes back onto the disk in its place.
     pub fn jack_in(&mut self, data: &Data, defs: &[UpgradeDef], seed: u64) -> Game {
         let kit = self.kit(data, defs);
-        let taken: Vec<u32> = std::mem::take(&mut self.loadout.stash);
+        let taken: Vec<u32> = kit.origins.iter().flatten().copied().collect();
         self.stash.retain(|s| !taken.contains(&s.id));
         Game::start(data.clone(), seed, &kit)
     }
@@ -1875,8 +1882,15 @@ impl Save {
                     if binary::check(&bin, self.key).is_err() {
                         continue;
                     }
-                    let id = self.next_item;
-                    self.next_item += 1;
+                    // A program from the loadout goes home under its old id, so it's still
+                    // installed in its place; a new find gets a new id.
+                    let id = match game.from_stash.iter().find(|(uid, _)| *uid == slot.uid) {
+                        Some((_, id)) => *id,
+                        None => {
+                            self.next_item += 1;
+                            self.next_item - 1
+                        }
+                    };
                     self.stash.push(StashItem {
                         id,
                         origin: game.data.warez[slot.warez].id.clone(),
@@ -1892,6 +1906,11 @@ impl Save {
             }
         };
         self.bank += banked;
+        // What didn't come home drops off the disk; the rest stays installed.
+        let stash = &self.stash;
+        self.loadout
+            .stash
+            .retain(|id| stash.iter().any(|s| s.id == *id));
         Some(RunReport {
             end,
             credits,
