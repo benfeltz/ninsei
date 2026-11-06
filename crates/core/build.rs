@@ -1,6 +1,7 @@
 //! Finds every BBS under `data/bbs/<id>/` (a `board.ron` and a `splash.txt`) and every sound
-//! pack under `data/sounds/<id>.ron` and intro under `data/intros/<id>.ron`, and compiles them in,
-//! so a new board is a new folder and a new sound pack or intro a new file.
+//! pack under `data/sounds/<id>.ron`, intro under `data/intros/<id>.ron` and picture under
+//! `data/art/<id>.txt`, and compiles them in, so a new board is a new folder and a new sound
+//! pack, intro or picture a new file.
 
 use std::fmt::Write;
 use std::path::Path;
@@ -40,12 +41,13 @@ fn main() {
     out.push(']');
     let dest = Path::new(&std::env::var("OUT_DIR").unwrap()).join("boards.rs");
     std::fs::write(dest, out).unwrap();
-    ron_dir("sounds", "sounds.rs", "PackSrc", "sounds");
-    ron_dir("intros", "intros.rs", "IntroSrc", "intro");
+    ron_dir("sounds", "sounds.rs", "PackSrc", "sounds", "ron");
+    ron_dir("intros", "intros.rs", "IntroSrc", "intro", "ron");
+    ron_dir("art", "art.rs", "ArtSrc", "art", "txt");
 }
 
 /// Every `data/<dir>/<id>.ron` as `Ty { id, field: include_str!(..) }`, in file order.
-fn ron_dir(dir: &str, out_file: &str, ty: &str, field: &str) {
+fn ron_dir(dir: &str, out_file: &str, ty: &str, field: &str, ext: &str) {
     let root = Path::new(env!("CARGO_MANIFEST_DIR"))
         .join("../../data")
         .join(dir);
@@ -54,7 +56,7 @@ fn ron_dir(dir: &str, out_file: &str, ty: &str, field: &str) {
         .expect(dir)
         .filter_map(|e| e.ok())
         .map(|e| e.path())
-        .filter(|p| p.extension().is_some_and(|x| x == "ron"))
+        .filter(|p| p.extension().is_some_and(|x| x == ext))
         .collect();
     files.sort();
     let mut out = String::from("&[\n");

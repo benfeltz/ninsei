@@ -8,7 +8,7 @@ use egui::{Align2, FontId, Rect, Response, RichText, Sense, Stroke, Ui, pos2, ve
 use ninsei_core::book::Turn;
 use ninsei_core::hub::{Save, Upgrade};
 use ninsei_core::shopper::{
-    self, AdDef, AdSize, Block, Cell, GRID_COLS, GRID_ROWS, Listing, Page, ShopperDef, Stock,
+    self, AdDef, AdSize, Block, Cell, GRID_COLS, GRID_ROWS, Item, Listing, Page, ShopperDef, Stock,
     VendorDef,
 };
 use ninsei_core::{Data, tuning};
@@ -396,6 +396,7 @@ fn price_text(l: &Listing) -> String {
         Stock::Price(p) => format!("{p}¢"),
         Stock::Owned => "IN YOUR RIG".into(),
         Stock::SoldOut => "SOLD OUT".into(),
+        Stock::Call => "CALL NOW".into(),
     }
 }
 
@@ -434,6 +435,9 @@ fn order(ui: &mut Ui, data: &Data, save: &Save, l: &Listing, a: &AdDef, out: &mu
             }
             Stock::SoldOut => {
                 ui.label(bold("SOLD OUT", size::HEADLINE));
+            }
+            Stock::Call => {
+                ui.label(bold("CALL NOW", size::HEADLINE));
             }
         });
     });
@@ -475,35 +479,71 @@ fn full_ad(
         });
         rule(ui, 3.0);
     }
+    // The body: the copy on the left, the product's picture on the right (like the print
+    // ads), with the price and ORDER pinned under both.
+    let art = match &l.item {
+        Item::Deck(id) => data
+            .hardware
+            .deck(id)
+            .and_then(|d| d.art.as_deref())
+            .and_then(|a| data.art(a)),
+        _ => None,
+    };
+    let body = Rect::from_min_max(
+        pos2(ui.max_rect().left(), ui.cursor().top()),
+        ui.max_rect().max - vec2(0.0, FOOT + GUTTER),
+    );
+    let copy = match art {
+        Some(art) => {
+            let pic = Rect::from_min_max(
+                pos2(body.left() + body.width() * 0.55, body.top()),
+                body.max,
+            );
+            hero(ui, pic, &art.rows);
+            Rect::from_min_max(body.min, pos2(pic.left() - GUTTER, body.bottom()))
+        }
+        None => body,
+    };
+    let mut c = pager::area(ui, copy);
+    let ui_copy = &mut c;
     name_line(
-        ui,
+        ui_copy,
         l,
         a.headline.as_deref().unwrap_or(&l.name),
         size::HOTLINE,
     );
-    ui.label(text(&l.blurb, size::BODY));
+    ui_copy.label(text(&l.blurb, size::BODY));
     if !l.detail.is_empty() {
-        ui.label(small(&l.detail));
+        ui_copy.label(small(&l.detail));
     }
-    ui.add_space(4.0);
-    bullets(ui, &a.bullets);
+    ui_copy.add_space(4.0);
+    bullets(ui_copy, &a.bullets);
     if let Some(n) = &a.note {
-        ui.label(small(n));
+        ui_copy.label(small(n));
     }
     if let Some(v) = vendor.filter(|v| !v.terms.is_empty()) {
-        ui.add_space(6.0);
-        rule(ui, 2.0);
-        ui.label(bold("TERMS:", size::SMALL));
-        ui.label(text(
-            v.terms
-                .iter()
-                .map(|t| format!("★ {t}"))
-                .collect::<Vec<_>>()
-                .join("   "),
-            size::SMALL,
-        ));
+        ui_copy.add_space(6.0);
+        ui_copy.label(bold("TERMS:", size::SMALL));
+        for t in &v.terms {
+            ui_copy.label(text(format!("★ {t}"), size::SMALL));
+        }
     }
     order(ui, data, save, l, a, out);
+}
+
+/// A product picture (`data/art/`), as big as fits `r` at a whole-number scale, centred, in the
+/// page's ink on its paper.
+fn hero(ui: &mut Ui, r: Rect, rows: &[String]) {
+    let w = rows.first().map_or(0, |r| r.chars().count()) as f32;
+    let h = rows.len() as f32;
+    if w == 0.0 || h == 0.0 {
+        return;
+    }
+    let scale = (r.width() / w).min(r.height() / h).floor().max(1.0);
+    let size = vec2(w, h) * scale;
+    let at = r.center() - size / 2.0;
+    let at = pos2(at.x.round(), at.y.round());
+    crate::patterns::bitmap(ui.painter(), rows, at, scale, ink(), backdrop());
 }
 
 fn small_ad(
@@ -543,7 +583,7 @@ fn list_line(ui: &mut Ui, data: &Data, save: &Save, l: &Listing, out: &mut Vec<W
     };
     let resp = leader(ui, &name, &price_text(l));
     let blocker = match l.stock {
-        Stock::Price(_) => save.order_blocker(data, &l.item),
+        Stock::Price(_) | Stock::Call => save.order_blocker(data, &l.item),
         _ => None,
     };
     let hint = match (&blocker, l.stock) {

@@ -18,6 +18,9 @@
 //             size: Full (a page to itself) | Half | Box (four to a page)
 //             optional: vendor, headline, bullets (★ points), note (small print), callout
 //             (shown instead of the price, e.g. "CALL for SPECIAL PRICE!"; it still orders)
+//             A deck's Full ad takes its whole page: its picture (`art` in hardware.ron) and,
+//             under it, the add-ons for its desktop. Add-ons for an OS none of your decks run
+//             are listed with CALL NOW instead of a price.
 (
     title: "CPU SHOPPER",
     issue: "VOL. 9 NO. 11",
@@ -61,10 +64,10 @@
         (item: Deck("onosendai"), size: Full, vendor: Some("onosendai"), headline: Some("CYBERSPACE VII"),
          bullets: ["Cyberspace 7.0 firmware", "Isometric wireframe map", "btop-style run screen", "AnarchyOS tiling desktop", "net traffic pane included", "6.2 classic panes, free"],
          note: Some("trodes not included")),
-        (item: Deck("hosaka"), size: Half, vendor: Some("hosaka"), headline: Some("Executive 4"),
+        (item: Deck("hosaka"), size: Full, vendor: Some("hosaka"), headline: Some("Executive 4"),
          bullets: ["PlanView 4.0 firmware", "Draftsman network plans", "Office-suite run screen", "Desktop (Workbench) OS"],
          callout: Some("CALL for SPECIAL PRICE!")),
-        (item: Deck("sensenet"), size: Half, headline: Some("Personal Deck"),
+        (item: Deck("sensenet"), size: Full, headline: Some("Personal Deck"),
          bullets: ["Liza, the friendly desktop", "Your net as a HyperCard stack", "1-bit, crisp, everything labelled"]),
         (item: Upgrade(Ram), size: Half, bullets: ["Snaps into any deck", "Lifetime warranty"]),
         (item: Upgrade(Cpu), size: Half, bullets: ["Overclocked and burned in", "Every fight, every turn"]),

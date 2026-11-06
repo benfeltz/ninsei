@@ -86,6 +86,9 @@ pub enum Stock {
     Owned,
     /// A RIG upgrade at its top level.
     SoldOut,
+    /// Listed, but not for you yet: a desktop add-on for an OS none of your decks run. The
+    /// magazine says CALL NOW instead of a price, and it can't be ordered.
+    Call,
 }
 
 /// One thing in the catalog, with what the magazine needs to show it.
@@ -103,6 +106,9 @@ pub struct Listing {
     /// The advertiser it's sold under, if its own file names one.
     pub vendor: Option<String>,
     pub review: bool,
+    /// The OS it belongs to: a deck's first firmware's desktop, or an add-on's. A deck's
+    /// full-page ad carries the add-ons for its desktop on its page.
+    pub desktop: Option<Desktop>,
 }
 
 impl Listing {
@@ -341,6 +347,7 @@ impl Save {
                 stock,
                 vendor: None,
                 review: false,
+                desktop: None,
             };
         for d in &data.hardware.decks {
             let hw = Hardware::Deck(d.id.clone());
@@ -350,14 +357,16 @@ impl Save {
                 Stock::Price(d.price)
             };
             let os: Vec<&str> = d.firmware.iter().map(|f| f.desktop.name()).collect();
-            out.push(listing(
+            let mut l = listing(
                 Item::Deck(d.id.clone()),
                 "DECKS",
                 &d.title(),
                 &d.blurb,
                 format!("runs {}", os.join(", ")),
                 stock,
-            ));
+            );
+            l.desktop = d.firmware.first().map(|f| f.desktop);
+            out.push(l);
         }
         for def in &data.rig {
             let level = self.rig.level(def.kind);
@@ -393,21 +402,26 @@ impl Save {
             ));
         }
         let desks = self.desktops_owned(data);
-        for a in data.addons.iter().filter(|a| desks.contains(&a.desktop)) {
+        // Every add-on is listed; ones for an OS none of your decks run say CALL NOW.
+        for a in &data.addons {
             let stock = if self.has_addon(&a.id) {
                 Stock::Owned
-            } else {
+            } else if desks.contains(&a.desktop) {
                 Stock::Price(a.price)
+            } else {
+                Stock::Call
             };
             let os = a.desktop.name();
-            out.push(listing(
+            let mut l = listing(
                 Item::Addon(a.id.clone()),
-                &format!("ADD-ONS for {}", os.to_uppercase()),
+                &format!("ADD-ON for {}", os.to_uppercase()),
                 &a.name,
                 &a.blurb,
                 format!("for {os}"),
                 stock,
-            ));
+            );
+            l.desktop = Some(a.desktop);
+            out.push(l);
         }
         for p in &data.panes {
             let bundled = self
@@ -460,6 +474,9 @@ impl Save {
             None => Some("that isn't for sale.".into()),
             Some(Stock::Owned) => Some("already in your rig.".into()),
             Some(Stock::SoldOut) => Some("sold out: that upgrade is maxed.".into()),
+            Some(Stock::Call) => Some(
+                "call now: it's for an OS none of your decks run yet. order the deck first.".into(),
+            ),
             Some(Stock::Price(p)) if self.bank < p => {
                 Some(format!("{p}¢. the bank has {}¢.", self.bank))
             }
@@ -469,6 +486,14 @@ impl Save {
 
     /// Orders anything from the catalog with banked credits, through that item's own rules.
     pub fn buy_item(&mut self, data: &Data, item: &Item) -> Result<String, String> {
+        // Listed-but-not-yours items never sell, whatever the item's own rules say.
+        if self
+            .catalog(data)
+            .iter()
+            .any(|l| &l.item == item && l.stock == Stock::Call)
+        {
+            return Err(self.order_blocker(data, item).unwrap_or_default());
+        }
         match item {
             Item::Upgrade(u) => self.buy(&data.rig, *u),
             Item::Monitor(id) => self.buy_hardware(data, &Hardware::Monitor(id.clone())),
@@ -590,15 +615,18 @@ fn fit(used: &[Cell], cols: usize, rows: usize) -> Option<Cell> {
 pub fn layout(def: &ShopperDef, catalog: &[Listing]) -> Vec<Page> {
     let mut pages = vec![Page::Cover, Page::Contents];
     let mut sheets: Vec<Sheet> = Vec::new();
+    let companions = companions(def, catalog);
+    let claimed = |l: usize| companions.iter().any(|(_, ls)| ls.contains(&l));
     for sd in &def.sections {
         let in_section: Vec<usize> = (0..catalog.len())
-            .filter(|&i| catalog[i].section == sd.section)
+            .filter(|&i| catalog[i].section == sd.section && !claimed(i))
             .collect();
         if in_section.is_empty() {
             continue;
         }
-        // Blocks with their size in cells: ads first, biggest first, then the price lists.
-        let mut blocks: Vec<(Block, (usize, usize), String)> = Vec::new();
+        // Blocks with their size in cells: ads first, biggest first, then the price lists. A
+        // full-page ad owns its page; a deck's ad brings its add-ons onto the page with it.
+        let mut blocks: Vec<Placing> = Vec::new();
         let mut ads: Vec<(usize, usize)> = in_section
             .iter()
             .filter_map(|&l| {
@@ -613,11 +641,38 @@ pub fn layout(def: &ShopperDef, catalog: &[Listing]) -> Vec<Page> {
             (std::cmp::Reverse(c * r), l)
         });
         for &(l, a) in &ads {
-            blocks.push((
-                Block::Ad { listing: l, ad: a },
-                def.ads[a].size.cells(),
-                def.vendor_of(&catalog[l]).to_string(),
-            ));
+            let (cols, rows) = def.ads[a].size.cells();
+            let vendor = def.vendor_of(&catalog[l]).to_string();
+            let owns = def.ads[a].size == AdSize::Full;
+            let with = companions
+                .iter()
+                .find(|(d, _)| *d == l)
+                .map(|(_, ls)| ls.clone())
+                .unwrap_or_default();
+            let list_rows = if with.is_empty() {
+                0
+            } else {
+                list_rows(with.len())
+            };
+            blocks.push(Placing {
+                block: Block::Ad { listing: l, ad: a },
+                size: (cols, rows - list_rows.min(rows - 1)),
+                vendor: vendor.clone(),
+                owns,
+                stick: false,
+            });
+            if !with.is_empty() {
+                blocks.push(Placing {
+                    block: Block::List {
+                        title: catalog[with[0]].group.clone(),
+                        listings: with,
+                    },
+                    size: (GRID_COLS, list_rows.min(rows - 1)),
+                    vendor,
+                    owns: false,
+                    stick: true,
+                });
+            }
         }
         let mut groups: Vec<(String, Vec<usize>)> = Vec::new();
         for &l in &in_section {
@@ -632,34 +687,73 @@ pub fn layout(def: &ShopperDef, catalog: &[Listing]) -> Vec<Page> {
         }
         for (title, ls) in groups {
             for chunk in ls.chunks(list_lines(GRID_ROWS)) {
-                blocks.push((
-                    Block::List {
+                blocks.push(Placing {
+                    block: Block::List {
                         title: title.clone(),
                         listings: chunk.to_vec(),
                     },
-                    (1, list_rows(chunk.len())),
-                    sd.vendor.clone(),
-                ));
+                    size: (1, list_rows(chunk.len())),
+                    vendor: sd.vendor.clone(),
+                    owns: false,
+                    stick: false,
+                });
             }
         }
         // Place each block on the first page with room, from the page the last section ended
         // on (so small sections share a page), else on a new page.
         let mut from = sheets.len().saturating_sub(1);
-        for (block, (cols, rows), v) in blocks {
-            let spot = sheets[from..].iter_mut().find_map(|sh| {
+        // A section's ads stay together: if they won't all fit on the page the last section
+        // ended on, the section starts a new page.
+        if let Some(last) = sheets.last() {
+            let mut used: Vec<Cell> = last.blocks.iter().map(|(_, c)| *c).collect();
+            let ads_fit = blocks
+                .iter()
+                .filter(|p| matches!(p.block, Block::Ad { .. }) && !p.owns)
+                .all(|p| match fit(&used, p.size.0, p.size.1) {
+                    Some(c) => {
+                        used.push(c);
+                        true
+                    }
+                    None => false,
+                });
+            if !ads_fit {
+                from = sheets.len();
+            }
+        }
+        for Placing {
+            block,
+            size: (cols, rows),
+            vendor: v,
+            owns,
+            stick,
+        } in blocks
+        {
+            // A deck's add-ons go on the deck's own page (the last one made).
+            let range = if stick {
+                sheets.len().saturating_sub(1)..sheets.len()
+            } else if owns {
+                sheets.len()..sheets.len()
+            } else {
+                from..sheets.len()
+            };
+            let spot = sheets[range].iter_mut().find_map(|sh| {
                 let used: Vec<Cell> = sh.blocks.iter().map(|(_, c)| *c).collect();
                 fit(&used, cols, rows).map(|c| (sh, c))
             });
+            let section = match &block {
+                Block::List { listings, .. } => catalog[listings[0]].section,
+                Block::Ad { listing, .. } => catalog[*listing].section,
+            };
             match spot {
                 Some((sh, cell)) => {
                     sh.blocks.push((block, cell));
-                    if !sh.sections.contains(&sd.section) {
-                        sh.sections.push(sd.section);
+                    if !sh.sections.contains(&section) {
+                        sh.sections.push(section);
                     }
                 }
                 None => {
                     let cell = fit(&[], cols, rows).expect("a block always fits an empty page");
-                    let whole = cols == GRID_COLS && rows == GRID_ROWS;
+                    let whole = owns;
                     let prev = sheets.last().map_or(0, |sh: &Sheet| sh.number);
                     // A section that opens on a new page starts on its printed page.
                     let opens = !sheets.iter().any(|sh| sh.sections.contains(&sd.section));
@@ -670,7 +764,7 @@ pub fn layout(def: &ShopperDef, catalog: &[Listing]) -> Vec<Page> {
                     };
                     sheets.push(Sheet {
                         blocks: vec![(block, cell)],
-                        sections: vec![sd.section],
+                        sections: vec![section],
                         vendor: if whole { v } else { sd.vendor.clone() },
                         number,
                     });
@@ -692,6 +786,38 @@ pub fn layout(def: &ShopperDef, catalog: &[Listing]) -> Vec<Page> {
         });
     }
     pages
+}
+
+/// A block waiting for a page: its size in cells, whose page it would be, whether it owns a
+/// page (a full-page ad) and whether it must go on the same page as the block before it.
+struct Placing {
+    block: Block,
+    size: (usize, usize),
+    vendor: String,
+    owns: bool,
+    stick: bool,
+}
+
+/// Which listings ride on a deck's full-page ad: each deck with a full-page ad takes the add-ons
+/// for its desktop (its first firmware's), and each add-on goes with the first such deck.
+fn companions(def: &ShopperDef, catalog: &[Listing]) -> Vec<(usize, Vec<usize>)> {
+    let mut out: Vec<(usize, Vec<usize>)> = Vec::new();
+    for (d, l) in catalog.iter().enumerate() {
+        let full = def.ad(&l.item).is_some_and(|a| a.size == AdSize::Full);
+        let (Item::Deck(_), Some(desk), true) = (&l.item, l.desktop, full) else {
+            continue;
+        };
+        let taken = |i: usize| out.iter().any(|(_, ls)| ls.contains(&i));
+        let with: Vec<usize> = (0..catalog.len())
+            .filter(|&i| matches!(catalog[i].item, Item::Addon(_)))
+            .filter(|&i| catalog[i].desktop == Some(desk) && !taken(i))
+            .take(list_lines(GRID_ROWS - 1))
+            .collect();
+        if !with.is_empty() {
+            out.push((d, with));
+        }
+    }
+    out
 }
 
 /// A page being filled.

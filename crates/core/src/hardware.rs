@@ -85,6 +85,9 @@ pub struct DeckDef {
     #[serde(default)]
     pub starter: bool,
     pub firmware: Vec<FirmwareDef>,
+    /// Its picture in ads (`data/art/<id>.txt`), if it has one.
+    #[serde(default)]
+    pub art: Option<String>,
 }
 
 impl DeckDef {

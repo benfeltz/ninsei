@@ -146,7 +146,23 @@ fn a_full_ad_has_its_page_and_pages_count_up() {
                 _ => false,
             });
             if full {
-                assert_eq!(blocks.len(), 1, "a full-page ad is alone");
+                // A full-page ad has its page to itself, apart from a deck's own add-ons.
+                let others: Vec<&Block> = blocks
+                    .iter()
+                    .map(|(b, _)| b)
+                    .filter(|b| !matches!(b, Block::Ad { .. }))
+                    .collect();
+                assert!(others.len() <= 1, "a full-page ad is alone: {others:?}");
+                for b in others {
+                    let Block::List { listings, .. } = b else {
+                        panic!("only a list rides with a full-page ad");
+                    };
+                    assert!(
+                        listings
+                            .iter()
+                            .all(|&l| matches!(cat[l].item, Item::Addon(_)))
+                    );
+                }
             }
         }
     }
@@ -249,18 +265,31 @@ fn one_order_buys_anything_through_its_own_rules() {
 }
 
 #[test]
-fn add_ons_are_only_for_desktops_you_run_and_a_broke_bank_is_refused() {
+fn every_add_on_is_listed_but_only_yours_can_be_ordered() {
     let d = data();
-    let s = fresh(10);
+    let mut s = fresh(5000);
     let cat = s.catalog(&d);
     let desks = s.desktops_owned(&d);
-    for l in cat.iter().filter(|l| l.section == Section::Addons) {
-        let Item::Addon(id) = &l.item else { panic!() };
-        let a = d.addons.iter().find(|a| &a.id == id).unwrap();
-        assert!(desks.contains(&a.desktop));
+    for a in &d.addons {
+        let l = cat
+            .iter()
+            .find(|l| l.item == Item::Addon(a.id.clone()))
+            .expect("every add-on is listed");
+        if desks.contains(&a.desktop) {
+            assert_eq!(l.stock, Stock::Price(a.price), "{}", a.id);
+        } else {
+            // Listed with CALL NOW: no price, no order.
+            assert_eq!(l.stock, Stock::Call, "{}", a.id);
+            assert!(s.order_blocker(&d, &l.item).is_some());
+            let bank = s.bank;
+            assert!(s.buy_item(&d, &l.item).is_err());
+            assert_eq!(s.bank, bank);
+        }
     }
+    let broke = fresh(10);
     assert!(
-        s.order_blocker(&d, &Item::Deck("hosaka".into()))
+        broke
+            .order_blocker(&d, &Item::Deck("hosaka".into()))
             .is_some_and(|e| e.contains("bank"))
     );
     let mut maxed = fresh(0);
@@ -271,6 +300,85 @@ fn add_ons_are_only_for_desktops_you_run_and_a_broke_bank_is_refused() {
         .find(|l| l.item == Item::Upgrade(Upgrade::Cpu))
         .unwrap();
     assert_eq!(cpu.stock, Stock::SoldOut);
+}
+
+#[test]
+fn every_deck_has_a_full_page_with_its_picture_and_its_add_ons() {
+    let d = data();
+    let cat = fresh(0).catalog(&d);
+    let pages = shopper::layout(&d.shopper, &cat);
+    for deck in &d.hardware.decks {
+        let art = deck.art.as_deref().expect("every deck has a picture");
+        assert!(d.art(art).is_some(), "{art}");
+        let item = Item::Deck(deck.id.clone());
+        let page = pages
+            .iter()
+            .find_map(|p| {
+                match p {
+                Page::Section { blocks, .. }
+                    if blocks.iter().any(|(b, _)| {
+                        matches!(b, Block::Ad { listing, .. } if cat[*listing].item == item)
+                    }) =>
+                {
+                    Some(blocks)
+                }
+                _ => None,
+            }
+            })
+            .expect("the deck has a page");
+        let decks_here = page
+            .iter()
+            .filter(|(b, _)| matches!(b, Block::Ad { listing, .. } if matches!(cat[*listing].item, Item::Deck(_))))
+            .count();
+        assert_eq!(decks_here, 1, "{} shares its page", deck.id);
+        // Its add-ons ride on its page: the ones for its first firmware's desktop.
+        let os = deck.firmware[0].desktop;
+        let here: Vec<&str> = page
+            .iter()
+            .filter_map(|(b, _)| match b {
+                Block::List { listings, .. } => Some(listings),
+                _ => None,
+            })
+            .flatten()
+            .filter_map(|&l| match &cat[l].item {
+                Item::Addon(id) => Some(id.as_str()),
+                _ => None,
+            })
+            .collect();
+        for a in d.addons.iter().filter(|a| a.desktop == os) {
+            if d.hardware
+                .decks
+                .iter()
+                .position(|x| x.firmware[0].desktop == os)
+                == d.hardware.decks.iter().position(|x| x.id == deck.id)
+            {
+                assert!(
+                    here.contains(&a.id.as_str()),
+                    "{} on {}'s page",
+                    a.id,
+                    deck.id
+                );
+            }
+        }
+    }
+}
+
+#[test]
+fn bad_art_is_caught_on_load() {
+    let ok = data::ArtDef::parse("x", "#.#\n.#.\n");
+    assert!(ok.validate().is_ok());
+    for (text, want) in [("#.#\n.#\n", "widths"), ("#x#\n", "`#`"), ("", "empty")] {
+        let err = data::ArtDef::parse("x", text).validate().unwrap_err();
+        assert!(err.contains(want), "{err}");
+    }
+    let hw = include_str!("../../../data/hub/hardware.ron")
+        .replace("art: Some(\"deck-hosaka\")", "art: Some(\"nowhere\")");
+    let err = Data::parse(Sources {
+        hardware: &hw,
+        ..Sources::builtin()
+    })
+    .unwrap_err();
+    assert!(err.contains("nowhere"), "{err}");
 }
 
 #[test]
