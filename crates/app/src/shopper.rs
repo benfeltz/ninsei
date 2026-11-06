@@ -113,6 +113,12 @@ fn inverse(ui: &mut Ui, t: &str, size: f32) {
 
 /// A dot-leader line: `left ........ right`. Clickable.
 fn leader(ui: &mut Ui, left: &str, right: &str) -> Response {
+    leader_in(ui, left, right, false)
+}
+
+/// A dot-leader line; `greyed` prints the price (the right side) in the muted ink, for items
+/// you can't order again.
+fn leader_in(ui: &mut Ui, left: &str, right: &str, greyed: bool) -> Response {
     let font = FontId::proportional(size::BODY);
     let h = size::BODY + 6.0;
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::click());
@@ -125,7 +131,8 @@ fn leader(ui: &mut Ui, left: &str, right: &str) -> Response {
         font.clone(),
         col,
     );
-    let rr = p.text(r.right_center(), Align2::RIGHT_CENTER, right, font, col);
+    let rcol = if greyed { muted() } else { col };
+    let rr = p.text(r.right_center(), Align2::RIGHT_CENTER, right, font, rcol);
     let mut x = l.right() + 4.0;
     while x < rr.left() - 4.0 {
         p.circle_filled(pos2(x, r.center().y + 4.0), 0.8, muted());
@@ -390,11 +397,10 @@ fn block(
     }
 }
 
-/// What the price spot says: the price, IN YOUR RIG, or SOLD OUT.
+/// What the price spot says: the price (greyed when you own it), SOLD OUT or CALL NOW.
 fn price_text(l: &Listing) -> String {
     match l.stock {
-        Stock::Price(p) => format!("{p}¢"),
-        Stock::Owned => "IN YOUR RIG".into(),
+        Stock::Price(p) | Stock::Owned(p) => format!("{p}¢"),
         Stock::SoldOut => "SOLD OUT".into(),
         Stock::Call => "CALL NOW".into(),
     }
@@ -430,8 +436,22 @@ fn order(ui: &mut Ui, data: &Data, save: &Save, l: &Listing, a: &AdDef, out: &mu
                     }
                 }
             }
-            Stock::Owned => {
-                ui.label(bold("IN YOUR RIG", size::HEADLINE));
+            Stock::Owned(p) => {
+                // The magazine doesn't know you have it: the price as printed, greyed, and an
+                // ORDER button that won't take.
+                ui.add_enabled(false, egui::Button::new(bold("ORDER", size::TITLE)))
+                    .on_disabled_hover_text("you already have this.");
+                ui.add_space(8.0);
+                let price = match &a.callout {
+                    Some(_) => format!("{p}¢"),
+                    None => format!("SPECIAL PRICE {p}¢"),
+                };
+                ui.label(
+                    RichText::new(price)
+                        .family(egui::FontFamily::Proportional)
+                        .size(size::HEADLINE)
+                        .color(muted()),
+                );
             }
             Stock::SoldOut => {
                 ui.label(bold("SOLD OUT", size::HEADLINE));
@@ -581,9 +601,10 @@ fn list_line(ui: &mut Ui, data: &Data, save: &Save, l: &Listing, out: &mut Vec<W
     } else {
         format!("{} ({})", l.name, l.detail)
     };
-    let resp = leader(ui, &name, &price_text(l));
+    let owned = matches!(l.stock, Stock::Owned(_));
+    let resp = leader_in(ui, &name, &price_text(l), owned);
     let blocker = match l.stock {
-        Stock::Price(_) | Stock::Call => save.order_blocker(data, &l.item),
+        Stock::Price(_) | Stock::Call | Stock::Owned(_) => save.order_blocker(data, &l.item),
         _ => None,
     };
     let hint = match (&blocker, l.stock) {

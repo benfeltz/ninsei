@@ -82,8 +82,9 @@ pub struct ToolShop {
 pub enum Stock {
     /// For sale at this price.
     Price(u32),
-    /// You have it ("IN YOUR RIG").
-    Owned,
+    /// You have it already. The magazine doesn't know that: it prints the price as usual,
+    /// greyed out, and the item can't be ordered again.
+    Owned(u32),
     /// A RIG upgrade at its top level.
     SoldOut,
     /// Listed, but not for you yet: a desktop add-on for an OS none of your decks run. The
@@ -112,9 +113,18 @@ pub struct Listing {
 }
 
 impl Listing {
+    /// What you'd pay to order it now (`None` once owned, sold out or not for you).
     pub fn price(&self) -> Option<u32> {
         match self.stock {
             Stock::Price(p) => Some(p),
+            _ => None,
+        }
+    }
+
+    /// The printed price: an owned item still shows its price, greyed out.
+    pub fn list_price(&self) -> Option<u32> {
+        match self.stock {
+            Stock::Price(p) | Stock::Owned(p) => Some(p),
             _ => None,
         }
     }
@@ -352,7 +362,7 @@ impl Save {
         for d in &data.hardware.decks {
             let hw = Hardware::Deck(d.id.clone());
             let stock = if self.owns(&hw) {
-                Stock::Owned
+                Stock::Owned(d.price)
             } else {
                 Stock::Price(d.price)
             };
@@ -388,7 +398,7 @@ impl Save {
         for m in &data.hardware.monitors {
             let hw = Hardware::Monitor(m.id.clone());
             let stock = if self.owns(&hw) {
-                Stock::Owned
+                Stock::Owned(m.price)
             } else {
                 Stock::Price(m.price)
             };
@@ -405,7 +415,7 @@ impl Save {
         // Every add-on is listed; ones for an OS none of your decks run say CALL NOW.
         for a in &data.addons {
             let stock = if self.has_addon(&a.id) {
-                Stock::Owned
+                Stock::Owned(a.price)
             } else if desks.contains(&a.desktop) {
                 Stock::Price(a.price)
             } else {
@@ -432,7 +442,7 @@ impl Save {
                 .find(|(_, f)| f.panes.iter().any(|x| x == &p.id))
                 .map(|(d, f)| format!("free on {} {}", d.name, f.id));
             let stock = if self.panes.iter().any(|x| x == &p.id) {
-                Stock::Owned
+                Stock::Owned(p.price)
             } else {
                 Stock::Price(p.price)
             };
@@ -448,7 +458,7 @@ impl Save {
         for t in &data.tools {
             let Some(shop) = &t.shop else { continue };
             let stock = if self.has_tool(&t.id) {
-                Stock::Owned
+                Stock::Owned(shop.price)
             } else {
                 Stock::Price(shop.price)
             };
@@ -472,7 +482,7 @@ impl Save {
         let l = self.catalog(data).into_iter().find(|l| &l.item == item);
         match l.map(|l| l.stock) {
             None => Some("that isn't for sale.".into()),
-            Some(Stock::Owned) => Some("already in your rig.".into()),
+            Some(Stock::Owned(_)) => Some("you already have this.".into()),
             Some(Stock::SoldOut) => Some("sold out: that upgrade is maxed.".into()),
             Some(Stock::Call) => Some(
                 "call now: it's for an OS none of your decks run yet. order the deck first.".into(),

@@ -87,7 +87,11 @@ fn the_catalog_comes_from_each_items_own_file() {
         .iter()
         .find(|l| l.item == Item::Deck(d.hardware.starter_deck().id.clone()))
         .unwrap();
-    assert_eq!(starter.stock, Stock::Owned);
+    // Owned, but still printed at its price: the magazine doesn't know your rig.
+    let price = d.hardware.starter_deck().price;
+    assert_eq!(starter.stock, Stock::Owned(price));
+    assert_eq!(starter.list_price(), Some(price));
+    assert_eq!(starter.price(), None, "an owned item can't be ordered");
 }
 
 #[test]
