@@ -28,6 +28,7 @@ mod sound;
 mod stack;
 mod suite;
 mod system;
+mod system_tui;
 mod theme;
 mod tigerteam_view;
 mod tiling;

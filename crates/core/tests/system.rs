@@ -98,3 +98,21 @@ fn system_opens_by_its_name_and_by_prefs() {
     }
     assert_eq!(Panel::default(), Panel::Overview);
 }
+
+#[test]
+fn every_desktop_has_a_logo_that_fits() {
+    use ninsei_core::hardware::Desktop;
+    let d = data();
+    for desk in [Desktop::Tiling, Desktop::Workbench, Desktop::Liza] {
+        let logo = system::logo(&d, desk);
+        assert!(!logo.is_empty(), "{desk:?}");
+        assert!(logo.len() <= system::LOGO_MAX.1);
+        assert!(logo.iter().all(|l| l.chars().count() <= system::LOGO_MAX.0));
+    }
+    // Too wide, or missing a desktop, is caught.
+    let mut bad = d.fetch.clone();
+    bad[0].logo[0] = "x".repeat(system::LOGO_MAX.0 + 1);
+    assert!(system::FetchDef::validate(&bad).is_err());
+    bad.remove(0);
+    assert!(system::FetchDef::validate(&bad).is_err());
+}

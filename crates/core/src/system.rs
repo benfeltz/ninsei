@@ -34,6 +34,43 @@ impl Panel {
     }
 }
 
+/// An OS's logo for the neofetch-style About panel (`data/hub/fetch.ron`).
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct FetchDef {
+    pub desktop: crate::hardware::Desktop,
+    pub logo: Vec<String>,
+}
+
+/// How big a logo may be: (columns, rows).
+pub const LOGO_MAX: (usize, usize) = (20, 10);
+
+impl FetchDef {
+    pub fn validate(defs: &[FetchDef]) -> Result<(), String> {
+        use crate::hardware::Desktop;
+        for d in [Desktop::Workbench, Desktop::Tiling, Desktop::Liza] {
+            let f = defs
+                .iter()
+                .find(|f| f.desktop == d)
+                .ok_or_else(|| format!("no logo for {}", d.name()))?;
+            if f.logo.is_empty() || f.logo.len() > LOGO_MAX.1 {
+                return Err(format!("{}'s logo has {} rows", d.name(), f.logo.len()));
+            }
+            if let Some(l) = f.logo.iter().find(|l| l.chars().count() > LOGO_MAX.0) {
+                return Err(format!("{}'s logo line is too wide: {l:?}", d.name()));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// The logo for a desktop.
+pub fn logo(data: &Data, desktop: crate::hardware::Desktop) -> &[String] {
+    data.fetch
+        .iter()
+        .find(|f| f.desktop == desktop)
+        .map_or(&[], |f| f.logo.as_slice())
+}
+
 /// One line of the deck's specs.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Spec {

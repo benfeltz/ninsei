@@ -1,0 +1,36 @@
+// System's About panel on a keyboard-first desktop draws like neofetch/fastfetch: the OS's logo
+// in ASCII beside the specs. One logo per desktop (hardware::Desktop), at most 20 columns by
+// 10 rows. Drawn in the theme's accent.
+[
+    (desktop: Tiling, logo: [
+        "      .------.      ",
+        "    .'   /\\   '.    ",
+        "   /    /  \\    \\   ",
+        "  |    /----\\    |  ",
+        "  |   /      \\   |  ",
+        "   \\ /        \\ /   ",
+        "    X__________X    ",
+        "   / '.      .' \\   ",
+        "         ''         ",
+    ]),
+    (desktop: Workbench, logo: [
+        "               ##   ",
+        "              ##    ",
+        "             ##     ",
+        "   ##       ##      ",
+        "    ##     ##       ",
+        "     ##   ##        ",
+        "      ## ##         ",
+        "       ###          ",
+    ]),
+    (desktop: Liza, logo: [
+        " .--------------.   ",
+        " |  .--------.  |   ",
+        " |  |  o  o  |  |   ",
+        " |  |  \\__/  |  |   ",
+        " |  '--------'  |   ",
+        " |  ==     __   |   ",
+        " '--------------'   ",
+        "   [__________]     ",
+    ]),
+]

@@ -1,4 +1,4 @@
-//! System, the deck's settings app (it replaced Prefs), drawn as a System 1-style Control
+//! System, the deck's settings app (it replaced Prefs), drawn as a System 6-style Control
 //! Panel: the panels down the left, the open one on the right. What it reports comes from core
 //! (`ninsei_core::system`); every change goes out as a `WbOut` and through `Save`'s methods.
 
@@ -25,6 +25,10 @@ const BAR: egui::Vec2 = egui::vec2(96.0, 12.0);
 #[derive(Clone, Debug, Default)]
 pub struct SystemUi {
     pub panel: Panel,
+    /// AnarchyOS: the highlighted row of the open panel (Disk uses `picked`).
+    pub cursor: usize,
+    /// AnarchyOS: the tile is focused, so its keys are live.
+    pub keys: bool,
     pub picked: Option<Disk>,
     pub confirm_scrap: Option<u32>,
     /// Defragment in progress: its frames (from core) and when it started.
@@ -40,9 +44,37 @@ pub mod anim {
 }
 
 pub fn show(ui: &mut Ui, data: &Data, save: &Save, st: &mut SystemUi, out: &mut Vec<WbOut>) {
+    use ninsei_core::hardware::Desktop;
+    match save.firmware_def(data).desktop {
+        Desktop::Liza => control_panel(ui, data, save, st, out),
+        Desktop::Workbench => preferences(ui, data, save, st, out),
+        Desktop::Tiling => crate::system_tui::show(ui, data, save, st, out),
+    }
+}
+
+/// The open panel, in a GUI look.
+fn panel_body(
+    ui: &mut Ui,
+    data: &Data,
+    save: &Save,
+    look: Look,
+    st: &mut SystemUi,
+    out: &mut Vec<WbOut>,
+) {
+    let panel = st.panel;
+    ui.vertical(|ui| match panel {
+        Panel::Overview => overview(ui, data, save, out),
+        Panel::Monitor => monitor(ui, data, save, out),
+        Panel::Theme => theme(ui, data, save, out),
+        Panel::Disk => disk_panel(ui, data, save, look, st, out),
+    });
+}
+
+/// Liza: a System 6 Control Panel. The panels in a framed list down the left (the system's
+/// version under it), the open one on the right.
+fn control_panel(ui: &mut Ui, data: &Data, save: &Save, st: &mut SystemUi, out: &mut Vec<WbOut>) {
     let fw = save.firmware_def(data);
     ui.horizontal_top(|ui| {
-        // The panel list, framed like the Control Panel's, with the system's version under it.
         ui.vertical(|ui| {
             ui.set_width(LIST_W);
             egui::Frame::new()
@@ -63,14 +95,52 @@ pub fn show(ui: &mut Ui, data: &Data, save: &Save, st: &mut SystemUi, out: &mut 
             ui.label(dim(&fw.label));
         });
         ui.add_space(8.0);
-        let panel = st.panel;
-        ui.vertical(|ui| match panel {
-            Panel::Overview => overview(ui, data, save, out),
-            Panel::Monitor => monitor(ui, data, save, out),
-            Panel::Theme => theme(ui, data, save, out),
-            Panel::Disk => disk_panel(ui, data, save, st, out),
-        });
+        panel_body(ui, data, save, Look::Mac, st, out);
     });
+}
+
+/// Desktop: Workbench 1.3's Preferences. A row of chunky gadgets across the top picks the
+/// panel; the open one fills the window under it. Settings take at once, so there's no
+/// Use/Cancel pair: every gadget is a live switch.
+fn preferences(ui: &mut Ui, data: &Data, save: &Save, st: &mut SystemUi, out: &mut Vec<WbOut>) {
+    ui.horizontal(|ui| {
+        for p in Panel::ALL {
+            if gadget(ui, p.label(), st.panel == p).clicked() {
+                st.panel = p;
+            }
+            ui.add_space(4.0);
+        }
+    });
+    ui.add_space(4.0);
+    let r = ui.available_rect_before_wrap();
+    ui.painter()
+        .hline(r.x_range(), r.top(), egui::Stroke::new(2.0, ink()));
+    ui.add_space(8.0);
+    panel_body(ui, data, save, Look::Amiga, st, out);
+}
+
+/// A Workbench 1.3 gadget: a box with a light top-left edge and a dark bottom-right one,
+/// pressed in (edges swapped, filled with the accent) when it's the open panel.
+fn gadget(ui: &mut Ui, label: &str, on: bool) -> egui::Response {
+    let font = egui::FontId::monospace(13.0);
+    let galley = ui.painter().layout_no_wrap(label.to_string(), font, ink());
+    let size = galley.size() + egui::vec2(18.0, 10.0);
+    let (r, resp) = ui.allocate_exact_size(size, egui::Sense::click());
+    let p = ui.painter();
+    p.rect_filled(r, 0.0, if on { accent() } else { fill() });
+    let (lt, rb) = if on {
+        (shadow(), ink())
+    } else {
+        (ink(), shadow())
+    };
+    let s = |c| egui::Stroke::new(2.0, c);
+    p.line_segment([r.left_bottom(), r.left_top()], s(lt));
+    p.line_segment([r.left_top(), r.right_top()], s(lt));
+    p.line_segment([r.right_top(), r.right_bottom()], s(rb));
+    p.line_segment([r.right_bottom(), r.left_bottom()], s(rb));
+    let text = if on { shadow() } else { ink() };
+    p.galley_with_override_text_color(r.center() - galley.size() / 2.0, galley, text);
+    resp
 }
 
 fn head(ui: &mut Ui, t: &str) {
@@ -265,27 +335,18 @@ fn swatch(ui: &mut Ui, t: &ninsei_core::data::ThemeDef) {
 /// Disk: the HDD as a block map (the loadout), the box of disks beside it (the stash and the
 /// free programs not installed), the RAM the installed programs will load into, and the picked
 /// program's details. After MS-DOS 6 DEFRAG / Norton Speed Disk, drawn 1-bit.
-fn disk_panel(ui: &mut Ui, data: &Data, save: &Save, st: &mut SystemUi, out: &mut Vec<WbOut>) {
+fn disk_panel(
+    ui: &mut Ui,
+    data: &Data,
+    save: &Save,
+    look: Look,
+    st: &mut SystemUi,
+    out: &mut Vec<WbOut>,
+) {
     let on = disk::installed(save, data);
     let shelf = disk::shelf(save, data);
     let now = ui.input(|i| i.time);
-    // While Defragment runs, the map shows its frames; when it ends, the save compacts.
-    let mut map = disk::map(save, data);
-    if let Some((frames, start)) = &st.defrag {
-        let t = now - start - anim::READ_SECS;
-        let step = if t < 0.0 {
-            0
-        } else {
-            (t / anim::STEP_SECS) as usize + 1
-        };
-        if step >= frames.len() && t >= 0.0 {
-            out.push(WbOut::Defragment);
-            st.defrag = None;
-        } else {
-            map = frames[step.min(frames.len() - 1)].clone();
-            ui.ctx().request_repaint();
-        }
-    }
+    let map = defrag_map(ui, save, data, st, out);
     let cap = save.hdd_cap(&data.rig) as usize;
     // A pick that's gone (scrapped, lost) is dropped.
     if st
@@ -326,11 +387,11 @@ fn disk_panel(ui: &mut Ui, data: &Data, save: &Save, st: &mut SystemUi, out: &mu
     ui.add_space(4.0);
     // Top: the drive (map, legend, RAM). Bottom: the box of disks beside the picked
     // program's details and its buttons.
-    block_map(ui, data, st, &on, &shelf, &map);
+    block_map(ui, data, look, st, &on, &shelf, &map);
     ui.add_space(4.0);
-    legend(ui, data);
+    legend(ui, data, look);
     ui.add_space(6.0);
-    ram_strip(ui, save, data, &on);
+    ram_strip(ui, save, data, &on, look);
     ui.add_space(8.0);
     ui.horizontal_top(|ui| {
         ui.vertical(|ui| {
@@ -346,14 +407,76 @@ fn disk_panel(ui: &mut Ui, data: &Data, save: &Save, st: &mut SystemUi, out: &mu
     });
 }
 
+/// The map to show: while Defragment runs, its frame for now (and, when it ends, the
+/// `WbOut::Defragment` that compacts the save); otherwise the disk as it lies.
+pub(crate) fn defrag_map(
+    ui: &Ui,
+    save: &Save,
+    data: &Data,
+    st: &mut SystemUi,
+    out: &mut Vec<WbOut>,
+) -> Vec<Option<usize>> {
+    let now = ui.input(|i| i.time);
+    let mut map = disk::map(save, data);
+    if let Some((frames, start)) = &st.defrag {
+        let t = now - start - anim::READ_SECS;
+        let step = if t < 0.0 {
+            0
+        } else {
+            (t / anim::STEP_SECS) as usize + 1
+        };
+        if step >= frames.len() && t >= 0.0 {
+            out.push(WbOut::Defragment);
+            st.defrag = None;
+        } else {
+            map = frames[step.min(frames.len() - 1)].clone();
+            ui.ctx().request_repaint();
+        }
+    }
+    map
+}
+
 /// Map geometry: blocks per row and each block's size.
 const MAP_COLS: usize = 16;
 const BLOCK: f32 = 24.0;
 /// The box of disks' width.
 const BOX_W: f32 = 180.0;
 
-fn fill_for<'a>(data: &'a Data, p: &Program) -> Option<&'a ninsei_core::pattern::PatternDef> {
-    data.disk.fill(p.kind).and_then(|id| data.pattern(id))
+/// Which desktop's look System is wearing.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Look {
+    /// Liza: a System 6 Control Panel, 1-bit patterns.
+    Mac,
+    /// Desktop: Workbench 1.3 Preferences, solid theme colours.
+    Amiga,
+}
+
+/// Fills a block (or a legend swatch, or a RAM segment) for a kind of program: a 1-bit pattern
+/// on Liza, a solid theme colour on Desktop (like an Amiga disk optimizer's map).
+fn paint_kind(
+    p: &egui::Painter,
+    data: &Data,
+    look: Look,
+    kind: ninsei_core::WarezKind,
+    r: egui::Rect,
+) {
+    use ninsei_core::WarezKind;
+    match look {
+        Look::Mac => match data.disk.fill(kind).and_then(|id| data.pattern(id)) {
+            Some(pat) => crate::patterns::fill(p, pat, r, ink(), crate::home::backdrop()),
+            None => {
+                p.rect_filled(r, 0.0, muted());
+            }
+        },
+        Look::Amiga => {
+            let c = match kind {
+                WarezKind::Breaker => accent(),
+                WarezKind::Shield => ink(),
+                WarezKind::Utility => fill(),
+            };
+            p.rect_filled(r, 0.0, c);
+        }
+    }
 }
 
 /// The block map. Click a program's blocks to pick it. A picked program in the box shows the
@@ -361,6 +484,7 @@ fn fill_for<'a>(data: &'a Data, p: &Program) -> Option<&'a ninsei_core::pattern:
 fn block_map(
     ui: &mut Ui,
     data: &Data,
+    look: Look,
     st: &mut SystemUi,
     on: &[Program],
     shelf: &[Program],
@@ -389,12 +513,7 @@ fn block_map(
         match b {
             Some(n) => {
                 let prog = &on[*n];
-                match fill_for(data, prog) {
-                    Some(pat) => crate::patterns::fill(&p, pat, r, ink(), crate::home::backdrop()),
-                    None => {
-                        p.rect_filled(r, 0.0, muted());
-                    }
-                }
+                paint_kind(&p, data, look, prog.kind, r);
                 if first[*n] {
                     first[*n] = false;
                     // The program's initial on the first block of its run, on a paper chip.
@@ -480,7 +599,7 @@ fn dashed(p: &egui::Painter, r: egui::Rect) {
 }
 
 /// Which pattern means which kind of program.
-fn legend(ui: &mut Ui, data: &Data) {
+fn legend(ui: &mut Ui, data: &Data, look: Look) {
     ui.horizontal(|ui| {
         for (kind, label) in [
             (ninsei_core::WarezKind::Breaker, "Breaker"),
@@ -488,9 +607,7 @@ fn legend(ui: &mut Ui, data: &Data) {
             (ninsei_core::WarezKind::Utility, "Utility"),
         ] {
             let (r, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
-            if let Some(pat) = data.disk.fill(kind).and_then(|id| data.pattern(id)) {
-                crate::patterns::fill(ui.painter(), pat, r, ink(), crate::home::backdrop());
-            }
+            paint_kind(ui.painter(), data, look, kind, r);
             ui.painter().rect_stroke(
                 r,
                 0.0,
@@ -512,7 +629,7 @@ fn legend(ui: &mut Ui, data: &Data) {
 }
 
 /// RAM at jack-in: the installed programs that load, in order, then the ones that won't fit.
-fn ram_strip(ui: &mut Ui, save: &Save, data: &Data, on: &[Program]) {
+fn ram_strip(ui: &mut Ui, save: &Save, data: &Data, on: &[Program], look: Look) {
     let (strip, ram_max) = disk::ram_preview(save, data);
     let used: u32 = strip.iter().filter(|r| r.loads).map(|r| r.ram).sum();
     ui.label(RichText::new(format!("RAM at jack-in: {used} of {ram_max} GB")).color(ink()));
@@ -526,9 +643,7 @@ fn ram_strip(ui: &mut Ui, save: &Save, data: &Data, on: &[Program]) {
             egui::pos2(x, rect.top()),
             egui::vec2(per * r.ram as f32, rect.height()),
         );
-        if let Some(pat) = fill_for(data, &on[r.program]) {
-            crate::patterns::fill(p, pat, seg.shrink(1.0), ink(), crate::home::backdrop());
-        }
+        paint_kind(p, data, look, on[r.program].kind, seg.shrink(1.0));
         p.rect_stroke(
             seg,
             0.0,
