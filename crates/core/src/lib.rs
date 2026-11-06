@@ -5,6 +5,7 @@ pub mod ansi;
 pub mod at;
 pub mod bbs;
 pub mod binary;
+pub mod book;
 pub mod cards;
 pub mod command;
 pub mod cue;

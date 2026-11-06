@@ -142,12 +142,12 @@ pub enum AdSize {
 }
 
 impl AdSize {
-    /// Quarter-pages it takes.
-    fn room(self) -> u32 {
+    /// Grid cells it covers: (columns, rows) of the page's `GRID_COLS` x `GRID_ROWS`.
+    pub fn cells(self) -> (usize, usize) {
         match self {
-            AdSize::Full => 4,
-            AdSize::Half => 2,
-            AdSize::Box => 1,
+            AdSize::Full => (GRID_COLS, GRID_ROWS),
+            AdSize::Half => (GRID_COLS, GRID_ROWS / 2),
+            AdSize::Box => (1, GRID_ROWS / 2),
         }
     }
 }
@@ -514,31 +514,82 @@ pub enum Block {
     List { title: String, listings: Vec<usize> },
 }
 
-/// A page of the magazine.
+/// Where a block sits on a page: a rectangle of grid cells.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Cell {
+    pub col: usize,
+    pub row: usize,
+    pub cols: usize,
+    pub rows: usize,
+}
+
+impl Cell {
+    fn covers(&self, col: usize, row: usize) -> bool {
+        (self.col..self.col + self.cols).contains(&col)
+            && (self.row..self.row + self.rows).contains(&row)
+    }
+}
+
+/// A page of the magazine. Every page is the same size; a section page is a grid of
+/// `GRID_COLS` x `GRID_ROWS` cells, and each block owns a rectangle of them.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Page {
     Cover,
     Contents,
     Section {
+        /// The first section on the page (its running title).
         section: Section,
+        /// Every section with something on the page, in order: small sections share a page.
+        sections: Vec<Section>,
         /// The printed page number.
         number: u32,
-        /// The advertiser whose page it is (full ads); otherwise the section's.
+        /// The advertiser whose page it is (a full-page ad); otherwise the section's.
         vendor: String,
-        blocks: Vec<Block>,
+        blocks: Vec<(Block, Cell)>,
     },
     Index,
 }
 
-/// Lines per price list before it continues in another block.
-pub const LIST_LINES: usize = 7;
-/// Quarter-pages on a page.
-const PAGE_ROOM: u32 = 4;
+/// A section page's grid.
+pub const GRID_COLS: usize = 2;
+pub const GRID_ROWS: usize = 4;
+/// Price-list lines that fit in a list `rows` cells tall (its title takes a line).
+pub fn list_lines(rows: usize) -> usize {
+    rows * LIST_LINES_PER_ROW - 1
+}
+const LIST_LINES_PER_ROW: usize = 5;
+
+/// The rows a price list of `n` lines needs.
+fn list_rows(n: usize) -> usize {
+    (1..=GRID_ROWS)
+        .find(|&r| list_lines(r) >= n)
+        .unwrap_or(GRID_ROWS)
+}
+
+/// The first free spot on a page for a block of `cols` x `rows` cells, row by row.
+fn fit(used: &[Cell], cols: usize, rows: usize) -> Option<Cell> {
+    for row in 0..=GRID_ROWS.saturating_sub(rows) {
+        for col in 0..=GRID_COLS.saturating_sub(cols) {
+            let free = (row..row + rows)
+                .all(|r| (col..col + cols).all(|c| !used.iter().any(|u| u.covers(c, r))));
+            if free {
+                return Some(Cell {
+                    col,
+                    row,
+                    cols,
+                    rows,
+                });
+            }
+        }
+    }
+    None
+}
 
 /// The whole issue: cover, contents, every section's pages, then the index of advertisers.
-/// Every listing appears exactly once.
+/// Every listing appears exactly once, and every block gets its own cells on one page.
 pub fn layout(def: &ShopperDef, catalog: &[Listing]) -> Vec<Page> {
     let mut pages = vec![Page::Cover, Page::Contents];
+    let mut sheets: Vec<Sheet> = Vec::new();
     for sd in &def.sections {
         let in_section: Vec<usize> = (0..catalog.len())
             .filter(|&i| catalog[i].section == sd.section)
@@ -546,8 +597,8 @@ pub fn layout(def: &ShopperDef, catalog: &[Listing]) -> Vec<Page> {
         if in_section.is_empty() {
             continue;
         }
-        // Blocks with the room each takes: ads first, biggest first, then the price lists.
-        let mut blocks: Vec<(Block, u32, String)> = Vec::new();
+        // Blocks with their size in cells: ads first, biggest first, then the price lists.
+        let mut blocks: Vec<(Block, (usize, usize), String)> = Vec::new();
         let mut ads: Vec<(usize, usize)> = in_section
             .iter()
             .filter_map(|&l| {
@@ -557,11 +608,14 @@ pub fn layout(def: &ShopperDef, catalog: &[Listing]) -> Vec<Page> {
                     .map(|a| (l, a))
             })
             .collect();
-        ads.sort_by_key(|&(l, a)| (std::cmp::Reverse(def.ads[a].size.room()), l));
+        ads.sort_by_key(|&(l, a)| {
+            let (c, r) = def.ads[a].size.cells();
+            (std::cmp::Reverse(c * r), l)
+        });
         for &(l, a) in &ads {
             blocks.push((
                 Block::Ad { listing: l, ad: a },
-                def.ads[a].size.room(),
+                def.ads[a].size.cells(),
                 def.vendor_of(&catalog[l]).to_string(),
             ));
         }
@@ -577,52 +631,104 @@ pub fn layout(def: &ShopperDef, catalog: &[Listing]) -> Vec<Page> {
             }
         }
         for (title, ls) in groups {
-            for chunk in ls.chunks(LIST_LINES) {
+            for chunk in ls.chunks(list_lines(GRID_ROWS)) {
                 blocks.push((
                     Block::List {
                         title: title.clone(),
                         listings: chunk.to_vec(),
                     },
-                    2,
+                    (1, list_rows(chunk.len())),
                     sd.vendor.clone(),
                 ));
             }
         }
-        // Pack them onto pages: a full ad has its page to itself.
-        let mut number = sd.page;
-        let mut current: Vec<Block> = Vec::new();
-        let mut room = 0;
-        let mut vendor = sd.vendor.clone();
-        let flush = |pages: &mut Vec<Page>, blocks: &mut Vec<Block>, number: &mut u32, v: &str| {
-            if !blocks.is_empty() {
-                pages.push(Page::Section {
-                    section: sd.section,
-                    number: *number,
-                    vendor: v.to_string(),
-                    blocks: std::mem::take(blocks),
-                });
-                *number += 1;
+        // Place each block on the first page with room, from the page the last section ended
+        // on (so small sections share a page), else on a new page.
+        let from = sheets.len().saturating_sub(1);
+        for (block, (cols, rows), v) in blocks {
+            let spot = sheets[from..].iter_mut().find_map(|sh| {
+                let used: Vec<Cell> = sh.blocks.iter().map(|(_, c)| *c).collect();
+                fit(&used, cols, rows).map(|c| (sh, c))
+            });
+            match spot {
+                Some((sh, cell)) => {
+                    sh.blocks.push((block, cell));
+                    if !sh.sections.contains(&sd.section) {
+                        sh.sections.push(sd.section);
+                    }
+                }
+                None => {
+                    let cell = fit(&[], cols, rows).expect("a block always fits an empty page");
+                    let whole = cols == GRID_COLS && rows == GRID_ROWS;
+                    let prev = sheets.last().map_or(0, |sh: &Sheet| sh.number);
+                    // A section that opens on a new page starts on its printed page.
+                    let opens = !sheets.iter().any(|sh| sh.sections.contains(&sd.section));
+                    let number = if opens {
+                        sd.page.max(prev + 1)
+                    } else {
+                        prev + 1
+                    };
+                    sheets.push(Sheet {
+                        blocks: vec![(block, cell)],
+                        sections: vec![sd.section],
+                        vendor: if whole { v } else { sd.vendor.clone() },
+                        number,
+                    });
+                }
             }
-        };
-        for (block, need, v) in blocks {
-            if room + need > PAGE_ROOM {
-                flush(&mut pages, &mut current, &mut number, &vendor);
-                room = 0;
-            }
-            if current.is_empty() {
-                vendor = if need == PAGE_ROOM {
-                    v
-                } else {
-                    sd.vendor.clone()
-                };
-            }
-            current.push(block);
-            room += need;
         }
-        flush(&mut pages, &mut current, &mut number, &vendor);
+    }
+    for sh in sheets {
+        let mut blocks = sh.blocks;
+        grow(&mut blocks);
+        pages.push(Page::Section {
+            section: sh.sections[0],
+            sections: sh.sections,
+            number: sh.number,
+            vendor: sh.vendor,
+            blocks,
+        });
     }
     pages.push(Page::Index);
     pages
+}
+
+/// A page being filled.
+struct Sheet {
+    blocks: Vec<(Block, Cell)>,
+    sections: Vec<Section>,
+    vendor: String,
+    number: u32,
+}
+
+/// Grows each block into free cells below it, then beside it, so a page is filled edge to edge.
+fn grow(blocks: &mut [(Block, Cell)]) {
+    for i in 0..blocks.len() {
+        let free = |blocks: &[(Block, Cell)], col: usize, row: usize| {
+            blocks
+                .iter()
+                .enumerate()
+                .all(|(j, (_, c))| j == i || !c.covers(col, row))
+        };
+        loop {
+            let c = blocks[i].1;
+            let below = c.row + c.rows;
+            if below < GRID_ROWS && (c.col..c.col + c.cols).all(|x| free(blocks, x, below)) {
+                blocks[i].1.rows += 1;
+            } else {
+                break;
+            }
+        }
+        loop {
+            let c = blocks[i].1;
+            let right = c.col + c.cols;
+            if right < GRID_COLS && (c.row..c.row + c.rows).all(|y| free(blocks, right, y)) {
+                blocks[i].1.cols += 1;
+            } else {
+                break;
+            }
+        }
+    }
 }
 
 /// The page (index into `pages`) each section starts on, with its printed number.
@@ -630,11 +736,14 @@ pub fn contents(pages: &[Page]) -> Vec<(Section, usize, u32)> {
     let mut out: Vec<(Section, usize, u32)> = Vec::new();
     for (i, p) in pages.iter().enumerate() {
         if let Page::Section {
-            section, number, ..
+            sections, number, ..
         } = p
-            && !out.iter().any(|(s, ..)| s == section)
         {
-            out.push((*section, i, *number));
+            for s in sections {
+                if !out.iter().any(|(o, ..)| o == s) {
+                    out.push((*s, i, *number));
+                }
+            }
         }
     }
     out
@@ -656,7 +765,7 @@ pub fn advertisers(
         let Page::Section { number, blocks, .. } = p else {
             continue;
         };
-        for b in blocks {
+        for (b, _) in blocks {
             let ls: Vec<usize> = match b {
                 Block::Ad { listing, .. } => vec![*listing],
                 Block::List { listings, .. } => listings.clone(),

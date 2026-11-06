@@ -128,14 +128,14 @@ impl Workbench {
                 Kind::Shell => (pos2(150.0, 300.0), vec2(600.0, 280.0)),
                 Kind::Terminal => (pos2(170.0, 40.0), vec2(720.0, 440.0)),
                 Kind::Prefs => (pos2(260.0, 40.0), vec2(560.0, 600.0)),
-                Kind::Rig => (pos2(170.0, 36.0), vec2(720.0, 600.0)),
+                Kind::Rig => (pos2(170.0, 30.0), book_window()),
                 Kind::Stash => (pos2(210.0, 80.0), vec2(640.0, 380.0)),
                 Kind::HexEd => (pos2(130.0, 36.0), vec2(800.0, 500.0)),
                 Kind::Qwk => (pos2(190.0, 46.0), vec2(700.0, 470.0)),
                 Kind::IceDb => (pos2(220.0, 60.0), vec2(700.0, 470.0)),
                 Kind::NightComm => (pos2(150.0, 50.0), vec2(880.0, 500.0)),
                 Kind::TigerTeam => (pos2(140.0, 44.0), vec2(900.0, 540.0)),
-                Kind::Guide => (pos2(240.0, 70.0), vec2(640.0, 440.0)),
+                Kind::Guide => (pos2(200.0, 30.0), book_window()),
                 Kind::Requester(_) => (pos2(260.0, 150.0), vec2(330.0, 150.0)),
             };
             self.wins.push(Win { kind, pos, size });
@@ -591,6 +591,16 @@ fn draw_icon(painter: &egui::Painter, icon: &IconDef, at: Pos2, selected: bool) 
             painter.rect_filled(Rect::from_min_size(p, Vec2::splat(ICON_SCALE)), 0.0, col);
         }
     }
+}
+
+/// A window whose body holds one book (`pager::SIZE`): the body is the window less its title
+/// bar, border and margins (see `content` in the window loop), plus a pixel of slack.
+fn book_window() -> egui::Vec2 {
+    crate::pager::SIZE
+        + vec2(
+            2.0 * (BORDER + 4.0) + 2.0,
+            TITLE_H + 4.0 + BORDER + 4.0 + 2.0,
+        )
 }
 
 #[cfg(test)]

@@ -1,134 +1,84 @@
 //! CPU Shopper, the RIG window: an issue of a mail-order magazine. Core lays out the pages
-//! (`ninsei_core::shopper`) from the catalog and `data/hub/shopper.ron`; this only draws them
-//! in the desk's colours (newsprint: one ink on the theme's paper) and routes Order clicks as
-//! `WbOut::Order`. Nothing here knows what kind of item it's selling.
+//! (`ninsei_core::shopper`): every page is the same size, and each block on a section page owns
+//! a rectangle of its grid. This only draws them, through the shared book control
+//! (`pager.rs`), in the desk's colours (newsprint: one ink on the theme's paper), and routes
+//! Order clicks as `WbOut::Order`. Nothing here knows what kind of item it's selling.
 
-use egui::{Align2, FontId, Response, RichText, Sense, Stroke, Ui, pos2, vec2};
+use egui::{Align2, FontId, Rect, Response, RichText, Sense, Stroke, Ui, pos2, vec2};
+use ninsei_core::book::Turn;
 use ninsei_core::hub::{Save, Upgrade};
 use ninsei_core::shopper::{
-    self, AdDef, AdSize, Block, Listing, Page, ShopperDef, Stock, VendorDef,
+    self, AdDef, AdSize, Block, Cell, GRID_COLS, GRID_ROWS, Listing, Page, ShopperDef, Stock,
+    VendorDef,
 };
 use ninsei_core::{Data, tuning};
 
 use crate::home::{WbOut, accent, backdrop, ink, muted};
+use crate::pager::{self, Book};
 
 /// Type sizes.
 mod size {
-    pub const MASTHEAD: f32 = 64.0;
-    pub const HOTLINE: f32 = 30.0;
-    pub const HEADLINE: f32 = 24.0;
-    pub const TITLE: f32 = 18.0;
-    pub const BODY: f32 = 14.0;
-    pub const SMALL: f32 = 12.0;
+    pub const MASTHEAD: f32 = 56.0;
+    pub const HOTLINE: f32 = 26.0;
+    pub const HEADLINE: f32 = 20.0;
+    pub const TITLE: f32 = 16.0;
+    pub const BODY: f32 = 13.0;
+    pub const SMALL: f32 = 11.0;
 }
+
+/// Space between blocks on a page, and inside their borders.
+const GUTTER: f32 = 6.0;
+const MARGIN: f32 = 8.0;
+/// The running head across the top of a section page.
+const HEAD: f32 = 22.0;
 
 pub fn show(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
     let def = &data.shopper;
     let cat = save.catalog(data);
     let pages = shopper::layout(def, &cat);
     let id = ui.id().with("cpu-shopper-page");
-    let mut page: usize = ui
+    let at: usize = ui
         .data(|d| d.get_temp(id))
         .unwrap_or(0)
         .min(pages.len() - 1);
-
-    // Turning pages: buttons, or PgUp/PgDn/Home while the pointer is over the magazine and
-    // nothing else has the keyboard.
-    let hovered = ui.rect_contains_pointer(ui.max_rect());
-    if hovered && ui.memory(|m| m.focused().is_none()) {
-        ui.input(|i| {
-            if i.key_pressed(egui::Key::PageDown) {
-                page = (page + 1).min(pages.len() - 1);
-            }
-            if i.key_pressed(egui::Key::PageUp) {
-                page = page.saturating_sub(1);
-            }
-            if i.key_pressed(egui::Key::Home) {
-                page = 0;
-            }
-        });
-    }
-    let jump = nav(ui, def, &pages, page, save.bank);
-    page = jump.unwrap_or(page);
-    ui.add_space(6.0);
-
-    let mut goto = None;
-    egui::ScrollArea::vertical()
-        .id_salt(("cpu-shopper", page))
-        .auto_shrink([false, false])
-        .show(ui, |ui| {
-            ui.with_layout(plain(), |ui| match &pages[page] {
-                Page::Cover => goto = cover(ui, def, &pages, save.bank),
-                Page::Contents => goto = contents(ui, def, &pages),
-                Page::Index => index(ui, def, &cat, &pages),
-                Page::Section {
-                    section,
-                    number,
-                    blocks,
-                    ..
-                } => {
-                    running_head(ui, def, *number);
-                    if *section == shopper::Section::Upgrades {
-                        next_run(ui, data, save);
-                    }
-                    section_page(ui, data, save, def, &cat, blocks, out);
-                }
-            })
-        });
-    if let Some(g) = goto {
-        page = g;
-    }
-    ui.data_mut(|d| d.insert_temp(id, page));
-}
-
-/// ◀ page ▶, Contents, and the bank. Returns a page to jump to.
-fn nav(ui: &mut Ui, def: &ShopperDef, pages: &[Page], page: usize, bank: u32) -> Option<usize> {
-    let mut to = None;
-    ui.horizontal(|ui| {
-        if ui
-            .add_enabled(page > 0, egui::Button::new(" ◀ "))
-            .on_hover_text("previous page (PgUp)")
-            .clicked()
-        {
-            to = Some(page - 1);
+    let label = match &pages[at] {
+        Page::Cover => "Cover".to_string(),
+        Page::Contents => "Contents".to_string(),
+        Page::Index => "Index of advertisers".to_string(),
+        Page::Section {
+            section, number, ..
+        } => {
+            let title = def.section(*section).map_or("", |s| s.title.as_str());
+            format!("{title} · p.{number} of {}", def.pages)
         }
-        let label = match &pages[page] {
-            Page::Cover => "Cover".to_string(),
-            Page::Contents => "Contents".to_string(),
-            Page::Index => "Index of advertisers".to_string(),
-            Page::Section {
-                section, number, ..
-            } => {
-                let title = def.section(*section).map_or("", |s| s.title.as_str());
-                format!("{title} · p.{number} of {}", def.pages)
-            }
-        };
-        ui.label(RichText::new(label).color(muted()).monospace());
-        if ui
-            .add_enabled(page + 1 < pages.len(), egui::Button::new(" ▶ "))
-            .on_hover_text("next page (PgDn)")
-            .clicked()
-        {
-            to = Some(page + 1);
+    };
+    let status = format!("Bank {}¢", save.bank);
+    let book = Book {
+        at,
+        count: pages.len(),
+        label: &label,
+        status: &status,
+    };
+    let next = pager::show(ui, book, |ui, rect| match &pages[at] {
+        Page::Cover => cover(ui, rect, def, &pages, save.bank),
+        Page::Contents => contents(ui, def, &pages),
+        Page::Index => {
+            index(ui, def, &cat, &pages);
+            None
         }
-        if ui.button("Contents").clicked() {
-            to = Some(1);
-        }
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.label(
-                RichText::new(format!("Bank {bank}¢"))
-                    .color(accent())
-                    .strong(),
+        Page::Section {
+            section,
+            number,
+            blocks,
+            ..
+        } => {
+            section_page(
+                ui, rect, data, save, def, &cat, *section, *number, blocks, out,
             );
-        });
+            None
+        }
     });
-    rule(ui, 1.0);
-    to
-}
-
-/// Left-aligned and not justified: egui spreads wrapped text across justified columns.
-fn plain() -> egui::Layout {
-    egui::Layout::top_down(egui::Align::Min)
+    ui.data_mut(|d| d.insert_temp(id, next));
 }
 
 fn text(t: impl Into<String>, size: f32) -> RichText {
@@ -144,29 +94,17 @@ fn small(t: impl Into<String>) -> RichText {
 }
 
 fn rule(ui: &mut Ui, width: f32) {
-    let r = ui.available_rect_before_wrap();
-    let y = ui.cursor().top();
+    let r = ui.max_rect();
+    let y = ui.cursor().top() + width / 2.0;
     ui.painter()
         .hline(r.left()..=r.right(), y, Stroke::new(width, ink()));
-    ui.add_space(width + 2.0);
-}
-
-/// A ruled box, like a print ad's border.
-fn boxed<R>(ui: &mut Ui, weight: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
-    egui::Frame::new()
-        .stroke(Stroke::new(weight, ink()))
-        .inner_margin(10.0)
-        .show(ui, |ui| {
-            ui.set_width(ui.available_width());
-            add(ui)
-        })
-        .inner
+    ui.add_space(width + 3.0);
 }
 
 /// A bar in inverse video: the theme's paper on ink.
 fn inverse(ui: &mut Ui, t: &str, size: f32) {
     let font = FontId::proportional(size);
-    let h = size + 8.0;
+    let h = size + 6.0;
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::hover());
     ui.painter().rect_filled(r, 0.0, ink());
     ui.painter()
@@ -174,7 +112,7 @@ fn inverse(ui: &mut Ui, t: &str, size: f32) {
 }
 
 /// A dot-leader line: `left ........ right`. Clickable.
-fn leader(ui: &mut Ui, left: &str, right: &str, strong: bool) -> Response {
+fn leader(ui: &mut Ui, left: &str, right: &str) -> Response {
     let font = FontId::proportional(size::BODY);
     let h = size::BODY + 6.0;
     let (r, resp) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::click());
@@ -188,51 +126,30 @@ fn leader(ui: &mut Ui, left: &str, right: &str, strong: bool) -> Response {
         col,
     );
     let rr = p.text(r.right_center(), Align2::RIGHT_CENTER, right, font, col);
-    if strong {
-        p.hline(l.left()..=l.right(), l.bottom(), Stroke::new(1.0, col));
-    }
-    let (a, b) = (l.right() + 4.0, rr.left() - 4.0);
-    let mut x = a;
-    while x < b {
+    let mut x = l.right() + 4.0;
+    while x < rr.left() - 4.0 {
         p.circle_filled(pos2(x, r.center().y + 4.0), 0.8, muted());
         x += 5.0;
     }
     resp
 }
 
-fn running_head(ui: &mut Ui, def: &ShopperDef, number: u32) {
-    // One line high: a right-to-left layout would otherwise take the whole page.
-    let row = vec2(ui.available_width(), size::SMALL + 8.0);
-    ui.allocate_ui_with_layout(
-        row,
-        egui::Layout::right_to_left(egui::Align::Center),
-        |ui| {
-            ui.label(bold(format!("Page {number}"), size::SMALL));
-            ui.add_space(20.0);
-            ui.label(bold(format!("{}, {}", def.title, def.month), size::SMALL));
-        },
-    );
-    rule(ui, 2.0);
+/// A ruled box filling `r`, with a margin inside: what every block on a page draws in.
+fn boxed(ui: &mut Ui, r: Rect, weight: f32, add: impl FnOnce(&mut Ui)) {
+    ui.painter()
+        .rect_stroke(r, 0.0, Stroke::new(weight, ink()), egui::StrokeKind::Inside);
+    let mut inner = pager::area(ui, r.shrink(MARGIN + weight));
+    add(&mut inner);
 }
 
-/// The upgrades pages say what your rig will be next run.
-fn next_run(ui: &mut Ui, data: &Data, save: &Save) {
-    let bonus = |u| save.rig.bonus(u, &data.rig);
-    ui.label(small(format!(
-        "Your rig next run: CPU {}  RAM {}  HDD {}  INTEG {}  STASH {}",
-        tuning::START_CPU + bonus(Upgrade::Cpu),
-        tuning::START_RAM + bonus(Upgrade::Ram),
-        tuning::START_HDD + bonus(Upgrade::Hdd),
-        tuning::START_INTEGRITY + bonus(Upgrade::Integrity),
-        save.stash_cap(&data.rig),
-    )));
-    ui.add_space(4.0);
-}
-
-fn cover(ui: &mut Ui, def: &ShopperDef, pages: &[Page], bank: u32) -> Option<usize> {
+fn cover(ui: &mut Ui, rect: Rect, def: &ShopperDef, pages: &[Page], bank: u32) -> Option<Turn> {
+    let mut ui = pager::area(ui, rect.shrink(MARGIN));
+    let ui = &mut ui;
     ui.horizontal(|ui| {
         ui.label(small(&def.issue));
+        ui.add_space(16.0);
         ui.label(small(&def.strap));
+        ui.add_space(16.0);
         ui.label(small(&def.newsstand));
     });
     rule(ui, 1.0);
@@ -240,49 +157,45 @@ fn cover(ui: &mut Ui, def: &ShopperDef, pages: &[Page], bank: u32) -> Option<usi
     inverse(ui, &def.banner, size::BODY);
     ui.add_space(8.0);
     let toc = shopper::contents(pages);
+    let top = ui.cursor().top();
+    let body = Rect::from_min_max(pos2(ui.max_rect().left(), top), ui.max_rect().max);
+    let half = (body.width() - GUTTER) / 2.0;
+    let left = Rect::from_min_size(body.min, vec2(half, body.height()));
+    let right = Rect::from_min_size(pos2(left.max.x + GUTTER, top), vec2(half, body.height()));
     let mut to = None;
-    ui.columns(2, |cols| {
-        let (left, right) = cols.split_at_mut(1);
-        let (left, right) = (&mut left[0], &mut right[0]);
-        let mut to_l = None;
-        left.with_layout(plain(), |ui| {
-            for c in &def.cover {
-                let at = toc.iter().find(|(s, ..)| *s == c.section);
-                if let Some(k) = &c.kicker {
-                    ui.label(small(k));
-                }
-                let head = ui.add(
-                    egui::Label::new(bold(&c.headline, size::HEADLINE))
-                        .sense(Sense::click())
-                        .wrap(),
-                );
-                let page = at.map_or(String::new(), |&(_, _, n)| format!(" Page {n}"));
-                ui.label(text(format!("{}{page}", c.line), size::BODY));
-                ui.add_space(8.0);
-                if head.clicked() {
-                    to_l = at.map(|&(_, i, _)| i);
-                }
-            }
-        });
-        right.with_layout(plain(), |ui| {
-            starburst(ui, bank);
-            ui.add_space(10.0);
-            if let Some(i) = toc_box(ui, def, pages) {
-                to = Some(i);
-            }
-        });
-        to = to.or(to_l);
-    });
+    let mut l = pager::area(ui, left);
+    for c in &def.cover {
+        let at = toc.iter().find(|(s, ..)| *s == c.section);
+        if let Some(k) = &c.kicker {
+            l.label(small(k));
+        }
+        let head = l.add(
+            egui::Label::new(bold(&c.headline, size::HEADLINE))
+                .sense(Sense::click())
+                .wrap(),
+        );
+        let page = at.map_or(String::new(), |&(_, _, n)| format!(" Page {n}"));
+        l.label(text(format!("{}{page}", c.line), size::BODY));
+        l.add_space(6.0);
+        if head.clicked() {
+            to = at.map(|&(_, i, _)| Turn::To(i));
+        }
+    }
+    let mut r = pager::area(ui, right);
+    starburst(&mut r, bank);
+    r.add_space(8.0);
+    if let Some(t) = toc_box(&mut r, def, pages) {
+        to = Some(t);
+    }
     to
 }
 
 /// The bank in a starburst on the cover.
 fn starburst(ui: &mut Ui, bank: u32) {
-    let d = ui.available_width().min(200.0);
+    let d = ui.available_width().min(150.0);
     let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), d), Sense::hover());
     let c = r.center();
     let p = ui.painter();
-    // A jagged star: alternating radii around the centre.
     let spikes = 18;
     let pts: Vec<_> = (0..spikes * 2)
         .map(|i| {
@@ -292,51 +205,42 @@ fn starburst(ui: &mut Ui, bank: u32) {
         })
         .collect();
     p.add(egui::Shape::convex_polygon(pts, ink(), Stroke::NONE));
-    p.text(
-        c - vec2(0.0, 26.0),
-        Align2::CENTER_CENTER,
-        "YOUR CREDIT",
-        FontId::proportional(size::BODY),
-        backdrop(),
-    );
-    p.text(
-        c,
-        Align2::CENTER_CENTER,
-        format!("{bank}¢"),
-        FontId::proportional(size::HOTLINE),
-        backdrop(),
-    );
-    p.text(
-        c + vec2(0.0, 26.0),
-        Align2::CENTER_CENTER,
-        "spend it inside!",
-        FontId::proportional(size::SMALL),
-        backdrop(),
-    );
+    let line = |dy: f32, t: String, s: f32| {
+        p.text(
+            c + vec2(0.0, dy),
+            Align2::CENTER_CENTER,
+            t,
+            FontId::proportional(s),
+            backdrop(),
+        );
+    };
+    line(-20.0, "YOUR CREDIT".into(), size::SMALL);
+    line(0.0, format!("{bank}¢"), size::HEADLINE);
+    line(20.0, "spend it inside!".into(), size::SMALL);
 }
 
-/// IN THIS ISSUE: each section and the index, with their pages. Returns a page to open.
-fn toc_box(ui: &mut Ui, def: &ShopperDef, pages: &[Page]) -> Option<usize> {
+/// IN THIS ISSUE: each section and the index, with their pages.
+fn toc_box(ui: &mut Ui, def: &ShopperDef, pages: &[Page]) -> Option<Turn> {
     let mut to = None;
-    boxed(ui, 1.0, |ui| {
-        ui.label(small("IN THIS ISSUE"));
-        for (s, i, n) in shopper::contents(pages) {
-            let title = def.section(s).map_or("", |d| d.title.as_str());
-            if leader(ui, title, &n.to_string(), false).clicked() {
-                to = Some(i);
-            }
+    ui.label(small("IN THIS ISSUE"));
+    for (s, i, n) in shopper::contents(pages) {
+        let title = def.section(s).map_or("", |d| d.title.as_str());
+        if leader(ui, title, &n.to_string()).clicked() {
+            to = Some(Turn::To(i));
         }
-        if leader(ui, "Index of advertisers", &def.pages.to_string(), false).clicked() {
-            to = Some(pages.len() - 1);
-        }
-    });
+    }
+    if leader(ui, "Index of advertisers", &def.pages.to_string()).clicked() {
+        to = Some(Turn::To(pages.len() - 1));
+    }
     to
 }
 
-fn contents(ui: &mut Ui, def: &ShopperDef, pages: &[Page]) -> Option<usize> {
+fn contents(ui: &mut Ui, def: &ShopperDef, pages: &[Page]) -> Option<Turn> {
+    let rect = ui.max_rect().shrink(MARGIN);
+    let mut ui = pager::area(ui, rect);
     ui.label(bold("CONTENTS", size::HEADLINE));
-    rule(ui, 2.0);
-    let to = toc_box(ui, def, pages);
+    rule(&mut ui, 2.0);
+    let to = toc_box(&mut ui, def, pages);
     ui.add_space(8.0);
     ui.label(small(
         "Every price is the seller's own. Order from any page: it goes straight to your rig.",
@@ -345,61 +249,91 @@ fn contents(ui: &mut Ui, def: &ShopperDef, pages: &[Page]) -> Option<usize> {
 }
 
 fn index(ui: &mut Ui, def: &ShopperDef, cat: &[Listing], pages: &[Page]) {
+    let rect = ui.max_rect().shrink(MARGIN);
+    let mut ui = pager::area(ui, rect);
     ui.label(bold("INDEX OF ADVERTISERS", size::HEADLINE));
-    rule(ui, 2.0);
+    rule(&mut ui, 2.0);
     for (v, nums) in shopper::advertisers(def, cat, pages) {
         let name = def.vendor(&v).map_or(v.clone(), |d| d.name.clone());
         let nums: Vec<String> = nums.iter().map(u32::to_string).collect();
-        leader(ui, &name, &nums.join(", "), false);
+        leader(&mut ui, &name, &nums.join(", "));
     }
 }
 
+/// Where a grid cell lands on the page body.
+fn cell_rect(body: Rect, c: Cell) -> Rect {
+    let w = (body.width() - GUTTER * (GRID_COLS - 1) as f32) / GRID_COLS as f32;
+    let h = (body.height() - GUTTER * (GRID_ROWS - 1) as f32) / GRID_ROWS as f32;
+    let min = body.min + vec2(c.col as f32 * (w + GUTTER), c.row as f32 * (h + GUTTER));
+    let size = vec2(
+        c.cols as f32 * w + (c.cols - 1) as f32 * GUTTER,
+        c.rows as f32 * h + (c.rows - 1) as f32 * GUTTER,
+    );
+    Rect::from_min_size(min, size)
+}
+
+#[allow(clippy::too_many_arguments)]
 fn section_page(
     ui: &mut Ui,
+    rect: Rect,
     data: &Data,
     save: &Save,
     def: &ShopperDef,
     cat: &[Listing],
-    blocks: &[Block],
+    section: shopper::Section,
+    number: u32,
+    blocks: &[(Block, Cell)],
     out: &mut Vec<WbOut>,
 ) {
-    // Big ads span the page; boxes and price lists sit two to a row.
-    let wide = |b: &Block| match b {
-        Block::Ad { ad, .. } => def.ads[*ad].size != AdSize::Box,
-        Block::List { .. } => false,
+    // The running head: the magazine on the left of the rule, the page on the right. On the
+    // upgrades pages it also says what your rig will be next run.
+    let head = Rect::from_min_size(rect.min, vec2(rect.width(), HEAD));
+    let p = ui.painter_at(head);
+    let font = FontId::proportional(size::SMALL);
+    let left = if section == shopper::Section::Upgrades {
+        next_run(data, save)
+    } else {
+        format!("{}, {}", def.title, def.month)
     };
-    let mut i = 0;
-    while i < blocks.len() {
-        if wide(&blocks[i]) {
-            block(ui, data, save, def, cat, &blocks[i], out);
-            i += 1;
-        } else {
-            let pair: Vec<&Block> = blocks[i..]
-                .iter()
-                .take_while(|b| !wide(b))
-                .take(2)
-                .collect();
-            let n = pair.len();
-            if n == 1 {
-                // A lone box or list takes the whole width.
-                block(ui, data, save, def, cat, pair[0], out);
-                i += 1;
-                ui.add_space(8.0);
-                continue;
-            }
-            ui.columns(2, |cols| {
-                for (c, b) in pair.into_iter().enumerate() {
-                    cols[c].with_layout(plain(), |ui| block(ui, data, save, def, cat, b, out));
-                }
-            });
-            i += n;
-        }
-        ui.add_space(8.0);
+    p.text(
+        head.left_center(),
+        Align2::LEFT_CENTER,
+        left,
+        font.clone(),
+        ink(),
+    );
+    p.text(
+        head.right_center(),
+        Align2::RIGHT_CENTER,
+        format!("Page {number}"),
+        font,
+        ink(),
+    );
+    p.hline(head.x_range(), head.max.y - 1.0, Stroke::new(2.0, ink()));
+    let body = Rect::from_min_max(pos2(rect.min.x, head.max.y + GUTTER), rect.max);
+    for (b, c) in blocks {
+        let r = cell_rect(body, *c);
+        block(ui, r, data, save, def, cat, b, out);
     }
 }
 
+/// What your rig will be next run, for the upgrades pages' running head.
+fn next_run(data: &Data, save: &Save) -> String {
+    let bonus = |u| save.rig.bonus(u, &data.rig);
+    format!(
+        "Your rig next run: CPU {}  RAM {}  HDD {}  INTEG {}  STASH {}",
+        tuning::START_CPU + bonus(Upgrade::Cpu),
+        tuning::START_RAM + bonus(Upgrade::Ram),
+        tuning::START_HDD + bonus(Upgrade::Hdd),
+        tuning::START_INTEGRITY + bonus(Upgrade::Integrity),
+        save.stash_cap(&data.rig),
+    )
+}
+
+#[allow(clippy::too_many_arguments)]
 fn block(
     ui: &mut Ui,
+    r: Rect,
     data: &Data,
     save: &Save,
     def: &ShopperDef,
@@ -413,13 +347,15 @@ fn block(
             let a = &def.ads[*ad];
             let vendor = def.vendor(def.vendor_of(l));
             match a.size {
-                AdSize::Full => full_ad(ui, data, save, l, a, vendor, out),
-                AdSize::Half | AdSize::Box => small_ad(ui, data, save, l, a, vendor, out),
+                AdSize::Full => boxed(ui, r, 3.0, |ui| full_ad(ui, data, save, l, a, vendor, out)),
+                AdSize::Half | AdSize::Box => {
+                    boxed(ui, r, 2.0, |ui| small_ad(ui, data, save, l, a, vendor, out))
+                }
             }
         }
-        Block::List { title, listings } => boxed(ui, 2.0, |ui| {
+        Block::List { title, listings } => boxed(ui, r, 2.0, |ui| {
             inverse(ui, title, size::BODY);
-            ui.add_space(4.0);
+            ui.add_space(2.0);
             for &l in listings {
                 list_line(ui, data, save, &cat[l], out);
             }
@@ -436,32 +372,30 @@ fn price_text(l: &Listing) -> String {
     }
 }
 
-fn review_tag(ui: &mut Ui, l: &Listing) {
-    if l.review {
-        ui.label(small("[REVIEW COPY]"));
-    }
-}
-
-/// The Order button, or why there isn't one.
-fn order(ui: &mut Ui, data: &Data, save: &Save, l: &Listing, label: &str, out: &mut Vec<WbOut>) {
+/// The ad's foot: its price (or callout), then the Order button, or why there isn't one.
+fn order(ui: &mut Ui, data: &Data, save: &Save, l: &Listing, a: &AdDef, out: &mut Vec<WbOut>) {
     match l.stock {
         Stock::Price(p) => {
-            let blocker = save.order_blocker(data, &l.item);
-            let resp = ui.add_enabled(
-                blocker.is_none(),
-                egui::Button::new(bold(format!("{label} · {p}¢"), size::BODY)),
-            );
-            if let Some(why) = blocker {
-                resp.on_disabled_hover_text(why);
-            } else if resp.clicked() {
-                out.push(WbOut::Order(l.item.clone()));
-            }
+            ui.horizontal(|ui| {
+                let blocker = save.order_blocker(data, &l.item);
+                let resp = ui.add_enabled(
+                    blocker.is_none(),
+                    egui::Button::new(bold(format!("ORDER · {p}¢"), size::BODY)),
+                );
+                if let Some(why) = blocker {
+                    resp.on_disabled_hover_text(why);
+                } else if resp.clicked() {
+                    out.push(WbOut::Order(l.item.clone()));
+                }
+                if let Some(c) = &a.callout {
+                    ui.label(bold(c, size::TITLE));
+                }
+            });
         }
         Stock::Owned => {
-            ui.label(bold("IN YOUR RIG", size::BODY));
+            ui.label(bold("IN YOUR RIG", size::TITLE));
         }
         Stock::SoldOut => {
-            // A stamp across the box.
             ui.label(bold("SOLD OUT", size::HEADLINE));
         }
     }
@@ -473,6 +407,15 @@ fn bullets(ui: &mut Ui, list: &[String]) {
     }
 }
 
+fn name_line(ui: &mut Ui, l: &Listing, head: &str, size: f32) {
+    ui.horizontal(|ui| {
+        ui.label(bold(head, size));
+        if l.review {
+            ui.label(small("[REVIEW COPY]"));
+        }
+    });
+}
+
 fn full_ad(
     ui: &mut Ui,
     data: &Data,
@@ -482,58 +425,47 @@ fn full_ad(
     vendor: Option<&VendorDef>,
     out: &mut Vec<WbOut>,
 ) {
-    boxed(ui, 3.0, |ui| {
-        if let Some(v) = vendor {
-            ui.vertical_centered(|ui| {
-                ui.label(bold(format!("{} Hotline:", v.name), size::TITLE));
-                if let Some(h) = &v.hotline {
-                    ui.label(bold(h, size::HOTLINE));
-                }
-                if let Some(s) = &v.slogan {
-                    ui.label(bold(format!("★ {s} ★"), size::HEADLINE));
-                }
-            });
-            rule(ui, 3.0);
-        }
-        ui.label(bold(
-            a.headline.as_deref().unwrap_or(&l.name),
-            size::HOTLINE,
-        ));
-        review_tag(ui, l);
-        ui.label(text(&l.blurb, size::BODY));
-        if !l.detail.is_empty() {
-            ui.label(small(&l.detail));
-        }
-        ui.add_space(4.0);
-        bullets(ui, &a.bullets);
-        if let Some(n) = &a.note {
-            ui.label(small(n));
-        }
-        ui.add_space(6.0);
-        price_line(ui, l, a);
-        order(ui, data, save, l, "ORDER", out);
-        if let Some(v) = vendor.filter(|v| !v.terms.is_empty()) {
-            ui.add_space(6.0);
-            rule(ui, 3.0);
-            ui.label(bold("TERMS:", size::SMALL));
-            for t in &v.terms {
-                ui.label(text(format!("★ {t}"), size::SMALL));
+    if let Some(v) = vendor {
+        ui.vertical_centered(|ui| {
+            ui.label(bold(format!("{} Hotline:", v.name), size::TITLE));
+            if let Some(h) = &v.hotline {
+                ui.label(bold(h, size::HOTLINE));
             }
-        }
-    });
-}
-
-/// "SPECIAL PRICE 400¢", or the ad's callout with the list price under it.
-fn price_line(ui: &mut Ui, l: &Listing, a: &AdDef) {
-    match (&a.callout, l.stock) {
-        (Some(c), Stock::Price(p)) => {
-            ui.label(bold(c, size::HEADLINE));
-            ui.label(small(format!("or {p}¢ list")));
-        }
-        (_, Stock::Price(p)) => {
-            ui.label(bold(format!("SPECIAL PRICE {p}¢"), size::HEADLINE));
-        }
-        _ => {}
+            if let Some(s) = &v.slogan {
+                ui.label(bold(format!("★ {s} ★"), size::HEADLINE));
+            }
+        });
+        rule(ui, 3.0);
+    }
+    name_line(
+        ui,
+        l,
+        a.headline.as_deref().unwrap_or(&l.name),
+        size::HOTLINE,
+    );
+    ui.label(text(&l.blurb, size::BODY));
+    if !l.detail.is_empty() {
+        ui.label(small(&l.detail));
+    }
+    ui.add_space(4.0);
+    bullets(ui, &a.bullets);
+    if let Some(n) = &a.note {
+        ui.label(small(n));
+    }
+    ui.add_space(6.0);
+    order(ui, data, save, l, a, out);
+    if let Some(v) = vendor.filter(|v| !v.terms.is_empty()) {
+        ui.add_space(6.0);
+        rule(ui, 2.0);
+        ui.label(bold("TERMS:", size::SMALL));
+        ui.label(text(
+            v.terms
+                .iter()
+                .map(|t| format!("★ {t}"))
+                .collect::<Vec<_>>()
+                .join("   "),
+            size::SMALL,
+        ));
     }
 }
 
@@ -547,27 +479,21 @@ fn small_ad(
     out: &mut Vec<WbOut>,
 ) {
     let big = a.size == AdSize::Half;
-    boxed(ui, 2.0, |ui| {
-        if let Some(v) = vendor {
-            ui.label(small(v.name.to_uppercase()));
-        }
-        let head = a.headline.as_deref().unwrap_or(&l.name);
-        ui.label(bold(head, if big { size::HEADLINE } else { size::TITLE }));
-        review_tag(ui, l);
-        ui.label(text(&l.blurb, size::BODY));
-        if !l.detail.is_empty() {
-            ui.label(small(&l.detail));
-        }
-        bullets(ui, &a.bullets);
-        if let Some(n) = &a.note {
-            ui.label(small(n));
-        }
-        ui.add_space(4.0);
-        if big {
-            price_line(ui, l, a);
-        }
-        order(ui, data, save, l, "ORDER", out);
-    });
+    if let Some(v) = vendor {
+        ui.label(small(v.name.to_uppercase()));
+    }
+    let head = a.headline.as_deref().unwrap_or(&l.name);
+    name_line(ui, l, head, if big { size::HEADLINE } else { size::TITLE });
+    ui.label(text(&l.blurb, size::BODY));
+    if !l.detail.is_empty() {
+        ui.label(small(&l.detail));
+    }
+    bullets(ui, &a.bullets);
+    if let Some(n) = &a.note {
+        ui.label(small(n));
+    }
+    ui.add_space(4.0);
+    order(ui, data, save, l, a, out);
 }
 
 /// One line of a price list: click it to order.
@@ -579,7 +505,7 @@ fn list_line(ui: &mut Ui, data: &Data, save: &Save, l: &Listing, out: &mut Vec<W
     } else {
         format!("{} ({})", l.name, l.detail)
     };
-    let resp = leader(ui, &name, &price_text(l), false);
+    let resp = leader(ui, &name, &price_text(l));
     let blocker = match l.stock {
         Stock::Price(_) => save.order_blocker(data, &l.item),
         _ => None,

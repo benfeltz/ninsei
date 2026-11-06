@@ -169,7 +169,8 @@ impl Liza {
         }
     }
 
-    /// Opens (or brings forward) a tool's window.
+    /// Opens (or brings forward) a tool's window. A book (RIG, the Welcome stack) gets a window
+    /// its fixed page fits exactly, so it never scrolls.
     fn open(&mut self, tool: Tool) {
         if let Some(i) = self.wins.iter().position(|w| w.tool == tool) {
             let w = self.wins.remove(i);
@@ -180,14 +181,14 @@ impl Liza {
             Tool::Shell => (pos2(40.0, 330.0), vec2(620.0, 290.0)),
             Tool::Terminal => (pos2(60.0, 44.0), vec2(720.0, 440.0)),
             Tool::Prefs => (pos2(140.0, 44.0), vec2(560.0, 600.0)),
-            Tool::Rig => (pos2(80.0, 40.0), vec2(720.0, 600.0)),
+            Tool::Rig => (pos2(80.0, 30.0), book_window()),
             Tool::Stash => (pos2(110.0, 84.0), vec2(640.0, 380.0)),
             Tool::HexEd => (pos2(40.0, 40.0), vec2(800.0, 500.0)),
             Tool::Qwk => (pos2(70.0, 50.0), vec2(700.0, 470.0)),
             Tool::NightComm => (pos2(60.0, 46.0), vec2(880.0, 500.0)),
             Tool::TigerTeam => (pos2(50.0, 40.0), vec2(900.0, 540.0)),
             Tool::IceDb => (pos2(100.0, 60.0), vec2(700.0, 470.0)),
-            Tool::Guide => (pos2(150.0, 70.0), vec2(640.0, 440.0)),
+            Tool::Guide => (pos2(120.0, 30.0), book_window()),
         };
         self.wins.push(Win { tool, pos, size });
         // Without MultiFinder, Liza keeps a few windows: the oldest goes.
@@ -780,6 +781,12 @@ fn label(painter: &egui::Painter, text: &str, center: Pos2, picked: bool, c: Two
     painter.rect_filled(r, 0.0, bg);
     painter.galley(r.min + vec2(4.0, 1.0), galley, fg);
     r
+}
+
+/// A window whose body holds one book (`pager::SIZE`): the body is the window less its title
+/// bar and margins (see `content` in the window loop), plus a pixel of slack.
+fn book_window() -> egui::Vec2 {
+    crate::pager::SIZE + vec2(12.0 + 2.0, look::TITLE_H + 8.0 + 2.0)
 }
 
 #[cfg(test)]

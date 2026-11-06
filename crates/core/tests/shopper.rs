@@ -2,7 +2,7 @@
 //! every listing lands on exactly one page.
 
 use ninsei_core::hub::{Save, Upgrade};
-use ninsei_core::shopper::{self, AdSize, Block, Item, Page, Section, Stock};
+use ninsei_core::shopper::{self, AdSize, Block, Cell, Item, Page, Section, Stock};
 use ninsei_core::*;
 
 fn data() -> Data {
@@ -23,7 +23,7 @@ fn shown(pages: &[Page]) -> Vec<usize> {
     let mut out = Vec::new();
     for p in pages {
         if let Page::Section { blocks, .. } = p {
-            for b in blocks {
+            for (b, _) in blocks {
                 match b {
                     Block::Ad { listing, .. } => out.push(*listing),
                     Block::List { listings, .. } => out.extend(listings),
@@ -114,7 +114,7 @@ fn a_new_tool_is_in_the_next_issue_without_an_ad() {
     let in_list = pages.iter().any(|p| match p {
         Page::Section { blocks, .. } => blocks
             .iter()
-            .any(|b| matches!(b, Block::List { listings, .. } if listings.contains(&ix))),
+            .any(|(b, _)| matches!(b, Block::List { listings, .. } if listings.contains(&ix))),
         _ => false,
     });
     assert!(in_list, "an item without an ad is a price-list line");
@@ -129,7 +129,7 @@ fn deleting_an_ad_never_drops_the_item() {
     let pages = shopper::layout(&def, &cat);
     assert_eq!(shown(&pages).len(), cat.len());
     assert!(pages.iter().all(|p| match p {
-        Page::Section { blocks, .. } => blocks.iter().all(|b| matches!(b, Block::List { .. })),
+        Page::Section { blocks, .. } => blocks.iter().all(|(b, _)| matches!(b, Block::List { .. })),
         _ => true,
     }));
 }
@@ -141,7 +141,7 @@ fn a_full_ad_has_its_page_and_pages_count_up() {
     let pages = shopper::layout(&d.shopper, &cat);
     for p in &pages {
         if let Page::Section { blocks, .. } = p {
-            let full = blocks.iter().any(|b| match b {
+            let full = blocks.iter().any(|(b, _)| match b {
                 Block::Ad { ad, .. } => d.shopper.ads[*ad].size == AdSize::Full,
                 _ => false,
             });
@@ -150,26 +150,41 @@ fn a_full_ad_has_its_page_and_pages_count_up() {
             }
         }
     }
-    // Each section starts on its printed page, and the next pages follow.
-    for (section, first, number) in shopper::contents(&pages) {
-        assert_eq!(number, d.shopper.section(section).unwrap().page);
-        let mut n = number;
-        for p in &pages[first..] {
-            match p {
-                Page::Section {
-                    section: s, number, ..
-                } if *s == section => {
-                    assert_eq!(*number, n);
-                    n += 1;
-                }
-                _ => break,
-            }
-        }
+    // Printed pages count up through the issue; the first section opens on its own page,
+    // and a section that shares a page is listed in the contents at that page.
+    let numbers: Vec<u32> = pages
+        .iter()
+        .filter_map(|p| match p {
+            Page::Section { number, .. } => Some(*number),
+            _ => None,
+        })
+        .collect();
+    assert!(numbers.windows(2).all(|w| w[0] < w[1]), "{numbers:?}");
+    let toc = shopper::contents(&pages);
+    let first = d.shopper.sections[0].section;
+    assert_eq!(toc[0].2, d.shopper.section(first).unwrap().page);
+    for (section, at, number) in &toc {
+        let Page::Section {
+            sections,
+            number: n,
+            ..
+        } = &pages[*at]
+        else {
+            panic!("contents points at a section page");
+        };
+        assert!(sections.contains(section));
+        assert_eq!(n, number);
     }
+    // Small sections share pages: the issue is shorter than one page per section.
+    assert!(
+        numbers.len() < Section::ALL.len() + 2,
+        "{} pages",
+        numbers.len()
+    );
     // The full ad's page belongs to its advertiser.
     let ono = pages.iter().find_map(|p| match p {
         Page::Section { vendor, blocks, .. }
-            if blocks.iter().any(|b| {
+            if blocks.iter().any(|(b, _)| {
                 matches!(b, Block::Ad { listing, .. }
                 if cat[*listing].item == Item::Deck("onosendai".into()))
             }) =>
@@ -188,8 +203,11 @@ fn the_index_lists_who_sells_and_where() {
     let pages = shopper::layout(&d.shopper, &cat);
     let index = shopper::advertisers(&d.shopper, &cat, &pages);
     let page_of = |id: &str| index.iter().find(|(v, _)| v == id).map(|(_, p)| p.clone());
-    assert!(page_of("d1rge").is_some_and(|p| p.iter().all(|&n| n >= 790)));
-    assert!(page_of("chiba").is_some_and(|p| p.contains(&203)));
+    // Each vendor is indexed on the page its goods are on.
+    let toc = shopper::contents(&pages);
+    let at = |sec: Section| toc.iter().find(|(s, ..)| *s == sec).unwrap().2;
+    assert!(page_of("d1rge").is_some_and(|p| p.contains(&at(Section::Software))));
+    assert!(page_of("chiba").is_some_and(|p| p.contains(&at(Section::Upgrades))));
     assert!(index.iter().all(|(_, p)| !p.is_empty()));
 }
 
@@ -288,4 +306,45 @@ fn a_bad_magazine_is_caught_on_load() {
     })
     .unwrap_err();
     assert!(err.contains("ghost"), "{err}");
+}
+
+#[test]
+fn every_block_fills_its_own_cells_on_the_page() {
+    let d = data();
+    let mut rich = fresh(5000);
+    rich.decks = d.hardware.decks.iter().map(|d| d.id.clone()).collect();
+    // With and without ads: every block sits inside the grid and none overlap.
+    let mut bare = d.shopper.clone();
+    bare.ads.clear();
+    for def in [&d.shopper, &bare] {
+        let cat = rich.catalog(&d);
+        for p in shopper::layout(def, &cat) {
+            let Page::Section { blocks, .. } = p else {
+                continue;
+            };
+            let cells: Vec<Cell> = blocks.iter().map(|(_, c)| *c).collect();
+            for c in &cells {
+                assert!(c.cols >= 1 && c.rows >= 1);
+                assert!(c.col + c.cols <= shopper::GRID_COLS);
+                assert!(c.row + c.rows <= shopper::GRID_ROWS);
+            }
+            for (i, a) in cells.iter().enumerate() {
+                for b in &cells[i + 1..] {
+                    let apart = a.col + a.cols <= b.col
+                        || b.col + b.cols <= a.col
+                        || a.row + a.rows <= b.row
+                        || b.row + b.rows <= a.row;
+                    assert!(apart, "{a:?} overlaps {b:?}");
+                }
+            }
+            for (b, c) in &blocks {
+                if let Block::List { listings, .. } = b {
+                    assert!(
+                        listings.len() <= shopper::list_lines(c.rows),
+                        "a list fits its cells"
+                    );
+                }
+            }
+        }
+    }
 }

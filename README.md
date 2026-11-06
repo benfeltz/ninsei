@@ -80,7 +80,7 @@ What your screen looks like is the kit you own. Buy more in **RIG**, an issue of
 Everything is data in [`data/hub/hardware.ron`](data/hub/hardware.ron). A deck lists **firmware** (UX versions), each put together from named parts: `map` (`Iso` | `Draft` | `Paint`), `chrome` (pane style) and `desktop` (the overworld). A new UX version for a deck is a new firmware entry; a new kind of part is one renderer plus one name.
 
 ![CPU Shopper, the cover](docs/shots/cpu-shopper-cover.png)
-![CPU Shopper, a deck ad](docs/shots/cpu-shopper-deck.png)
+![CPU Shopper, a page of price lists and a mail-order ad](docs/shots/cpu-shopper-page.png)
 ![prefs](docs/shots/prefs-hardware.png)
 ![a run on the Hosaka](docs/shots/run-hosaka.png)
 
@@ -147,7 +147,7 @@ You always know the wide, sparse local exchange (`555-xxxx`). Better targets liv
 
 Runs are for taking things; home is for building. **Reach the exit** and the run's credits and fragments are banked, and you pick programs to keep in your stash. **Flatline** and you lose it all, except the 10% your dead man's switch wires out.
 
-- **RIG** is **CPU Shopper**, a mail-order computer magazine: a cover, a contents page, then full-page deck ads, upgrade boxes, dot-leader price lists and an index of advertisers. Flip pages with ◀ ▶ or PgUp/PgDn and order from any page. It sells permanent upgrades (RAM, CPU, HDD, integrity, stash slots, each level dearer than the last; [`data/hub/rig.ron`](data/hub/rig.ron)), monitors and decks, desktop add-ons, run panes, and mail-order software. Everything is priced in its own file; [`data/hub/shopper.ron`](data/hub/shopper.ron) only dresses it, so a new item shows up in the next issue without any code.
+- **RIG** is **CPU Shopper**, a mail-order computer magazine: a cover, a contents page, then full-page deck ads, upgrade boxes, dot-leader price lists and an index of advertisers. Every page is the same size and fills it: small sections share a page. Turn pages with the same ◀ Home ▶ bar as Welcome to the Net (or ← → / PgUp PgDn / Home) and order from any page. It sells permanent upgrades (RAM, CPU, HDD, integrity, stash slots, each level dearer than the last; [`data/hub/rig.ron`](data/hub/rig.ron)), monitors and decks, desktop add-ons, run panes, and mail-order software. Everything is priced in its own file; [`data/hub/shopper.ron`](data/hub/shopper.ron) only dresses it, so a new item shows up in the next issue without any code.
 - **STASH**: programs you kept (2 slots to start) and your loadout for the next run. Your deck's **Security Suite** (Firewall and Patch) is always free. Breakers aren't in the box: the Gutter's FREEWARE has IcePick and Decoder, free, and the Gutter is a local call. Stash programs you take into a run leave the stash: they come back only if you do.
 - **HexEd** (once downloaded): the hex editor, at home, on your stash, with banked fragments to optimize. In a run you can only compile while connected to a BBS.
 

@@ -20,6 +20,7 @@ mod netmap_iso;
 mod netmap_paint;
 mod netpane;
 mod nightcomm_view;
+mod pager;
 mod panes;
 mod patterns;
 mod shopper;
