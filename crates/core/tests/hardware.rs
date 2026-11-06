@@ -71,6 +71,9 @@ fn a_colour_monitor_shows_any_theme() {
     let mut s = fresh(1_000);
     s.buy_hardware(&d, &Hardware::Monitor("vga".into()))
         .unwrap();
+    assert_eq!(s.monitor, "white", "buying a monitor doesn't plug it in");
+    assert!(s.monitors.iter().any(|m| m == "vga"), "it's yours");
+    s.plug_monitor(&d, "vga").unwrap();
     assert_eq!(s.monitor, "vga");
     assert_eq!(s.display_id(&d), "vga");
     for t in &d.themes {
@@ -143,6 +146,7 @@ fn hardware_survives_a_save() {
     let mut s = fresh(5_000);
     s.buy_hardware(&d, &Hardware::Monitor("c64".into()))
         .unwrap();
+    s.plug_monitor(&d, "c64").unwrap();
     s.buy_hardware(&d, &Hardware::Deck("onosendai".into()))
         .unwrap();
     s.use_deck(&d, "onosendai").unwrap();
