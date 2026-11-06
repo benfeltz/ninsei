@@ -9,6 +9,10 @@ use ninsei_core::{Data, hub::Save};
 use crate::home::{WbOut, accent, fill, ink, muted, shadow};
 use crate::theme::Palette;
 
+#[cfg(test)]
+#[path = "system_tests.rs"]
+mod tests;
+
 /// Room the panel list takes on the left, and its height.
 const LIST_W: f32 = 150.0;
 const LIST_H: f32 = 300.0;

@@ -375,17 +375,17 @@ impl Save {
         }
         self.bank -= price;
         match hw {
-            // New hardware waits on the shelf: you swap when you're ready (Prefs, or the Shell).
+            // New hardware waits on the shelf: you swap when you're ready (System, or the Shell).
             Hardware::Monitor(id) => {
                 self.monitors.push(id.clone());
                 Ok(format!(
-                    "bought the {title} (-{price}¢). plug it in in Prefs, or type `monitor {id}`."
+                    "bought the {title} (-{price}¢). plug it in in System, or type `monitor {id}`."
                 ))
             }
             Hardware::Deck(id) => {
                 self.decks.push(id.clone());
                 Ok(format!(
-                    "bought the {title} (-{price}¢). switch to it in Prefs, or type `deck {id}`."
+                    "bought the {title} (-{price}¢). switch to it in System, or type `deck {id}`."
                 ))
             }
         }
