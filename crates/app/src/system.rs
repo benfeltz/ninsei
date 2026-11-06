@@ -322,6 +322,7 @@ fn block_map(
     let rows = map.len().div_ceil(MAP_COLS);
     let size = egui::vec2(MAP_COLS as f32 * BLOCK, rows as f32 * BLOCK);
     let (rect, resp) = ui.allocate_exact_size(size, egui::Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Other, true, "Disk map"));
     let p = ui.painter_at(rect.expand(BLOCK * 2.0));
     let cell = |i: usize| {
         let (c, r) = (i % MAP_COLS, i / MAP_COLS);

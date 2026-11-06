@@ -1,4 +1,4 @@
-//! The hub's tool windows: CarrierTerm (phonebook), STASH (programs and loadout) and HexEd.
+//! The hub's tool windows: CarrierTerm (phonebook), HexEd and the rest.
 //! CPU Shopper is in `shopper.rs`.
 //! They draw from the save and report what you clicked as [`WbOut`]s; the app applies those
 //! through `Save`'s methods in core.
