@@ -263,6 +263,13 @@ pub struct ToolDef {
     /// Sold by mail order in CPU Shopper, if it is.
     #[serde(default)]
     pub shop: Option<crate::shopper::ToolShop>,
+    /// Its version string, as System's About This Deck lists it ("3.1").
+    #[serde(default = "first_version")]
+    pub version: String,
+}
+
+fn first_version() -> String {
+    "1.0".into()
 }
 
 /// Every tool's id: what `hub::Save::has_tool` and the desktops ask about.
@@ -669,6 +676,8 @@ pub struct Sources<'a> {
     pub addons: &'a str,
     pub panes: &'a str,
     pub shopper: &'a str,
+    pub disk: &'a str,
+    pub fetch: &'a str,
     pub sounds: &'a [PackSrc<'a>],
     pub art: &'a [ArtSrc<'a>],
     pub intros: &'a [IntroSrc<'a>],
@@ -700,6 +709,8 @@ impl Sources<'static> {
             addons: include_str!("../../../data/hub/desktops.ron"),
             panes: include_str!("../../../data/hub/panes.ron"),
             shopper: include_str!("../../../data/hub/shopper.ron"),
+            disk: include_str!("../../../data/hub/disk.ron"),
+            fetch: include_str!("../../../data/hub/fetch.ron"),
             sounds: BUILTIN_SOUNDS,
             art: BUILTIN_ART,
             intros: BUILTIN_INTROS,
@@ -743,6 +754,10 @@ pub struct Data {
     pub panes: Vec<crate::panes::PaneDef>,
     /// CPU Shopper, the RIG magazine: its cover, sections, advertisers and ads.
     pub shopper: crate::shopper::ShopperDef,
+    /// System's Disk panel: the pattern per program kind on the block map.
+    pub disk: crate::disk::DiskDef,
+    /// System's neofetch-style logos, one per desktop.
+    pub fetch: Vec<crate::system::FetchDef>,
     /// Sound packs: what each cue plays, one pack per file in `data/sounds/`.
     pub sounds: Vec<crate::cue::SoundPack>,
     /// 1-bit pictures, one per file in `data/art/` (deck heroes and the like).
@@ -801,6 +816,8 @@ impl Data {
             addons: ron::from_str(src.addons).map_err(|e| format!("hub/desktops.ron: {e}"))?,
             panes: ron::from_str(src.panes).map_err(|e| format!("hub/panes.ron: {e}"))?,
             shopper: ron::from_str(src.shopper).map_err(|e| format!("hub/shopper.ron: {e}"))?,
+            disk: ron::from_str(src.disk).map_err(|e| format!("hub/disk.ron: {e}"))?,
+            fetch: ron::from_str(src.fetch).map_err(|e| format!("hub/fetch.ron: {e}"))?,
             welcome: ron::from_str(src.welcome).map_err(|e| format!("stacks/welcome.ron: {e}"))?,
             starts: ron::from_str(src.starts).map_err(|e| format!("hub/starts.ron: {e}"))?,
             intros: src
@@ -954,6 +971,11 @@ impl Data {
         self.shopper
             .validate(self)
             .map_err(|e| format!("hub/shopper.ron: {e}"))?;
+        self.disk
+            .validate(self)
+            .map_err(|e| format!("hub/disk.ron: {e}"))?;
+        crate::system::FetchDef::validate(&self.fetch)
+            .map_err(|e| format!("hub/fetch.ron: {e}"))?;
         if self.sounds.is_empty() {
             return Err("data/sounds/ has no sound packs".into());
         }

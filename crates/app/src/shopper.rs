@@ -639,7 +639,11 @@ mod tests {
     ) -> Vec<WbOut> {
         let mut out = Vec::new();
         h.frame(events, |ui| {
-            let r = Rect::from_min_size(Pos2::ZERO, pager::SIZE + egui::vec2(16.0, 16.0));
+            // The magazine at its page size; other tools (System) get the screen.
+            let r = match tool {
+                Tool::Rig => Rect::from_min_size(Pos2::ZERO, pager::SIZE + egui::vec2(16.0, 16.0)),
+                _ => ui.max_rect(),
+            };
             let mut child = ui.new_child(UiBuilder::new().max_rect(r));
             home.tool_body(&mut child, tool, data, save, &mut out);
         });
@@ -758,51 +762,54 @@ mod tests {
     }
 
     #[test]
-    fn a_bought_deck_waits_in_prefs_until_you_pick_it() {
+    fn a_bought_deck_waits_in_system_until_you_pick_it() {
         let data = Data::builtin().unwrap();
         let mut save = deck(&data);
         save.bank = 1_000_000;
+        save.ensure_hardware(&data);
         let new = data
             .hardware
             .decks
             .iter()
-            .find(|d| d.id != save.deck)
+            .find(|d| d.id != save.deck_def(&data).id)
             .unwrap();
         save.buy_item(&data, &Item::Deck(new.id.clone())).unwrap();
         assert_ne!(save.deck, new.id, "buying doesn't switch");
         let (mut h, mut home) = (Harness::new(1280.0, 800.0), Home::new(Vec::new()));
-        frame(&mut h, &mut home, &data, &save, Tool::Prefs, Vec::new());
+        frame(&mut h, &mut home, &data, &save, Tool::System, Vec::new());
         let pick = press_on(&mut h, &new.title());
-        let out = frame(&mut h, &mut home, &data, &save, Tool::Prefs, pick);
+        let out = frame(&mut h, &mut home, &data, &save, Tool::System, pick);
         assert!(
             out.iter()
                 .any(|o| matches!(o, WbOut::Deck(d) if *d == new.id)),
-            "picking it in Prefs plugs it in"
+            "picking it in System plugs it in"
         );
     }
 
     #[test]
-    fn a_bought_monitor_waits_in_prefs_until_you_plug_it_in() {
+    fn a_bought_monitor_waits_in_system_until_you_plug_it_in() {
         let data = Data::builtin().unwrap();
         let mut save = deck(&data);
         save.bank = 1_000_000;
+        save.ensure_hardware(&data);
         let new = data
             .hardware
             .monitors
             .iter()
-            .find(|m| m.id != save.monitor)
+            .find(|m| m.id != save.monitor_def(&data).id)
             .unwrap();
         save.buy_item(&data, &Item::Monitor(new.id.clone()))
             .unwrap();
         assert_ne!(save.monitor, new.id, "buying doesn't plug it in");
         let (mut h, mut home) = (Harness::new(1280.0, 800.0), Home::new(Vec::new()));
-        frame(&mut h, &mut home, &data, &save, Tool::Prefs, Vec::new());
+        home.system.panel = ninsei_core::system::Panel::Monitor;
+        frame(&mut h, &mut home, &data, &save, Tool::System, Vec::new());
         let pick = press_on(&mut h, &new.title());
-        let out = frame(&mut h, &mut home, &data, &save, Tool::Prefs, pick);
+        let out = frame(&mut h, &mut home, &data, &save, Tool::System, pick);
         assert!(
             out.iter()
                 .any(|o| matches!(o, WbOut::Monitor(m) if *m == new.id)),
-            "picking it in Prefs plugs it in"
+            "picking it in System plugs it in"
         );
     }
 }

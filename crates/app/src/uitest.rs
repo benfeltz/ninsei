@@ -58,11 +58,22 @@ impl Harness {
             .unwrap_or_default();
     }
 
-    /// Where last frame drew the widget whose text starts with `text`.
+    /// Lets `secs` pass before the next frame (frames are otherwise a tenth of a second apart).
+    pub fn wait(&mut self, secs: f64) {
+        self.t += secs;
+    }
+
+    /// Where last frame drew the widget that says `text` (exactly, else the first whose text
+    /// starts with it).
     pub fn find(&self, text: &str) -> Option<Rect> {
         self.widgets
             .iter()
-            .find(|(t, _, _)| t.trim().starts_with(text))
+            .find(|(t, _, _)| t.trim() == text)
+            .or_else(|| {
+                self.widgets
+                    .iter()
+                    .find(|(t, _, _)| t.trim().starts_with(text))
+            })
             .map(|(_, r, _)| *r)
     }
 

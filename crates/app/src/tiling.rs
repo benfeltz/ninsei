@@ -64,14 +64,13 @@ fn entries(fuzzy: bool, save: &ninsei_core::hub::Save) -> Vec<Entry> {
         Entry::Tool(Tool::Terminal, "CarrierTerm"),
         Entry::WarDial,
         Entry::Tool(Tool::Rig, "CPU Shopper"),
-        Entry::Tool(Tool::Stash, "STASH"),
         Entry::Tool(Tool::HexEd, "HexEd"),
         Entry::Tool(Tool::Qwk, "QWK Reader"),
         Entry::Tool(Tool::IceDb, "ICE DB"),
         Entry::Tool(Tool::NightComm, "NiGHTCOMM"),
         Entry::Tool(Tool::TigerTeam, "Tiger Team Pro"),
         Entry::Tool(Tool::Shell, "Shell"),
-        Entry::Tool(Tool::Prefs, "Prefs"),
+        Entry::Tool(Tool::System, "System"),
     ];
     v.retain(|e| match e {
         Entry::Tool(t, _) => save.opens(*t),
@@ -330,6 +329,9 @@ impl DesktopView for TilingDesk {
             crate::hubtools::wb_visuals(child.visuals_mut());
             if !live {
                 child.disable();
+            }
+            if tool == Tool::System {
+                home.system.keys = typing;
             }
             crate::home::scrolled(&mut child, ("tile-scroll", tool), |ui| {
                 home.tool_body(ui, tool, data, save, out)
@@ -593,5 +595,83 @@ mod tests {
             o.textures_delta.clear();
         }
         assert_eq!(home.shell_text(), "ph");
+    }
+
+    #[test]
+    fn a_focused_system_tile_takes_its_keys_and_the_shell_keeps_its_own() {
+        let data = ninsei_core::Data::builtin().unwrap();
+        let mut save = ninsei_core::hub::Save {
+            tiling_help_seen: true,
+            tools: ninsei_core::data::TOOLS
+                .iter()
+                .map(|t| t.to_string())
+                .collect(),
+            decks: vec!["onosendai".into()],
+            deck: "onosendai".into(),
+            ..Default::default()
+        };
+        save.ensure_hardware(&data);
+        assert_eq!(
+            save.firmware_def(&data).desktop,
+            ninsei_core::hardware::Desktop::Tiling
+        );
+        let ctx = egui::Context::default();
+        let mut desk = TilingDesk::new();
+        let mut home = Home::new(Vec::new());
+        let key = |k| {
+            let e = |pressed| Event::Key {
+                key: k,
+                physical_key: None,
+                pressed,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            };
+            vec![e(true), e(false)]
+        };
+        let mut t = 0.0;
+        let mut frame = |desk: &mut TilingDesk, home: &mut Home, events: Vec<Event>| {
+            t += 0.1;
+            let raw = RawInput {
+                screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(1280.0, 800.0))),
+                time: Some(t),
+                events,
+                ..RawInput::default()
+            };
+            let mut out = Vec::new();
+            let mut o = ctx.run_ui(raw, |ui| {
+                let cx = Cx {
+                    data: &data,
+                    save: &save,
+                    offset: 0.0,
+                    live: true,
+                };
+                desk.show(ui, home, &cx, &mut out);
+            });
+            o.textures_delta.clear();
+            // The layout is saved, as the app does.
+            for w in out {
+                if let crate::home::WbOut::Tiling(l) = w {
+                    save.tiling = l;
+                }
+            }
+        };
+        frame(&mut desk, &mut home, Vec::new());
+        frame(&mut desk, &mut home, Vec::new());
+        home.open(Tool::System);
+        frame(&mut desk, &mut home, Vec::new());
+        frame(&mut desk, &mut home, Vec::new());
+        assert!(home.system.keys, "the new System tile is focused");
+        frame(&mut desk, &mut home, key(egui::Key::Num2));
+        frame(&mut desk, &mut home, Vec::new());
+        assert_eq!(home.system.panel, ninsei_core::system::Panel::Monitor);
+        assert_eq!(home.shell_text(), "", "the Shell didn't get the key");
+        // Focus back on the Shell (Esc, h): System's keys go quiet.
+        frame(&mut desk, &mut home, key(egui::Key::Escape));
+        frame(&mut desk, &mut home, key(egui::Key::H));
+        frame(&mut desk, &mut home, Vec::new());
+        assert!(!home.system.keys);
+        frame(&mut desk, &mut home, key(egui::Key::Num3));
+        frame(&mut desk, &mut home, Vec::new());
+        assert_eq!(home.system.panel, ninsei_core::system::Panel::Monitor);
     }
 }

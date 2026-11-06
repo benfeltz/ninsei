@@ -39,24 +39,6 @@
         "................",
         "................",
     ]),
-    (label: "STASH", tool: Stash, pixels: [
-        "................",
-        ".kkkkkkkkkkkkkk.",
-        ".kwwkoooooookwk.",
-        ".kwwkoooookokwk.",
-        ".kwwkoooookokwk.",
-        ".kwwkoooooookwk.",
-        ".kwwkkkkkkkkkwk.",
-        ".kwwwwwwwwwwwwk.",
-        ".kwwkkkkkkkkwwk.",
-        ".kwwkbbbbbbkwwk.",
-        ".kwwkbwwwwbkwwk.",
-        ".kwwkbbbbbbkwwk.",
-        ".kwwkkkkkkkkwwk.",
-        ".kkkkkkkkkkkkkk.",
-        "................",
-        "................",
-    ]),
     (label: "HexEd", tool: HexEd, pixels: [
         "................",
         "..kkkkkkkkkkk...",
@@ -183,7 +165,7 @@
         "................",
         "................",
     ]),
-    (label: "Prefs", tool: Prefs, pixels: [
+    (label: "System", tool: System, pixels: [
         "................",
         "......kkkk......",
         "..kk.kwwwwk.kk..",

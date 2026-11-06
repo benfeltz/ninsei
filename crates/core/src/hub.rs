@@ -32,11 +32,10 @@ pub enum Tool {
     /// CarrierTerm: the phonebook you dial networks from.
     Terminal,
     Rig,
-    Stash,
     HexEd,
     Shell,
-    /// Prefs: themes and display settings.
-    Prefs,
+    /// System: the deck's settings app (About This Deck, Monitor, Theme). It replaced Prefs.
+    System,
     /// The QWK mail reader: boards' bulletins and saved textfiles, offline.
     Qwk,
     /// The ICE database: every ICE you've fought.
@@ -50,10 +49,9 @@ pub enum Tool {
 }
 
 impl Tool {
-    pub const ALL: [Tool; 11] = [
+    pub const ALL: [Tool; 10] = [
         Tool::Terminal,
         Tool::Rig,
-        Tool::Stash,
         Tool::HexEd,
         Tool::Qwk,
         Tool::IceDb,
@@ -61,7 +59,7 @@ impl Tool {
         Tool::TigerTeam,
         Tool::Guide,
         Tool::Shell,
-        Tool::Prefs,
+        Tool::System,
     ];
 
     /// Tools that work yet. The rest ask you to insert their disk.
@@ -74,10 +72,9 @@ impl Tool {
         match self {
             Tool::Terminal => "CarrierTerm",
             Tool::Rig => "CPU Shopper",
-            Tool::Stash => "STASH",
             Tool::HexEd => "HexEd",
             Tool::Shell => "Shell",
-            Tool::Prefs => "Prefs",
+            Tool::System => "System",
             Tool::Qwk => "QWK",
             Tool::IceDb => "ICE DB",
             Tool::NightComm => "NiGHTCOMM",
@@ -754,6 +751,11 @@ pub struct Save {
     pub next_item: u32,
     #[serde(default)]
     pub loadout: Loadout,
+    /// The disk's block map, block by block: which program owns it (`None` free). Empty means
+    /// laid out end to end. Something can fragment it (`Save::fragment`); Defragment compacts
+    /// it again (`Save::defragment`).
+    #[serde(default)]
+    pub disk_map: Vec<Option<crate::disk::Disk>>,
     /// Numbers you can dial.
     #[serde(default)]
     pub phonebook: Vec<Entry>,
@@ -834,7 +836,7 @@ pub struct Save {
     /// database, and never changes play.
     #[serde(default)]
     pub ice_seen: Vec<IceSeen>,
-    /// Programs open with their cracktros (`data/intros/`). On unless switched off in Prefs.
+    /// Programs open with their cracktros (`data/intros/`). On unless switched off in System.
     #[serde(default = "default_intros")]
     pub intros: bool,
     /// The Welcome to the Net stack has opened (on a new save's first boot). Old saves have
@@ -932,6 +934,7 @@ impl Default for Save {
             stash: Vec::new(),
             next_item: 0,
             loadout: Loadout::default(),
+            disk_map: Vec::new(),
             phonebook: Vec::new(),
             next_entry: 0,
             ranges: local_range(),
@@ -1315,7 +1318,8 @@ impl Save {
             tier: e.tier,
             traits: labels,
         });
-        let taken: Vec<u32> = std::mem::take(&mut self.loadout.stash);
+        // Stash programs on the disk leave the stash for the run; the loadout remembers them.
+        let taken: Vec<u32> = kit.origins.iter().flatten().copied().collect();
         self.stash.retain(|s| !taken.contains(&s.id));
         Ok(Game::start(data.clone(), seed, &kit))
     }
@@ -1711,6 +1715,7 @@ impl Save {
     /// An empty loadout falls back to the starters, so you can never jack in with nothing.
     pub fn kit(&self, data: &Data, defs: &[UpgradeDef]) -> Kit {
         let mut programs = Vec::new();
+        let mut origins = Vec::new();
         // Only the Security Suite is free: a loadout from an older save loses its breakers.
         for id in self
             .loadout
@@ -1720,6 +1725,7 @@ impl Save {
         {
             if let Some(w) = data.warez_ix(id) {
                 programs.push((w, binary::encode(&data.warez[w], self.key)));
+                origins.push(None);
             }
         }
         for id in &self.loadout.stash {
@@ -1727,9 +1733,11 @@ impl Save {
                 && let (Some(w), Some(bin)) = (data.warez_ix(&item.origin), item.bin())
             {
                 programs.push((w, bin));
+                origins.push(Some(*id));
             }
         }
         programs.truncate(self.hdd_cap(defs) as usize);
+        origins.truncate(programs.len());
         Kit {
             ram: self.rig.bonus(Upgrade::Ram, defs),
             cpu: self.rig.bonus(Upgrade::Cpu, defs),
@@ -1749,14 +1757,16 @@ impl Save {
                 .iter()
                 .map(|k| (k.board.clone(), k.id.clone()))
                 .collect(),
+            origins,
         }
     }
 
     /// Starts a run. Stash programs in the loadout leave the stash: they come back only
-    /// if you reach the exit and keep them.
+    /// if you reach the exit and keep them. The loadout itself is remembered: a program that
+    /// comes home goes back onto the disk in its place.
     pub fn jack_in(&mut self, data: &Data, defs: &[UpgradeDef], seed: u64) -> Game {
         let kit = self.kit(data, defs);
-        let taken: Vec<u32> = std::mem::take(&mut self.loadout.stash);
+        let taken: Vec<u32> = kit.origins.iter().flatten().copied().collect();
         self.stash.retain(|s| !taken.contains(&s.id));
         Game::start(data.clone(), seed, &kit)
     }
@@ -1878,8 +1888,15 @@ impl Save {
                     if binary::check(&bin, self.key).is_err() {
                         continue;
                     }
-                    let id = self.next_item;
-                    self.next_item += 1;
+                    // A program from the loadout goes home under its old id, so it's still
+                    // installed in its place; a new find gets a new id.
+                    let id = match game.from_stash.iter().find(|(uid, _)| *uid == slot.uid) {
+                        Some((_, id)) => *id,
+                        None => {
+                            self.next_item += 1;
+                            self.next_item - 1
+                        }
+                    };
                     self.stash.push(StashItem {
                         id,
                         origin: game.data.warez[slot.warez].id.clone(),
@@ -1895,6 +1912,11 @@ impl Save {
             }
         };
         self.bank += banked;
+        // What didn't come home drops off the disk; the rest stays installed.
+        let stash = &self.stash;
+        self.loadout
+            .stash
+            .retain(|id| stash.iter().any(|s| s.id == *id));
         Some(RunReport {
             end,
             credits,
@@ -1997,6 +2019,8 @@ pub enum ShellEffect {
     /// Call a BBS from home (board id).
     Call(String),
     Open(Tool),
+    /// Open System on a panel (`open stash` opens it on Disk).
+    System(crate::system::Panel),
     /// Set the theme (by id): desktop and runs.
     Theme(String),
     /// Plug in a monitor you own (by id).
@@ -2112,7 +2136,7 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
                 "ranges           number ranges you know",
                 "wardial <range>  scan 100 numbers of a range",
                 "info             your record",
-                "theme <name>     colour theme, desktop and runs (see Prefs)",
+                "theme <name>     colour theme, desktop and runs (see System)",
                 "crt              CRT effects on/off",
                 "monitor [id]     plug in a monitor you own",
                 "deck [id]        run with a deck you own",
@@ -2282,14 +2306,17 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
                 .map_or("", |(_, rest)| rest.trim());
             let key = |s: &str| s.replace(' ', "").to_ascii_lowercase();
             let alias = |name: &str| match key(name).as_str() {
-                // RIG was CPU Shopper's old name.
-                "rig" => Some(Tool::Rig),
+                // Old names open what replaced them: RIG is CPU Shopper, Prefs and STASH are
+                // System (STASH on its Disk panel).
+                "rig" => Some(ShellEffect::Open(Tool::Rig)),
+                "prefs" => Some(ShellEffect::Open(Tool::System)),
+                "stash" => Some(ShellEffect::System(crate::system::Panel::Disk)),
                 _ => None,
             };
             match icons.iter().find(|i| key(&i.label) == key(name)) {
                 Some(i) => (Vec::new(), ShellEffect::Open(i.tool)),
                 None => match alias(name) {
-                    Some(t) => (Vec::new(), ShellEffect::Open(t)),
+                    Some(e) => (Vec::new(), e),
                     None => (vec![format!("{name}: object not found")], ShellEffect::None),
                 },
             }

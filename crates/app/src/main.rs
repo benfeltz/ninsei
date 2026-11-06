@@ -27,6 +27,8 @@ mod shopper;
 mod sound;
 mod stack;
 mod suite;
+mod system;
+mod system_tui;
 mod theme;
 mod tigerteam_view;
 mod tiling;
@@ -560,7 +562,8 @@ impl App {
         }
         self.save_dirty = true;
         self.home_bbs = None;
-        self.keep.clear();
+        // The exit's keep picker starts with the loadout ticked: it comes home with you.
+        self.keep = self.game.loadout_keep();
         self.last_at = self.game.at;
         self.last_phase = self.game.phase;
         self.bbs = None;
@@ -659,13 +662,10 @@ impl App {
 
     /// Applies a hub tool's request to the save and reports the result in the Shell.
     fn home_action(&mut self, o: WbOut) {
-        let rig = self.data.rig.clone();
         let result = match o {
-            WbOut::ToggleStarter(id) => self
-                .save
-                .toggle_starter(&self.data, &rig, &id)
-                .map(|()| String::new()),
-            WbOut::ToggleStash(id) => self.save.toggle_stash(&rig, id).map(|()| String::new()),
+            WbOut::Install(at) => self.save.install(&self.data, &at),
+            WbOut::Remove(at) => self.save.remove(&at),
+            WbOut::Defragment => Ok(self.save.defragment()),
             WbOut::Scrap(id) => Ok(self
                 .save
                 .scrap(id)

@@ -837,3 +837,113 @@ const JACKOUT_ART: &str = "\
 _   | | / /\\ \\| |    |  <   | |  | | |  | |  | |
 | |__| |/ ____ \\ |____| . \\  | |__| | |__| |  | |
  \\____//_/    \\_\\_____|_|\\_\\  \\____/ \\____/   |_|";
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::uitest::Harness;
+    use ninsei_core::binary;
+    use ninsei_core::disk::Disk;
+    use ninsei_core::hub::{Save, StashItem};
+    use ninsei_core::{Data, hardware::Chrome as Ch};
+
+    /// A run jacked in with two stash programs installed (torch and garrote).
+    fn run() -> (Data, Save, Game) {
+        let d = Data::builtin().unwrap();
+        let mut s = Save::default();
+        s.ensure_hardware(&d);
+        for (id, w) in [(7, "torch"), (8, "garrote")] {
+            let ix = d.warez_ix(w).unwrap();
+            let bin = binary::encode(&d.warez[ix], s.key);
+            s.stash.push(StashItem {
+                id,
+                origin: w.into(),
+                hex: binary::to_hex(&bin),
+            });
+            s.install(&d, &Disk::Stash(id)).unwrap();
+        }
+        s.next_item = 9;
+        let g = s.jack_in(&d, &d.rig, 1);
+        (d, s, g)
+    }
+
+    /// Runs the exit's keep picker with `events` and a frame to settle.
+    fn picker(
+        h: &mut Harness,
+        d: &Data,
+        g: &Game,
+        keep: &mut Vec<u32>,
+        room: usize,
+        ev: Vec<egui::Event>,
+    ) {
+        let (mut term, mut focus, mut hex, mut suite) = (
+            ninsei_term::LineEditor::default(),
+            false,
+            None,
+            crate::suite::State::default(),
+        );
+        for events in [ev, Vec::new()] {
+            h.frame(events, |ui| {
+                let mut panes = Panes {
+                    game: g,
+                    pal: Palette::from_def(&d.themes[0]),
+                    map: MapView::Iso,
+                    deck: String::new(),
+                    chrome: Ch::Classic,
+                    corrupt: (0.0, 0),
+                    term: &mut term,
+                    focus_input: &mut focus,
+                    bbs_open: false,
+                    hex: &mut hex,
+                    keep: &mut *keep,
+                    keep_room: room,
+                    suite: &mut suite,
+                    out: Vec::new(),
+                };
+                panes.keep_picker(ui);
+            });
+        }
+    }
+
+    fn press(h: &Harness, text: &str) -> Vec<egui::Event> {
+        let r = h
+            .find(text)
+            .unwrap_or_else(|| panic!("no {text:?}: {:?}", h.texts()));
+        crate::uitest::click(r.center())
+    }
+
+    fn label_of(g: &Game, uid: u32) -> String {
+        g.hdd.iter().find(|s| s.uid == uid).unwrap().spec.file()
+    }
+
+    #[test]
+    fn the_exit_picker_starts_with_the_loadout_ticked() {
+        let (d, _s, g) = run();
+        let mut keep = g.loadout_keep();
+        assert_eq!(keep.len(), 2, "both programs from home");
+        let mut h = Harness::new(900.0, 700.0);
+        picker(&mut h, &d, &g, &mut keep, 4, Vec::new());
+        // Clicking a ticked one leaves it behind; clicking again keeps it.
+        let uid = keep[0];
+        let ev = press(&h, &label_of(&g, uid));
+        picker(&mut h, &d, &g, &mut keep, 4, ev);
+        assert!(!keep.contains(&uid), "unticked");
+        let ev = press(&h, &label_of(&g, uid));
+        picker(&mut h, &d, &g, &mut keep, 4, ev);
+        assert!(keep.contains(&uid), "ticked again");
+    }
+
+    #[test]
+    fn the_picker_cant_keep_more_than_the_stash_holds() {
+        let (d, _s, g) = run();
+        let mut keep = g.loadout_keep();
+        let mut h = Harness::new(900.0, 700.0);
+        picker(&mut h, &d, &g, &mut keep, 2, Vec::new());
+        // Room for two, two ticked: a third (a free program) can't be ticked.
+        let free = g.hdd.iter().find(|s| !keep.contains(&s.uid)).unwrap().uid;
+        let ev = press(&h, &label_of(&g, free));
+        picker(&mut h, &d, &g, &mut keep, 2, ev);
+        assert!(!keep.contains(&free));
+        assert_eq!(keep.len(), 2);
+    }
+}

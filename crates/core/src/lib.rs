@@ -12,6 +12,7 @@ pub mod cue;
 pub mod data;
 pub mod desktop;
 pub mod directory;
+pub mod disk;
 pub mod display;
 pub mod fight;
 pub mod game;
@@ -35,6 +36,7 @@ pub mod qwk;
 pub mod rng;
 pub mod shopper;
 pub mod suite;
+pub mod system;
 pub mod tigerteam;
 pub mod tuning;
 

@@ -143,8 +143,12 @@ pub enum WbOut {
     Crt,
     /// Modem sounds on/off.
     Sound,
-    ToggleStarter(String),
-    ToggleStash(u32),
+    /// Install a program on the disk (System's Disk panel): it's in the next run.
+    Install(ninsei_core::disk::Disk),
+    /// Take a program off the disk, back into the box.
+    Remove(ninsei_core::disk::Disk),
+    /// Defragment finished: lay the disk out end to end.
+    Defragment,
     Scrap(u32),
     Patch(u32, Bin),
     Optimize(u32),
@@ -255,6 +259,8 @@ pub struct Home {
     pub(crate) tune: Option<TuneCue>,
     /// Where the Welcome to the Net stack is open.
     pub(crate) guide_at: ninsei_core::cards::Place,
+    /// System's open panel, and its Disk panel's pick.
+    pub(crate) system: crate::system::SystemUi,
 }
 
 /// What the speaker should do with the cracktro's tune this frame.
@@ -304,6 +310,7 @@ impl Home {
             intro_playing: Default::default(),
             tune: None,
             guide_at: ninsei_core::cards::Place::Home,
+            system: crate::system::SystemUi::default(),
         }
     }
 
@@ -366,7 +373,7 @@ impl Home {
 
     /// Plays tool `id`'s cracktro in its window, every time the window opens, until it ends or
     /// a click or key skips it. True while it's showing (draw nothing else). A tool with no
-    /// intro, or intros switched off in Prefs, opens straight away.
+    /// intro, or intros switched off in System, opens straight away.
     fn intro_gate(&mut self, ui: &mut Ui, data: &Data, save: &Save, id: &'static str) -> bool {
         match data.tool(id).and_then(|t| t.intro.clone()) {
             Some(intro) => self.splash_gate(ui, data, save, id, &intro),
@@ -695,8 +702,7 @@ impl Home {
                 }
             }
             Tool::Rig => crate::shopper::show(child, data, save, out),
-            Tool::Prefs => hubtools::prefs(child, data, save, out),
-            Tool::Stash => hubtools::stash(child, data, save, out, &mut edit),
+            Tool::System => crate::system::show(child, data, save, &mut self.system, out),
             Tool::HexEd if self.intro_gate(child, data, save, "hexed") => return,
             Tool::Qwk if self.intro_gate(child, data, save, "qwkread") => return,
             Tool::IceDb if self.intro_gate(child, data, save, "icedb") => return,
@@ -876,6 +882,10 @@ impl Home {
             }
             ShellEffect::Call(id) => out.push(WbOut::Call(id)),
             ShellEffect::Open(t) => self.open(t),
+            ShellEffect::System(p) => {
+                self.system.panel = p;
+                self.open(Tool::System);
+            }
             ShellEffect::Theme(t) => out.push(WbOut::Theme(t)),
             ShellEffect::Crt => out.push(WbOut::Crt),
             ShellEffect::Sound => out.push(WbOut::Sound),

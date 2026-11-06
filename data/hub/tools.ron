@@ -7,6 +7,7 @@
 //   shop   sold by mail order in CPU Shopper (RIG): Some((price: n, vendor: "<id in shopper.ron>",
 //          review: true)). `review: true` marks a test listing (tagged REVIEW COPY, and the
 //          probe's bots never buy it). Leave it out and the tool is only on the boards.
+//   version  its version string, listed in System's About This Deck (default "1.0")
 // What each one unlocks is the game's (hub::Save::has_tool):
 //   wardial  the `wardial` Shell command and CarrierTerm's WarDial tab
 //   hexed    the HexEd tool at home, and `hex`, patch and optimize in a run
@@ -17,12 +18,12 @@
 //   tigerteam Tiger Team Pro, the corporate audit suite from CorpLink: everything nightcomm
 //             does, plus each network's profile (tier, findings, ICE, trace, pay)
 [
-    (id: "wardial", name: "WarDial", blurb: "A demon dialer: scans a block of numbers for carriers.", intro: Some("wardial")),
-    (id: "hexed",   name: "HexEd",   blurb: "A hex editor for warez binaries. Patch, optimize, break things.", intro: Some("hexed")),
-    (id: "icedb",   name: "ICE DB",  blurb: "A bestiary of intrusion countermeasures. Fills in as you meet them.", intro: Some("icedb")),
-    (id: "nightcomm", name: "NiGHTCOMM", blurb: "A hacker's dashboard: heat on your numbers, a wardialer, ranges and watched lines.", intro: Some("nightcomm"),
+    (id: "wardial", name: "WarDial", blurb: "A demon dialer: scans a block of numbers for carriers.", intro: Some("wardial"), version: "2.1"),
+    (id: "hexed",   name: "HexEd",   blurb: "A hex editor for warez binaries. Patch, optimize, break things.", intro: Some("hexed"), version: "1.4"),
+    (id: "icedb",   name: "ICE DB",  blurb: "A bestiary of intrusion countermeasures. Fills in as you meet them.", intro: Some("icedb"), version: "1.0"),
+    (id: "nightcomm", name: "NiGHTCOMM", blurb: "A hacker's dashboard: heat on your numbers, a wardialer, ranges and watched lines.", intro: Some("nightcomm"), version: "3.1",
      shop: Some((price: 120, vendor: "d1rge", review: true))),
-    (id: "tigerteam", name: "Tiger Team Pro", blurb: "A licensed network assessment suite: a profile and findings on every number you know.", intro: Some("tigerteam"),
+    (id: "tigerteam", name: "Tiger Team Pro", blurb: "A licensed network assessment suite: a profile and findings on every number you know.", intro: Some("tigerteam"), version: "4.0",
      shop: Some((price: 900, vendor: "tigerteam", review: true))),
-    (id: "qwkread", name: "QWK Reader", blurb: "Offline mail: read your boards' bulletins and saved textfiles at home.", intro: Some("qwkread")),
+    (id: "qwkread", name: "QWK Reader", blurb: "Offline mail: read your boards' bulletins and saved textfiles at home.", intro: Some("qwkread"), version: "2.0"),
 ]

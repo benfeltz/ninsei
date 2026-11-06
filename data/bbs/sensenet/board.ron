@@ -105,7 +105,7 @@
                 "|07board! Is there a way to make the text bigger?",
             ]),
             (from: "Customer Care", subject: "RE: hello from a new user!", body: [
-                "|07Welcome! Text size is set by your monitor. See Prefs on",
+                "|07Welcome! Text size is set by your monitor. See System on",
                 "|07your desktop. Enjoy your new deck!",
             ]),
             (from: "n1ghtowl", subject: "kind of tame here", on_read: Some(Board("gutter")), body: [
