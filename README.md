@@ -36,7 +36,7 @@ Every push to `main` builds `dist/` and publishes it to GitHub Pages (`.github/w
 
 Between runs you're on your own machine, on the same monitor as your runs. What the desktop looks like is up to the deck's OS: the starter Sense/Net runs **Liza**, a 1-bit desktop after the first Mac; the Ono-Sendai runs **AnarchyOS**, a tiling desktop after Omarchy; the Hosaka runs **Desktop**, after Amiga Workbench 1.3. One theme colours the desktop and your runs; pick it in **Prefs**. Open **CarrierTerm**, pick a number from your phonebook and dial it: the modem handshakes, then the desktop drags down like an Amiga screen to reveal the run behind it. Reach the exit and you jack out home; flatline and the deck crashes first.
 
-**CarrierTerm** is Sense/Net's friendly dialer: a splash, then a business directory of names, numbers and lines of business. What's behind a number (tier, heat, layers, ICE, pay, trace, quirks) is **NiGHTCOMM**'s business: the hacker terminal, `NIGHTCOM.ZIP` on Dead Sector, with a l33t splash and the intel on every number you know. Without it, the Shell's `phonebook` is a directory too.
+**CarrierTerm** is Sense/Net's friendly dialer: a splash, then a searchable directory of your boards and networks, with a card for the one you pick and a big button to dial it. What's behind a number (tier, heat, layers, ICE, pay, trace, quirks) is **NiGHTCOMM**'s business: the hacker terminal, `NIGHTCOM.ZIP` on Dead Sector, with a l33t splash and the intel on every number you know. Without it, the Shell's `phonebook` is a directory too.
 
 ![CarrierTerm's directory](docs/shots/carrierterm-directory.png)
 ![NiGHTCOMM's splash](docs/shots/nightcomm-splash.png)
@@ -98,7 +98,9 @@ Presets live in [`data/displays.ron`](data/displays.ron). To add one, add an ent
 
 ### Choosing a network: CarrierTerm
 
-Your phonebook starts with a handful of numbers, mostly small LANs. Each entry tells you what you're walking into:
+CarrierTerm is a dialing directory: every number you know, the boards first, then the networks. Type to search by name, number or listing, or filter to businesses or bulletin boards. Pick a line and its card says who it is and how to reach it; the big button dials a network or calls a board (Enter does too, and the arrows move the pick). While it dials, the card ticks through the handshake in step with the modem, and **Hang up** cuts the call.
+
+What's behind a number isn't CarrierTerm's business. With **NiGHTCOMM** you see:
 
 - **Tier**: LAN, CORP or MEGACORP. Bigger networks, tougher ICE, better pay.
 - **Traits**: *sentry-heavy* / *barrier-heavy* / *code-gate-heavy* (plan your breakers), *black ice*, *no BBS*, *graveyard shift* (trace -25%), *night shift* (+25%), *chatty*, *vault-rich*, *skint*.

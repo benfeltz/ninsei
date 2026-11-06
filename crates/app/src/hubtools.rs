@@ -4,6 +4,7 @@
 //! through `Save`'s methods in core.
 
 use egui::{RichText, Ui, Visuals};
+use ninsei_core::directory::{self, Filter, Listed};
 use ninsei_core::hexedit::HexBuffer;
 use ninsei_core::hub::{Answer, Save, ScanResult, Upgrade};
 use ninsei_core::modem::Handshake;
@@ -571,104 +572,321 @@ pub fn hexed(
     }
 }
 
-/// CarrierTerm: a Telix-style dialing directory. Pick a number, see what you're walking into, dial.
+/// CarrierTerm's directory, as the player left it: what's typed, the filter, the line picked.
+#[derive(Default)]
+pub struct Directory {
+    pub sel: Option<Listed>,
+    pub query: String,
+    pub filter: Filter,
+}
+
+/// Width of the directory card beside the list.
+const CARD_W: f32 = 250.0;
+/// Height of the card's big Dial / Call button.
+const BIG_BUTTON_H: f32 = 44.0;
+/// Height of the dialing card's progress bar.
+const PROGRESS_H: f32 = 12.0;
+/// Width of the search box.
+const SEARCH_W: f32 = 220.0;
+/// Name column width in the directory list, in characters.
+const NAME_COLS: usize = 24;
+/// The fewest characters of a listing worth showing as a column.
+const LISTING_MIN_COLS: usize = 10;
+/// The narrowest the directory list goes beside the card; narrower, the card goes under it.
+const LIST_MIN_W: f32 = 300.0;
+/// The list's height when the card sits under it.
+const NARROW_LIST_H: f32 = 140.0;
+
+/// Width of one monospace character in `ui`'s current style.
+fn mono_char_w(ui: &Ui) -> f32 {
+    let font = egui::TextStyle::Monospace.resolve(ui.style());
+    ui.fonts_mut(|f| f.glyph_width(&font, 'M')).max(1.0)
+}
+
+/// CarrierTerm: a friendly dialing directory. Search the numbers you know, pick one, and dial
+/// it (a network) or call it (a board). Who they are and how to reach them; never what's
+/// behind a number, which is NiGHTCOMM's business.
+#[allow(clippy::too_many_arguments)]
 pub fn carrierterm(
     ui: &mut Ui,
     data: &Data,
     save: &Save,
-    sel: &mut Option<u32>,
+    dir: &mut Directory,
     dialing: Option<&Dialing>,
     dial: &mut Option<u32>,
+    hang_up: &mut bool,
     out: &mut Vec<WbOut>,
 ) {
-    let mono = |t: String, c| RichText::new(t).monospace().color(c);
     if let Some(d) = dialing {
-        let Some(e) = save.entry(d.entry) else { return };
-        ui.label(
-            RichText::new(format!("Dialing {}", e.name))
-                .color(accent())
-                .strong(),
+        dialing_card(ui, save, d, hang_up);
+        return;
+    }
+    let mut keys = (false, false, false);
+    ui.horizontal_wrapped(|ui| {
+        ui.label(dim("Find"));
+        let r = ui.add(
+            egui::TextEdit::singleline(&mut dir.query)
+                .hint_text("name, number or listing")
+                .desired_width(SEARCH_W),
         );
-        ui.add_space(6.0);
-        // Lines land on the handshake's beats, so text and sound stay in step.
-        let h = Handshake::new(&e.number);
-        let mut script = vec![
-            (0.0, "ATZ".to_string(), ink()),
-            (h.offhook / 2.0, "OK".to_string(), ink()),
-            (h.offhook, format!("ATDT {}", e.number), ink()),
-        ];
-        script.extend(
-            h.rings
-                .iter()
-                .map(|&r| (r, "~~ RING ~~".to_string(), ink())),
-        );
-        script.push((h.connect, "CONNECT 2400/ARQ".to_string(), accent()));
-        script.push((
-            h.connect + (h.end - h.connect) / 2.0,
-            "CARRIER DETECTED. JACKING IN...".to_string(),
-            accent(),
-        ));
-        for (at, line, col) in script {
-            if d.t >= at {
-                ui.label(mono(line, col));
+        // Arrows and Enter drive the list while the search box has the keys.
+        let (focus, left) = (r.has_focus(), r.lost_focus());
+        keys = ui.input(|i| {
+            (
+                focus && i.key_pressed(egui::Key::ArrowUp),
+                focus && i.key_pressed(egui::Key::ArrowDown),
+                left && i.key_pressed(egui::Key::Enter),
+            )
+        });
+        ui.add_space(8.0);
+        for f in Filter::ALL {
+            if ui.selectable_label(dir.filter == f, f.label()).clicked() {
+                dir.filter = f;
             }
         }
-        let frac = (d.t / h.end).clamp(0.0, 1.0);
-        let cells = 40;
-        let on = (frac * cells as f32) as usize;
-        ui.add_space(6.0);
-        ui.label(mono(
-            format!("[{}{}]", "█".repeat(on), "░".repeat(cells - on)),
-            accent(),
-        ));
-        return;
+    });
+    ui.separator();
+
+    let shown = directory::search(save, data, &dir.query, dir.filter);
+    if !dir.sel.is_some_and(|s| shown.iter().any(|l| l.key == s)) {
+        dir.sel = shown.first().map(|l| l.key);
     }
-    boards(ui, data, save, out);
-    if save.phonebook.is_empty() {
-        ui.label(dim("The phonebook is empty."));
-        return;
+    let (up, down, enter) = keys;
+    let moved = up || down;
+    if moved {
+        dir.sel = directory::step(&shown, dir.sel, if up { -1 } else { 1 });
     }
-    if sel.is_none_or(|id| save.entry(id).is_none()) {
-        *sel = save.phonebook.first().map(|e| e.id);
+    let mut go = None;
+    if enter {
+        go = dir.sel;
     }
-    // A business directory: who they are and how to reach them. What's behind a number is
-    // NiGHTCOMM's business, not CarrierTerm's.
-    ui.label(mono(
-        format!("{:<3} {:<9} {:<26} {}", "#", "NUMBER", "NAME", "BUSINESS"),
-        ink(),
-    ));
-    egui::ScrollArea::vertical()
-        .max_height(150.0)
-        .show(ui, |ui| {
-            for (i, e) in save.phonebook.iter().enumerate() {
-                let line = format!("{:<3} {:<9} {:<26} {}", i + 1, e.number, e.name, e.business);
-                let on = *sel == Some(e.id);
-                let r = ui.selectable_label(on, mono(line, if on { shadow() } else { ink() }));
-                if r.clicked() {
-                    *sel = Some(e.id);
+
+    // Side by side when there's room for both; in a narrow tile the card goes under the list.
+    // What's visible, not what the layout offers: a tile can lay out wider than it shows.
+    let avail = ui
+        .available_width()
+        .min(ui.clip_rect().right() - ui.cursor().left());
+    let wide = avail >= CARD_W + LIST_MIN_W;
+    let list_w = if wide { avail - CARD_W - 16.0 } else { avail };
+    // Columns that fit: the listing is dropped first, then names are cut short.
+    let cols = (list_w / mono_char_w(ui)) as usize;
+    let show_listing = cols >= 9 + 1 + NAME_COLS + 1 + LISTING_MIN_COLS;
+    let name_cols = NAME_COLS.min(cols.saturating_sub(10).max(8));
+    let mut list = |ui: &mut Ui, sel: &mut Option<Listed>| {
+        let mono = |t: String, c| RichText::new(t).monospace().color(c);
+        let head = format!("{:<9} {:<name_cols$}", "NUMBER", "NAME");
+        let head = if show_listing {
+            format!("{head} LISTED AS")
+        } else {
+            head
+        };
+        ui.label(mono(head, muted()));
+        let max_h = if wide {
+            (ui.available_height() - 24.0).max(80.0)
+        } else {
+            NARROW_LIST_H
+        };
+        egui::ScrollArea::vertical()
+            .id_salt("carrierterm-dir")
+            .auto_shrink([false, true])
+            .max_height(max_h)
+            .show(ui, |ui| {
+                if shown.is_empty() {
+                    ui.label(dim("Nothing matches."));
                 }
-                if r.double_clicked() {
-                    *dial = Some(e.id);
+                for l in &shown {
+                    let name: String = l.name.chars().take(name_cols).collect();
+                    let line = format!("{:<9} {name:<name_cols$}", l.number);
+                    let line = if show_listing {
+                        format!("{line} {}", l.listed_as)
+                    } else {
+                        line
+                    };
+                    let on = *sel == Some(l.key);
+                    let r = ui.add(
+                        egui::Button::selectable(on, mono(line, if on { shadow() } else { ink() }))
+                            .wrap_mode(egui::TextWrapMode::Truncate),
+                    );
+                    if on && moved {
+                        r.scroll_to_me(None);
+                    }
+                    if r.clicked() {
+                        *sel = Some(l.key);
+                    }
+                    if r.double_clicked() {
+                        go = Some(l.key);
+                    }
                 }
+            });
+        let total = directory::listings(save, data).len();
+        ui.label(dim(format!(
+            "{} of {total} numbers  ·  ↑↓ choose  ·  Enter dial",
+            shown.len()
+        )));
+    };
+    // The card's button: the line it dials, if pressed.
+    let show_card = |ui: &mut Ui, sel: Option<Listed>| {
+        ui.set_width(CARD_W.min(avail));
+        sel.filter(|&key| card(ui, data, save, key))
+    };
+    let mut sel = dir.sel;
+    let pick = if wide {
+        ui.horizontal_top(|ui| {
+            ui.vertical(|ui| {
+                ui.set_width(list_w);
+                list(ui, &mut sel);
+            });
+            ui.separator();
+            ui.vertical(|ui| show_card(ui, sel)).inner
+        })
+        .inner
+    } else {
+        list(ui, &mut sel);
+        ui.separator();
+        show_card(ui, sel)
+    };
+    dir.sel = sel;
+    go = go.or(pick);
+
+    match go {
+        Some(Listed::Entry(id)) => *dial = Some(id),
+        Some(Listed::Board(b)) => out.push(WbOut::Call(data.boards[b].id.clone())),
+        None => {}
+    }
+}
+
+/// The directory card for `key`: who it is and how to reach them, over a big Dial or Call
+/// button. Returns whether the button was pressed.
+fn card(ui: &mut Ui, data: &Data, save: &Save, key: Listed) -> bool {
+    let row = |ui: &mut Ui, k: &str, v: String| {
+        ui.label(dim(k));
+        ui.label(RichText::new(v).color(ink()));
+        ui.end_row();
+    };
+    let (name, number, verb) = match key {
+        Listed::Entry(id) => {
+            let Some(e) = save.entry(id) else {
+                return false;
+            };
+            (e.name.clone(), e.number.clone(), "Dial")
+        }
+        Listed::Board(b) => {
+            let d = &data.boards[b];
+            (d.name.clone(), d.phone.clone(), "Call")
+        }
+    };
+    ui.label(dim("DIRECTORY CARD"));
+    ui.label(RichText::new(&name).color(accent()).strong().size(18.0));
+    ui.add_space(4.0);
+    egui::Grid::new("carrierterm-card")
+        .num_columns(2)
+        .spacing([10.0, 4.0])
+        .show(ui, |ui| match key {
+            Listed::Entry(id) => {
+                let Some(e) = save.entry(id) else { return };
+                row(ui, "Number", e.number.clone());
+                row(ui, "Listed as", e.business.clone());
+                row(ui, "Cost", "free (local)".into());
+                row(
+                    ui,
+                    "Calls",
+                    match e.runs {
+                        0 => "never".into(),
+                        1 => "once".into(),
+                        n => format!("{n} times"),
+                    },
+                );
+            }
+            Listed::Board(b) => {
+                let d = &data.boards[b];
+                row(ui, "Number", d.phone.clone());
+                row(ui, "Listed as", directory::BOARD_LISTING.into());
+                row(ui, "Sysop", d.sysop.clone());
+                row(ui, "Speed", format!("{} baud", d.baud));
+                row(
+                    ui,
+                    "Cost",
+                    match d.call_cost {
+                        0 => "free (local)".into(),
+                        c => format!("{c}¢ a call"),
+                    },
+                );
             }
         });
-    ui.add_space(6.0);
-    let Some(e) = sel.and_then(|id| save.entry(id)) else {
-        return;
-    };
-    ui.label(
-        RichText::new(format!("{}  ·  {}", e.name, e.business))
-            .color(accent())
-            .strong(),
-    );
-    ui.label(dim(format!("Dial-up line {}.", e.number)));
-    ui.add_space(6.0);
+    ui.add_space(10.0);
+    ui.add_sized(
+        [CARD_W.min(ui.available_width()), BIG_BUTTON_H],
+        egui::Button::new(
+            RichText::new(format!("{verb} {number}"))
+                .color(ink())
+                .strong()
+                .size(16.0),
+        ),
+    )
+    .clicked()
+}
+
+/// A call under way: the handshake as a checklist over a progress bar, with Hang up. The
+/// lines land on the handshake's beats, so text and sound stay in step.
+fn dialing_card(ui: &mut Ui, save: &Save, d: &Dialing, hang_up: &mut bool) {
+    let Some(e) = save.entry(d.entry) else { return };
+    let mono = |t: String, c| RichText::new(t).monospace().color(c);
     ui.horizontal(|ui| {
-        if ui.button(format!(" Dial {} ", e.number)).clicked() {
-            *dial = Some(e.id);
-        }
-        ui.label(dim("double-click a number to dial it"));
+        ui.label(RichText::new(&e.name).color(accent()).strong().size(18.0));
+        ui.label(dim(format!("{}  ·  {}", e.business, e.number)));
     });
+    ui.add_space(6.0);
+    ui.label(dim("CALLING"));
+    let h = Handshake::new(&e.number);
+    let ring = h.rings.first().copied().unwrap_or(h.offhook);
+    let steps = [
+        (0.0, "ATZ: modem reset".to_string()),
+        (h.offhook, format!("ATDT {}", e.number)),
+        (ring, "Ringing…".to_string()),
+        (h.connect, "CONNECT 2400/ARQ".to_string()),
+        (
+            h.connect + (h.end - h.connect) / 2.0,
+            "Carrier detected, jacking in".to_string(),
+        ),
+    ];
+    for (i, (at, text)) in steps.iter().enumerate() {
+        let next = steps.get(i + 1).map_or(h.end, |s| s.0);
+        let (mark, col) = if d.t >= next {
+            ("■", ink())
+        } else if d.t >= *at {
+            ("»", accent())
+        } else {
+            ("·", muted())
+        };
+        ui.label(mono(format!("{mark} {text}"), col));
+    }
+    ui.add_space(6.0);
+    // The call's progress: an outlined track filling with the accent.
+    let frac = (d.t / h.end).clamp(0.0, 1.0);
+    let w = ui.available_width().min(CARD_W * 2.0);
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(w, PROGRESS_H), egui::Sense::hover());
+    let p = ui.painter();
+    p.rect_filled(
+        egui::Rect::from_min_size(rect.min, egui::vec2(w * frac, PROGRESS_H)),
+        0.0,
+        accent(),
+    );
+    p.rect_stroke(
+        rect,
+        0.0,
+        egui::Stroke::new(1.0, ink()),
+        egui::StrokeKind::Inside,
+    );
+    ui.add_space(10.0);
+    if ui
+        .add_sized(
+            [CARD_W.min(ui.available_width()), BIG_BUTTON_H],
+            egui::Button::new(RichText::new("Hang up").color(ink()).strong().size(16.0)),
+        )
+        .clicked()
+    {
+        *hang_up = true;
+    }
 }
 
 /// NiGHTCOMM, the hacker terminal: every number you know with its tier and heat, and what's
@@ -788,27 +1006,6 @@ pub fn nightcomm(
         }
         ui.label(dim("double-click a number to dial it"));
     });
-}
-
-/// The BBSes you've found: call one and it opens over the desktop.
-fn boards(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
-    let known = save.known_boards(data);
-    if known.is_empty() {
-        return;
-    }
-    let mono = |t: String, c| RichText::new(t).monospace().color(c);
-    ui.label(RichText::new("BBS").color(ink()).strong());
-    for b in known {
-        let d = &data.boards[b];
-        ui.horizontal(|ui| {
-            ui.label(mono(format!("{:<9} {:<27}", d.phone, d.name), ink()));
-            ui.label(dim(format!("{}¢/call", d.call_cost)));
-            if ui.button(" Call ").clicked() {
-                out.push(WbOut::Call(d.id.clone()));
-            }
-        });
-    }
-    ui.add_space(6.0);
 }
 
 /// Finds listed beside the scan grid.

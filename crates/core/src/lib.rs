@@ -9,6 +9,7 @@ pub mod command;
 pub mod cue;
 pub mod data;
 pub mod desktop;
+pub mod directory;
 pub mod display;
 pub mod fight;
 pub mod game;

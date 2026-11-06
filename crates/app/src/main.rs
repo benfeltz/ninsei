@@ -472,6 +472,10 @@ impl App {
         {
             self.speaker.dial(&number);
         }
+        // Hung up mid-handshake: the modem goes quiet with it.
+        if std::mem::take(&mut self.home.dial_cut) {
+            self.speaker.stop();
+        }
         // A cracktro started or was skipped: its tune goes with it.
         match self.home.tune.take() {
             Some(home::TuneCue::Play(id)) => {

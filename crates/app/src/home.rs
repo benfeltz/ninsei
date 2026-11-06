@@ -235,6 +235,10 @@ pub struct Home {
     pub(crate) dialing: Option<Dialing>,
     /// A dial that just started (phonebook entry id), for the app to play its handshake.
     pub(crate) dial_started: Option<u32>,
+    /// Set when a call is hung up mid-handshake, so the app can cut the modem.
+    pub(crate) dial_cut: bool,
+    /// CarrierTerm's directory: search, filter and the line picked.
+    pub(crate) directory: hubtools::Directory,
     /// The QWK reader: which packet or message is open, and true ANSI colours or the desk's.
     pub(crate) qwk: ninsei_core::qwk::Reader,
     pub(crate) qwk_color: bool,
@@ -286,6 +290,8 @@ impl Home {
             scan: None,
             dialing: None,
             dial_started: None,
+            dial_cut: false,
+            directory: hubtools::Directory::default(),
             qwk: ninsei_core::qwk::Reader::new(),
             qwk_color: false,
             icedb_sel: None,
@@ -489,6 +495,7 @@ impl Home {
     /// Starts the modem handshake for a phonebook entry, in CarrierTerm.
     pub fn start_dial(&mut self, entry: u32, seed: Option<u64>) {
         self.term_sel = Some(entry);
+        self.directory.sel = Some(ninsei_core::directory::Listed::Entry(entry));
         self.term_tab = TermTab::Phonebook;
         self.dialing = Some(Dialing {
             entry,
@@ -564,6 +571,9 @@ impl Home {
                 return;
             }
             Tool::Terminal => {
+                // Drawn this pass, splash or not, so hanging up a dial doesn't replay it.
+                self.intro_drawn
+                    .insert("carrierterm", child.ctx().cumulative_pass_nr());
                 // No dialer, no WarDial tab: CarrierTerm is just the phonebook.
                 if !save.has_tool("wardial") {
                     self.term_tab = TermTab::Phonebook;
@@ -594,15 +604,21 @@ impl Home {
                         out,
                     );
                 } else {
+                    let mut hang_up = false;
                     hubtools::carrierterm(
                         child,
                         data,
                         save,
-                        &mut self.term_sel,
+                        &mut self.directory,
                         self.dialing.as_ref(),
                         &mut dial,
+                        &mut hang_up,
                         out,
                     );
+                    if hang_up {
+                        self.dialing = None;
+                        self.dial_cut = true;
+                    }
                 }
             }
             Tool::Rig => hubtools::rig(child, data, save, out),
