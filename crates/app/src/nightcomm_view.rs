@@ -1219,4 +1219,92 @@ mod tests {
             "no scan you can't pay for"
         );
     }
+
+    /// The lines TERM sent to the modem.
+    fn sent(out: &[WbOut]) -> Vec<&str> {
+        out.iter()
+            .filter_map(|o| match o {
+                WbOut::At(line) => Some(line.as_str()),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// NiGHTCOMM open on TERM, with the command line taking the keys.
+    fn on_term(data: &Data, save: &Save) -> (Harness, Home) {
+        let (mut h, mut home) = opened(data, save);
+        for events in [text("4"), Vec::new(), Vec::new()] {
+            frame(&mut h, &mut home, data, save, Tool::NightComm, events);
+        }
+        assert_eq!(home.nightcomm.tab, Tab::Term);
+        (h, home)
+    }
+
+    #[test]
+    fn a_command_typed_on_term_goes_to_the_modem() {
+        let data = Data::builtin().unwrap();
+        let save = nightcomm_deck(&data);
+        let (mut h, mut home) = on_term(&data, &save);
+        frame(
+            &mut h,
+            &mut home,
+            &data,
+            &save,
+            Tool::NightComm,
+            text("ATDT 555-0420"),
+        );
+        let out = frame(
+            &mut h,
+            &mut home,
+            &data,
+            &save,
+            Tool::NightComm,
+            key(Key::Enter),
+        );
+        assert_eq!(sent(&out), ["ATDT 555-0420"]);
+        assert!(
+            home.nightcomm
+                .term_lines
+                .iter()
+                .any(|l| l == "> ATDT 555-0420"),
+            "it echoes the command"
+        );
+        assert_eq!(home.nightcomm.term.text(), "", "and clears the line");
+    }
+
+    #[test]
+    fn a_digit_turns_the_page_only_from_an_empty_line() {
+        let data = Data::builtin().unwrap();
+        let save = nightcomm_deck(&data);
+        let (mut h, mut home) = on_term(&data, &save);
+        frame(
+            &mut h,
+            &mut home,
+            &data,
+            &save,
+            Tool::NightComm,
+            text("ATDS"),
+        );
+        frame(&mut h, &mut home, &data, &save, Tool::NightComm, text("2"));
+        assert_eq!(
+            home.nightcomm.tab,
+            Tab::Term,
+            "a digit in a command is typed"
+        );
+        assert_eq!(home.nightcomm.term.text(), "ATDS2");
+        let mut ctrl_u = key(Key::U);
+        for e in &mut ctrl_u {
+            if let Event::Key { modifiers, .. } = e {
+                *modifiers = egui::Modifiers::CTRL;
+            }
+        }
+        frame(&mut h, &mut home, &data, &save, Tool::NightComm, ctrl_u);
+        assert_eq!(home.nightcomm.term.text(), "", "Ctrl+U kills the line");
+        frame(&mut h, &mut home, &data, &save, Tool::NightComm, text("2"));
+        assert_eq!(
+            home.nightcomm.tab,
+            Tab::Wardial,
+            "on an empty line it turns the page"
+        );
+    }
 }
