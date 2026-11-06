@@ -23,7 +23,8 @@ pub struct TigerTeam {
     pub order: Order,
     /// The pages it shares with NiGHTCOMM keep their state here, its own terminal included.
     pub nc: NightComm,
-    drawn: u64,
+    /// The frame it was last drawn on (none yet: it has just opened).
+    drawn: Option<u64>,
     want_focus: bool,
 }
 
@@ -40,7 +41,7 @@ impl Default for TigerTeam {
             sel: None,
             order: Order::default(),
             nc,
-            drawn: 0,
+            drawn: None,
             want_focus: false,
         }
     }
@@ -76,10 +77,10 @@ pub fn show(
     let keys_id = resp.id;
     let term_id = Id::new("tigerteam-console");
     let pass = ui.ctx().cumulative_pass_nr();
-    if tt.drawn + 1 < pass {
+    if tt.drawn.is_none_or(|d| d + 1 < pass) {
         tt.want_focus = true;
     }
-    tt.drawn = pass;
+    tt.drawn = Some(pass);
     if resp.clicked() {
         tt.want_focus = true;
     }

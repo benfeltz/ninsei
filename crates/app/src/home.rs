@@ -542,13 +542,18 @@ impl Home {
     }
 
     /// A dial asked for in `tool`'s window. A program with its own modem terminal plays the
-    /// call there (NiGHTCOMM on TERM); anything else hands it to CarrierTerm.
+    /// call there (NiGHTCOMM on TERM, Tiger Team Pro on its Console); anything else hands it
+    /// to CarrierTerm.
     fn dial_from(&mut self, tool: Tool, entry: u32, save: &Save) {
         let number = save.entry(entry).map(|e| e.number.clone());
         match (tool, number) {
-            (Tool::NightComm, Some(n)) => {
-                self.nightcomm.tab = ninsei_core::nightcomm::Tab::Term;
-                self.nightcomm
+            (Tool::NightComm | Tool::TigerTeam, Some(n)) => {
+                if tool == Tool::TigerTeam {
+                    self.tigerteam.page = ninsei_core::tigerteam::Page::Console;
+                } else {
+                    self.nightcomm.tab = ninsei_core::nightcomm::Tab::Term;
+                }
+                self.term_for(tool)
                     .term_say(&[format!("> ATDT {n}"), format!("DIALING {n}")]);
                 self.start_dial_here(entry);
             }
@@ -1098,6 +1103,48 @@ pub(crate) mod tests {
                 .term_lines
                 .iter()
                 .any(|l| l == &format!("DIALING {number}"))
+        );
+        assert!(
+            !home.take_opens().contains(&Tool::Terminal),
+            "CarrierTerm stays closed"
+        );
+    }
+
+    #[test]
+    fn engaging_in_tiger_team_plays_on_the_console_not_in_carrierterm() {
+        let data = Data::builtin().unwrap();
+        let mut save = deck(&data);
+        save.tools = vec!["tigerteam".into()];
+        let (mut h, mut home) = (Harness::new(1280.0, 800.0), Home::new(Vec::new()));
+        // Open it, pick a target on Assessment, then Enter engages it.
+        let steps = [
+            Vec::new(),
+            Vec::new(),
+            key(Key::ArrowDown),
+            key(Key::Enter),
+            Vec::new(),
+        ];
+        for events in steps {
+            frame(&mut h, &mut home, &data, &save, Tool::TigerTeam, events);
+        }
+        let d = home.dialing.expect("Enter engages the picked target");
+        assert_eq!(
+            home.tigerteam.page,
+            ninsei_core::tigerteam::Page::Console,
+            "the call plays on the Console"
+        );
+        let number = &save.entry(d.entry).unwrap().number;
+        assert!(
+            home.tigerteam
+                .nc
+                .term_lines
+                .iter()
+                .any(|l| l == &format!("DIALING {number}"))
+        );
+        assert_eq!(
+            home.nightcomm.term_lines,
+            crate::nightcomm_view::NightComm::default().term_lines,
+            "NiGHTCOMM's own TERM hears nothing of it"
         );
         assert!(
             !home.take_opens().contains(&Tool::Terminal),
