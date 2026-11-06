@@ -644,7 +644,7 @@ pub fn layout(def: &ShopperDef, catalog: &[Listing]) -> Vec<Page> {
         }
         // Place each block on the first page with room, from the page the last section ended
         // on (so small sections share a page), else on a new page.
-        let from = sheets.len().saturating_sub(1);
+        let mut from = sheets.len().saturating_sub(1);
         for (block, (cols, rows), v) in blocks {
             let spot = sheets[from..].iter_mut().find_map(|sh| {
                 let used: Vec<Cell> = sh.blocks.iter().map(|(_, c)| *c).collect();
@@ -674,6 +674,8 @@ pub fn layout(def: &ShopperDef, catalog: &[Listing]) -> Vec<Page> {
                         vendor: if whole { v } else { sd.vendor.clone() },
                         number,
                     });
+                    // The rest of this section follows it onto the new page, never back.
+                    from = sheets.len() - 1;
                 }
             }
         }

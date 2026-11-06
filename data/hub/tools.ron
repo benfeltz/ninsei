@@ -22,6 +22,7 @@
     (id: "icedb",   name: "ICE DB",  blurb: "A bestiary of intrusion countermeasures. Fills in as you meet them.", intro: Some("icedb")),
     (id: "nightcomm", name: "NiGHTCOMM", blurb: "A hacker's dashboard: heat on your numbers, a wardialer, ranges and watched lines.", intro: Some("nightcomm"),
      shop: Some((price: 120, vendor: "d1rge", review: true))),
-    (id: "tigerteam", name: "Tiger Team Pro", blurb: "A licensed network assessment suite: a profile and findings on every number you know.", intro: Some("tigerteam")),
+    (id: "tigerteam", name: "Tiger Team Pro", blurb: "A licensed network assessment suite: a profile and findings on every number you know.", intro: Some("tigerteam"),
+     shop: Some((price: 900, vendor: "tigerteam", review: true))),
     (id: "qwkread", name: "QWK Reader", blurb: "Offline mail: read your boards' bulletins and saved textfiles at home.", intro: Some("qwkread")),
 ]

@@ -348,3 +348,35 @@ fn every_block_fills_its_own_cells_on_the_page() {
         }
     }
 }
+
+#[test]
+fn a_section_never_runs_backwards_across_pages() {
+    let d = data();
+    let cat = fresh(5000).catalog(&d);
+    let pages = shopper::layout(&d.shopper, &cat);
+    // Once a section has gone to a later page, no earlier page gets more of it.
+    for s in Section::ALL {
+        let on: Vec<usize> = pages
+            .iter()
+            .enumerate()
+            .filter(|(_, p)| matches!(p, Page::Section { sections, .. } if sections.contains(&s)))
+            .map(|(i, _)| i)
+            .collect();
+        assert!(
+            on.windows(2).all(|w| w[1] == w[0] + 1),
+            "{s:?} on pages {on:?}"
+        );
+    }
+    // Both software listings end up on one page together.
+    let soft: Vec<usize> = pages
+        .iter()
+        .enumerate()
+        .filter(|(_, p)| {
+            matches!(p, Page::Section { blocks, .. }
+            if blocks.iter().any(|(b, _)| matches!(b, Block::Ad { listing, .. }
+                if cat[*listing].section == Section::Software)))
+        })
+        .map(|(i, _)| i)
+        .collect();
+    assert_eq!(soft.len(), 1, "software ads share a page: {soft:?}");
+}
