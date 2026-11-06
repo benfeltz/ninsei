@@ -58,6 +58,11 @@ impl Harness {
             .unwrap_or_default();
     }
 
+    /// Lets `secs` pass before the next frame (frames are otherwise a tenth of a second apart).
+    pub fn wait(&mut self, secs: f64) {
+        self.t += secs;
+    }
+
     /// Where last frame drew the widget that says `text` (exactly, else the first whose text
     /// starts with it).
     pub fn find(&self, text: &str) -> Option<Rect> {

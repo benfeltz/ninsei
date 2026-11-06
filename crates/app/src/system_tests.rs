@@ -46,6 +46,14 @@ fn frame(
     out
 }
 
+/// `n` frames with no input, `dt` seconds apart.
+fn idle(h: &mut Harness, n: usize, dt: f64, mut f: impl FnMut(&mut egui::Ui)) {
+    for _ in 0..n {
+        h.wait(dt - 0.1);
+        h.frame(Vec::new(), &mut f);
+    }
+}
+
 /// A key pressed with the pointer at `at`: Disk's keys work while the pointer is over it.
 fn key_at(k: Key, at: egui::Pos2) -> Vec<egui::Event> {
     let mut ev = vec![egui::Event::PointerMoved(at)];
@@ -340,4 +348,54 @@ fn the_shell_opens_disk_by_stash() {
     home.run("open stash", &d, &s, &mut Vec::new());
     assert_eq!(home.take_opens(), [ninsei_core::hub::Tool::System]);
     assert_eq!(home.system.panel, Panel::Disk);
+}
+
+#[test]
+fn defragment_plays_out_then_compacts_the_disk_once() {
+    let (d, mut s, mut h, mut st) = on_disk();
+    s.install(&d, &Disk::Stash(7)).unwrap();
+    s.fragment(&d, 3);
+    assert!(disk::fragmentation(&s, &d) > 0);
+    frame(&mut h, &d, &s, &mut st, Vec::new());
+    st.picked = Some(Disk::Stash(7));
+    let ev = press(&h, "Defragment");
+    assert!(
+        frame(&mut h, &d, &s, &mut st, ev).is_empty(),
+        "it plays first"
+    );
+    let steps = disk::defrag_steps(&s, &d).len();
+    assert!(steps > 1, "a fragmented disk takes moves");
+    assert!(st.defrag.is_some());
+    assert_eq!(st.picked, None, "the pick is dropped while blocks move");
+    assert!(h.find("Defragmenting…").is_some(), "{:?}", h.texts());
+    // A click on the busy button does nothing.
+    let ev = press(&h, "Defragmenting…");
+    assert!(frame(&mut h, &d, &s, &mut st, ev).is_empty());
+
+    // Run it out: one Defragment at the end, then it's idle again.
+    let mut sent = Vec::new();
+    let secs = anim::READ_SECS + anim::STEP_SECS * (steps + 2) as f64;
+    let n = (secs / anim::STEP_SECS) as usize + 4;
+    idle(&mut h, n, anim::STEP_SECS, |ui| {
+        show(ui, &d, &s, &mut st, &mut sent)
+    });
+    assert_eq!(sent, [WbOut::Defragment]);
+    assert!(st.defrag.is_none());
+}
+
+#[test]
+fn defragment_takes_its_time() {
+    let (d, mut s, mut h, mut st) = on_disk();
+    s.install(&d, &Disk::Stash(7)).unwrap();
+    s.fragment(&d, 3);
+    frame(&mut h, &d, &s, &mut st, Vec::new());
+    let ev = press(&h, "Defragment");
+    frame(&mut h, &d, &s, &mut st, ev);
+    // Still reading the disk a moment later: nothing's compacted yet.
+    let mut sent = Vec::new();
+    idle(&mut h, 2, anim::READ_SECS / 4.0, |ui| {
+        show(ui, &d, &s, &mut st, &mut sent)
+    });
+    assert!(sent.is_empty());
+    assert!(st.defrag.is_some());
 }
