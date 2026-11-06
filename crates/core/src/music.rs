@@ -7,6 +7,7 @@
 use serde::Deserialize;
 
 use crate::intro::TuneDef;
+use crate::tuning::{MUSIC_DROP_AT, MUSIC_TEMPO_AT, MUSIC_TEMPO_BPM};
 
 /// Network tiers run 1 to this.
 pub const TIERS: u32 = 3;
@@ -20,6 +21,34 @@ pub struct RunTune {
     #[serde(default)]
     pub drop: Option<usize>,
     pub tune: TuneDef,
+}
+
+/// How a tune plays right now: the track left out, if any, and extra bpm.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+pub struct Arrangement {
+    pub drop: Option<usize>,
+    pub tempo: u32,
+}
+
+impl Arrangement {
+    /// The tune as written.
+    pub const PLAIN: Arrangement = Arrangement {
+        drop: None,
+        tempo: 0,
+    };
+}
+
+/// The arrangement at `trace_pct` (0-100) for a tune whose drop track is `drop`. Coarse on
+/// purpose: two steps, so the music never argues with the trace number.
+pub fn arrangement(trace_pct: u32, drop: Option<usize>) -> Arrangement {
+    Arrangement {
+        drop: drop.filter(|_| trace_pct >= MUSIC_DROP_AT),
+        tempo: if trace_pct >= MUSIC_TEMPO_AT {
+            MUSIC_TEMPO_BPM
+        } else {
+            0
+        },
+    }
 }
 
 /// A pack's music: tiers 1-3, each at most once, every tune sound, every drop a real track.
