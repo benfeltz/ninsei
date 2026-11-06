@@ -45,7 +45,7 @@ enum Kind {
     Shell,
     /// CarrierTerm: the phonebook.
     Terminal,
-    Prefs,
+    System,
     Rig,
     Stash,
     HexEd,
@@ -69,7 +69,7 @@ impl Win {
     fn title(&self) -> String {
         match self.kind {
             Kind::Shell => "NinShell".into(),
-            Kind::Prefs => "Prefs".into(),
+            Kind::System => "System".into(),
             Kind::Terminal => "CarrierTerm 1.0: Dialing Directory".into(),
             Kind::Rig => "CPU Shopper".into(),
             Kind::Stash => "STASH".into(),
@@ -109,7 +109,7 @@ impl Workbench {
         let kind = match tool {
             t if !t.installed() => Kind::Requester(t),
             Tool::Terminal => Kind::Terminal,
-            Tool::Prefs => Kind::Prefs,
+            Tool::System => Kind::System,
             Tool::Shell => Kind::Shell,
             Tool::Rig => Kind::Rig,
             Tool::Stash => Kind::Stash,
@@ -127,7 +127,7 @@ impl Workbench {
             let (pos, size) = match kind {
                 Kind::Shell => (pos2(150.0, 300.0), vec2(600.0, 280.0)),
                 Kind::Terminal => (pos2(170.0, 40.0), vec2(720.0, 440.0)),
-                Kind::Prefs => (pos2(260.0, 40.0), vec2(560.0, 600.0)),
+                Kind::System => (pos2(200.0, 40.0), vec2(700.0, 500.0)),
                 Kind::Rig => (pos2(170.0, 30.0), book_window()),
                 Kind::Stash => (pos2(210.0, 80.0), vec2(640.0, 380.0)),
                 Kind::HexEd => (pos2(130.0, 36.0), vec2(800.0, 500.0)),
@@ -387,7 +387,7 @@ impl DesktopView for Workbench {
                 | Kind::TigerTeam
                 | Kind::Guide
                 | Kind::Terminal
-                | Kind::Prefs => {
+                | Kind::System => {
                     let mut child = ui.new_child(
                         egui::UiBuilder::new()
                             .max_rect(content)
@@ -401,7 +401,7 @@ impl DesktopView for Workbench {
                     let tool = match kind {
                         Kind::Terminal => Tool::Terminal,
                         Kind::Rig => Tool::Rig,
-                        Kind::Prefs => Tool::Prefs,
+                        Kind::System => Tool::System,
                         Kind::Stash => Tool::Stash,
                         Kind::Qwk => Tool::Qwk,
                         Kind::IceDb => Tool::IceDb,
@@ -717,7 +717,7 @@ mod tests {
     fn wb_kind(t: Tool) -> Kind {
         match t {
             Tool::Terminal => Kind::Terminal,
-            Tool::Prefs => Kind::Prefs,
+            Tool::System => Kind::System,
             Tool::Shell => Kind::Shell,
             Tool::Rig => Kind::Rig,
             Tool::Stash => Kind::Stash,

@@ -255,6 +255,8 @@ pub struct Home {
     pub(crate) tune: Option<TuneCue>,
     /// Where the Welcome to the Net stack is open.
     pub(crate) guide_at: ninsei_core::cards::Place,
+    /// System's open panel.
+    pub(crate) system: ninsei_core::system::Panel,
 }
 
 /// What the speaker should do with the cracktro's tune this frame.
@@ -304,6 +306,7 @@ impl Home {
             intro_playing: Default::default(),
             tune: None,
             guide_at: ninsei_core::cards::Place::Home,
+            system: ninsei_core::system::Panel::default(),
         }
     }
 
@@ -366,7 +369,7 @@ impl Home {
 
     /// Plays tool `id`'s cracktro in its window, every time the window opens, until it ends or
     /// a click or key skips it. True while it's showing (draw nothing else). A tool with no
-    /// intro, or intros switched off in Prefs, opens straight away.
+    /// intro, or intros switched off in System, opens straight away.
     fn intro_gate(&mut self, ui: &mut Ui, data: &Data, save: &Save, id: &'static str) -> bool {
         match data.tool(id).and_then(|t| t.intro.clone()) {
             Some(intro) => self.splash_gate(ui, data, save, id, &intro),
@@ -695,7 +698,7 @@ impl Home {
                 }
             }
             Tool::Rig => crate::shopper::show(child, data, save, out),
-            Tool::Prefs => hubtools::prefs(child, data, save, out),
+            Tool::System => crate::system::show(child, data, save, &mut self.system, out),
             Tool::Stash => hubtools::stash(child, data, save, out, &mut edit),
             Tool::HexEd if self.intro_gate(child, data, save, "hexed") => return,
             Tool::Qwk if self.intro_gate(child, data, save, "qwkread") => return,

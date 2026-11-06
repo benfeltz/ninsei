@@ -183,7 +183,7 @@
         "................",
         "................",
     ]),
-    (label: "Prefs", tool: Prefs, pixels: [
+    (label: "System", tool: System, pixels: [
         "................",
         "......kkkk......",
         "..kk.kwwwwk.kk..",

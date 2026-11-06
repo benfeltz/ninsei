@@ -35,8 +35,8 @@ pub enum Tool {
     Stash,
     HexEd,
     Shell,
-    /// Prefs: themes and display settings.
-    Prefs,
+    /// System: the deck's settings app (About This Deck, Monitor, Theme). It replaced Prefs.
+    System,
     /// The QWK mail reader: boards' bulletins and saved textfiles, offline.
     Qwk,
     /// The ICE database: every ICE you've fought.
@@ -61,7 +61,7 @@ impl Tool {
         Tool::TigerTeam,
         Tool::Guide,
         Tool::Shell,
-        Tool::Prefs,
+        Tool::System,
     ];
 
     /// Tools that work yet. The rest ask you to insert their disk.
@@ -77,7 +77,7 @@ impl Tool {
             Tool::Stash => "STASH",
             Tool::HexEd => "HexEd",
             Tool::Shell => "Shell",
-            Tool::Prefs => "Prefs",
+            Tool::System => "System",
             Tool::Qwk => "QWK",
             Tool::IceDb => "ICE DB",
             Tool::NightComm => "NiGHTCOMM",
@@ -834,7 +834,7 @@ pub struct Save {
     /// database, and never changes play.
     #[serde(default)]
     pub ice_seen: Vec<IceSeen>,
-    /// Programs open with their cracktros (`data/intros/`). On unless switched off in Prefs.
+    /// Programs open with their cracktros (`data/intros/`). On unless switched off in System.
     #[serde(default = "default_intros")]
     pub intros: bool,
     /// The Welcome to the Net stack has opened (on a new save's first boot). Old saves have
@@ -2112,7 +2112,7 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
                 "ranges           number ranges you know",
                 "wardial <range>  scan 100 numbers of a range",
                 "info             your record",
-                "theme <name>     colour theme, desktop and runs (see Prefs)",
+                "theme <name>     colour theme, desktop and runs (see System)",
                 "crt              CRT effects on/off",
                 "monitor [id]     plug in a monitor you own",
                 "deck [id]        run with a deck you own",
@@ -2282,8 +2282,9 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
                 .map_or("", |(_, rest)| rest.trim());
             let key = |s: &str| s.replace(' ', "").to_ascii_lowercase();
             let alias = |name: &str| match key(name).as_str() {
-                // RIG was CPU Shopper's old name.
+                // Old names open what replaced them: RIG is CPU Shopper, Prefs is System.
                 "rig" => Some(Tool::Rig),
+                "prefs" => Some(Tool::System),
                 _ => None,
             };
             match icons.iter().find(|i| key(&i.label) == key(name)) {

@@ -27,6 +27,7 @@ mod shopper;
 mod sound;
 mod stack;
 mod suite;
+mod system;
 mod theme;
 mod tigerteam_view;
 mod tiling;

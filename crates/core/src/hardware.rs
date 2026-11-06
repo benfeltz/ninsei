@@ -45,7 +45,7 @@ pub enum Desktop {
 }
 
 impl Desktop {
-    /// The OS's name, shown at boot, on the desktop and in Prefs.
+    /// The OS's name, shown at boot, on the desktop and in System.
     pub fn name(self) -> &'static str {
         match self {
             Desktop::Workbench => "Desktop",

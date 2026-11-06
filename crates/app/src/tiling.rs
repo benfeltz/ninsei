@@ -71,7 +71,7 @@ fn entries(fuzzy: bool, save: &ninsei_core::hub::Save) -> Vec<Entry> {
         Entry::Tool(Tool::NightComm, "NiGHTCOMM"),
         Entry::Tool(Tool::TigerTeam, "Tiger Team Pro"),
         Entry::Tool(Tool::Shell, "Shell"),
-        Entry::Tool(Tool::Prefs, "Prefs"),
+        Entry::Tool(Tool::System, "System"),
     ];
     v.retain(|e| match e {
         Entry::Tool(t, _) => save.opens(*t),

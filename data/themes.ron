@@ -1,5 +1,5 @@
 // Colour themes. One theme colours everything: the desktop and your runs.
-// Add one by adding an entry; Prefs, the `theme` command and the IDE's theme menu pick it up.
+// Add one by adding an entry; System, the `theme` command and the IDE's theme menu pick it up.
 //
 // colors: six "#rrggbb" values, darkest role to brightest:
 //   bg      deepest background (text fields, the map; window shadows on the desktop)

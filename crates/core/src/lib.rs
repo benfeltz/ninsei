@@ -35,6 +35,7 @@ pub mod qwk;
 pub mod rng;
 pub mod shopper;
 pub mod suite;
+pub mod system;
 pub mod tigerteam;
 pub mod tuning;
 

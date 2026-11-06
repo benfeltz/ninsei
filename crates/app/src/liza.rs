@@ -90,7 +90,7 @@ const MENUS: &[(&str, &[(&str, Act)])] = &[
         "Special",
         &[
             ("Welcome to the Net", Act::Open(Tool::Guide)),
-            ("Prefs", Act::Open(Tool::Prefs)),
+            ("System", Act::Open(Tool::System)),
             ("About Liza", Act::About),
         ],
     ),
@@ -128,7 +128,7 @@ fn title(tool: Tool) -> &'static str {
         Tool::Guide => "Welcome to the Net",
         Tool::Shell => "Shell",
         Tool::Terminal => "CarrierTerm",
-        Tool::Prefs => "Prefs",
+        Tool::System => "System",
         Tool::Rig => "CPU Shopper",
         Tool::Stash => "Stash",
         Tool::HexEd => "HexEd",
@@ -180,7 +180,7 @@ impl Liza {
         let (pos, size) = match tool {
             Tool::Shell => (pos2(40.0, 330.0), vec2(620.0, 290.0)),
             Tool::Terminal => (pos2(60.0, 44.0), vec2(720.0, 440.0)),
-            Tool::Prefs => (pos2(140.0, 44.0), vec2(560.0, 600.0)),
+            Tool::System => (pos2(100.0, 40.0), vec2(700.0, 500.0)),
             Tool::Rig => (pos2(80.0, 30.0), book_window()),
             Tool::Stash => (pos2(110.0, 84.0), vec2(640.0, 380.0)),
             Tool::HexEd => (pos2(40.0, 40.0), vec2(800.0, 500.0)),
@@ -955,7 +955,7 @@ mod tests {
             "the oldest went"
         );
         liza.multifinder = true;
-        liza.open(Tool::Prefs);
+        liza.open(Tool::System);
         liza.open(Tool::HexEd);
         assert_eq!(liza.wins.len(), 5);
     }

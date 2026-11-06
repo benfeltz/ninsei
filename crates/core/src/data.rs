@@ -263,6 +263,13 @@ pub struct ToolDef {
     /// Sold by mail order in CPU Shopper, if it is.
     #[serde(default)]
     pub shop: Option<crate::shopper::ToolShop>,
+    /// Its version string, as System's About This Deck lists it ("3.1").
+    #[serde(default = "first_version")]
+    pub version: String,
+}
+
+fn first_version() -> String {
+    "1.0".into()
 }
 
 /// Every tool's id: what `hub::Save::has_tool` and the desktops ask about.
