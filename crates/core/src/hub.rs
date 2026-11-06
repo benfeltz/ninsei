@@ -751,6 +751,11 @@ pub struct Save {
     pub next_item: u32,
     #[serde(default)]
     pub loadout: Loadout,
+    /// The disk's block map, block by block: which program owns it (`None` free). Empty means
+    /// laid out end to end. Something can fragment it (`Save::fragment`); Defragment compacts
+    /// it again (`Save::defragment`).
+    #[serde(default)]
+    pub disk_map: Vec<Option<crate::disk::Disk>>,
     /// Numbers you can dial.
     #[serde(default)]
     pub phonebook: Vec<Entry>,
@@ -929,6 +934,7 @@ impl Default for Save {
             stash: Vec::new(),
             next_item: 0,
             loadout: Loadout::default(),
+            disk_map: Vec::new(),
             phonebook: Vec::new(),
             next_entry: 0,
             ranges: local_range(),

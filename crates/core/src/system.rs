@@ -120,7 +120,10 @@ pub fn overview(save: &Save, data: &Data) -> Overview {
         Spec {
             label: "HDD".into(),
             value: with_unit(hdd, Upgrade::Hdd),
-            use_note: format!("{filled} of {hdd} filled"),
+            use_note: format!(
+                "{filled} of {hdd} filled, {}% fragmented",
+                crate::disk::fragmentation(save, data)
+            ),
             level: level(Upgrade::Hdd),
             next: next(Upgrade::Hdd),
         },

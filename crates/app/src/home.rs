@@ -147,6 +147,8 @@ pub enum WbOut {
     Install(ninsei_core::disk::Disk),
     /// Take a program off the disk, back into the box.
     Remove(ninsei_core::disk::Disk),
+    /// Defragment finished: lay the disk out end to end.
+    Defragment,
     Scrap(u32),
     Patch(u32, Bin),
     Optimize(u32),

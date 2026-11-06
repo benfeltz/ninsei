@@ -27,6 +27,16 @@ pub struct SystemUi {
     pub panel: Panel,
     pub picked: Option<Disk>,
     pub confirm_scrap: Option<u32>,
+    /// Defragment in progress: its frames (from core) and when it started.
+    pub defrag: Option<(Vec<Vec<Option<usize>>>, f64)>,
+}
+
+/// Defragment's pacing. Display numbers, not balance: a real defrag took time.
+pub mod anim {
+    /// Seconds per block moved.
+    pub const STEP_SECS: f64 = 0.25;
+    /// Seconds to read the disk when nothing needs moving (and before the first move).
+    pub const READ_SECS: f64 = 0.8;
 }
 
 pub fn show(ui: &mut Ui, data: &Data, save: &Save, st: &mut SystemUi, out: &mut Vec<WbOut>) {
@@ -258,7 +268,24 @@ fn swatch(ui: &mut Ui, t: &ninsei_core::data::ThemeDef) {
 fn disk_panel(ui: &mut Ui, data: &Data, save: &Save, st: &mut SystemUi, out: &mut Vec<WbOut>) {
     let on = disk::installed(save, data);
     let shelf = disk::shelf(save, data);
-    let map = disk::map(save, data);
+    let now = ui.input(|i| i.time);
+    // While Defragment runs, the map shows its frames; when it ends, the save compacts.
+    let mut map = disk::map(save, data);
+    if let Some((frames, start)) = &st.defrag {
+        let t = now - start - anim::READ_SECS;
+        let step = if t < 0.0 {
+            0
+        } else {
+            (t / anim::STEP_SECS) as usize + 1
+        };
+        if step >= frames.len() && t >= 0.0 {
+            out.push(WbOut::Defragment);
+            st.defrag = None;
+        } else {
+            map = frames[step.min(frames.len() - 1)].clone();
+            ui.ctx().request_repaint();
+        }
+    }
     let cap = save.hdd_cap(&data.rig) as usize;
     // A pick that's gone (scrapped, lost) is dropped.
     if st
@@ -270,10 +297,30 @@ fn disk_panel(ui: &mut Ui, data: &Data, save: &Save, st: &mut SystemUi, out: &mu
     }
     keys(ui, save, data, st, &on, &shelf, out);
 
-    head(ui, "Disk");
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Disk").color(ink()).strong().size(16.0));
+        ui.add_space(12.0);
+        let busy = st.defrag.is_some();
+        if ui
+            .add_enabled(
+                !busy,
+                egui::Button::new(if busy {
+                    "Defragmenting…"
+                } else {
+                    "Defragment"
+                }),
+            )
+            .on_hover_text("Lay every program out end to end")
+            .clicked()
+        {
+            st.defrag = Some((disk::defrag_steps(save, data), now));
+            st.picked = None;
+        }
+    });
     ui.label(dim(format!(
-        "{} of {cap} slots used  ·  {} optimizer fragments",
+        "{} of {cap} slots used  ·  {}% fragmented  ·  {} optimizer fragments",
         on.len(),
+        disk::fragmentation(save, data),
         save.fragments
     )));
     ui.add_space(4.0);

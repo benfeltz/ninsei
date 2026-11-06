@@ -664,6 +664,7 @@ impl App {
         let result = match o {
             WbOut::Install(at) => self.save.install(&self.data, &at),
             WbOut::Remove(at) => self.save.remove(&at),
+            WbOut::Defragment => Ok(self.save.defragment()),
             WbOut::Scrap(id) => Ok(self
                 .save
                 .scrap(id)

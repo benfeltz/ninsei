@@ -153,3 +153,73 @@ fn every_kind_of_program_has_a_fill() {
         assert!(d.pattern(p).is_some(), "{p}");
     }
 }
+
+#[test]
+fn a_fresh_disk_is_not_fragmented() {
+    let d = data();
+    let s = fresh();
+    assert_eq!(disk::fragmentation(&s, &d), 0);
+}
+
+#[test]
+fn fragmenting_scatters_blocks_and_keeps_every_program_whole() {
+    let (d, mut s, id) = with_torch();
+    s.install(&d, &Disk::Stash(id)).unwrap();
+    let before = disk::map(&s, &d);
+    s.fragment(&d, 42);
+    let after = disk::map(&s, &d);
+    assert_eq!(after.len(), before.len());
+    // Every program still has all its blocks, just scattered.
+    for (i, p) in disk::installed(&s, &d).iter().enumerate() {
+        assert_eq!(after.iter().filter(|b| **b == Some(i)).count(), p.blocks());
+    }
+    assert!(disk::fragmentation(&s, &d) > 0);
+    // Same seed, same mess.
+    let mut again = s.clone();
+    again.defragment();
+    again.fragment(&d, 42);
+    assert_eq!(disk::map(&again, &d), after);
+}
+
+#[test]
+fn defragment_compacts_one_block_at_a_time_and_reports_zero() {
+    let (d, mut s, id) = with_torch();
+    s.install(&d, &Disk::Stash(id)).unwrap();
+    let compact = disk::map(&s, &d);
+    s.fragment(&d, 7);
+    let frames = disk::defrag_steps(&s, &d);
+    assert_eq!(frames.first(), Some(&disk::map(&s, &d)));
+    assert_eq!(frames.last(), Some(&compact));
+    for w in frames.windows(2) {
+        let moved = w[0].iter().zip(&w[1]).filter(|(a, b)| a != b).count();
+        assert_eq!(moved, 2, "each step swaps one block into place");
+    }
+    let msg = s.defragment();
+    assert!(msg.contains("0% fragmented"));
+    assert_eq!(disk::fragmentation(&s, &d), 0);
+    assert_eq!(disk::map(&s, &d), compact);
+}
+
+#[test]
+fn a_fragmented_disk_keeps_its_mess_through_install_and_remove() {
+    let (d, mut s, id) = with_torch();
+    s.fragment(&d, 3);
+    let before = disk::layout(&s, &d);
+    s.install(&d, &Disk::Stash(id)).unwrap();
+    let after = disk::layout(&s, &d);
+    // Programs already on the disk didn't move; the new one took free blocks.
+    for (b, a) in before.iter().zip(&after) {
+        if b.is_some() {
+            assert_eq!(a, b);
+        }
+    }
+    let p = disk::installed(&s, &d)
+        .into_iter()
+        .find(|p| p.at == Disk::Stash(id))
+        .unwrap();
+    let have = after
+        .iter()
+        .filter(|b| b.as_ref() == Some(&Disk::Stash(id)))
+        .count();
+    assert_eq!(have, p.blocks());
+}
