@@ -1,6 +1,6 @@
 ---
 name: fake-app-craft
-description: How to design and build ninsei's fake applications so they look like real period software, not a game skin over egui. Use before building or redesigning any screen, window, pane, chrome, desktop, dialog, BBS screen, tool, cracktro or magazine page in crates/app, and whenever a screen "looks off", "looks bad", "looks cheap" or "doesn't feel like a real computer". Pairs with ninsei-ux-review (judging the result) and the per-era reference skills human-interface-guidelines-1992 and tui-design.
+description: How to design and build ninsei's fake applications so they look like real period software, not a game skin over egui. Use before building or redesigning any screen, window, pane, chrome, desktop, dialog, BBS screen, tool, cracktro or magazine page in crates/app, and whenever a screen "looks off", "looks bad", "looks cheap" or "doesn't feel like a real computer". Pairs with ninsei-ux-review (judging the result); the per-era references (the 1992 HIG, TUI design, usability heuristics) are in this skill's references/ folder.
 ---
 
 # Fake app craft
@@ -76,6 +76,8 @@ Put your screenshot next to the reference screenshot at the same scale and look 
 
 ## Per-era references
 
-- **Liza, the Sense/Net stack, Mac-style alerts:** `human-interface-guidelines-1992` (menus, windows, dialogs, alerts, controls, black-and-white-first). The 1992 HIG is later than System 1 but its rules are the same family.
-- **btop chrome, NinShell, AnarchyOS, BBS screens, the suite's text mode:** `tui-design` (layout from the work, focus, footers, box drawing, sparklines). Skip its sections on raw mode, NO_COLOR and terminal capability detection: our terminals are drawn, not real.
-- **Any screen, for usability:** `ux-heuristics` (Nielsen, Krug). Where it says "web" or "mobile", read "this fake app".
+These are third-party guides kept under this skill's `references/` folder (sources and licences in `.claude/skills/README.md`). Read the one that fits the screen; they are reference material, not skills, so they never load on their own.
+
+- **Liza, the Sense/Net stack, Mac-style alerts:** `references/human-interface-guidelines-1992/SKILL.md` (with its `references/checklist.md`) (menus, windows, dialogs, alerts, controls, black-and-white-first). The 1992 HIG is later than System 1 but its rules are the same family.
+- **btop chrome, NinShell, AnarchyOS, BBS screens, the suite's text mode:** `references/tui-design/SKILL.md` (layout from the work, focus, footers, box drawing, sparklines). Skip its sections on raw mode, NO_COLOR and terminal capability detection: our terminals are drawn, not real.
+- **Any screen, for usability:** `references/ux-heuristics/SKILL.md` (and its `references/nielsen-heuristics.md`) (Nielsen, Krug). Where it says "web" or "mobile", read "this fake app".
