@@ -31,6 +31,8 @@ pub struct NightComm {
     pub term_lines: Vec<String>,
     /// The entry a `jack in? [Y/n]` waits on.
     pub asking: Option<u32>,
+    /// A page key typed on TERM's empty line, for whichever program shows TERM to act on.
+    pub(crate) page_key: Option<char>,
     /// The frame it was last drawn on (none yet: it has just opened).
     drawn: Option<u64>,
     want_focus: bool,
@@ -46,8 +48,13 @@ impl Default for NightComm {
             sel: None,
             range: None,
             term: ninsei_term::LineEditor::new(TERM_HISTORY),
-            term_lines: vec![at::IDENT.to_string(), "OK".to_string()],
+            term_lines: vec![
+                "NiGHTCOMM 3.1 TERM".to_string(),
+                at::IDENT.to_string(),
+                "OK".to_string(),
+            ],
             asking: None,
+            page_key: None,
             drawn: None,
             want_focus: false,
             want_filter: false,
@@ -92,12 +99,50 @@ fn ramp() -> [egui::Color32; 3] {
 
 /// What the keys asked for this frame.
 #[derive(Default)]
-struct Keys {
-    up: bool,
-    down: bool,
-    enter: bool,
-    space: bool,
-    text: Vec<char>,
+pub(crate) struct Keys {
+    pub(crate) up: bool,
+    pub(crate) down: bool,
+    pub(crate) enter: bool,
+    pub(crate) space: bool,
+    pub(crate) text: Vec<char>,
+}
+
+/// This frame's keys, if the page area `keys_id` has the focus. Arrows and Enter stay with it.
+pub(crate) fn read_keys(ui: &Ui, keys_id: Id) -> Keys {
+    if ui.memory(|m| m.has_focus(keys_id)) {
+        // Arrows and Enter stay ours instead of moving egui's focus.
+        ui.memory_mut(|m| {
+            m.set_focus_lock_filter(
+                keys_id,
+                egui::EventFilter {
+                    horizontal_arrows: true,
+                    vertical_arrows: true,
+                    ..Default::default()
+                },
+            );
+        });
+        ui.input(|i| {
+            let mut k = Keys::default();
+            for e in &i.events {
+                match e {
+                    Event::Key {
+                        key, pressed: true, ..
+                    } => match key {
+                        Key::ArrowUp => k.up = true,
+                        Key::ArrowDown => k.down = true,
+                        Key::Enter => k.enter = true,
+                        _ => {}
+                    },
+                    Event::Text(t) => k.text.extend(t.chars()),
+                    _ => {}
+                }
+            }
+            k.space = k.text.contains(&' ');
+            k
+        })
+    } else {
+        Keys::default()
+    }
 }
 
 /// Draws NiGHTCOMM in the space `ui` offers.
@@ -143,40 +188,7 @@ pub fn show(
             nc.want_focus = false;
         }
     }
-    let keys = if ui.memory(|m| m.has_focus(keys_id)) {
-        // Arrows and Enter stay ours instead of moving egui's focus.
-        ui.memory_mut(|m| {
-            m.set_focus_lock_filter(
-                keys_id,
-                egui::EventFilter {
-                    horizontal_arrows: true,
-                    vertical_arrows: true,
-                    ..Default::default()
-                },
-            );
-        });
-        ui.input(|i| {
-            let mut k = Keys::default();
-            for e in &i.events {
-                match e {
-                    Event::Key {
-                        key, pressed: true, ..
-                    } => match key {
-                        Key::ArrowUp => k.up = true,
-                        Key::ArrowDown => k.down = true,
-                        Key::Enter => k.enter = true,
-                        _ => {}
-                    },
-                    Event::Text(t) => k.text.extend(t.chars()),
-                    _ => {}
-                }
-            }
-            k.space = k.text.contains(&' ');
-            k
-        })
-    } else {
-        Keys::default()
-    };
+    let keys = read_keys(ui, keys_id);
     for c in &keys.text {
         if let Some(t) = Tab::from_key(*c) {
             nc.tab = t;
@@ -212,7 +224,21 @@ pub fn show(
         Tab::Intel => intel(&ctx, save, nc, &keys, inner, dial, &mut legend),
         Tab::Wardial => wardial(&ctx, data, save, nc, &keys, scan, inner, out, &mut legend),
         Tab::Ranges => ranges(&ctx, data, save, nc, &keys, inner, &mut legend),
-        Tab::Term => term(&ctx, save, nc, dialing, term_id, inner, out, &mut legend),
+        Tab::Term => term(
+            &ctx,
+            ninsei_core::hub::Tool::NightComm,
+            save,
+            nc,
+            dialing,
+            term_id,
+            inner,
+            out,
+            &mut legend,
+        ),
+    }
+    if let Some(t) = nc.page_key.take().and_then(Tab::from_key) {
+        nc.tab = t;
+        nc.want_focus = true;
     }
     // The legend: btop's options cut into the bottom border.
     let mut c = 2;
@@ -264,14 +290,14 @@ pub fn show(
 }
 
 /// What a page draws with.
-struct Ctx<'a> {
-    ui: &'a Ui,
-    g: &'a Cells,
-    p: &'a egui::Painter,
+pub(crate) struct Ctx<'a> {
+    pub(crate) ui: &'a Ui,
+    pub(crate) g: &'a Cells,
+    pub(crate) p: &'a egui::Painter,
 }
 
 impl Ctx<'_> {
-    fn click(
+    pub(crate) fn click(
         &self,
         c: usize,
         r: usize,
@@ -283,12 +309,12 @@ impl Ctx<'_> {
     }
 
     /// An inverse-video row: the period's selection.
-    fn picked(&self, c: usize, r: usize, w: usize) {
+    pub(crate) fn picked(&self, c: usize, r: usize, w: usize) {
         self.g.fill(self.p, c, r, w, 1, accent());
     }
 
     /// A sub-box with its title cut into the top border.
-    fn boxed(&self, c: usize, r: usize, w: usize, h: usize, title: &str) {
+    pub(crate) fn boxed(&self, c: usize, r: usize, w: usize, h: usize, title: &str) {
         self.g.frame(self.p, c, r, w, h);
         if !title.is_empty() {
             self.g.title(self.p, c + 2, r, title, ink());
@@ -297,7 +323,7 @@ impl Ctx<'_> {
 }
 
 /// Steps a selection through `ids` by the arrow keys; an unknown pick lands on the first.
-fn step<T: PartialEq + Clone>(ids: &[T], cur: &mut Option<T>, keys: &Keys) {
+pub(crate) fn step<T: PartialEq + Clone>(ids: &[T], cur: &mut Option<T>, keys: &Keys) {
     let at = cur.as_ref().and_then(|c| ids.iter().position(|i| i == c));
     let Some(first) = ids.first() else {
         *cur = None;
@@ -320,7 +346,7 @@ fn step<T: PartialEq + Clone>(ids: &[T], cur: &mut Option<T>, keys: &Keys) {
 }
 
 /// The first row to show so `at` stays in a window of `rows`.
-fn scroll_to(at: usize, rows: usize) -> usize {
+pub(crate) fn scroll_to(at: usize, rows: usize) -> usize {
     (at + 1).saturating_sub(rows.max(1))
 }
 
@@ -546,7 +572,7 @@ fn intel(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn wardial(
+pub(crate) fn wardial(
     cx: &Ctx,
     data: &Data,
     save: &Save,
@@ -798,7 +824,7 @@ fn find_line(
 }
 
 #[allow(clippy::too_many_arguments)]
-fn ranges(
+pub(crate) fn ranges(
     cx: &Ctx,
     data: &Data,
     save: &Save,
@@ -956,8 +982,9 @@ const CARD: [(&str, &str); 7] = [
 ];
 
 #[allow(clippy::too_many_arguments)]
-fn term(
+pub(crate) fn term(
     cx: &Ctx,
+    from: ninsei_core::hub::Tool,
     save: &Save,
     nc: &mut NightComm,
     dialing: Option<&Dialing>,
@@ -1018,9 +1045,9 @@ fn term(
         cx.ui.input(|i| {
             for e in &i.events {
                 if let Event::Text(t) = e
-                    && let Some(tab) = t.chars().next().and_then(Tab::from_key)
+                    && let Some(c) = t.chars().next().filter(|c| ('1'..='9').contains(c))
                 {
-                    page = Some(tab);
+                    page = Some(c);
                 }
             }
         });
@@ -1048,17 +1075,16 @@ fn term(
     if r.response.clicked() {
         nc.want_focus = true;
     }
-    if let Some(tab) = page {
+    if let Some(c) = page {
         nc.term.clear();
-        nc.tab = tab;
-        nc.want_focus = true;
+        nc.page_key = Some(c);
         return;
     }
     for o in r.outcomes {
         match o {
             ninsei_term::Outcome::Submit(line) => {
                 nc.term_say(&[format!("{prompt} {line}")]);
-                out.push(WbOut::At(line));
+                out.push(WbOut::At(from, line));
             }
             ninsei_term::Outcome::Cancelled(was) => {
                 nc.term_say(&[format!("{prompt} {was}^C")]);
@@ -1224,7 +1250,7 @@ mod tests {
     fn sent(out: &[WbOut]) -> Vec<&str> {
         out.iter()
             .filter_map(|o| match o {
-                WbOut::At(line) => Some(line.as_str()),
+                WbOut::At(Tool::NightComm, line) => Some(line.as_str()),
                 _ => None,
             })
             .collect()

@@ -26,6 +26,7 @@ mod sound;
 mod stack;
 mod suite;
 mod theme;
+mod tigerteam_view;
 mod tiling;
 #[cfg(test)]
 mod uitest;
@@ -35,7 +36,9 @@ use egui::{Key, RichText};
 use egui_dock::{DockArea, DockState};
 use ninsei_core::bbs::Outcome;
 use ninsei_core::hexedit::HexBuffer;
-use ninsei_core::hub::{Answer, DEFAULT_RUN_THEME, RunEnd, RunReport, SAVE_KEY, Save, Screen};
+use ninsei_core::hub::{
+    Answer, DEFAULT_RUN_THEME, RunEnd, RunReport, SAVE_KEY, Save, Screen, Tool,
+};
 use ninsei_core::{Action, Command, Data, Game, LogKind, Phase};
 
 use bbs_view::BbsView;
@@ -684,7 +687,7 @@ impl App {
                 }
             }
             WbOut::Dial(..)
-            | WbOut::At(_)
+            | WbOut::At(..)
             | WbOut::Theme(_)
             | WbOut::Crt
             | WbOut::Sound
@@ -716,15 +719,15 @@ impl App {
 
     /// A line typed at NiGHTCOMM's TERM: the modem answers through core's `at::run`, and
     /// whatever it asks for happens here.
-    fn modem(&mut self, line: &str) {
+    fn modem(&mut self, from: Tool, line: &str) {
         use ninsei_core::at::Effect;
-        let asking = self.home.nightcomm.asking.take();
+        let asking = self.home.term_for(from).asking.take();
         let reply = ninsei_core::at::run(&mut self.save, &self.data, line, asking);
         self.save_dirty = true;
-        self.home.nightcomm.term_say(&reply.lines);
+        self.home.term_for(from).term_say(&reply.lines);
         match reply.effect {
             Effect::None => {}
-            Effect::Ask(entry) => self.home.nightcomm.asking = Some(entry),
+            Effect::Ask(entry) => self.home.term_for(from).asking = Some(entry),
             Effect::Dial(entry) => self.home.start_dial_here(entry),
             Effect::Call(board) => {
                 let id = self.data.boards[board].id.clone();
@@ -1297,7 +1300,7 @@ impl eframe::App for App {
                         let state = self.toggle_sound();
                         self.home.say(format!("modem sounds {state}"));
                     }
-                    WbOut::At(line) => self.modem(&line),
+                    WbOut::At(from, line) => self.modem(from, &line),
                     other => self.home_action(other),
                 }
             }

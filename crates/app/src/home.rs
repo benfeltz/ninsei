@@ -113,8 +113,9 @@ pub enum WbOut {
     Dial(u32, Option<u64>),
     /// Wardial a range (by id).
     Scan(String),
-    /// A line typed at NiGHTCOMM's TERM, for the modem (core's `at::run`).
-    At(String),
+    /// A line typed at a modem terminal (NiGHTCOMM's TERM or Tiger Team Pro's Console), for
+    /// the modem (core's `at::run`).
+    At(Tool, String),
     /// Call a BBS from home (board id): it opens over the desktop.
     Call(String),
     Theme(String),
@@ -230,6 +231,8 @@ pub struct Home {
     pub(crate) term_sel: Option<u32>,
     /// NiGHTCOMM's page, order, filter and picks.
     pub(crate) nightcomm: crate::nightcomm_view::NightComm,
+    /// Tiger Team Pro's section, picks and its own terminal.
+    pub(crate) tigerteam: crate::tigerteam_view::TigerTeam,
     pub(crate) term_tab: TermTab,
     /// Range highlighted in WarDial.
     pub(crate) range_sel: Option<String>,
@@ -290,6 +293,7 @@ impl Home {
             hex: None,
             term_sel: None,
             nightcomm: Default::default(),
+            tigerteam: Default::default(),
             term_tab: TermTab::Phonebook,
             range_sel: None,
             scan: None,
@@ -494,8 +498,12 @@ impl Home {
     pub fn show_scan(&mut self, result: ScanResult, save: &Save) {
         self.range_sel = Some(result.range.clone());
         self.nightcomm.range = Some(result.range.clone());
+        self.tigerteam.nc.range = Some(result.range.clone());
         self.scan = Some((result, 0.0));
-        if save.has_tool("nightcomm") {
+        if save.has_tool("tigerteam") {
+            self.tigerteam.page = ninsei_core::tigerteam::Page::Recon;
+            self.open(Tool::TigerTeam);
+        } else if save.has_tool("nightcomm") {
             self.nightcomm.tab = ninsei_core::nightcomm::Tab::Wardial;
             self.open(Tool::NightComm);
         } else {
@@ -514,6 +522,15 @@ impl Home {
             t: 0.0,
         });
         self.dial_started = Some(entry);
+    }
+
+    /// The modem terminal a tool types at: Tiger Team Pro's Console, else NiGHTCOMM's TERM.
+    pub fn term_for(&mut self, from: Tool) -> &mut crate::nightcomm_view::NightComm {
+        if from == Tool::TigerTeam {
+            &mut self.tigerteam.nc
+        } else {
+            &mut self.nightcomm
+        }
     }
 
     /// A dial asked for in `tool`'s window. A program with its own modem terminal plays the
@@ -622,7 +639,7 @@ impl Home {
                     .insert("carrierterm", child.ctx().cumulative_pass_nr());
                 // No dialer, no WarDial tab: CarrierTerm is just the phonebook. Once
                 // NiGHTCOMM is here, wardialing is its job.
-                let wardial_tab = save.has_tool("wardial") && !save.has_tool("nightcomm");
+                let wardial_tab = save.has_tool("wardial") && !save.has_dialer();
                 if !wardial_tab {
                     self.term_tab = TermTab::Phonebook;
                 }
@@ -682,6 +699,21 @@ impl Home {
                     data,
                     save,
                     &mut self.nightcomm,
+                    self.scan.as_ref(),
+                    self.dialing.as_ref(),
+                    &mut dial,
+                    out,
+                );
+            }
+            Tool::TigerTeam if self.splash_gate(child, data, save, "tigerteam", "tigerteam") => {
+                return;
+            }
+            Tool::TigerTeam => {
+                crate::tigerteam_view::show(
+                    child,
+                    data,
+                    save,
+                    &mut self.tigerteam,
                     self.scan.as_ref(),
                     self.dialing.as_ref(),
                     &mut dial,

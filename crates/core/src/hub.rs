@@ -41,14 +41,16 @@ pub enum Tool {
     Qwk,
     /// The ICE database: every ICE you've fought.
     IceDb,
-    /// NiGHTCOMM, the hacker terminal: heat, tiers and traits on every number you know.
+    /// NiGHTCOMM, the hacker's dashboard: heat, a wardialer, ranges and a modem terminal.
     NightComm,
+    /// Tiger Team Pro, the corporate audit suite: everything NiGHTCOMM does, plus network intel.
+    TigerTeam,
     /// The Welcome to the Net stack (`data/stacks/welcome.ron`).
     Guide,
 }
 
 impl Tool {
-    pub const ALL: [Tool; 10] = [
+    pub const ALL: [Tool; 11] = [
         Tool::Terminal,
         Tool::Rig,
         Tool::Stash,
@@ -56,6 +58,7 @@ impl Tool {
         Tool::Qwk,
         Tool::IceDb,
         Tool::NightComm,
+        Tool::TigerTeam,
         Tool::Guide,
         Tool::Shell,
         Tool::Prefs,
@@ -78,6 +81,7 @@ impl Tool {
             Tool::Qwk => "QWK",
             Tool::IceDb => "ICE DB",
             Tool::NightComm => "NiGHTCOMM",
+            Tool::TigerTeam => "Tiger Team Pro",
             Tool::Guide => "Welcome",
         }
     }
@@ -203,6 +207,29 @@ pub struct TraitDef {
     pub label: String,
     pub blurb: String,
     pub effect: TraitEffect,
+    /// How Tiger Team Pro's assessment words it: the corporate view of the same thing.
+    pub finding: String,
+    pub severity: Severity,
+}
+
+/// How much a finding should worry a security team.
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Severity {
+    Info,
+    Low,
+    Medium,
+    High,
+}
+
+impl Severity {
+    pub fn label(self) -> &'static str {
+        match self {
+            Severity::Info => "Info",
+            Severity::Low => "Low",
+            Severity::Medium => "Medium",
+            Severity::High => "High",
+        }
+    }
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -335,6 +362,9 @@ impl NetworksDef {
             }
         }
         for (i, t) in self.traits.iter().enumerate() {
+            if t.finding.trim().is_empty() {
+                return Err(format!("trait `{}` has no finding", t.id));
+            }
             if self.traits[..i].iter().any(|o| o.id == t.id) {
                 return Err(format!("trait `{}` is listed twice", t.id));
             }
@@ -996,6 +1026,7 @@ impl Save {
             Tool::Qwk => self.has_tool("qwkread"),
             Tool::IceDb => self.has_tool("icedb"),
             Tool::NightComm => self.has_tool("nightcomm"),
+            Tool::TigerTeam => self.has_tool("tigerteam"),
             _ => true,
         }
     }
@@ -1306,7 +1337,13 @@ impl Save {
 
     /// Whether this deck can wardial: WARDIAL does, and NiGHTCOMM has its own dialer.
     pub fn can_wardial(&self) -> bool {
-        self.has_tool("wardial") || self.has_tool("nightcomm")
+        self.has_tool("wardial") || self.has_dialer()
+    }
+
+    /// Whether this deck has a dashboard with its own modem terminal: NiGHTCOMM, or Tiger Team
+    /// Pro, which does everything NiGHTCOMM does.
+    pub fn has_dialer(&self) -> bool {
+        self.has_tool("nightcomm") || self.has_tool("tigerteam")
     }
 
     pub fn knows_range(&self, id: &str) -> bool {
@@ -1465,7 +1502,7 @@ impl Save {
     /// scan, with the same trap risk. It answers the way its block would in a scan, so a
     /// number never tells TERM one thing and WARDiAL another.
     pub fn atdt(&mut self, data: &Data, number: &str) -> Result<Answer, String> {
-        if !self.has_tool("nightcomm") {
+        if !self.has_dialer() {
             return Err("atdt: unknown command.".into());
         }
         let def = self
@@ -2128,14 +2165,31 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
             if save.phonebook.is_empty() && boards.is_empty() {
                 return (vec!["the phonebook is empty.".into()], ShellEffect::None);
             }
-            // CarrierTerm's directory is names and numbers; NiGHTCOMM knows the rest.
-            let intel = save.has_tool("nightcomm");
+            // CarrierTerm's directory is names and numbers; NiGHTCOMM knows your heat, and
+            // Tiger Team Pro knows what's behind the number too.
+            let intel = save.has_dialer();
+            let audit = save.has_tool("tigerteam");
             let mut out: Vec<String> = save
                 .phonebook
                 .iter()
                 .enumerate()
                 .map(|(i, e)| {
-                    if intel {
+                    if audit {
+                        let traits: Vec<&str> = e
+                            .traits
+                            .iter()
+                            .filter_map(|t| data.networks.trait_def(t).map(|d| d.label.as_str()))
+                            .collect();
+                        format!(
+                            "{:>2}  {}  {:<22} T{} heat {}  {}",
+                            i + 1,
+                            e.number,
+                            e.name,
+                            e.tier,
+                            e.heat,
+                            traits.join(", ")
+                        )
+                    } else if intel {
                         format!(
                             "{:>2}  {}  {:<22} heat {} {}",
                             i + 1,

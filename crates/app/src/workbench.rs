@@ -20,6 +20,22 @@ const SCREEN_BAR_H: f32 = 22.0;
 /// Screen pixels per icon pixel.
 const ICON_SCALE: f32 = 3.0;
 const ICON_PITCH: f32 = 84.0;
+/// Width of a column of icons.
+const ICON_COL_W: f32 = 92.0;
+
+/// Where the `n`th icon sits on a screen `size`: down the left; once that column is full, the
+/// rest go down the right edge, where Workbench keeps its disks, clear of the windows.
+fn icon_pos(n: usize, size: Vec2) -> Pos2 {
+    let top = SCREEN_BAR_H + 16.0;
+    let per_col = (((size.y - top) / ICON_PITCH).floor() as usize).max(1);
+    let (col, row) = (n / per_col, n % per_col);
+    let x = if col == 0 {
+        18.0
+    } else {
+        size.x - 18.0 - 84.0 - (col - 1) as f32 * ICON_COL_W
+    };
+    pos2(x, top + row as f32 * ICON_PITCH)
+}
 const BORDER: f32 = 2.0;
 /// Seconds between clicks that still count as a double-click.
 const DOUBLE_CLICK_SECS: f64 = 0.45;
@@ -36,6 +52,7 @@ enum Kind {
     Qwk,
     IceDb,
     NightComm,
+    TigerTeam,
     Guide,
     /// "Please insert volume X in any drive".
     Requester(Tool),
@@ -60,6 +77,7 @@ impl Win {
             Kind::Qwk => "OLX QWK Reader".into(),
             Kind::IceDb => "ICE DB".into(),
             Kind::NightComm => "NiGHTCOMM 3.1".into(),
+            Kind::TigerTeam => "Tiger Team Pro 3.0".into(),
             Kind::Guide => "Welcome to the Net".into(),
             Kind::Requester(_) => "System Request".into(),
         }
@@ -99,6 +117,7 @@ impl Workbench {
             Tool::Qwk => Kind::Qwk,
             Tool::IceDb => Kind::IceDb,
             Tool::NightComm => Kind::NightComm,
+            Tool::TigerTeam => Kind::TigerTeam,
             Tool::Guide => Kind::Guide,
         };
         if let Some(i) = self.wins.iter().position(|w| w.kind == kind) {
@@ -115,6 +134,7 @@ impl Workbench {
                 Kind::Qwk => (pos2(190.0, 46.0), vec2(700.0, 470.0)),
                 Kind::IceDb => (pos2(220.0, 60.0), vec2(700.0, 470.0)),
                 Kind::NightComm => (pos2(150.0, 50.0), vec2(880.0, 500.0)),
+                Kind::TigerTeam => (pos2(140.0, 44.0), vec2(900.0, 540.0)),
                 Kind::Guide => (pos2(240.0, 70.0), vec2(640.0, 440.0)),
                 Kind::Requester(_) => (pos2(260.0, 150.0), vec2(330.0, 150.0)),
             };
@@ -215,13 +235,12 @@ impl DesktopView for Workbench {
 
         // Icons down the left, like disks on a desk.
         let now = ui.input(|i| i.time);
+        let screen_size = screen.size();
         for (n, icon) in icons.iter().enumerate() {
             let w = icon.width() as f32 * ICON_SCALE;
             let h = icon.pixels.len() as f32 * ICON_SCALE;
-            let cell = Rect::from_min_size(
-                at(pos2(18.0, SCREEN_BAR_H + 16.0 + n as f32 * ICON_PITCH)),
-                vec2(84.0, ICON_PITCH - 6.0),
-            );
+            let cell =
+                Rect::from_min_size(at(icon_pos(n, screen_size)), vec2(84.0, ICON_PITCH - 6.0));
             let art = Rect::from_min_size(pos2(cell.center().x - w / 2.0, cell.top()), vec2(w, h));
             let selected = self.selected == Some(icon.tool);
             draw_icon(&painter, icon, art.min, selected);
@@ -365,6 +384,7 @@ impl DesktopView for Workbench {
                 | Kind::Qwk
                 | Kind::IceDb
                 | Kind::NightComm
+                | Kind::TigerTeam
                 | Kind::Guide
                 | Kind::Terminal
                 | Kind::Prefs => {
@@ -386,6 +406,7 @@ impl DesktopView for Workbench {
                         Kind::Qwk => Tool::Qwk,
                         Kind::IceDb => Tool::IceDb,
                         Kind::NightComm => Tool::NightComm,
+                        Kind::TigerTeam => Tool::TigerTeam,
                         Kind::Guide => Tool::Guide,
                         _ => Tool::HexEd,
                     };
@@ -642,7 +663,7 @@ mod tests {
             wb.open(icon.tool);
             let other = icons[(n + 1) % icons.len()].tool;
             wb.open(other);
-            let at = pos2(60.0, SCREEN_BAR_H + 16.0 + n as f32 * ICON_PITCH + 20.0);
+            let at = icon_pos(n, ctx.content_rect().size()) + vec2(42.0, 20.0);
             let t = n as f64 * 10.0;
             frame(&ctx, &mut wb, &mut home, &data, &save, Vec::new(), t);
             if n % 2 == 0 {
@@ -694,6 +715,7 @@ mod tests {
             Tool::Qwk => Kind::Qwk,
             Tool::IceDb => Kind::IceDb,
             Tool::NightComm => Kind::NightComm,
+            Tool::TigerTeam => Kind::TigerTeam,
             Tool::Guide => Kind::Guide,
         }
     }

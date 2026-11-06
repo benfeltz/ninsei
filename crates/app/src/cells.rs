@@ -26,6 +26,9 @@ pub struct Cells {
     pub paper: Color32,
     /// The outline of an unlit meter cell.
     pub empty: Color32,
+    /// Turbo Vision's look instead of btop's: square corners, titles set in the border with a
+    /// space either side instead of cut into it.
+    pub vision: bool,
 }
 
 impl Cells {
@@ -52,6 +55,7 @@ impl Cells {
             border,
             paper,
             empty,
+            vision: false,
         }
     }
 
@@ -126,7 +130,11 @@ impl Cells {
         }
         let (a, b) = (self.mid(c, r), self.mid(c + w - 1, r + h - 1));
         let rect = Rect::from_min_max(a, b);
-        let radius = (self.cw * CORNER).min(rect.width() / 2.0);
+        let radius = if self.vision {
+            0.0
+        } else {
+            (self.cw * CORNER).min(rect.width() / 2.0)
+        };
         p.rect_stroke(
             rect,
             radius,
@@ -144,6 +152,10 @@ impl Cells {
             return 0;
         }
         self.fill(p, c, r, n + 2, 1, bg);
+        if self.vision {
+            self.text(p, c + 1, r, s, color);
+            return n + 2;
+        }
         // The ┐ and ┌ either side: the border turns down into the title's row.
         let half = self.ch * 0.5;
         let left = self.mid(c, r);
@@ -155,6 +167,20 @@ impl Cells {
         p.line_segment([right, right + vec2(0.0, half * 0.6)], stroke);
         self.text(p, c + 1, r, s, color);
         n + 2
+    }
+
+    /// A Turbo Vision window frame: a double line, square corners.
+    pub fn frame_double(&self, p: &Painter, c: usize, r: usize, w: usize, h: usize) {
+        if w < 2 || h < 2 {
+            return;
+        }
+        let (a, b) = (self.mid(c, r), self.mid(c + w - 1, r + h - 1));
+        let gap = (self.cw * 0.18).max(1.5);
+        let stroke = Stroke::new(1.0, self.border);
+        for d in [-gap, gap] {
+            let rect = Rect::from_min_max(a, b).expand(d);
+            p.rect_stroke(rect, 0.0, stroke, egui::StrokeKind::Middle);
+        }
     }
 
     /// A btop meter: `w` cells, `on` of them lit along the `ramp` (faint → bright), the rest

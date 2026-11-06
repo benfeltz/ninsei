@@ -33,6 +33,7 @@ pub mod probe;
 pub mod qwk;
 pub mod rng;
 pub mod suite;
+pub mod tigerteam;
 pub mod tuning;
 
 pub use command::{Command, parse_command};

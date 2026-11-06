@@ -64,8 +64,8 @@ impl Reply {
 /// The commands TERM's Tab completes.
 pub const COMMANDS: &[&str] = &["ATDT", "ATDS", "ATZ", "ATH", "ATI", "ATM0", "ATM1", "+++"];
 
-/// What the modem says when you ask who it is.
-pub const IDENT: &str = "NiGHTCOMM 3.1 / Hayes compatible / 2400 bps";
+/// What the modem says when you ask who it is: the modem, whichever program is talking to it.
+pub const IDENT: &str = "Hayes Smartmodem 2400 compatible";
 
 /// A phone number as the network writes it: `555-0420` from `5550420`, `555 0420` or `0420`.
 pub fn normalize(s: &str) -> Option<String> {

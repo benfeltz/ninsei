@@ -38,10 +38,15 @@ Between runs you're on your own machine, on the same monitor as your runs. What 
 
 **CarrierTerm** is Sense/Net's friendly dialer: a splash, then a searchable directory of your boards and networks, with a card for the one you pick and a big button to dial it. **NiGHTCOMM** is the hacker's dashboard, `NIGHTCOM.ZIP` on Dead Sector, with a l33t splash. It's laid out like btop: **¹iNTEL** is your phonebook with **heat** and how your last runs there ended, **²WARDiAL** is a better wardialer with a map of every block you've dialed, **³RANGES** lists the number ranges you know, where you learned them and the watched lines you've found, and **⁴TERM** is a modem terminal: type `ATDT 555-0420` to dial a number by hand (a real call: a cent or so, and the same trap risk as a scan; a watched line you know needs `ATDT 555-0911!`), `ATDS2` for the phonebook's second number, `ATH` to hang up, `ATM0`/`ATM1` for the speaker, `ATI`. A number answers by hand the way it would in a scan. Keys: `1`–`4` pages (TERM: from an empty line), `s` sort, `/` filter, `d` dial, `space` scan. Without it, the Shell's `phonebook` is a directory too.
 
+**Tiger Team Pro** is the corporate audit suite, a site licence on CorpLink's employee board (`TTPRO30.ZIP`), with a calm licensed-software splash. It looks like a Turbo Vision application: a menu bar of sections, windows with drop shadows, a status line of keys. It does everything NiGHTCOMM does (**3 Reconnaissance**, **4 Address Space**, **5 Console**) and writes up what's behind every number: **1 Assessment** ranks your targets by exposure and reports on one (topology, defences, trace, asset value, and each trait as a finding with a severity), and **2 Engagements** puts every target in one sortable table. Enter engages. With it, the Shell's `phonebook` shows tier and traits.
+
 ![CarrierTerm's directory](docs/shots/carrierterm-directory.png)
 ![NiGHTCOMM's splash](docs/shots/nightcomm-splash.png)
 ![NiGHTCOMM](docs/shots/nightcomm.png)
 ![NiGHTCOMM's ranges](docs/shots/nightcomm-ranges.png)
+![Tiger Team Pro's splash](docs/shots/tigerteam-splash.png)
+![Tiger Team Pro](docs/shots/tigerteam.png)
+![Tiger Team Pro's engagements](docs/shots/tigerteam-engagements.png)
 
 New to the Net? **Welcome to the Net** is the HyperCard stack Sense/Net ships with the deck: it opens on a new save's first boot, lives on Liza's desktop (and under Special), and `help net` opens it from the Shell on any deck. One idea per card, ◀ ▶ to page, Home for the sections. It's data in [`data/stacks/welcome.ron`](data/stacks/welcome.ron), and its numbers come from the rules.
 
@@ -106,6 +111,8 @@ What's behind a number isn't CarrierTerm's business. Every network has:
 - **Tier**: LAN, CORP or MEGACORP. Bigger networks, tougher ICE, better pay.
 - **Traits**: *sentry-heavy* / *barrier-heavy* / *code-gate-heavy* (plan your breakers), *black ice*, *no BBS*, *graveyard shift* (trace -25%), *night shift* (+25%), *chatty*, *vault-rich*, *skint*.
 - **Heat**: every run on a network heats it up (stronger ICE, faster trace); it cools while you hit other numbers. **NiGHTCOMM** shows it, cold, warm or HOT.
+
+**Tiger Team Pro** shows all three, written up as an assessment.
 
 Every dial is a fresh layout with the same personality. Tiers, traits and companies live in [`data/hub/networks.ron`](data/hub/networks.ron).
 

@@ -263,7 +263,14 @@ pub struct ToolDef {
 }
 
 /// Every tool's id: what `hub::Save::has_tool` and the desktops ask about.
-pub const TOOLS: &[&str] = &["wardial", "hexed", "qwkread", "icedb", "nightcomm"];
+pub const TOOLS: &[&str] = &[
+    "wardial",
+    "hexed",
+    "qwkread",
+    "icedb",
+    "nightcomm",
+    "tigerteam",
+];
 
 fn yes() -> bool {
     true

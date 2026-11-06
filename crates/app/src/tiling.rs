@@ -69,12 +69,13 @@ fn entries(fuzzy: bool, save: &ninsei_core::hub::Save) -> Vec<Entry> {
         Entry::Tool(Tool::Qwk, "QWK Reader"),
         Entry::Tool(Tool::IceDb, "ICE DB"),
         Entry::Tool(Tool::NightComm, "NiGHTCOMM"),
+        Entry::Tool(Tool::TigerTeam, "Tiger Team Pro"),
         Entry::Tool(Tool::Shell, "Shell"),
         Entry::Tool(Tool::Prefs, "Prefs"),
     ];
     v.retain(|e| match e {
         Entry::Tool(t, _) => save.opens(*t),
-        Entry::WarDial => save.has_tool("wardial") && !save.has_tool("nightcomm"),
+        Entry::WarDial => save.has_tool("wardial") && !save.has_dialer(),
         Entry::Command(_) => true,
     });
     if fuzzy {

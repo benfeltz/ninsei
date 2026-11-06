@@ -11,10 +11,13 @@
 //   icedb    the ICE database at home: every ICE you've fought, and what breaks it
 //   nightcomm the hacker's dashboard at home: heat on every number, a wardialer that replaces
 //             wardial's tab, the ranges you know and the watched lines you've found
+//   tigerteam Tiger Team Pro, the corporate audit suite from CorpLink: everything nightcomm
+//             does, plus each network's profile (tier, findings, ICE, trace, pay)
 [
     (id: "wardial", name: "WarDial", blurb: "A demon dialer: scans a block of numbers for carriers.", intro: Some("wardial")),
     (id: "hexed",   name: "HexEd",   blurb: "A hex editor for warez binaries. Patch, optimize, break things.", intro: Some("hexed")),
     (id: "icedb",   name: "ICE DB",  blurb: "A bestiary of intrusion countermeasures. Fills in as you meet them.", intro: Some("icedb")),
     (id: "nightcomm", name: "NiGHTCOMM", blurb: "A hacker's dashboard: heat on your numbers, a wardialer, ranges and watched lines.", intro: Some("nightcomm")),
+    (id: "tigerteam", name: "Tiger Team Pro", blurb: "A licensed network assessment suite: a profile and findings on every number you know.", intro: Some("tigerteam")),
     (id: "qwkread", name: "QWK Reader", blurb: "Offline mail: read your boards' bulletins and saved textfiles at home.", intro: Some("qwkread")),
 ]
