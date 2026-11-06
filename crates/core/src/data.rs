@@ -260,6 +260,9 @@ pub struct ToolDef {
     /// The cracktro it opens with (an id in `data/intros/`), if any.
     #[serde(default)]
     pub intro: Option<String>,
+    /// Sold by mail order in CPU Shopper, if it is.
+    #[serde(default)]
+    pub shop: Option<crate::shopper::ToolShop>,
 }
 
 /// Every tool's id: what `hub::Save::has_tool` and the desktops ask about.
@@ -609,6 +612,7 @@ pub struct Sources<'a> {
     pub tools: &'a str,
     pub addons: &'a str,
     pub panes: &'a str,
+    pub shopper: &'a str,
     pub sounds: &'a [PackSrc<'a>],
     pub intros: &'a [IntroSrc<'a>],
     pub welcome: &'a str,
@@ -638,6 +642,7 @@ impl Sources<'static> {
             tools: include_str!("../../../data/hub/tools.ron"),
             addons: include_str!("../../../data/hub/desktops.ron"),
             panes: include_str!("../../../data/hub/panes.ron"),
+            shopper: include_str!("../../../data/hub/shopper.ron"),
             sounds: BUILTIN_SOUNDS,
             intros: BUILTIN_INTROS,
             welcome: include_str!("../../../data/stacks/welcome.ron"),
@@ -678,6 +683,8 @@ pub struct Data {
     pub addons: Vec<crate::desktop::AddonDef>,
     /// Secondary panes you can buy for the run screen.
     pub panes: Vec<crate::panes::PaneDef>,
+    /// CPU Shopper, the RIG magazine: its cover, sections, advertisers and ads.
+    pub shopper: crate::shopper::ShopperDef,
     /// Sound packs: what each cue plays, one pack per file in `data/sounds/`.
     pub sounds: Vec<crate::cue::SoundPack>,
     /// Cracktros, one per file in `data/intros/`.
@@ -733,6 +740,7 @@ impl Data {
             tools: ron::from_str(src.tools).map_err(|e| format!("hub/tools.ron: {e}"))?,
             addons: ron::from_str(src.addons).map_err(|e| format!("hub/desktops.ron: {e}"))?,
             panes: ron::from_str(src.panes).map_err(|e| format!("hub/panes.ron: {e}"))?,
+            shopper: ron::from_str(src.shopper).map_err(|e| format!("hub/shopper.ron: {e}"))?,
             welcome: ron::from_str(src.welcome).map_err(|e| format!("stacks/welcome.ron: {e}"))?,
             starts: ron::from_str(src.starts).map_err(|e| format!("hub/starts.ron: {e}"))?,
             intros: src
@@ -869,6 +877,9 @@ impl Data {
         crate::desktop::AddonDef::validate(&self.addons)
             .map_err(|e| format!("hub/desktops.ron: {e}"))?;
         crate::panes::PaneDef::validate(&self.panes).map_err(|e| format!("hub/panes.ron: {e}"))?;
+        self.shopper
+            .validate(self)
+            .map_err(|e| format!("hub/shopper.ron: {e}"))?;
         if self.sounds.is_empty() {
             return Err("data/sounds/ has no sound packs".into());
         }

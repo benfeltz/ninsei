@@ -9,7 +9,7 @@ use ninsei_core::binary::Bin;
 use ninsei_core::data::ThemeDef;
 use ninsei_core::hardware::Desktop;
 use ninsei_core::hexedit::HexBuffer;
-use ninsei_core::hub::{self, Save, ScanResult, ShellEffect, Tool, Upgrade};
+use ninsei_core::hub::{self, Save, ScanResult, ShellEffect, Tool};
 use ninsei_core::modem::Handshake;
 use std::cell::Cell;
 
@@ -134,20 +134,15 @@ pub enum WbOut {
     GuideSeen,
     /// The Shell ran a command: keep its history in the save.
     ShellHistory(Vec<String>),
-    /// Buy a secondary pane for the run screen in RIG (id).
-    BuyPane(String),
-    /// Buy a desktop add-on in RIG (id).
-    BuyAddon(String),
     /// The tiling desktop's first-boot key help was dismissed.
     HelpSeen,
     /// The tiling desktop's tiles changed: keep them.
     Tiling(ninsei_core::desktop::Tiling),
-    /// Buy a monitor or deck in RIG.
-    BuyHardware(ninsei_core::hardware::Hardware),
+    /// Order anything from CPU Shopper (RIG).
+    Order(ninsei_core::shopper::Item),
     Crt,
     /// Modem sounds on/off.
     Sound,
-    Buy(Upgrade),
     ToggleStarter(String),
     ToggleStash(u32),
     Scrap(u32),
@@ -699,7 +694,7 @@ impl Home {
                     }
                 }
             }
-            Tool::Rig => hubtools::rig(child, data, save, out),
+            Tool::Rig => crate::shopper::show(child, data, save, out),
             Tool::Prefs => hubtools::prefs(child, data, save, out),
             Tool::Stash => hubtools::stash(child, data, save, out, &mut edit),
             Tool::HexEd if self.intro_gate(child, data, save, "hexed") => return,

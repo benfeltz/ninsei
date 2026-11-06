@@ -72,7 +72,7 @@ New to the Net? **Welcome to the Net** is the HyperCard stack Sense/Net ships wi
 
 The look and feel each deck is going for (and the references behind it) is in [`docs/design.md`](docs/design.md).
 
-What your screen looks like is the kit you own. Buy more in **RIG → HARDWARE** with banked credits; swap in Prefs, the view menu, or the Shell (`monitor <id>`, `deck <id>`). Testing? **F8** at home drops 1000¢ in the bank.
+What your screen looks like is the kit you own. Buy more in **RIG**, an issue of *CPU Shopper* magazine, with banked credits; swap in Prefs, the view menu, or the Shell (`monitor <id>`, `deck <id>`). Testing? **F8** at home drops 1000¢ in the bank.
 
 - **Monitors** set the CRT look. You start with the Sense/Net Personal Display 9″, a small, sharp black-and-white tube (paper white, gentle curve, no colour fringing) that suits Liza's 1-bit patterns. The Zenith Amber Terminal, Hercules Green Phosphor, Apple Monitor II, Commodore 1702 and IBM 8513 VGA are on the shelf. A **mono** tube only shows its own colour (white is paper white, amber is amber); a **colour** monitor runs any theme, Synthwave and Workbench included.
 - **Decks** set the UX. You start on the **Sense/Net Personal Deck**, a friendly 1-bit machine running Liza (its own desktop, map and run screen are on the way, #46). RIG sells the **Ono-Sendai Cyberspace VII** (wireframes over a glowing grid) and the **Hosaka Executive 4**, which sees the net as a technical drawing. Decks are look and feel only: stats come from RIG upgrades.
@@ -146,7 +146,7 @@ You always know the wide, sparse local exchange (`555-xxxx`). Better targets liv
 
 Runs are for taking things; home is for building. **Reach the exit** and the run's credits and fragments are banked, and you pick programs to keep in your stash. **Flatline** and you lose it all, except the 10% your dead man's switch wires out.
 
-- **RIG**: spend banked credits on permanent upgrades: RAM, CPU, HDD, integrity, stash slots. Each level costs more than the last ([`data/hub/rig.ron`](data/hub/rig.ron)).
+- **RIG** is **CPU Shopper**, a mail-order computer magazine: a cover, a contents page, then full-page deck ads, upgrade boxes, dot-leader price lists and an index of advertisers. Flip pages with ◀ ▶ or PgUp/PgDn and order from any page. It sells permanent upgrades (RAM, CPU, HDD, integrity, stash slots, each level dearer than the last; [`data/hub/rig.ron`](data/hub/rig.ron)), monitors and decks, desktop add-ons, run panes, and mail-order software. Everything is priced in its own file; [`data/hub/shopper.ron`](data/hub/shopper.ron) only dresses it, so a new item shows up in the next issue without any code.
 - **STASH**: programs you kept (2 slots to start) and your loadout for the next run. Your deck's **Security Suite** (Firewall and Patch) is always free. Breakers aren't in the box: the Gutter's FREEWARE has IcePick and Decoder, free, and the Gutter is a local call. Stash programs you take into a run leave the stash: they come back only if you do.
 - **HexEd** (once downloaded): the hex editor, at home, on your stash, with banked fragments to optimize. In a run you can only compile while connected to a BBS.
 
@@ -171,7 +171,7 @@ Runs are for taking things; home is for building. **Reach the exit** and the run
 
 Tabs can be dragged, split and rearranged, and **your layout is saved** (one per deck firmware) and comes back next run. **view → add pane** adds secondary panes you own, which you can close again; **view → reset layout** goes back to the firmware's default.
 
-**Secondary panes are bought** in RIG (**RUN PANES**), or come with a deck's firmware. They're data in [`data/hub/panes.ron`](data/hub/panes.ron), and each deck's look dresses them its own way. The first is **net**, network traffic. The Ono-Sendai 7.0 ships with it: a mirrored dot graph after btop's net box, scrolling in real time (download up from the middle, upload down), with rate, peak and total. On the Hosaka it's a network usage report. Hits taken and credits coming in are downloads; CPU spent and hops are uploads.
+**Secondary panes are bought** in RIG (CPU Shopper's **Run panes** section), or come with a deck's firmware. They're data in [`data/hub/panes.ron`](data/hub/panes.ron), and each deck's look dresses them its own way. The first is **net**, network traffic. The Ono-Sendai 7.0 ships with it: a mirrored dot graph after btop's net box, scrolling in real time (download up from the middle, upload down), with rate, peak and total. On the Hosaka it's a network usage report. Hits taken and credits coming in are downloads; CPU spent and hops are uploads.
 
 ![net pane](docs/shots/net-pane-synthwave.png)
 
@@ -372,7 +372,7 @@ Everything is data in [`data/`](data), compiled into the binary:
 - `netmap.ron`: the network map's shape and drafting symbol for each kind of node
 - `sounds/<pack>.ron`: a sound pack, what each cue plays (a deck's firmware picks one)
 - `patterns.ron`: the 1-bit fill patterns the Sense/Net deck shades with
-- `hub/`: desktop icons, RIG upgrades, hardware, desktop add-ons, run panes, network tiers/traits/companies, wardial ranges, downloadable tools
+- `hub/`: desktop icons, RIG upgrades, CPU Shopper's dressing (`shopper.ron`), hardware, desktop add-ons, run panes, network tiers/traits/companies, wardial ranges, downloadable tools
 - `bbs/<id>/splash.txt`: that board's splash art. Colours use Mystic/Renegade **pipe codes** (`|00`-`|15` foreground, `|16`-`|23` background); raw ANSI `ESC[...m` escapes work too, so `.ans` art from PabloDraw or Moebius can be pasted in.
 
 `Data::validate` cross-checks the files (every id a table names must exist), and the tests run it.

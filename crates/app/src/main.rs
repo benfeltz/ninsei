@@ -22,6 +22,7 @@ mod netpane;
 mod nightcomm_view;
 mod panes;
 mod patterns;
+mod shopper;
 mod sound;
 mod stack;
 mod suite;
@@ -459,6 +460,36 @@ impl App {
         Ok(msg)
     }
 
+    /// Orders an item from CPU Shopper. Core charges and grants it through the item's own rules;
+    /// here only the side effects: new hardware re-applies the look, a new pane goes on the
+    /// run screen.
+    fn order(&mut self, ctx: &egui::Context, item: ninsei_core::shopper::Item) {
+        use ninsei_core::shopper::Item;
+        let r = match &item {
+            Item::Monitor(_) | Item::Deck(_) => self.hardware(ctx, |s, d| s.buy_item(d, &item)),
+            _ => {
+                let r = self.save.buy_item(&self.data, &item);
+                self.save_dirty = true;
+                r
+            }
+        };
+        let bought = r.is_ok();
+        self.home.say(r.unwrap_or_else(|e| e));
+        // A pane you just bought shows up on this deck's run screen at once
+        // (other decks: View > add pane).
+        if bought
+            && let Item::Pane(id) = &item
+            && let Some(&(tab, _)) = Tab::SECONDARY.iter().find(|(_, t)| t == id)
+        {
+            self.add_pane(tab);
+            if let Ok(text) = ron::to_string(&self.dock) {
+                self.save.set_layout(&self.data, text);
+            }
+            self.home
+                .say("it's on your run screen now (other decks: View > add pane).");
+        }
+    }
+
     fn run_theme_label(&self) -> String {
         self.data
             .theme(&self.run_theme)
@@ -629,7 +660,6 @@ impl App {
     fn home_action(&mut self, o: WbOut) {
         let rig = self.data.rig.clone();
         let result = match o {
-            WbOut::Buy(u) => self.save.buy(&rig, u),
             WbOut::ToggleStarter(id) => self
                 .save
                 .toggle_starter(&self.data, &rig, &id)
@@ -696,13 +726,11 @@ impl App {
             | WbOut::GuideSeen
             | WbOut::HelpSeen
             | WbOut::Tiling(_)
-            | WbOut::BuyAddon(_)
-            | WbOut::BuyPane(_)
             | WbOut::ShellHistory(_)
             | WbOut::Monitor(_)
             | WbOut::Deck(_)
             | WbOut::Firmware(_)
-            | WbOut::BuyHardware(_) => {
+            | WbOut::Order(_) => {
                 return;
             }
         };
@@ -1231,35 +1259,13 @@ impl eframe::App for App {
                         self.save.tiling = t;
                         self.save_dirty = true;
                     }
-                    WbOut::BuyAddon(id) => {
-                        let r = self.save.buy_addon(&self.data, &id);
-                        self.save_dirty = true;
-                        self.home.say(r.unwrap_or_else(|e| e));
-                    }
                     WbOut::ShellHistory(h) => {
                         if self.save.shell_history != h {
                             self.save.shell_history = h;
                             self.save_dirty = true;
                         }
                     }
-                    WbOut::BuyPane(id) => {
-                        let r = self.save.buy_pane(&self.data, &id);
-                        self.save_dirty = true;
-                        let bought = r.is_ok();
-                        self.home.say(r.unwrap_or_else(|e| e));
-                        // A pane you just bought shows up on this deck's run screen at once
-                        // (other decks: View > add pane).
-                        if bought
-                            && let Some(&(tab, _)) = Tab::SECONDARY.iter().find(|(_, t)| *t == id)
-                        {
-                            self.add_pane(tab);
-                            if let Ok(text) = ron::to_string(&self.dock) {
-                                self.save.set_layout(&self.data, text);
-                            }
-                            self.home
-                                .say("it's on your run screen now (other decks: View > add pane).");
-                        }
-                    }
+                    WbOut::Order(item) => self.order(&ctx, item),
                     WbOut::Glitches(g) => {
                         self.save.glitches = g;
                         self.save_dirty = true;
@@ -1285,10 +1291,6 @@ impl eframe::App for App {
                     }
                     WbOut::Firmware(id) => {
                         let r = self.hardware(&ctx, |s, d| s.use_firmware(d, &id));
-                        self.home.say(r.unwrap_or_else(|e| e));
-                    }
-                    WbOut::BuyHardware(hw) => {
-                        let r = self.hardware(&ctx, |s, d| s.buy_hardware(d, &hw));
                         self.home.say(r.unwrap_or_else(|e| e));
                     }
                     WbOut::Crt => {
