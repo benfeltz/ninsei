@@ -32,6 +32,7 @@ fn heat_reads_cold_warm_and_hot() {
 fn keys_pick_tabs_and_sorts_cycle() {
     assert_eq!(Tab::from_key('1'), Some(Tab::Intel));
     assert_eq!(Tab::from_key('3'), Some(Tab::Ranges));
+    assert_eq!(Tab::from_key('4'), Some(Tab::Term));
     assert_eq!(Tab::from_key('0'), None);
     assert_eq!(Tab::from_key('9'), None);
     let mut s = Sort::default();

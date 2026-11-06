@@ -5,16 +5,18 @@
 
 use egui::{Event, Id, Key, Sense, Ui};
 use ninsei_core::Data;
+use ninsei_core::at;
 use ninsei_core::hub::{Answer, Found, RunEnd, Save, ScanResult};
+use ninsei_core::modem::Handshake;
 use ninsei_core::nightcomm::{self, Block, Sort, Tab};
 use ninsei_core::tuning::{HEAT_COOL, HEAT_MAX};
 
 use crate::cells::Cells;
-use crate::home::{WbOut, accent, fill, ink, muted, shadow};
+use crate::home::{Dialing, WbOut, accent, fill, ink, muted, shadow};
 use crate::hubtools::SCAN_FILL_SECS;
 
-/// NiGHTCOMM's state between frames: the page, the order and filter, and what's picked.
-#[derive(Default)]
+/// NiGHTCOMM's state between frames: the page, the order and filter, what's picked, and the
+/// TERM page's line and scrollback.
 pub struct NightComm {
     pub tab: Tab,
     pub sort: Sort,
@@ -23,11 +25,51 @@ pub struct NightComm {
     pub sel: Option<u32>,
     /// The range picked on WARDiAL and RANGES.
     pub range: Option<String>,
+    /// TERM's command line.
+    pub term: ninsei_term::LineEditor,
+    /// What TERM has printed, oldest first.
+    pub term_lines: Vec<String>,
+    /// The entry a `jack in? [Y/n]` waits on.
+    pub asking: Option<u32>,
     /// The frame it was last drawn on (none yet: it has just opened).
     drawn: Option<u64>,
     want_focus: bool,
     want_filter: bool,
 }
+
+impl Default for NightComm {
+    fn default() -> Self {
+        NightComm {
+            tab: Tab::default(),
+            sort: Sort::default(),
+            query: String::new(),
+            sel: None,
+            range: None,
+            term: ninsei_term::LineEditor::new(TERM_HISTORY),
+            term_lines: vec![at::IDENT.to_string(), "OK".to_string()],
+            asking: None,
+            drawn: None,
+            want_focus: false,
+            want_filter: false,
+        }
+    }
+}
+
+impl NightComm {
+    /// Prints the modem's answer on TERM.
+    pub fn term_say(&mut self, lines: &[String]) {
+        self.term_lines.extend(lines.iter().cloned());
+        let extra = self.term_lines.len().saturating_sub(TERM_KEEP);
+        self.term_lines.drain(..extra);
+    }
+}
+
+/// Commands TERM remembers for ↑ and Ctrl+R.
+const TERM_HISTORY: usize = 100;
+/// Lines of TERM scrollback kept.
+const TERM_KEEP: usize = 300;
+/// Width of TERM's modem and AT boxes.
+const TERM_SIDE: usize = 26;
 
 /// Fewer columns than this and the pages drop their wide columns and side boxes.
 const NARROW: usize = 76;
@@ -59,12 +101,14 @@ struct Keys {
 }
 
 /// Draws NiGHTCOMM in the space `ui` offers.
+#[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut Ui,
     data: &Data,
     save: &Save,
     nc: &mut NightComm,
     scan: Option<&(ScanResult, f32)>,
+    dialing: Option<&Dialing>,
     dial: &mut Option<u32>,
     out: &mut Vec<WbOut>,
 ) {
@@ -72,6 +116,7 @@ pub fn show(
     let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
     let keys_id = resp.id;
     let filter_id = Id::new("nightcomm-filter");
+    let term_id = Id::new("nightcomm-term");
 
     // Not drawn last pass: the window just opened (or a splash ended). It takes the keys.
     let pass = ui.ctx().cumulative_pass_nr();
@@ -88,7 +133,13 @@ pub fn show(
             nc.want_filter = false;
             nc.want_focus = false;
         } else if nc.want_focus {
-            ui.memory_mut(|m| m.request_focus(keys_id));
+            // TERM's line takes the keys on its page; the page keys everywhere else.
+            let target = if nc.tab == Tab::Term {
+                term_id
+            } else {
+                keys_id
+            };
+            ui.memory_mut(|m| m.request_focus(target));
             nc.want_focus = false;
         }
     }
@@ -129,6 +180,7 @@ pub fn show(
     for c in &keys.text {
         if let Some(t) = Tab::from_key(*c) {
             nc.tab = t;
+            nc.want_focus = true;
         }
     }
 
@@ -160,6 +212,7 @@ pub fn show(
         Tab::Intel => intel(&ctx, save, nc, &keys, inner, dial, &mut legend),
         Tab::Wardial => wardial(&ctx, data, save, nc, &keys, scan, inner, out, &mut legend),
         Tab::Ranges => ranges(&ctx, data, save, nc, &keys, inner, &mut legend),
+        Tab::Term => term(&ctx, save, nc, dialing, term_id, inner, out, &mut legend),
     }
     // The legend: btop's options cut into the bottom border.
     let mut c = 2;
@@ -885,6 +938,186 @@ fn ranges(
                 muted(),
             );
         }
+    }
+}
+
+/// The modem's lights, as on a US Robotics Sportster's front panel.
+const LIGHTS: [&str; 6] = ["MR", "TR", "CD", "OH", "RD", "SD"];
+
+/// TERM's quick-reference card, like the one that came in the modem's box.
+const CARD: [(&str, &str); 7] = [
+    ("ATDT n", "dial"),
+    ("ATDT n!", "watched line"),
+    ("ATDS k", "phonebook #k"),
+    ("ATH", "hang up"),
+    ("ATZ", "reset"),
+    ("ATM0 M1", "speaker"),
+    ("ATI", "modem info"),
+];
+
+#[allow(clippy::too_many_arguments)]
+fn term(
+    cx: &Ctx,
+    save: &Save,
+    nc: &mut NightComm,
+    dialing: Option<&Dialing>,
+    term_id: Id,
+    (c0, r0, w, h): (usize, usize, usize, usize),
+    out: &mut Vec<WbOut>,
+    legend: &mut Vec<String>,
+) {
+    let (g, p) = (cx.g, cx.p);
+    legend.push("↑↓ history".to_string());
+    legend.push("tab complete".to_string());
+    legend.push("1-4 pages from an empty line".to_string());
+    let narrow = w < NARROW;
+    let side = if narrow { 0 } else { TERM_SIDE };
+    let tw = w - side;
+    cx.boxed(c0, r0, tw, h, "terminal");
+    // The call under way prints as the handshake reaches each beat.
+    let mut lines: Vec<(String, egui::Color32)> =
+        nc.term_lines.iter().map(|l| (l.clone(), ink())).collect();
+    let call = dialing.and_then(|d| save.entry(d.entry).map(|e| (d, e)));
+    if let Some((d, e)) = call {
+        let hs = Handshake::new(&e.number);
+        // `DIALING` is already printed: the line picks up at the first ring.
+        let mut beats: Vec<(f32, String)> =
+            hs.rings.iter().map(|r| (*r, "RING".to_string())).collect();
+        beats.push((hs.connect, "CONNECT 2400/ARQ".to_string()));
+        beats.push((
+            hs.connect + (hs.end - hs.connect) / 2.0,
+            "CARRIER DETECTED. JACKING IN...".to_string(),
+        ));
+        lines.extend(
+            beats
+                .into_iter()
+                .filter(|(at, _)| d.t >= *at)
+                .map(|(_, l)| (l, accent())),
+        );
+        cx.ui.ctx().request_repaint();
+    }
+    let rows = h.saturating_sub(3);
+    let start = lines.len().saturating_sub(rows);
+    for (i, (l, col)) in lines[start..].iter().enumerate() {
+        let col = if l.starts_with("> ") {
+            muted()
+        } else if l.starts_with("!!") {
+            accent()
+        } else {
+            *col
+        };
+        g.text_max(p, c0 + 2, r0 + 1 + i, l, tw - 4, col);
+    }
+    // The command line, on the box's last row.
+    let line_rect = g.at(c0 + 2, r0 + h - 2, tw - 4, 1);
+    let had_text = !nc.term.text().is_empty();
+    let focused = cx.ui.memory(|m| m.has_focus(term_id));
+    // A page key on an empty line switches pages instead of typing.
+    let mut page = None;
+    if focused && !had_text {
+        cx.ui.input(|i| {
+            for e in &i.events {
+                if let Event::Text(t) = e
+                    && let Some(tab) = t.chars().next().and_then(Tab::from_key)
+                {
+                    page = Some(tab);
+                }
+            }
+        });
+    }
+    let style = ninsei_term::widget::Style {
+        font: egui::TextStyle::Monospace.resolve(cx.ui.style()),
+        prompt: accent(),
+        text: ink(),
+        cursor: ink(),
+        under_cursor: shadow(),
+        search: accent(),
+    };
+    let prompt = if nc.asking.is_some() { "[Y/n]" } else { ">" };
+    let complete = |before: &str| at::complete(before, save);
+    let mut child = Ui::new(
+        cx.ui.ctx().clone(),
+        term_id.with("ui"),
+        egui::UiBuilder::new()
+            .layer_id(cx.ui.layer_id())
+            .max_rect(line_rect)
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+    );
+    child.set_clip_rect(line_rect.intersect(cx.ui.clip_rect()));
+    let r = ninsei_term::widget::line(&mut child, term_id, &mut nc.term, prompt, &style, &complete);
+    if r.response.clicked() {
+        nc.want_focus = true;
+    }
+    if let Some(tab) = page {
+        nc.term.clear();
+        nc.tab = tab;
+        nc.want_focus = true;
+        return;
+    }
+    for o in r.outcomes {
+        match o {
+            ninsei_term::Outcome::Submit(line) => {
+                nc.term_say(&[format!("{prompt} {line}")]);
+                out.push(WbOut::At(line));
+            }
+            ninsei_term::Outcome::Cancelled(was) => {
+                nc.term_say(&[format!("{prompt} {was}^C")]);
+                nc.asking = None;
+            }
+            ninsei_term::Outcome::ClearScreen => nc.term_lines.clear(),
+            ninsei_term::Outcome::List(words) => nc.term_say(&[words.join("   ")]),
+            ninsei_term::Outcome::Nothing => {}
+        }
+    }
+    if side == 0 {
+        return;
+    }
+    // The modem's front panel.
+    let sx = c0 + tw;
+    cx.boxed(sx, r0, side, 5, "modem");
+    let connected = call.is_some_and(|(d, e)| d.t >= Handshake::new(&e.number).connect);
+    let blink = (cx.ui.input(|i| i.time) * 6.0) as i64 % 2 == 0;
+    for (i, name) in LIGHTS.iter().enumerate() {
+        let lit = match *name {
+            "MR" => true,
+            "TR" => focused,
+            "CD" => connected,
+            "OH" => call.is_some(),
+            "RD" | "SD" => call.is_some() && blink == (*name == "RD"),
+            _ => false,
+        };
+        let x = sx + 2 + i * 4;
+        let dot = g.at(x, r0 + 1, 2, 1);
+        let radius = g.ch * 0.22;
+        if lit {
+            p.circle_filled(dot.center(), radius, accent());
+        } else {
+            p.circle_stroke(dot.center(), radius, egui::Stroke::new(1.0, muted()));
+        }
+        g.text(p, x, r0 + 2, name, muted());
+    }
+    let status = if connected {
+        "carrier"
+    } else if call.is_some() {
+        "off hook"
+    } else {
+        "on hook"
+    };
+    g.text(
+        p,
+        sx + 2,
+        r0 + 3,
+        &format!(
+            "{status} · speaker {}",
+            if save.sound { "on" } else { "off" }
+        ),
+        ink(),
+    );
+    let ch = h - 5;
+    cx.boxed(sx, r0 + 5, side, ch, "AT");
+    for (i, (cmd, what)) in CARD.iter().enumerate().take(ch.saturating_sub(2)) {
+        g.text(p, sx + 2, r0 + 6 + i, cmd, ink());
+        g.text_max(p, sx + 11, r0 + 6 + i, what, side - 13, muted());
     }
 }
 

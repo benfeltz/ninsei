@@ -1365,7 +1365,20 @@ impl Save {
         let block = open[pick.below(open.len())];
         self.bank -= def.cost;
         self.scanned.push(format!("{range}:{block}"));
+        let cells = self.dial_block(data, &def, block);
+        Ok(ScanResult {
+            range: range.into(),
+            block,
+            cells,
+            cost: def.cost,
+        })
+    }
 
+    /// Dials every number in one block of a range, booking what answers: new carriers into
+    /// the phonebook, boards learned, traps on the telco's list, finds kept. The same block
+    /// always answers the same way for a save.
+    fn dial_block(&mut self, data: &Data, def: &RangeDef, block: u32) -> Vec<(String, Answer)> {
+        let range = def.id.as_str();
         let id_hash = range
             .bytes()
             .fold(0u64, |h, b| h.wrapping_mul(31).wrapping_add(u64::from(b)));
@@ -1382,17 +1395,21 @@ impl Save {
                     self.learn_board(&data.boards[board].id, &format!("wardialing {}", def.label));
                 Answer::Board { board, new }
             } else if roll <= def.carrier_pct {
+                // Every carrier takes the same draws, known or not, so a number you already
+                // have never changes how the rest of its block answers. A new one gets its
+                // company from a stream of its own.
+                let w = [def.tiers.0, def.tiers.1, def.tiers.2];
+                let tier = rng.weighted(w).map_or(1, |i| i as u32 + 1);
+                let mut own = Rng::new(rng.next_u64());
                 if let Some(e) = self.phonebook.iter().find(|e| e.number == number) {
                     Answer::Carrier {
                         entry: e.id,
                         new: false,
                     }
                 } else {
-                    let w = [def.tiers.0, def.tiers.1, def.tiers.2];
-                    let tier = rng.weighted(w).map_or(1, |i| i as u32 + 1);
                     match self.add_entry(
                         data,
-                        &mut rng,
+                        &mut own,
                         tier,
                         def.owner.as_deref(),
                         Some(number.clone()),
@@ -1428,12 +1445,97 @@ impl Save {
             }
             cells.push((number, answer));
         }
-        Ok(ScanResult {
-            range: range.into(),
-            block,
-            cells,
-            cost: def.cost,
-        })
+        cells
+    }
+
+    /// The known range a number is best dialed through: the narrowest one it falls in.
+    pub fn range_of<'a>(&self, data: &'a Data, number: &str) -> Option<&'a RangeDef> {
+        data.exchanges
+            .iter()
+            .filter(|r| self.knows_range(&r.id) && number.starts_with(&r.prefix))
+            .max_by_key(|r| r.prefix.len())
+    }
+
+    /// What one call costs: the range's scan price shared over a block's numbers.
+    pub fn call_price(def: &RangeDef) -> u32 {
+        def.cost.div_ceil(WARDIAL_BLOCK).max(1)
+    }
+
+    /// Dials one number by hand (NiGHTCOMM's TERM): a real call, billed like a share of a
+    /// scan, with the same trap risk. It answers the way its block would in a scan, so a
+    /// number never tells TERM one thing and WARDiAL another.
+    pub fn atdt(&mut self, data: &Data, number: &str) -> Result<Answer, String> {
+        if !self.has_tool("nightcomm") {
+            return Err("atdt: unknown command.".into());
+        }
+        let def = self
+            .range_of(data, number)
+            .ok_or_else(|| format!("{number}: no range you know covers it."))?
+            .clone();
+        let price = Save::call_price(&def);
+        if self.bank < price {
+            return Err(format!("a call is {price}¢. you have {}¢.", self.bank));
+        }
+        let index: u32 = number[def.prefix.len()..]
+            .parse()
+            .map_err(|_| format!("{number} isn't a number."))?;
+        let block = index / WARDIAL_BLOCK;
+        // Dial the whole block on a copy, then keep only this number's answer.
+        let mut sim = self.clone();
+        let answer = sim
+            .dial_block(data, &def, block)
+            .into_iter()
+            .find(|(n, _)| n == number)
+            .map(|(_, a)| a)
+            .ok_or_else(|| format!("{number} isn't in {}.", def.pattern()))?;
+        self.bank -= price;
+        let (found, answer) = match answer {
+            Answer::Carrier { entry, new: false } => (Found::Network(entry), answer),
+            Answer::Carrier { entry, new: true } => {
+                let mut e = sim
+                    .phonebook
+                    .iter()
+                    .find(|e| e.id == entry)
+                    .cloned()
+                    .ok_or("the line dropped.")?;
+                e.id = self.next_entry;
+                self.next_entry += 1;
+                let id = e.id;
+                self.phonebook.push(e);
+                (
+                    Found::Network(id),
+                    Answer::Carrier {
+                        entry: id,
+                        new: true,
+                    },
+                )
+            }
+            Answer::Board { board, .. } => {
+                let new = self.learn_board(&data.boards[board].id, &format!("dialing {number}"));
+                (
+                    Found::Board(data.boards[board].id.clone()),
+                    Answer::Board { board, new },
+                )
+            }
+            Answer::Trap => {
+                self.telco_heat += 1;
+                (Found::Watched, Answer::Trap)
+            }
+            other => return Ok(other),
+        };
+        if !self
+            .finds
+            .iter()
+            .any(|f| f.number == number && f.what == found)
+        {
+            self.finds.push(Find {
+                range: def.id.clone(),
+                block,
+                number: number.into(),
+                what: found,
+            });
+        }
+        Ok(answer)
     }
 
     pub fn stash_cap(&self, defs: &[UpgradeDef]) -> u32 {

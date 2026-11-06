@@ -113,6 +113,8 @@ pub enum WbOut {
     Dial(u32, Option<u64>),
     /// Wardial a range (by id).
     Scan(String),
+    /// A line typed at NiGHTCOMM's TERM, for the modem (core's `at::run`).
+    At(String),
     /// Call a BBS from home (board id): it opens over the desktop.
     Call(String),
     Theme(String),
@@ -502,6 +504,25 @@ impl Home {
         }
     }
 
+    /// Starts the handshake from NiGHTCOMM's TERM, which prints it itself: CarrierTerm
+    /// stays where it is.
+    pub fn start_dial_here(&mut self, entry: u32) {
+        self.term_sel = Some(entry);
+        self.dialing = Some(Dialing {
+            entry,
+            seed: None,
+            t: 0.0,
+        });
+        self.dial_started = Some(entry);
+    }
+
+    /// `ATH`: drops a call under way, and the modem sound with it.
+    pub fn hang_up(&mut self) {
+        if self.dialing.take().is_some() {
+            self.dial_cut = true;
+        }
+    }
+
     /// Starts the modem handshake for a phonebook entry, in CarrierTerm.
     pub fn start_dial(&mut self, entry: u32, seed: Option<u64>) {
         self.term_sel = Some(entry);
@@ -647,6 +668,7 @@ impl Home {
                     save,
                     &mut self.nightcomm,
                     self.scan.as_ref(),
+                    self.dialing.as_ref(),
                     &mut dial,
                     out,
                 );

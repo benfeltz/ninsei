@@ -2,6 +2,7 @@
 //! the app sends [`Action`]s in and renders the [`Game`] state that comes out.
 
 pub mod ansi;
+pub mod at;
 pub mod bbs;
 pub mod binary;
 pub mod cards;

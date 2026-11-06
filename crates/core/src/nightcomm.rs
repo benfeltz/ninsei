@@ -7,17 +7,19 @@ use crate::data::Data;
 use crate::hub::{Entry, Find, Found, RangeDef, Save};
 use crate::tuning::HEAT_MAX;
 
-/// NiGHTCOMM's pages, in key order (`1`, `2`, `3`).
+/// NiGHTCOMM's pages, in key order (`1` to `4`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Tab {
     #[default]
     Intel,
     Wardial,
     Ranges,
+    /// A modem terminal: type AT commands.
+    Term,
 }
 
 impl Tab {
-    pub const ALL: [Tab; 3] = [Tab::Intel, Tab::Wardial, Tab::Ranges];
+    pub const ALL: [Tab; 4] = [Tab::Intel, Tab::Wardial, Tab::Ranges, Tab::Term];
 
     /// The box title, l33t like the rest of the program.
     pub fn title(self) -> &'static str {
@@ -25,6 +27,7 @@ impl Tab {
             Tab::Intel => "iNTEL",
             Tab::Wardial => "WARDiAL",
             Tab::Ranges => "RANGES",
+            Tab::Term => "TERM",
         }
     }
 
