@@ -94,6 +94,17 @@ impl Harness {
             .collect()
     }
 
+    /// Every widget last frame that reaches outside `area` (half a point of slack), with where
+    /// it was drawn: what a window that size would clip.
+    pub fn outside(&self, area: Rect) -> Vec<(String, Rect)> {
+        let area = area.expand(0.5);
+        self.widgets
+            .iter()
+            .filter(|(_, r, _)| r.is_positive() && !area.contains_rect(*r))
+            .map(|(t, r, _)| (t.clone(), *r))
+            .collect()
+    }
+
     /// Every widget text last frame, for a failing test to print.
     pub fn texts(&self) -> Vec<&str> {
         self.widgets.iter().map(|(t, _, _)| t.as_str()).collect()

@@ -116,3 +116,30 @@ fn every_desktop_has_a_logo_that_fits() {
     bad.remove(0);
     assert!(system::FetchDef::validate(&bad).is_err());
 }
+
+#[test]
+fn every_panel_has_one_square_one_bit_icon() {
+    let d = data();
+    assert!(system::PanelIconDef::validate(&d.panel_icons).is_ok());
+    for p in Panel::ALL {
+        assert_eq!(system::panel_icon(&d, p).len(), system::PANEL_ICON, "{p:?}");
+    }
+    let mut missing = d.panel_icons.clone();
+    missing.retain(|i| i.panel != Panel::Disk);
+    assert!(
+        system::PanelIconDef::validate(&missing).is_err(),
+        "a panel with no icon"
+    );
+    let mut wide = d.panel_icons.clone();
+    wide[0].pixels[3].push('k');
+    assert!(
+        system::PanelIconDef::validate(&wide).is_err(),
+        "a row too wide"
+    );
+    let mut colour = d.panel_icons.clone();
+    colour[0].pixels[3] = colour[0].pixels[3].replacen('k', "o", 1);
+    assert!(
+        system::PanelIconDef::validate(&colour).is_err(),
+        "a colour pixel"
+    );
+}

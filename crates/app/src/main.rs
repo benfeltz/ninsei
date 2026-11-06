@@ -23,6 +23,7 @@ mod nightcomm_view;
 mod pager;
 mod panes;
 mod patterns;
+mod settings;
 mod shopper;
 mod sound;
 mod stack;
@@ -448,19 +449,51 @@ impl App {
         ctx: &egui::Context,
         change: impl FnOnce(&mut Save, &Data) -> Result<String, String>,
     ) -> Result<String, String> {
-        let before = self.save.monitor.clone();
-        let layout = self.save.layout_key(&self.data);
+        let before = (self.save.monitor.clone(), self.save.layout_key(&self.data));
         let msg = change(&mut self.save, &self.data)?;
+        self.after_hardware(ctx, before);
+        Ok(msg)
+    }
+
+    /// Re-applies the look after the monitor, deck or firmware changed from `before` (the
+    /// monitor and the layout key): the deck's layout, the theme, and the CRT for a new tube.
+    fn after_hardware(&mut self, ctx: &egui::Context, before: (String, String)) {
         self.save_dirty = true;
-        if self.save.layout_key(&self.data) != layout {
+        if self.save.layout_key(&self.data) != before.1 {
             self.load_layout();
         }
         let theme = self.save.phosphor.clone();
         self.apply_theme(ctx, &theme);
-        if self.save.monitor != before && !self.crt {
+        if self.save.monitor != before.0 && !self.crt {
             self.toggle_crt();
         }
-        Ok(msg)
+    }
+
+    /// Finishes a setting `settings::apply` put on the save: repaints for it and says so.
+    fn settled(
+        &mut self,
+        ctx: &egui::Context,
+        applied: settings::Applied,
+        before: (String, String),
+    ) {
+        use settings::Applied;
+        match applied {
+            Applied::Said(msg) => {
+                self.save_dirty = true;
+                self.home.say(msg);
+            }
+            Applied::Theme(label) => {
+                let id = self.save.phosphor.clone();
+                self.apply_theme(ctx, &id);
+                self.home.say(format!("theme: {label}"));
+            }
+            Applied::Hardware(msg) => {
+                self.after_hardware(ctx, before);
+                self.home.say(msg);
+            }
+            Applied::Refused(e) => self.home.say(e),
+            Applied::Other(_) => {}
+        }
     }
 
     /// Orders an item from CPU Shopper. Core charges and grants it through the item's own rules;
@@ -1245,13 +1278,18 @@ impl eframe::App for App {
                         .show(view, ui, &self.data, &self.save, offset, live);
                 });
             for o in outs {
+                // Settings go on the save first (tested in `settings`); then the repaint.
+                let before = (self.save.monitor.clone(), self.save.layout_key(&self.data));
+                let o = match settings::apply(&mut self.save, &self.data, o) {
+                    settings::Applied::Other(o) => o,
+                    applied => {
+                        self.settled(&ctx, applied, before);
+                        continue;
+                    }
+                };
                 match o {
                     WbOut::Dial(entry, seed) if live => self.dial(entry, seed),
                     WbOut::Dial(..) => {}
-                    WbOut::Theme(name) => match self.set_run_theme(&ctx, &name) {
-                        Ok(label) => self.home.say(format!("theme: {label}")),
-                        Err(e) => self.home.say(e),
-                    },
                     WbOut::HelpSeen => {
                         self.save.tiling_help_seen = true;
                         self.save_dirty = true;
@@ -1267,32 +1305,9 @@ impl eframe::App for App {
                         }
                     }
                     WbOut::Order(item) => self.order(&ctx, item),
-                    WbOut::Glitches(g) => {
-                        self.save.glitches = g;
-                        self.save_dirty = true;
-                        self.home.say(format!("damage glitches {}", g.label()));
-                    }
                     WbOut::GuideSeen => {
                         self.save.guide_seen = true;
                         self.save_dirty = true;
-                    }
-                    WbOut::Intros(on) => {
-                        self.save.intros = on;
-                        self.save_dirty = true;
-                        self.home
-                            .say(format!("cracktros {}", if on { "on" } else { "off" }));
-                    }
-                    WbOut::Monitor(id) => {
-                        let r = self.hardware(&ctx, |s, d| s.plug_monitor(d, &id));
-                        self.home.say(r.unwrap_or_else(|e| e));
-                    }
-                    WbOut::Deck(id) => {
-                        let r = self.hardware(&ctx, |s, d| s.use_deck(d, &id));
-                        self.home.say(r.unwrap_or_else(|e| e));
-                    }
-                    WbOut::Firmware(id) => {
-                        let r = self.hardware(&ctx, |s, d| s.use_firmware(d, &id));
-                        self.home.say(r.unwrap_or_else(|e| e));
                     }
                     WbOut::Crt => {
                         self.toggle_crt();

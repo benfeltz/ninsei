@@ -34,6 +34,53 @@ impl Panel {
     }
 }
 
+/// A panel's icon in Liza's Control Panel list (`data/hub/panel_icons.ron`): 1-bit pixel art,
+/// `k` ink, `w` paper, `.` clear.
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct PanelIconDef {
+    pub panel: Panel,
+    pub pixels: Vec<String>,
+}
+
+/// A panel icon's size in pixels: square, like the Control Panel's.
+pub const PANEL_ICON: usize = 16;
+
+impl PanelIconDef {
+    pub fn validate(defs: &[PanelIconDef]) -> Result<(), String> {
+        for p in Panel::ALL {
+            let n = defs.iter().filter(|d| d.panel == p).count();
+            if n != 1 {
+                return Err(format!("{p:?} has {n} icons, not one"));
+            }
+        }
+        for d in defs {
+            if d.pixels.len() != PANEL_ICON {
+                return Err(format!("{:?}'s icon has {} rows", d.panel, d.pixels.len()));
+            }
+            for (y, row) in d.pixels.iter().enumerate() {
+                if row.chars().count() != PANEL_ICON {
+                    return Err(format!(
+                        "{:?}'s icon row {y} isn't {PANEL_ICON} wide",
+                        d.panel
+                    ));
+                }
+                if let Some(c) = row.chars().find(|c| !".kw".contains(*c)) {
+                    return Err(format!("{:?}'s icon has {c:?}: only k, w and .", d.panel));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// A panel's icon.
+pub fn panel_icon(data: &Data, panel: Panel) -> &[String] {
+    data.panel_icons
+        .iter()
+        .find(|d| d.panel == panel)
+        .map_or(&[], |d| d.pixels.as_slice())
+}
+
 /// An OS's logo for the neofetch-style About panel (`data/hub/fetch.ron`).
 #[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct FetchDef {

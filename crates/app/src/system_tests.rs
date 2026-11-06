@@ -96,6 +96,83 @@ fn the_panel_list_switches_panels() {
 }
 
 #[test]
+fn liza_arrows_walk_the_panel_list_once_it_has_been_clicked() {
+    let (d, s) = (data(), save(&data()));
+    let mut h = Harness::new(900.0, 700.0);
+    let mut p = SystemUi::default();
+    frame(&mut h, &d, &s, &mut p, Vec::new());
+    // Nothing has the list yet: the arrows belong to whatever else is open.
+    frame(&mut h, &d, &s, &mut p, key(Key::ArrowDown));
+    assert_eq!(p.panel, Panel::Overview, "the list isn't focused yet");
+    let ev = press(&h, Panel::Monitor.label());
+    frame(&mut h, &d, &s, &mut p, ev);
+    assert_eq!(p.panel, Panel::Monitor);
+    for want in [Panel::Theme, Panel::Disk, Panel::Disk] {
+        frame(&mut h, &d, &s, &mut p, key(Key::ArrowDown));
+        assert_eq!(p.panel, want, "down, held at the end");
+    }
+    for want in [
+        Panel::Theme,
+        Panel::Monitor,
+        Panel::Overview,
+        Panel::Overview,
+    ] {
+        frame(&mut h, &d, &s, &mut p, key(Key::ArrowUp));
+        assert_eq!(p.panel, want, "up, held at the top");
+    }
+}
+
+#[test]
+fn liza_panel_list_runs_the_window_height_with_the_version_under_it() {
+    let (d, s) = (data(), save(&data()));
+    let mut h = Harness::new(700.0, 480.0);
+    let mut p = SystemUi::default();
+    frame(&mut h, &d, &s, &mut p, Vec::new());
+    let label = &s.firmware_def(&d).label;
+    let version = h.find(label).expect("the version under the list");
+    assert!(
+        version.bottom() > 480.0 - 30.0,
+        "the version sits at the bottom of the window, not mid-way: {version:?}"
+    );
+    let disk = h.find(Panel::Disk.label()).unwrap();
+    assert!(disk.bottom() < version.top(), "every panel shows above it");
+}
+
+#[test]
+fn the_monitor_panel_is_headed_monitor_and_names_the_tube_once() {
+    let d = data();
+    let s = save(&d);
+    let mut h = Harness::new(900.0, 700.0);
+    let mut p = SystemUi {
+        panel: Panel::Monitor,
+        ..SystemUi::default()
+    };
+    frame(&mut h, &d, &s, &mut p, Vec::new());
+    // Where each text was drawn, once per place (the harness keeps both frames' widgets).
+    let places = |t: &str| {
+        let mut r: Vec<_> = h
+            .all(t)
+            .into_iter()
+            .map(|r| (r.left() as i32, r.top() as i32))
+            .collect();
+        r.sort();
+        r.dedup();
+        r
+    };
+    let heading = places("Monitor")
+        .into_iter()
+        .filter(|&(x, _)| x as f32 > cp::LIST_W)
+        .count();
+    assert_eq!(heading, 1, "the panel says what it is, beside the list");
+    let title = s.monitor_def(&d).title();
+    assert_eq!(
+        places(&title).len(),
+        1,
+        "the tube is named once, by its radio button"
+    );
+}
+
+#[test]
 fn about_this_deck_shows_the_deck_and_only_owned_software() {
     let d = data();
     let mut s = save(&d);
@@ -641,4 +718,216 @@ fn anarchy_fits_a_half_screen_tile() {
     let ev = press(&h, "d defrag");
     frame(&mut h, &d, &s, &mut st, ev);
     assert!(st.defrag.is_some());
+}
+
+// Switching decks and firmware from the windowed System (Liza and Desktop).
+
+#[test]
+fn about_this_deck_switches_decks_on_liza() {
+    let d = data();
+    let s = on_deck(&d, "sensenet");
+    for other in d.hardware.decks.iter().filter(|x| x.id != s.deck) {
+        assert_eq!(
+            click(&d, &s, Panel::Overview, &other.title()),
+            [WbOut::Deck(other.id.clone())],
+            "{}",
+            other.id
+        );
+    }
+}
+
+/// The Ono-Sendai on its Workbench firmware (6.2), which has another firmware to switch to.
+fn ono_on_workbench(d: &Data) -> Save {
+    let mut s = on_deck(d, "onosendai");
+    s.use_firmware(d, "6.2").unwrap();
+    assert_eq!(
+        s.firmware_def(d).desktop,
+        ninsei_core::hardware::Desktop::Workbench
+    );
+    s
+}
+
+#[test]
+fn about_this_deck_switches_firmware_on_desktop() {
+    let d = data();
+    let s = ono_on_workbench(&d);
+    let other = s
+        .deck_def(&d)
+        .firmware
+        .iter()
+        .find(|f| f.id != s.firmware_def(&d).id)
+        .unwrap();
+    assert_eq!(
+        click(&d, &s, Panel::Overview, &other.label),
+        [WbOut::Firmware(other.id.clone())]
+    );
+}
+
+// What System sends really changes the save: the click, then the app's own settings step.
+
+/// Applies what a click sent, the way the app does.
+fn apply_all(s: &mut Save, d: &Data, outs: Vec<WbOut>) -> Vec<crate::settings::Applied> {
+    outs.into_iter()
+        .map(|o| crate::settings::apply(s, d, o))
+        .collect()
+}
+
+#[test]
+fn system_clicks_change_the_save() {
+    use crate::settings::Applied;
+    let d = data();
+
+    // A theme, on a colour tube.
+    let mut s = save(&d);
+    s.plug_monitor(
+        &d,
+        &d.hardware.monitors.iter().find(|m| m.colour).unwrap().id,
+    )
+    .unwrap();
+    let theme = d.themes.iter().find(|t| t.id != s.phosphor).unwrap();
+    let outs = click(&d, &s, Panel::Theme, &theme.label);
+    assert_eq!(
+        apply_all(&mut s, &d, outs),
+        [Applied::Theme(theme.label.clone())]
+    );
+    assert_eq!(s.phosphor, theme.id);
+
+    // A monitor.
+    let tube = d
+        .hardware
+        .monitors
+        .iter()
+        .find(|m| m.id != s.monitor)
+        .unwrap();
+    let outs = click(&d, &s, Panel::Monitor, &tube.title());
+    assert!(matches!(
+        apply_all(&mut s, &d, outs)[..],
+        [Applied::Hardware(_)]
+    ));
+    assert_eq!(s.monitor, tube.id);
+
+    // The switches.
+    let (glitches, intros) = (s.glitches, s.intros);
+    let other = Glitches::ALL.into_iter().find(|&g| g != glitches).unwrap();
+    let outs = click(&d, &s, Panel::Overview, other.label());
+    apply_all(&mut s, &d, outs);
+    assert_eq!(s.glitches, other);
+    let outs = click(&d, &s, Panel::Overview, "Cracktros");
+    apply_all(&mut s, &d, outs);
+    assert_eq!(s.intros, !intros);
+
+    // A deck: the desktop changes with it.
+    let mut s = on_deck(&d, "sensenet");
+    let ono = d.hardware.deck("onosendai").unwrap();
+    let outs = click(&d, &s, Panel::Overview, &ono.title());
+    assert!(matches!(
+        apply_all(&mut s, &d, outs)[..],
+        [Applied::Hardware(_)]
+    ));
+    assert_eq!(s.deck, "onosendai");
+    assert_eq!(
+        s.firmware_def(&d).desktop,
+        ninsei_core::hardware::Desktop::Tiling
+    );
+
+    // Firmware: from Desktop back to AnarchyOS.
+    let mut s = ono_on_workbench(&d);
+    let outs = click(&d, &s, Panel::Overview, "Cyberspace 7.0");
+    assert!(matches!(
+        apply_all(&mut s, &d, outs)[..],
+        [Applied::Hardware(_)]
+    ));
+    assert_eq!(
+        s.firmware_def(&d).desktop,
+        ninsei_core::hardware::Desktop::Tiling
+    );
+}
+
+#[test]
+fn refused_settings_leave_the_save_alone() {
+    use crate::settings::{Applied, apply};
+    let d = data();
+    let mut s = save(&d);
+    let mono = d.hardware.monitors.iter().find(|m| !m.colour).unwrap();
+    s.plug_monitor(&d, &mono.id).unwrap();
+    let locked = s.phosphor.clone();
+    let other = d.themes.iter().find(|t| t.id != locked).unwrap();
+    assert!(matches!(
+        apply(&mut s, &d, WbOut::Theme(other.id.clone())),
+        Applied::Refused(_)
+    ));
+    assert_eq!(s.phosphor, locked, "a mono tube keeps its theme");
+    assert!(matches!(
+        apply(&mut s, &d, WbOut::Deck("nope".into())),
+        Applied::Refused(_)
+    ));
+    assert!(
+        matches!(apply(&mut s, &d, WbOut::Crt), Applied::Other(WbOut::Crt)),
+        "the app handles the CRT itself"
+    );
+}
+
+// Desktop (Workbench): its Disk panel works like Liza's.
+
+#[test]
+fn desktop_disk_picks_then_installs() {
+    let d = data();
+    let mut s = on_deck(&d, "hosaka");
+    assert_eq!(
+        s.firmware_def(&d).desktop,
+        ninsei_core::hardware::Desktop::Workbench
+    );
+    stash(&d, &mut s, "torch", 7);
+    let mut h = Harness::new(900.0, 700.0);
+    let mut st = SystemUi {
+        panel: Panel::Disk,
+        ..SystemUi::default()
+    };
+    frame(&mut h, &d, &s, &mut st, Vec::new());
+    let torch = Disk::Stash(7);
+    let ev = press(&h, &file_of(&d, &s, &torch));
+    frame(&mut h, &d, &s, &mut st, ev);
+    assert_eq!(st.picked, Some(torch.clone()));
+    let ev = press(&h, "Install ▸");
+    assert_eq!(frame(&mut h, &d, &s, &mut st, ev), [WbOut::Install(torch)]);
+}
+
+// Every panel fits its window: nothing reaches past what the window would clip.
+
+/// A tool window's body on Liza and on Desktop, a little under both (700x500 windows).
+const WINDOW_BODY: (f32, f32) = (680.0, 464.0);
+
+/// A full save: every monitor, deck and tool, and a stash filled to the brim.
+fn full(d: &Data, deck: &str) -> Save {
+    let mut s = on_deck(d, deck);
+    let room = s.stash_cap(&d.rig) as usize;
+    for (i, w) in d.warez.iter().cycle().take(room).enumerate() {
+        stash(d, &mut s, &w.id, 100 + i as u32);
+    }
+    s
+}
+
+#[test]
+fn every_panel_fits_its_window_on_liza_and_desktop() {
+    let d = data();
+    for deck in ["sensenet", "hosaka"] {
+        let s = full(&d, deck);
+        for panel in Panel::ALL {
+            let mut h = Harness::new(WINDOW_BODY.0, WINDOW_BODY.1);
+            let mut st = SystemUi {
+                panel,
+                ..SystemUi::default()
+            };
+            frame(&mut h, &d, &s, &mut st, Vec::new());
+            let area = egui::Rect::from_min_size(
+                egui::Pos2::ZERO,
+                egui::vec2(WINDOW_BODY.0, WINDOW_BODY.1),
+            );
+            let out = h.outside(area);
+            assert!(
+                out.is_empty(),
+                "{deck} {panel:?}: past the window's edge: {out:?}"
+            );
+        }
+    }
 }

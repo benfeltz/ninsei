@@ -678,6 +678,7 @@ pub struct Sources<'a> {
     pub shopper: &'a str,
     pub disk: &'a str,
     pub fetch: &'a str,
+    pub panel_icons: &'a str,
     pub sounds: &'a [PackSrc<'a>],
     pub art: &'a [ArtSrc<'a>],
     pub intros: &'a [IntroSrc<'a>],
@@ -711,6 +712,7 @@ impl Sources<'static> {
             shopper: include_str!("../../../data/hub/shopper.ron"),
             disk: include_str!("../../../data/hub/disk.ron"),
             fetch: include_str!("../../../data/hub/fetch.ron"),
+            panel_icons: include_str!("../../../data/hub/panel_icons.ron"),
             sounds: BUILTIN_SOUNDS,
             art: BUILTIN_ART,
             intros: BUILTIN_INTROS,
@@ -758,6 +760,8 @@ pub struct Data {
     pub disk: crate::disk::DiskDef,
     /// System's neofetch-style logos, one per desktop.
     pub fetch: Vec<crate::system::FetchDef>,
+    /// System's panel icons for Liza's Control Panel list.
+    pub panel_icons: Vec<crate::system::PanelIconDef>,
     /// Sound packs: what each cue plays, one pack per file in `data/sounds/`.
     pub sounds: Vec<crate::cue::SoundPack>,
     /// 1-bit pictures, one per file in `data/art/` (deck heroes and the like).
@@ -818,6 +822,8 @@ impl Data {
             shopper: ron::from_str(src.shopper).map_err(|e| format!("hub/shopper.ron: {e}"))?,
             disk: ron::from_str(src.disk).map_err(|e| format!("hub/disk.ron: {e}"))?,
             fetch: ron::from_str(src.fetch).map_err(|e| format!("hub/fetch.ron: {e}"))?,
+            panel_icons: ron::from_str(src.panel_icons)
+                .map_err(|e| format!("hub/panel_icons.ron: {e}"))?,
             welcome: ron::from_str(src.welcome).map_err(|e| format!("stacks/welcome.ron: {e}"))?,
             starts: ron::from_str(src.starts).map_err(|e| format!("hub/starts.ron: {e}"))?,
             intros: src
@@ -976,6 +982,8 @@ impl Data {
             .map_err(|e| format!("hub/disk.ron: {e}"))?;
         crate::system::FetchDef::validate(&self.fetch)
             .map_err(|e| format!("hub/fetch.ron: {e}"))?;
+        crate::system::PanelIconDef::validate(&self.panel_icons)
+            .map_err(|e| format!("hub/panel_icons.ron: {e}"))?;
         if self.sounds.is_empty() {
             return Err("data/sounds/ has no sound packs".into());
         }
