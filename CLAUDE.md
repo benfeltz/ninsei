@@ -24,7 +24,7 @@ CI (`.github/workflows/ci.yml`) runs fmt, clippy (native and wasm) and tests on 
 
 ## Working from tasks
 
-Tasks are Obsidian notes in `~/Documents/obsidian/Ben/notes/ninsei/` (one folder note per task, stacked work as numbered sub-task folders; `ninsei.md` there has the order). The note is the source of truth: read its Description and Log before planning, and record decisions in its Log. Most notes came from GitHub issues and carry the issue number; a PR for one still says `Closes #N` so the issue closes, but the note wins where they differ. Ask in chat if a task is ambiguous. Don't comment on GitHub issues unless asked. Bug reports carry a seed: replay it before fixing.
+Tasks are Obsidian notes in `~/Documents/obsidian/Ben/notes/ninsei/` (one folder note per task, stacked work as numbered sub-task folders; `ninsei.md` there has the order and the numbering). The note is the source of truth: read its Description and Log before planning, and record decisions in its Log. GitHub issues are no longer used; tasks numbered up to 133 came from issues of the same number, and a PR for one of those may still say `Closes #N`. A PR names its task note in the body. Ask in chat if a task is ambiguous. Bug notes carry a seed: replay it before fixing.
 
 ## Definition of done
 
