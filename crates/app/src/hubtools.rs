@@ -1,14 +1,14 @@
-//! The hub's tool windows: CarrierTerm (phonebook), RIG (deck shop), STASH (programs and
-//! loadout) and HexEd.
+//! The hub's tool windows: CarrierTerm (phonebook), STASH (programs and loadout) and HexEd.
+//! CPU Shopper is in `shopper.rs`.
 //! They draw from the save and report what you clicked as [`WbOut`]s; the app applies those
 //! through `Save`'s methods in core.
 
 use egui::{RichText, Ui, Visuals};
+use ninsei_core::directory::{self, Filter, Listed};
 use ninsei_core::hexedit::HexBuffer;
-use ninsei_core::hub::{Answer, Save, ScanResult, Upgrade};
+use ninsei_core::hub::{Answer, Save, ScanResult, Tool};
 use ninsei_core::modem::Handshake;
-use ninsei_core::tuning::HEAT_MAX;
-use ninsei_core::{Data, binary, tuning};
+use ninsei_core::{Data, binary};
 
 use crate::hexview::{self, HexCtx, HexOut};
 use crate::home::{Dialing, WbOut, accent, backdrop, fill, ink, muted, shadow};
@@ -62,210 +62,6 @@ fn wb_palette() -> Palette {
 
 fn dim(text: impl Into<String>) -> RichText {
     RichText::new(text).color(muted())
-}
-
-/// RIG: buy permanent deck upgrades with banked credits.
-pub fn rig(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
-    let bonus = |u| save.rig.bonus(u, &data.rig);
-    ui.horizontal(|ui| {
-        ui.label(
-            RichText::new(format!("bank {}¢", save.bank))
-                .color(accent())
-                .strong(),
-        );
-        ui.label(dim(format!(
-            "next run: CPU {}  RAM {}  HDD {}  INTEG {}  STASH {}",
-            tuning::START_CPU + bonus(Upgrade::Cpu),
-            tuning::START_RAM + bonus(Upgrade::Ram),
-            tuning::START_HDD + bonus(Upgrade::Hdd),
-            tuning::START_INTEGRITY + bonus(Upgrade::Integrity),
-            save.stash_cap(&data.rig),
-        )));
-    });
-    ui.add_space(6.0);
-    egui::Grid::new("rig")
-        .num_columns(5)
-        .spacing([14.0, 6.0])
-        .show(ui, |ui| {
-            for def in &data.rig {
-                let lvl = save.rig.level(def.kind);
-                let pips: String = (0..def.max)
-                    .map(|i| if i < lvl { '█' } else { '░' })
-                    .collect();
-                ui.label(RichText::new(&def.label).color(ink()).strong());
-                ui.label(RichText::new(format!("+{} {}", def.step, def.unit)).color(ink()));
-                ui.label(RichText::new(pips).color(accent()))
-                    .on_hover_text(&def.blurb);
-                match def.cost(lvl) {
-                    Some(c) => {
-                        ui.label(RichText::new(format!("{c}¢")).color(if save.bank >= c {
-                            ink()
-                        } else {
-                            accent()
-                        }));
-                        if ui
-                            .add_enabled(save.bank >= c, egui::Button::new(" Buy "))
-                            .clicked()
-                        {
-                            out.push(WbOut::Buy(def.kind));
-                        }
-                    }
-                    None => {
-                        ui.label(dim("maxed"));
-                        ui.label("");
-                    }
-                }
-                ui.end_row();
-            }
-        });
-    ui.add_space(10.0);
-    hardware_shop(ui, data, save, out);
-    ui.add_space(10.0);
-    pane_shop(ui, data, save, out);
-    ui.add_space(4.0);
-    addon_shop(ui, data, save, out);
-    ui.add_space(6.0);
-    ui.label(dim(
-        "Credits come home when you reach the exit. Flatline and only the dead man's switch pays.",
-    ));
-}
-
-/// RIG's HARDWARE section: monitors and decks you don't own yet.
-fn hardware_shop(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
-    use ninsei_core::hardware::Hardware;
-    ui.label(RichText::new("HARDWARE").color(ink()).strong());
-    let mut items: Vec<(Hardware, String, &str, String, u32)> = Vec::new();
-    for m in &data.hardware.monitors {
-        let kind = if m.colour {
-            "colour monitor"
-        } else {
-            "mono monitor"
-        };
-        items.push((
-            Hardware::Monitor(m.id.clone()),
-            m.title(),
-            kind,
-            m.blurb.clone(),
-            m.price,
-        ));
-    }
-    for d in &data.hardware.decks {
-        items.push((
-            Hardware::Deck(d.id.clone()),
-            d.title(),
-            "deck",
-            d.blurb.clone(),
-            d.price,
-        ));
-    }
-    items.retain(|(hw, ..)| !save.owns(hw));
-    if items.is_empty() {
-        ui.label(dim("You own everything on the shelf."));
-        return;
-    }
-    egui::Grid::new("hardware")
-        .num_columns(4)
-        .spacing([14.0, 6.0])
-        .show(ui, |ui| {
-            for (hw, title, kind, blurb, price) in items {
-                ui.label(RichText::new(title).color(ink()).strong())
-                    .on_hover_text(blurb);
-                ui.label(dim(kind));
-                let can = save.bank >= price;
-                ui.label(RichText::new(format!("{price}¢")).color(if can {
-                    ink()
-                } else {
-                    accent()
-                }));
-                if ui.add_enabled(can, egui::Button::new(" Buy ")).clicked() {
-                    out.push(WbOut::BuyHardware(hw));
-                }
-                ui.end_row();
-            }
-        });
-    ui.label(dim("New hardware plugs straight in. Swap in Prefs."));
-}
-
-/// RIG's PANES section: extra windows for the run screen. Panes that came with a firmware
-/// you own are listed as bundled.
-fn pane_shop(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
-    ui.label(RichText::new("RUN PANES").color(ink()).strong());
-    let bundled = |id: &str| {
-        save.decks
-            .iter()
-            .filter_map(|d| data.hardware.deck(d))
-            .flat_map(|d| d.firmware.iter().map(move |f| (d, f)))
-            .find(|(_, f)| f.panes.iter().any(|p| p == id))
-            .map(|(d, f)| format!("free on {} {}", d.name, f.id))
-    };
-    egui::Grid::new("panes")
-        .num_columns(4)
-        .spacing([14.0, 6.0])
-        .show(ui, |ui| {
-            for d in &data.panes {
-                ui.label(RichText::new(&d.name).color(ink()).strong())
-                    .on_hover_text(&d.blurb);
-                let owned = save.panes.iter().any(|p| p == &d.id);
-                ui.label(dim(bundled(&d.id).unwrap_or_default()));
-                if owned {
-                    ui.label(dim("owned"));
-                    ui.label("");
-                } else {
-                    let can = save.bank >= d.price;
-                    ui.label(RichText::new(format!("{}¢", d.price)).color(if can {
-                        ink()
-                    } else {
-                        accent()
-                    }));
-                    if ui.add_enabled(can, egui::Button::new(" Buy ")).clicked() {
-                        out.push(WbOut::BuyPane(d.id.clone()));
-                    }
-                }
-                ui.end_row();
-            }
-        });
-    ui.label(dim("Add a pane in a run from the view menu."));
-    ui.add_space(6.0);
-}
-
-/// RIG's ADD-ONS section: upgrades for the desktops your decks run.
-fn addon_shop(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
-    let desks: Vec<_> = save
-        .decks
-        .iter()
-        .filter_map(|d| data.hardware.deck(d))
-        .flat_map(|d| d.firmware.iter().map(|f| f.desktop))
-        .collect();
-    let items: Vec<_> = data
-        .addons
-        .iter()
-        .filter(|a| desks.contains(&a.desktop) && !save.has_addon(&a.id))
-        .collect();
-    ui.label(RichText::new("DESKTOP ADD-ONS").color(ink()).strong());
-    if items.is_empty() {
-        ui.label(dim("Nothing more for your desktops."));
-        return;
-    }
-    egui::Grid::new("addons")
-        .num_columns(4)
-        .spacing([14.0, 6.0])
-        .show(ui, |ui| {
-            for a in items {
-                ui.label(RichText::new(&a.name).color(ink()).strong())
-                    .on_hover_text(&a.blurb);
-                ui.label(dim(a.desktop.name()));
-                let can = save.bank >= a.price;
-                ui.label(RichText::new(format!("{}¢", a.price)).color(if can {
-                    ink()
-                } else {
-                    accent()
-                }));
-                if ui.add_enabled(can, egui::Button::new(" Buy ")).clicked() {
-                    out.push(WbOut::BuyAddon(a.id.clone()));
-                }
-                ui.end_row();
-            }
-        });
 }
 
 /// STASH: programs kept between runs, and what goes into the next one.
@@ -370,102 +166,104 @@ pub fn stash(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>, edit: 
 /// The Welcome to the Net stack as a HyperCard card: ink on paper, the card's picture on the
 /// left and its text on the right, ◀ Home ▶ along the bottom. The Home card lists the
 /// sections. Arrow keys page while the pointer is over it.
+/// A card's type and picture, sized so a full card (`cards::TEXT_COLS` x `TEXT_ROWS`) fills the
+/// book's page the way a HyperCard card filled the screen.
+mod card {
+    pub const TITLE: f32 = 24.0;
+    /// 54 columns of this beside the widest picture fit the page without wrapping.
+    pub const TEXT: f32 = 15.0;
+    pub const SMALL: f32 = 13.0;
+    pub const PICTURE: f32 = 4.0;
+}
+
 pub fn guide(ui: &mut Ui, data: &Data, at: &mut ninsei_core::cards::Place) {
+    use ninsei_core::book::Turn;
     use ninsei_core::cards::{self, Place};
     let stack = &data.welcome;
     let all = stack.cards();
     let (ink, paper) = (ink(), backdrop());
-    let over = ui
-        .ctx()
-        .pointer_hover_pos()
-        .is_some_and(|p| ui.clip_rect().contains(p));
-    if over {
-        let (l, r, h) = ui.input(|i| {
-            (
-                i.key_pressed(egui::Key::ArrowLeft),
-                i.key_pressed(egui::Key::ArrowRight),
-                i.key_pressed(egui::Key::Home),
-            )
-        });
-        if l {
-            *at = at.prev();
-        } else if r {
-            *at = at.next(stack);
-        } else if h {
-            *at = Place::Home;
-        }
-    }
+    // The shared book control: page 0 is the Home card, then every card in order.
+    let page = match *at {
+        Place::Home => 0,
+        Place::Card(i) => (i + 1).min(all.len()),
+    };
+    let (label, status) = match *at {
+        Place::Card(i) if i < all.len() => (
+            format!("card {} of {}", i + 1, all.len()),
+            stack.sections[all[i].0].name.clone(),
+        ),
+        // The window already says the stack's name; Home's status says what's in it.
+        _ => (
+            "Home".to_string(),
+            format!("{} sections", stack.sections.len()),
+        ),
+    };
     let mono = |s: &str, size: f32| RichText::new(s).monospace().size(size).color(ink);
-    egui::Frame::new()
-        .fill(paper)
-        .stroke(egui::Stroke::new(2.0, ink))
-        .corner_radius(8.0)
-        .inner_margin(14.0)
-        .show(ui, |ui| {
-            ui.set_min_size(egui::vec2(560.0, 300.0));
-            match *at {
-                Place::Home => {
-                    ui.label(mono(&stack.title, 20.0).strong());
-                    ui.label(mono("from your friends at Sense/Net", 12.0));
-                    ui.add_space(10.0);
-                    for (i, s) in stack.sections.iter().enumerate() {
-                        let n = s.cards.len();
-                        if ui
-                            .button(mono(&format!("{:<16} {n} card(s)", s.name), 14.0))
-                            .clicked()
-                        {
-                            *at = Place::Card(stack.section_start(i));
-                        }
+    let book = crate::pager::Book {
+        at: page,
+        count: all.len() + 1,
+        label: &label,
+        status: &status,
+    };
+    let next = crate::pager::show(ui, book, |ui, rect| {
+        // The card fills the page.
+        ui.painter().rect(
+            rect,
+            8.0,
+            paper,
+            egui::Stroke::new(2.0, ink),
+            egui::StrokeKind::Inside,
+        );
+        let mut ui = crate::pager::area(ui, rect.shrink(16.0));
+        let ui = &mut ui;
+        let mut to = None;
+        match *at {
+            Place::Home => {
+                ui.label(mono(&stack.title, card::TITLE).strong());
+                ui.label(mono("from your friends at Sense/Net", card::SMALL));
+                ui.add_space(14.0);
+                for (i, s) in stack.sections.iter().enumerate() {
+                    let n = s.cards.len();
+                    if ui
+                        .button(mono(&format!("{:<16} {n} card(s)", s.name), card::TEXT))
+                        .clicked()
+                    {
+                        to = Some(Turn::To(stack.section_start(i) + 1));
                     }
                 }
-                Place::Card(i) => {
-                    let Some((sec, card)) = all.get(i) else {
-                        *at = Place::Home;
-                        return;
-                    };
-                    ui.horizontal(|ui| {
-                        ui.label(mono(&card.title, 18.0).strong());
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            ui.label(mono(&stack.sections[*sec].name, 12.0));
-                        });
-                    });
-                    ui.add_space(8.0);
-                    ui.horizontal_top(|ui| {
-                        if let Some(rows) =
-                            card.picture.as_ref().and_then(|p| stack.pictures.get(p))
-                        {
-                            let scale = 3.0;
-                            let size = crate::patterns::bitmap_size(rows, scale);
-                            let (r, _) = ui.allocate_exact_size(size, egui::Sense::hover());
-                            crate::patterns::bitmap(ui.painter(), rows, r.min, scale, ink, paper);
-                            ui.add_space(12.0);
-                        }
-                        ui.vertical(|ui| {
-                            for l in &card.text {
-                                ui.label(mono(&cards::fill(l, data), 13.0));
-                            }
-                        });
-                    });
-                }
             }
-        });
-    ui.add_space(6.0);
-    ui.horizontal(|ui| {
-        if ui.button(mono("◀", 14.0)).clicked() {
-            *at = at.prev();
+            Place::Card(i) => {
+                let Some((sec, card)) = all.get(i) else {
+                    return Some(Turn::Home);
+                };
+                ui.horizontal(|ui| {
+                    ui.label(mono(&card.title, card::TITLE).strong());
+                    ui.add_space(12.0);
+                    ui.label(mono(&stack.sections[*sec].name, card::SMALL));
+                });
+                ui.add_space(12.0);
+                ui.horizontal_top(|ui| {
+                    if let Some(rows) = card.picture.as_ref().and_then(|p| stack.pictures.get(p)) {
+                        let scale = card::PICTURE;
+                        let size = crate::patterns::bitmap_size(rows, scale);
+                        let (r, _) = ui.allocate_exact_size(size, egui::Sense::hover());
+                        crate::patterns::bitmap(ui.painter(), rows, r.min, scale, ink, paper);
+                        ui.add_space(16.0);
+                    }
+                    ui.vertical(|ui| {
+                        for l in &card.text {
+                            ui.label(mono(&cards::fill(l, data), card::TEXT));
+                        }
+                    });
+                });
+            }
         }
-        if ui.button(mono("Home", 14.0)).clicked() {
-            *at = Place::Home;
-        }
-        if ui.button(mono("▶", 14.0)).clicked() {
-            *at = at.next(stack);
-        }
-        let where_ = match *at {
-            Place::Home => "Home".to_string(),
-            Place::Card(i) => format!("card {} of {}", i + 1, all.len()),
-        };
-        ui.label(RichText::new(where_).monospace().color(muted()));
+        to
     });
+    *at = match next {
+        0 => Place::Home,
+        n => Place::Card(n - 1),
+    };
 }
 
 /// The ICE database: every ICE down the left (`????` until you've met it), the picked one's
@@ -571,244 +369,480 @@ pub fn hexed(
     }
 }
 
-/// CarrierTerm: a Telix-style dialing directory. Pick a number, see what you're walking into, dial.
+/// CarrierTerm's directory, as the player left it: what's typed, the filter, the line picked.
+#[derive(Default)]
+pub struct Directory {
+    pub sel: Option<Listed>,
+    pub query: String,
+    pub filter: Filter,
+    /// The pass the directory was last drawn on (none yet: it has just opened); a gap means
+    /// it just came back.
+    drawn: Option<u64>,
+    /// The search box should take the keys at the next chance (an enabled frame).
+    want_focus: bool,
+}
+
+/// Width of the directory card beside the list.
+const CARD_W: f32 = 250.0;
+/// Widest the dialing card gets beside the sidebar.
+const DIAL_CARD_W: f32 = 340.0;
+/// Height of the card's big Dial / Call button.
+const BIG_BUTTON_H: f32 = 44.0;
+/// Height of the dialing card's progress bar.
+const PROGRESS_H: f32 = 12.0;
+/// Width of the search box.
+const SEARCH_W: f32 = 220.0;
+/// Name column width in the directory list, in characters.
+const NAME_COLS: usize = 24;
+/// Number column width, in characters (`555-0420`, plus one).
+const NUMBER_COLS: usize = 9;
+/// Space between columns, in characters.
+const GUTTER: usize = 2;
+/// The fewest characters of a listing worth showing as a column.
+const LISTING_MIN_COLS: usize = 10;
+/// The narrowest the directory list goes beside the card; narrower, the card goes under it.
+const LIST_MIN_W: f32 = 300.0;
+/// The list's height when the card sits under it.
+const NARROW_LIST_H: f32 = 140.0;
+/// Height kept under the list for its status line.
+const FOOTER_H: f32 = 22.0;
+/// The search box's widget id.
+const FIND_ID: &str = "carrierterm-find";
+
+/// Width of one monospace character in `ui`'s current style.
+fn mono_char_w(ui: &Ui) -> f32 {
+    let font = egui::TextStyle::Monospace.resolve(ui.style());
+    ui.fonts_mut(|f| f.glyph_width(&font, 'M')).max(1.0)
+}
+
+/// The width `ui` can draw in and be seen: a tile can lay out wider than it shows.
+fn visible_width(ui: &Ui) -> f32 {
+    ui.available_width()
+        .min(ui.clip_rect().right() - ui.cursor().left())
+}
+
+/// Space a vertical separator takes between two columns.
+fn separator_gap(ui: &Ui) -> f32 {
+    // egui's separator is 6pt of spacing plus the item spacing on each side.
+    6.0 + ui.spacing().item_spacing.x * 2.0
+}
+
+/// The directory's filter buttons. Returns whether one was clicked.
+fn filter_buttons(ui: &mut Ui, filter: &mut Filter) -> bool {
+    let mut clicked = false;
+    for f in Filter::ALL {
+        if ui.selectable_label(*filter == f, f.label()).clicked() {
+            *filter = f;
+            clicked = true;
+        }
+    }
+    clicked
+}
+
+/// A full-width row of the directory, inverse when `on`. `live` rows can be clicked.
+fn dir_row(ui: &mut Ui, line: String, on: bool, live: bool) -> egui::Response {
+    let text = RichText::new(line)
+        .monospace()
+        .color(if on { shadow() } else { ink() });
+    let b = egui::Button::selectable(on, text)
+        .min_size(egui::vec2(ui.available_width(), 0.0))
+        .wrap_mode(egui::TextWrapMode::Truncate);
+    ui.add(if live {
+        b
+    } else {
+        b.sense(egui::Sense::hover())
+    })
+}
+
+/// The list's box: an outline the full height it's given, so a short list reads as a list.
+fn list_box<R>(ui: &mut Ui, height: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
+    egui::Frame::new()
+        .stroke(egui::Stroke::new(1.0, muted()))
+        .inner_margin(2.0)
+        .show(ui, |ui| {
+            egui::ScrollArea::vertical()
+                .id_salt("carrierterm-dir")
+                .auto_shrink([false, false])
+                .max_height(height)
+                .show(ui, add)
+                .inner
+        })
+        .inner
+}
+
+/// CarrierTerm: a friendly dialing directory. Search the numbers you know, pick one, and dial
+/// it (a network) or call it (a board). Who they are and how to reach them; never what's
+/// behind a number, which is NiGHTCOMM's business.
+#[allow(clippy::too_many_arguments)]
 pub fn carrierterm(
     ui: &mut Ui,
     data: &Data,
     save: &Save,
-    sel: &mut Option<u32>,
+    dir: &mut Directory,
     dialing: Option<&Dialing>,
     dial: &mut Option<u32>,
+    hang_up: &mut bool,
     out: &mut Vec<WbOut>,
 ) {
-    let mono = |t: String, c| RichText::new(t).monospace().color(c);
+    // Side by side when there's room for both; in a narrow tile the card goes under the list.
+    let avail = visible_width(ui);
+    let wide = avail >= CARD_W + LIST_MIN_W;
     if let Some(d) = dialing {
-        let Some(e) = save.entry(d.entry) else { return };
-        ui.label(
-            RichText::new(format!("Dialing {}", e.name))
-                .color(accent())
-                .strong(),
-        );
-        ui.add_space(6.0);
-        // Lines land on the handshake's beats, so text and sound stay in step.
-        let h = Handshake::new(&e.number);
-        let mut script = vec![
-            (0.0, "ATZ".to_string(), ink()),
-            (h.offhook / 2.0, "OK".to_string(), ink()),
-            (h.offhook, format!("ATDT {}", e.number), ink()),
-        ];
-        script.extend(
-            h.rings
+        *hang_up = dialing_view(ui, data, save, dir, d, wide);
+        return;
+    }
+    // Not drawn last pass: the window just opened, or a splash or a call just ended. The
+    // search box takes the keys, so ↑↓ and Enter work straight away.
+    let pass = ui.ctx().cumulative_pass_nr();
+    if dir.drawn.is_none_or(|d| d + 1 < pass) {
+        dir.want_focus = true;
+    }
+    dir.drawn = Some(pass);
+    let find = egui::Id::new(FIND_ID);
+    // `/` searches, when nothing else has the keys and the pointer is over the directory.
+    let over = ui.clip_rect();
+    let slash = ui.input(|i| {
+        i.pointer.hover_pos().is_some_and(|p| over.contains(p))
+            && i.events
                 .iter()
-                .map(|&r| (r, "~~ RING ~~".to_string(), ink())),
+                .any(|e| matches!(e, egui::Event::Text(t) if t == "/"))
+    });
+    if slash && ui.memory(|m| m.focused().is_none()) {
+        dir.want_focus = true;
+    }
+    // Keep the request until it can land: a disabled frame would hand the focus back.
+    if dir.want_focus && ui.is_enabled() {
+        ui.memory_mut(|m| m.request_focus(find));
+        dir.want_focus = false;
+    }
+
+    let mut keys = (false, false, false);
+    let mut refocus = false;
+    ui.horizontal(|ui| {
+        ui.label(dim("Find"));
+        let r = ui.add(
+            egui::TextEdit::singleline(&mut dir.query)
+                .id(find)
+                .hint_text("name, number or listing")
+                .desired_width(SEARCH_W.min(avail - 60.0).max(80.0)),
         );
-        script.push((h.connect, "CONNECT 2400/ARQ".to_string(), accent()));
-        script.push((
-            h.connect + (h.end - h.connect) / 2.0,
-            "CARRIER DETECTED. JACKING IN...".to_string(),
-            accent(),
-        ));
-        for (at, line, col) in script {
-            if d.t >= at {
-                ui.label(mono(line, col));
-            }
+        // Arrows and Enter drive the list while the search box has the keys.
+        let (focus, left) = (r.has_focus(), r.lost_focus());
+        keys = ui.input(|i| {
+            (
+                focus && i.key_pressed(egui::Key::ArrowUp),
+                focus && i.key_pressed(egui::Key::ArrowDown),
+                left && i.key_pressed(egui::Key::Enter),
+            )
+        });
+        if wide {
+            ui.add_space(8.0);
+            refocus |= filter_buttons(ui, &mut dir.filter);
         }
-        let frac = (d.t / h.end).clamp(0.0, 1.0);
-        let cells = 40;
-        let on = (frac * cells as f32) as usize;
-        ui.add_space(6.0);
-        ui.label(mono(
-            format!("[{}{}]", "█".repeat(on), "░".repeat(cells - on)),
-            accent(),
-        ));
-        return;
+    });
+    // Narrow: the filters get their own row rather than wrapping one under the box.
+    if !wide {
+        ui.horizontal(|ui| refocus |= filter_buttons(ui, &mut dir.filter));
     }
-    boards(ui, data, save, out);
-    if save.phonebook.is_empty() {
-        ui.label(dim("The phonebook is empty."));
-        return;
+    ui.separator();
+
+    let shown = directory::search(save, data, &dir.query, dir.filter);
+    if !dir.sel.is_some_and(|s| shown.iter().any(|l| l.key == s)) {
+        dir.sel = shown.first().map(|l| l.key);
     }
-    if sel.is_none_or(|id| save.entry(id).is_none()) {
-        *sel = save.phonebook.first().map(|e| e.id);
+    let (up, down, enter) = keys;
+    let moved = up || down;
+    if moved {
+        dir.sel = directory::step(&shown, dir.sel, if up { -1 } else { 1 });
     }
-    // A business directory: who they are and how to reach them. What's behind a number is
-    // NiGHTCOMM's business, not CarrierTerm's.
-    ui.label(mono(
-        format!("{:<3} {:<9} {:<26} {}", "#", "NUMBER", "NAME", "BUSINESS"),
-        ink(),
-    ));
-    egui::ScrollArea::vertical()
-        .max_height(150.0)
-        .show(ui, |ui| {
-            for (i, e) in save.phonebook.iter().enumerate() {
-                let line = format!("{:<3} {:<9} {:<26} {}", i + 1, e.number, e.name, e.business);
-                let on = *sel == Some(e.id);
-                let r = ui.selectable_label(on, mono(line, if on { shadow() } else { ink() }));
+    let mut go = None;
+    if enter {
+        go = dir.sel;
+    }
+    let searching = ui.memory(|m| m.has_focus(find));
+
+    let list_w = if wide {
+        avail - CARD_W - separator_gap(ui)
+    } else {
+        avail
+    };
+    // Columns that fit: the listing is dropped first, then names are cut short.
+    let cols = (list_w / mono_char_w(ui)) as usize;
+    let show_listing = cols >= NUMBER_COLS + GUTTER + NAME_COLS + GUTTER + LISTING_MIN_COLS;
+    let name_cols = NAME_COLS.min(cols.saturating_sub(NUMBER_COLS + GUTTER + 1).max(8));
+    let line = |number: &str, name: &str, listed: &str| {
+        let name: String = name.chars().take(name_cols).collect();
+        let g = " ".repeat(GUTTER);
+        let row = format!("{number:<NUMBER_COLS$}{g}{name:<name_cols$}");
+        if show_listing {
+            format!("{row}{g}{listed}")
+        } else {
+            row
+        }
+    };
+    let mut list = |ui: &mut Ui, sel: &mut Option<Listed>| {
+        ui.label(
+            RichText::new(line("NUMBER", "NAME", "LISTED AS"))
+                .monospace()
+                .color(muted()),
+        );
+        let height = if wide {
+            (ui.available_height() - FOOTER_H - 8.0).max(80.0)
+        } else {
+            NARROW_LIST_H
+        };
+        list_box(ui, height, |ui| {
+            if shown.is_empty() {
+                ui.label(dim("Nothing matches."));
+            }
+            for l in &shown {
+                let on = *sel == Some(l.key);
+                let r = dir_row(ui, line(&l.number, &l.name, &l.listed_as), on, true);
+                if on && moved {
+                    r.scroll_to_me(None);
+                }
                 if r.clicked() {
-                    *sel = Some(e.id);
+                    *sel = Some(l.key);
+                    refocus = true;
                 }
                 if r.double_clicked() {
-                    *dial = Some(e.id);
+                    go = Some(l.key);
                 }
             }
         });
-    ui.add_space(6.0);
-    let Some(e) = sel.and_then(|id| save.entry(id)) else {
-        return;
+        let total = directory::listings(save, data).len();
+        let keys = if searching {
+            "↑↓ choose  ·  Enter dial"
+        } else {
+            "/ to search"
+        };
+        ui.label(dim(format!(
+            "{} of {total} numbers  ·  {keys}",
+            shown.len()
+        )));
     };
-    ui.label(
-        RichText::new(format!("{}  ·  {}", e.name, e.business))
-            .color(accent())
-            .strong(),
-    );
-    ui.label(dim(format!("Dial-up line {}.", e.number)));
-    ui.add_space(6.0);
-    ui.horizontal(|ui| {
-        if ui.button(format!(" Dial {} ", e.number)).clicked() {
-            *dial = Some(e.id);
-        }
-        ui.label(dim("double-click a number to dial it"));
-    });
+    // The card's button: the line it dials, if pressed.
+    let show_card = |ui: &mut Ui, sel: Option<Listed>| {
+        ui.set_width(CARD_W.min(visible_width(ui)));
+        sel.filter(|&key| card(ui, data, save, key))
+    };
+    let mut sel = dir.sel;
+    let pick = if wide {
+        ui.horizontal_top(|ui| {
+            ui.vertical(|ui| {
+                ui.set_width(list_w);
+                list(ui, &mut sel);
+            });
+            ui.separator();
+            ui.vertical(|ui| show_card(ui, sel)).inner
+        })
+        .inner
+    } else {
+        list(ui, &mut sel);
+        ui.separator();
+        show_card(ui, sel)
+    };
+    dir.sel = sel;
+    go = go.or(pick);
+    // Clicking a row or a filter leaves the keys with the search box, like a list box's.
+    // Not after Enter: a board's window opens and takes the keys.
+    if refocus && go.is_none() {
+        dir.want_focus = true;
+    }
+
+    match go {
+        Some(Listed::Entry(id)) => *dial = Some(id),
+        Some(Listed::Board(b)) => out.push(WbOut::Call(data.boards[b].id.clone())),
+        None => {}
+    }
 }
 
-/// NiGHTCOMM, the hacker terminal: every number you know with its tier and heat, and what's
-/// behind it (layers, ICE, pay, trace, quirks). Dialing goes through CarrierTerm's modem.
-pub fn nightcomm(
+/// The card's title: the name, then what it's listed as and its number on a line below.
+fn card_title(ui: &mut Ui, name: &str, sub: String) {
+    ui.label(RichText::new(name).color(accent()).strong().size(18.0));
+    ui.label(dim(sub));
+}
+
+/// A big button across the card.
+fn big_button(ui: &mut Ui, text: String) -> bool {
+    ui.add_sized(
+        [ui.available_width(), BIG_BUTTON_H],
+        egui::Button::new(RichText::new(text).color(ink()).strong().size(16.0)),
+    )
+    .clicked()
+}
+
+/// The directory card for `key`: who it is and how to reach them, over a big Dial or Call
+/// button. Returns whether the button was pressed.
+fn card(ui: &mut Ui, data: &Data, save: &Save, key: Listed) -> bool {
+    let row = |ui: &mut Ui, k: &str, v: String| {
+        ui.label(dim(k));
+        ui.label(RichText::new(v).color(ink()));
+        ui.end_row();
+    };
+    let (name, number, verb) = match key {
+        Listed::Entry(id) => {
+            let Some(e) = save.entry(id) else {
+                return false;
+            };
+            (e.name.clone(), e.number.clone(), "Dial")
+        }
+        Listed::Board(b) => {
+            let d = &data.boards[b];
+            (d.name.clone(), d.phone.clone(), "Call")
+        }
+    };
+    ui.label(dim("DIRECTORY CARD"));
+    ui.label(RichText::new(&name).color(accent()).strong().size(18.0));
+    ui.add_space(4.0);
+    egui::Grid::new("carrierterm-card")
+        .num_columns(2)
+        .spacing([10.0, 4.0])
+        .show(ui, |ui| match key {
+            Listed::Entry(id) => {
+                let Some(e) = save.entry(id) else { return };
+                row(ui, "Number", e.number.clone());
+                row(ui, "Listed as", e.business.clone());
+                row(ui, "Cost", "free (local)".into());
+                row(
+                    ui,
+                    "Calls",
+                    match e.runs {
+                        0 => "never".into(),
+                        1 => "once".into(),
+                        n => format!("{n} times"),
+                    },
+                );
+            }
+            Listed::Board(b) => {
+                let d = &data.boards[b];
+                row(ui, "Number", d.phone.clone());
+                row(ui, "Listed as", directory::BOARD_LISTING.into());
+                row(ui, "Sysop", d.sysop.clone());
+                row(ui, "Speed", format!("{} baud", d.baud));
+                row(
+                    ui,
+                    "Cost",
+                    match d.call_cost {
+                        0 => "free (local)".into(),
+                        c => format!("{c}¢ a call"),
+                    },
+                );
+            }
+        });
+    ui.add_space(10.0);
+    big_button(ui, format!("{verb} {number}"))
+}
+
+/// A call under way. Beside the directory (shrunk to a sidebar, held still) when there's
+/// room, alone in a narrow tile.
+fn dialing_view(
     ui: &mut Ui,
     data: &Data,
     save: &Save,
-    sel: &mut Option<u32>,
-    dial: &mut Option<u32>,
-) {
-    let mono = |t: String, c| RichText::new(t).monospace().color(c);
-    ui.label(
-        RichText::new("NiGHTCOMM 3.1  ·  know your lines")
-            .monospace()
-            .strong()
-            .color(accent()),
-    );
-    ui.separator();
-    if save.phonebook.is_empty() {
-        ui.label(dim("The phonebook is empty."));
-        return;
-    }
-    if sel.is_none_or(|id| save.entry(id).is_none()) {
-        *sel = save.phonebook.first().map(|e| e.id);
-    }
-
-    ui.label(mono(
-        format!(
-            "{:<3} {:<9} {:<22} {:<5} {:<7} {}",
-            "#", "NUMBER", "NAME", "TIER", "HEAT", "RUNS"
-        ),
-        ink(),
-    ));
-    egui::ScrollArea::vertical()
-        .max_height(150.0)
-        .show(ui, |ui| {
-            for (i, e) in save.phonebook.iter().enumerate() {
-                let tier = "▪".repeat(e.tier as usize);
-                let heat: String = (0..HEAT_MAX)
-                    .map(|h| if h < e.heat { '█' } else { '░' })
-                    .collect();
-                let line = format!(
-                    "{:<3} {:<9} {:<22} {:<5} {heat:<7} {}",
-                    i + 1,
-                    e.number,
-                    e.name,
-                    tier,
-                    e.runs
-                );
-                let on = *sel == Some(e.id);
-                let r = ui.selectable_label(on, mono(line, if on { shadow() } else { ink() }));
-                if r.clicked() {
-                    *sel = Some(e.id);
+    dir: &Directory,
+    d: &Dialing,
+    wide: bool,
+) -> bool {
+    let mut hang_up = false;
+    if wide {
+        let side_w = LIST_MIN_W.min(visible_width(ui) - CARD_W - separator_gap(ui));
+        ui.horizontal_top(|ui| {
+            ui.vertical(|ui| {
+                ui.set_width(side_w);
+                let cols = (side_w / mono_char_w(ui)) as usize;
+                let name_cols = cols.saturating_sub(NUMBER_COLS + GUTTER + 1).max(8);
+                let mut shown = directory::search(save, data, &dir.query, dir.filter);
+                // The number being dialed is always in view, whatever the search left.
+                if !shown.iter().any(|l| l.key == Listed::Entry(d.entry)) {
+                    shown = directory::listings(save, data);
                 }
-                if r.double_clicked() {
-                    *dial = Some(e.id);
-                }
-            }
-        });
-    ui.add_space(6.0);
-
-    let Some(e) = sel.and_then(|id| save.entry(id)) else {
-        return;
-    };
-    let (net, mods) = Save::site_params(data, e);
-    let tier = data
-        .networks
-        .tier(e.tier)
-        .map_or("?".to_string(), |t| t.label.clone());
-    ui.label(
-        RichText::new(format!("{}  ·  {}", e.name, e.business))
-            .color(accent())
-            .strong(),
-    );
-    ui.label(mono(
-        format!(
-            "TIER {} {tier}  ·  {} layers{}  ·  ICE +{}  ·  pay {}%  ·  trace {}%",
-            e.tier,
-            net.mid_layers + 2,
-            match net.subnets {
-                0 => String::new(),
-                1 => "  ·  1 subnet".to_string(),
-                n => format!("  ·  {n} subnets"),
-            },
-            mods.ice_bonus,
-            mods.pay_pct,
-            mods.trace_pct
-        ),
-        ink(),
-    ));
-    if e.traits.is_empty() {
-        ui.label(dim("  no known quirks"));
-    }
-    for t in &e.traits {
-        if let Some(def) = data.networks.trait_def(t) {
-            ui.horizontal(|ui| {
-                ui.label(
-                    RichText::new(format!("  {}", def.label))
-                        .color(ink())
-                        .strong(),
-                );
-                ui.label(dim(&def.blurb));
+                let height = (ui.available_height() - 8.0).max(80.0);
+                list_box(ui, height, |ui| {
+                    for l in &shown {
+                        let name: String = l.name.chars().take(name_cols).collect();
+                        let g = " ".repeat(GUTTER);
+                        let on = l.key == Listed::Entry(d.entry);
+                        let r = dir_row(
+                            ui,
+                            format!("{:<NUMBER_COLS$}{g}{name}", l.number),
+                            on,
+                            false,
+                        );
+                        if on {
+                            r.scroll_to_me(None);
+                        }
+                    }
+                });
             });
-        }
+            ui.separator();
+            ui.vertical(|ui| {
+                ui.set_width(DIAL_CARD_W.min(visible_width(ui)));
+                hang_up = dialing_card(ui, save, d);
+            });
+        });
+    } else {
+        ui.vertical(|ui| {
+            ui.set_width(DIAL_CARD_W.min(visible_width(ui)));
+            hang_up = dialing_card(ui, save, d);
+        });
     }
-    if e.heat > 0 {
-        ui.label(dim(format!(
-            "  heat {}/{HEAT_MAX} from {} run(s): their ICE and trace are up.",
-            e.heat, e.runs
-        )));
-    }
-    ui.add_space(6.0);
-    ui.horizontal(|ui| {
-        if ui.button(format!(" Dial {} ", e.number)).clicked() {
-            *dial = Some(e.id);
-        }
-        ui.label(dim("double-click a number to dial it"));
-    });
+    hang_up
 }
 
-/// The BBSes you've found: call one and it opens over the desktop.
-fn boards(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
-    let known = save.known_boards(data);
-    if known.is_empty() {
-        return;
-    }
+/// The call as a checklist over a progress bar, with Hang up, all one card wide. The lines
+/// land on the handshake's beats, so text and sound stay in step. Returns whether Hang up
+/// was pressed.
+fn dialing_card(ui: &mut Ui, save: &Save, d: &Dialing) -> bool {
+    let Some(e) = save.entry(d.entry) else {
+        return false;
+    };
     let mono = |t: String, c| RichText::new(t).monospace().color(c);
-    ui.label(RichText::new("BBS").color(ink()).strong());
-    for b in known {
-        let d = &data.boards[b];
-        ui.horizontal(|ui| {
-            ui.label(mono(format!("{:<9} {:<27}", d.phone, d.name), ink()));
-            ui.label(dim(format!("{}¢/call", d.call_cost)));
-            if ui.button(" Call ").clicked() {
-                out.push(WbOut::Call(d.id.clone()));
-            }
-        });
+    ui.label(dim("CALLING"));
+    card_title(ui, &e.name, format!("{}  ·  {}", e.business, e.number));
+    ui.add_space(8.0);
+    let h = Handshake::new(&e.number);
+    let ring = h.rings.first().copied().unwrap_or(h.offhook);
+    let steps = [
+        (0.0, "ATZ: modem reset".to_string()),
+        (h.offhook, format!("ATDT {}", e.number)),
+        (ring, "Ringing…".to_string()),
+        (h.connect, "CONNECT 2400/ARQ".to_string()),
+        (
+            h.connect + (h.end - h.connect) / 2.0,
+            "Carrier detected, jacking in".to_string(),
+        ),
+    ];
+    for (i, (at, text)) in steps.iter().enumerate() {
+        let next = steps.get(i + 1).map_or(h.end, |s| s.0);
+        let (mark, col) = if d.t >= next {
+            ("■", ink())
+        } else if d.t >= *at {
+            ("»", accent())
+        } else {
+            ("·", muted())
+        };
+        ui.label(mono(format!("{mark} {text}"), col));
     }
-    ui.add_space(6.0);
+    ui.add_space(8.0);
+    // The call's progress: an outlined track filling with the accent, as wide as the card.
+    let frac = (d.t / h.end).clamp(0.0, 1.0);
+    let w = ui.available_width();
+    let (rect, _) = ui.allocate_exact_size(egui::vec2(w, PROGRESS_H), egui::Sense::hover());
+    let p = ui.painter();
+    p.rect_filled(
+        egui::Rect::from_min_size(rect.min, egui::vec2(w * frac, PROGRESS_H)),
+        0.0,
+        accent(),
+    );
+    p.rect_stroke(
+        rect,
+        0.0,
+        egui::Stroke::new(1.0, ink()),
+        egui::StrokeKind::Inside,
+    );
+    ui.add_space(10.0);
+    big_button(ui, "Hang up".into())
 }
 
 /// Finds listed beside the scan grid.
@@ -885,7 +919,7 @@ pub fn wardial(
                 )
                 .clicked()
             {
-                out.push(WbOut::Scan(r.id.clone()));
+                out.push(WbOut::Scan(r.id.clone(), Some(Tool::Terminal)));
             }
             let note = if left == 0 {
                 "tapped out"
@@ -995,7 +1029,9 @@ pub fn prefs(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
     let deck = save.deck_def(data);
 
     ui.label(RichText::new("MONITOR").color(ink()).strong());
-    ui.label(dim("Your monitor sets the CRT look. RIG sells more."));
+    ui.label(dim(
+        "Your monitor sets the CRT look. CPU Shopper sells more.",
+    ));
     for id in &save.monitors {
         let Some(m) = data.hardware.monitor(id) else {
             continue;
@@ -1068,7 +1104,7 @@ pub fn prefs(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
     ui.add_space(8.0);
 
     ui.label(RichText::new("DECK").color(ink()).strong());
-    ui.label(dim("Your deck sets how runs look. RIG sells more."));
+    ui.label(dim("Your deck sets how runs look. CPU Shopper sells more."));
     for id in &save.decks {
         let Some(d) = data.hardware.deck(id) else {
             continue;

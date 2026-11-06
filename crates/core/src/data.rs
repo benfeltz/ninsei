@@ -260,10 +260,20 @@ pub struct ToolDef {
     /// The cracktro it opens with (an id in `data/intros/`), if any.
     #[serde(default)]
     pub intro: Option<String>,
+    /// Sold by mail order in CPU Shopper, if it is.
+    #[serde(default)]
+    pub shop: Option<crate::shopper::ToolShop>,
 }
 
 /// Every tool's id: what `hub::Save::has_tool` and the desktops ask about.
-pub const TOOLS: &[&str] = &["wardial", "hexed", "qwkread", "icedb", "nightcomm"];
+pub const TOOLS: &[&str] = &[
+    "wardial",
+    "hexed",
+    "qwkread",
+    "icedb",
+    "nightcomm",
+    "tigerteam",
+];
 
 fn yes() -> bool {
     true
@@ -437,6 +447,62 @@ pub struct IntroSrc<'a> {
 /// Every intro in `data/intros/`, in file order.
 pub const BUILTIN_INTROS: &[IntroSrc<'static>] = include!(concat!(env!("OUT_DIR"), "/intros.rs"));
 
+/// One picture's source: `data/art/<id>.txt`.
+#[derive(Clone, Copy, Debug)]
+pub struct ArtSrc<'a> {
+    pub id: &'a str,
+    pub art: &'a str,
+}
+
+/// Every picture in `data/art/`, in file order.
+pub const BUILTIN_ART: &[ArtSrc<'static>] = include!(concat!(env!("OUT_DIR"), "/art.rs"));
+
+/// A 1-bit picture (`data/art/<id>.txt`): rows of `#` (ink) and `.` (paper). It's drawn in
+/// the theme's colours at a whole-number scale, so replacing one is overwriting its text file.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ArtDef {
+    pub id: String,
+    pub rows: Vec<String>,
+}
+
+/// The biggest picture `data/art/` may hold.
+pub const ART_MAX: (usize, usize) = (128, 96);
+
+impl ArtDef {
+    pub fn parse(id: &str, text: &str) -> Self {
+        Self {
+            id: id.to_string(),
+            rows: text
+                .lines()
+                .map(str::trim_end)
+                .filter(|l| !l.is_empty())
+                .map(String::from)
+                .collect(),
+        }
+    }
+
+    pub fn validate(&self) -> Result<(), String> {
+        let w = self.rows.first().map_or(0, |r| r.chars().count());
+        if w == 0 {
+            return Err("is empty".into());
+        }
+        if self.rows.iter().any(|r| r.chars().count() != w) {
+            return Err("has rows of different widths".into());
+        }
+        if self
+            .rows
+            .iter()
+            .any(|r| r.chars().any(|c| c != '#' && c != '.'))
+        {
+            return Err("may only hold `#` (ink) and `.` (paper)".into());
+        }
+        if w > ART_MAX.0 || self.rows.len() > ART_MAX.1 {
+            return Err(format!("is bigger than {}x{}", ART_MAX.0, ART_MAX.1));
+        }
+        Ok(())
+    }
+}
+
 /// Every sound pack in `data/sounds/`, in file order.
 pub const BUILTIN_SOUNDS: &[PackSrc<'static>] = include!(concat!(env!("OUT_DIR"), "/sounds.rs"));
 
@@ -602,7 +668,9 @@ pub struct Sources<'a> {
     pub tools: &'a str,
     pub addons: &'a str,
     pub panes: &'a str,
+    pub shopper: &'a str,
     pub sounds: &'a [PackSrc<'a>],
+    pub art: &'a [ArtSrc<'a>],
     pub intros: &'a [IntroSrc<'a>],
     pub welcome: &'a str,
     pub starts: &'a str,
@@ -631,7 +699,9 @@ impl Sources<'static> {
             tools: include_str!("../../../data/hub/tools.ron"),
             addons: include_str!("../../../data/hub/desktops.ron"),
             panes: include_str!("../../../data/hub/panes.ron"),
+            shopper: include_str!("../../../data/hub/shopper.ron"),
             sounds: BUILTIN_SOUNDS,
+            art: BUILTIN_ART,
             intros: BUILTIN_INTROS,
             welcome: include_str!("../../../data/stacks/welcome.ron"),
             starts: include_str!("../../../data/hub/starts.ron"),
@@ -671,8 +741,12 @@ pub struct Data {
     pub addons: Vec<crate::desktop::AddonDef>,
     /// Secondary panes you can buy for the run screen.
     pub panes: Vec<crate::panes::PaneDef>,
+    /// CPU Shopper, the RIG magazine: its cover, sections, advertisers and ads.
+    pub shopper: crate::shopper::ShopperDef,
     /// Sound packs: what each cue plays, one pack per file in `data/sounds/`.
     pub sounds: Vec<crate::cue::SoundPack>,
+    /// 1-bit pictures, one per file in `data/art/` (deck heroes and the like).
+    pub art: Vec<ArtDef>,
     /// Cracktros, one per file in `data/intros/`.
     pub intros: Vec<crate::intro::IntroDef>,
     /// The Welcome to the Net stack (`data/stacks/welcome.ron`).
@@ -726,6 +800,7 @@ impl Data {
             tools: ron::from_str(src.tools).map_err(|e| format!("hub/tools.ron: {e}"))?,
             addons: ron::from_str(src.addons).map_err(|e| format!("hub/desktops.ron: {e}"))?,
             panes: ron::from_str(src.panes).map_err(|e| format!("hub/panes.ron: {e}"))?,
+            shopper: ron::from_str(src.shopper).map_err(|e| format!("hub/shopper.ron: {e}"))?,
             welcome: ron::from_str(src.welcome).map_err(|e| format!("stacks/welcome.ron: {e}"))?,
             starts: ron::from_str(src.starts).map_err(|e| format!("hub/starts.ron: {e}"))?,
             intros: src
@@ -740,6 +815,7 @@ impl Data {
                         .map_err(|e| format!("intros/{}.ron: {e}", i.id))
                 })
                 .collect::<Result<_, _>>()?,
+            art: src.art.iter().map(|a| ArtDef::parse(a.id, a.art)).collect(),
             sounds: src
                 .sounds
                 .iter()
@@ -862,6 +938,22 @@ impl Data {
         crate::desktop::AddonDef::validate(&self.addons)
             .map_err(|e| format!("hub/desktops.ron: {e}"))?;
         crate::panes::PaneDef::validate(&self.panes).map_err(|e| format!("hub/panes.ron: {e}"))?;
+        for a in &self.art {
+            a.validate().map_err(|e| format!("art/{}.txt {e}", a.id))?;
+        }
+        for d in &self.hardware.decks {
+            if let Some(id) = &d.art
+                && self.art(id).is_none()
+            {
+                return Err(format!(
+                    "hub/hardware.ron: deck `{}` shows art `{id}`, but there's no data/art/{id}.txt",
+                    d.id
+                ));
+            }
+        }
+        self.shopper
+            .validate(self)
+            .map_err(|e| format!("hub/shopper.ron: {e}"))?;
         if self.sounds.is_empty() {
             return Err("data/sounds/ has no sound packs".into());
         }
@@ -1099,6 +1191,11 @@ impl Data {
             }
         }
         Ok(())
+    }
+
+    /// A picture from `data/art/` by id.
+    pub fn art(&self, id: &str) -> Option<&ArtDef> {
+        self.art.iter().find(|a| a.id == id)
     }
 
     /// A sound pack's cues by id.
