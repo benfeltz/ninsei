@@ -143,8 +143,10 @@ pub enum WbOut {
     Crt,
     /// Modem sounds on/off.
     Sound,
-    ToggleStarter(String),
-    ToggleStash(u32),
+    /// Install a program on the disk (System's Disk panel): it's in the next run.
+    Install(ninsei_core::disk::Disk),
+    /// Take a program off the disk, back into the box.
+    Remove(ninsei_core::disk::Disk),
     Scrap(u32),
     Patch(u32, Bin),
     Optimize(u32),
@@ -255,8 +257,8 @@ pub struct Home {
     pub(crate) tune: Option<TuneCue>,
     /// Where the Welcome to the Net stack is open.
     pub(crate) guide_at: ninsei_core::cards::Place,
-    /// System's open panel.
-    pub(crate) system: ninsei_core::system::Panel,
+    /// System's open panel, and its Disk panel's pick.
+    pub(crate) system: crate::system::SystemUi,
 }
 
 /// What the speaker should do with the cracktro's tune this frame.
@@ -306,7 +308,7 @@ impl Home {
             intro_playing: Default::default(),
             tune: None,
             guide_at: ninsei_core::cards::Place::Home,
-            system: ninsei_core::system::Panel::default(),
+            system: crate::system::SystemUi::default(),
         }
     }
 
@@ -699,7 +701,6 @@ impl Home {
             }
             Tool::Rig => crate::shopper::show(child, data, save, out),
             Tool::System => crate::system::show(child, data, save, &mut self.system, out),
-            Tool::Stash => hubtools::stash(child, data, save, out, &mut edit),
             Tool::HexEd if self.intro_gate(child, data, save, "hexed") => return,
             Tool::Qwk if self.intro_gate(child, data, save, "qwkread") => return,
             Tool::IceDb if self.intro_gate(child, data, save, "icedb") => return,
@@ -879,6 +880,10 @@ impl Home {
             }
             ShellEffect::Call(id) => out.push(WbOut::Call(id)),
             ShellEffect::Open(t) => self.open(t),
+            ShellEffect::System(p) => {
+                self.system.panel = p;
+                self.open(Tool::System);
+            }
             ShellEffect::Theme(t) => out.push(WbOut::Theme(t)),
             ShellEffect::Crt => out.push(WbOut::Crt),
             ShellEffect::Sound => out.push(WbOut::Sound),

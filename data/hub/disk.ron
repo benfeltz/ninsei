@@ -1,0 +1,9 @@
+// System's Disk panel: how the block map shades each kind of program (1-bit patterns from
+// data/patterns.ron, drawn in the theme's ink and paper). Free blocks stay plain paper.
+(
+    fills: [
+        (kind: Breaker, pattern: "crosshatch"),
+        (kind: Shield,  pattern: "bricks"),
+        (kind: Utility, pattern: "p50"),
+    ],
+)

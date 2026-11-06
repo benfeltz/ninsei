@@ -80,10 +80,10 @@ fn losing_workspaces_keeps_their_tiles() {
     let mut t = tiled();
     t.ensure(5);
     t.switch(4);
-    t.open(Tool::Stash);
+    t.open(Tool::System);
     t.ensure(3);
     assert_eq!(t.workspaces.len(), 3);
-    assert!(t.workspaces[2].contains(&Tool::Stash));
+    assert!(t.workspaces[2].contains(&Tool::System));
     assert!(t.current < 3);
 }
 

@@ -802,7 +802,7 @@ mod tests {
             .unwrap();
         assert_ne!(save.monitor, new.id, "buying doesn't plug it in");
         let (mut h, mut home) = (Harness::new(1280.0, 800.0), Home::new(Vec::new()));
-        home.system = ninsei_core::system::Panel::Monitor;
+        home.system.panel = ninsei_core::system::Panel::Monitor;
         frame(&mut h, &mut home, &data, &save, Tool::System, Vec::new());
         let pick = press_on(&mut h, &new.title());
         let out = frame(&mut h, &mut home, &data, &save, Tool::System, pick);

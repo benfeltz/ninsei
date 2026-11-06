@@ -2,29 +2,34 @@
 //! is worked out here, from the rules (`tuning`, `rig.ron`, the loadout, programs' binaries),
 //! and tested headlessly.
 
+use serde::{Deserialize, Serialize};
+
 use crate::binary;
 use crate::data::Data;
 use crate::hub::{Save, Upgrade};
 use crate::tuning::{START_CPU, START_INTEGRITY, START_RAM};
 
 /// System's panels, in the order its list shows them.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Default)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
 pub enum Panel {
     /// About This Deck: the OS, the specs, installed software and the switches.
     #[default]
     Overview,
     Monitor,
     Theme,
+    /// The HDD as a block map: the loadout, the stash beside it, and the RAM it'll load into.
+    Disk,
 }
 
 impl Panel {
-    pub const ALL: [Panel; 3] = [Panel::Overview, Panel::Monitor, Panel::Theme];
+    pub const ALL: [Panel; 4] = [Panel::Overview, Panel::Monitor, Panel::Theme, Panel::Disk];
 
     pub fn label(self) -> &'static str {
         match self {
             Panel::Overview => "About This Deck",
             Panel::Monitor => "Monitor",
             Panel::Theme => "Theme",
+            Panel::Disk => "Disk",
         }
     }
 }

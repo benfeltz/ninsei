@@ -47,7 +47,6 @@ enum Kind {
     Terminal,
     System,
     Rig,
-    Stash,
     HexEd,
     Qwk,
     IceDb,
@@ -72,7 +71,6 @@ impl Win {
             Kind::System => "System".into(),
             Kind::Terminal => "CarrierTerm 1.0: Dialing Directory".into(),
             Kind::Rig => "CPU Shopper".into(),
-            Kind::Stash => "STASH".into(),
             Kind::HexEd => "HexEd".into(),
             Kind::Qwk => "OLX QWK Reader".into(),
             Kind::IceDb => "ICE DB".into(),
@@ -112,7 +110,6 @@ impl Workbench {
             Tool::System => Kind::System,
             Tool::Shell => Kind::Shell,
             Tool::Rig => Kind::Rig,
-            Tool::Stash => Kind::Stash,
             Tool::HexEd => Kind::HexEd,
             Tool::Qwk => Kind::Qwk,
             Tool::IceDb => Kind::IceDb,
@@ -129,7 +126,6 @@ impl Workbench {
                 Kind::Terminal => (pos2(170.0, 40.0), vec2(720.0, 440.0)),
                 Kind::System => (pos2(200.0, 40.0), vec2(700.0, 500.0)),
                 Kind::Rig => (pos2(170.0, 30.0), book_window()),
-                Kind::Stash => (pos2(210.0, 80.0), vec2(640.0, 380.0)),
                 Kind::HexEd => (pos2(130.0, 36.0), vec2(800.0, 500.0)),
                 Kind::Qwk => (pos2(190.0, 46.0), vec2(700.0, 470.0)),
                 Kind::IceDb => (pos2(220.0, 60.0), vec2(700.0, 470.0)),
@@ -379,7 +375,6 @@ impl DesktopView for Workbench {
             match kind {
                 Kind::Shell => home.shell(ui, content, data, save, live && top, out),
                 Kind::Rig
-                | Kind::Stash
                 | Kind::HexEd
                 | Kind::Qwk
                 | Kind::IceDb
@@ -402,7 +397,6 @@ impl DesktopView for Workbench {
                         Kind::Terminal => Tool::Terminal,
                         Kind::Rig => Tool::Rig,
                         Kind::System => Tool::System,
-                        Kind::Stash => Tool::Stash,
                         Kind::Qwk => Tool::Qwk,
                         Kind::IceDb => Tool::IceDb,
                         Kind::NightComm => Tool::NightComm,
@@ -704,9 +698,9 @@ mod tests {
         let mut wb = Workbench::new();
         let mut home = Home::new(Vec::new());
         wb.open(Tool::Shell);
-        wb.open(Tool::Stash);
+        wb.open(Tool::System);
         frame(&ctx, &mut wb, &mut home, &data, &save, Vec::new(), 0.0);
-        // The Shell's left strip, under its title bar, peeks out from behind STASH.
+        // The Shell's left strip, under its title bar, peeks out from behind System.
         let shell = wb.wins.iter().find(|w| w.kind == Kind::Shell).unwrap();
         let at = shell.pos + vec2(20.0, 150.0);
         frame(&ctx, &mut wb, &mut home, &data, &save, click(at), 0.5);
@@ -720,7 +714,6 @@ mod tests {
             Tool::System => Kind::System,
             Tool::Shell => Kind::Shell,
             Tool::Rig => Kind::Rig,
-            Tool::Stash => Kind::Stash,
             Tool::HexEd => Kind::HexEd,
             Tool::Qwk => Kind::Qwk,
             Tool::IceDb => Kind::IceDb,

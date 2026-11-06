@@ -64,7 +64,6 @@ fn entries(fuzzy: bool, save: &ninsei_core::hub::Save) -> Vec<Entry> {
         Entry::Tool(Tool::Terminal, "CarrierTerm"),
         Entry::WarDial,
         Entry::Tool(Tool::Rig, "CPU Shopper"),
-        Entry::Tool(Tool::Stash, "STASH"),
         Entry::Tool(Tool::HexEd, "HexEd"),
         Entry::Tool(Tool::Qwk, "QWK Reader"),
         Entry::Tool(Tool::IceDb, "ICE DB"),

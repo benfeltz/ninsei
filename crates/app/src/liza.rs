@@ -81,7 +81,6 @@ const MENUS: &[(&str, &[(&str, Act)])] = &[
         "Deck",
         &[
             ("CPU Shopper", Act::Open(Tool::Rig)),
-            ("Stash", Act::Open(Tool::Stash)),
             ("HexEd", Act::Open(Tool::HexEd)),
             ("ICE DB", Act::Open(Tool::IceDb)),
         ],
@@ -130,7 +129,6 @@ fn title(tool: Tool) -> &'static str {
         Tool::Terminal => "CarrierTerm",
         Tool::System => "System",
         Tool::Rig => "CPU Shopper",
-        Tool::Stash => "Stash",
         Tool::HexEd => "HexEd",
     }
 }
@@ -182,7 +180,6 @@ impl Liza {
             Tool::Terminal => (pos2(60.0, 44.0), vec2(720.0, 440.0)),
             Tool::System => (pos2(100.0, 40.0), vec2(700.0, 500.0)),
             Tool::Rig => (pos2(80.0, 30.0), book_window()),
-            Tool::Stash => (pos2(110.0, 84.0), vec2(640.0, 380.0)),
             Tool::HexEd => (pos2(40.0, 40.0), vec2(800.0, 500.0)),
             Tool::Qwk => (pos2(70.0, 50.0), vec2(700.0, 470.0)),
             Tool::NightComm => (pos2(60.0, 46.0), vec2(880.0, 500.0)),
@@ -946,7 +943,7 @@ mod tests {
     #[test]
     fn liza_keeps_three_windows_unless_multifinder() {
         let mut liza = Liza::new();
-        for t in [Tool::Shell, Tool::Terminal, Tool::Rig, Tool::Stash] {
+        for t in [Tool::Shell, Tool::Terminal, Tool::Rig, Tool::HexEd] {
             liza.open(t);
         }
         assert_eq!(liza.wins.len(), look::WINDOW_LIMIT);
@@ -956,7 +953,7 @@ mod tests {
         );
         liza.multifinder = true;
         liza.open(Tool::System);
-        liza.open(Tool::HexEd);
+        liza.open(Tool::Qwk);
         assert_eq!(liza.wins.len(), 5);
     }
 

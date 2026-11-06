@@ -660,13 +660,9 @@ impl App {
 
     /// Applies a hub tool's request to the save and reports the result in the Shell.
     fn home_action(&mut self, o: WbOut) {
-        let rig = self.data.rig.clone();
         let result = match o {
-            WbOut::ToggleStarter(id) => self
-                .save
-                .toggle_starter(&self.data, &rig, &id)
-                .map(|()| String::new()),
-            WbOut::ToggleStash(id) => self.save.toggle_stash(&rig, id).map(|()| String::new()),
+            WbOut::Install(at) => self.save.install(&self.data, &at),
+            WbOut::Remove(at) => self.save.remove(&at),
             WbOut::Scrap(id) => Ok(self
                 .save
                 .scrap(id)

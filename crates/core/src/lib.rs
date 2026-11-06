@@ -12,6 +12,7 @@ pub mod cue;
 pub mod data;
 pub mod desktop;
 pub mod directory;
+pub mod disk;
 pub mod display;
 pub mod fight;
 pub mod game;

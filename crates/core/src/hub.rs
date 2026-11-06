@@ -32,7 +32,6 @@ pub enum Tool {
     /// CarrierTerm: the phonebook you dial networks from.
     Terminal,
     Rig,
-    Stash,
     HexEd,
     Shell,
     /// System: the deck's settings app (About This Deck, Monitor, Theme). It replaced Prefs.
@@ -50,10 +49,9 @@ pub enum Tool {
 }
 
 impl Tool {
-    pub const ALL: [Tool; 11] = [
+    pub const ALL: [Tool; 10] = [
         Tool::Terminal,
         Tool::Rig,
-        Tool::Stash,
         Tool::HexEd,
         Tool::Qwk,
         Tool::IceDb,
@@ -74,7 +72,6 @@ impl Tool {
         match self {
             Tool::Terminal => "CarrierTerm",
             Tool::Rig => "CPU Shopper",
-            Tool::Stash => "STASH",
             Tool::HexEd => "HexEd",
             Tool::Shell => "Shell",
             Tool::System => "System",
@@ -1997,6 +1994,8 @@ pub enum ShellEffect {
     /// Call a BBS from home (board id).
     Call(String),
     Open(Tool),
+    /// Open System on a panel (`open stash` opens it on Disk).
+    System(crate::system::Panel),
     /// Set the theme (by id): desktop and runs.
     Theme(String),
     /// Plug in a monitor you own (by id).
@@ -2282,15 +2281,17 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
                 .map_or("", |(_, rest)| rest.trim());
             let key = |s: &str| s.replace(' ', "").to_ascii_lowercase();
             let alias = |name: &str| match key(name).as_str() {
-                // Old names open what replaced them: RIG is CPU Shopper, Prefs is System.
-                "rig" => Some(Tool::Rig),
-                "prefs" => Some(Tool::System),
+                // Old names open what replaced them: RIG is CPU Shopper, Prefs and STASH are
+                // System (STASH on its Disk panel).
+                "rig" => Some(ShellEffect::Open(Tool::Rig)),
+                "prefs" => Some(ShellEffect::Open(Tool::System)),
+                "stash" => Some(ShellEffect::System(crate::system::Panel::Disk)),
                 _ => None,
             };
             match icons.iter().find(|i| key(&i.label) == key(name)) {
                 Some(i) => (Vec::new(), ShellEffect::Open(i.tool)),
                 None => match alias(name) {
-                    Some(t) => (Vec::new(), ShellEffect::Open(t)),
+                    Some(e) => (Vec::new(), e),
                     None => (vec![format!("{name}: object not found")], ShellEffect::None),
                 },
             }
