@@ -33,7 +33,7 @@ Run the passes in order and stop to write things down as you go. Earlier passes 
 - Do charts show a shape that means something, with sensible scale and ticks?
 - Is there a clear first thing to look at (at most three levels of emphasis)?
 
-**B. Faithfulness (is it the reference?)** Compare to the reference screenshots: chrome sizes and positions, type, density, voice and wording, how selection and focus look. For Mac-style screens, run `human-interface-guidelines-1992`'s checklist. For text-mode and terminal screens, use `tui-design`'s layout, focus and footer guidance.
+**B. Faithfulness (is it the reference?)** Compare to the reference screenshots: chrome sizes and positions, type, density, voice and wording, how selection and focus look. For Mac-style screens, run the 1992 HIG checklist (`fake-app-craft/references/human-interface-guidelines-1992/references/checklist.md`). For text-mode and terminal screens, use the TUI guide's layout, focus and footer guidance (`fake-app-craft/references/tui-design/SKILL.md`).
 
 **C. Pillars (`docs/design.md`)**
 - Every colour from the theme's roles; reads on mono tubes and on colour themes.
@@ -43,7 +43,7 @@ Run the passes in order and stop to write things down as you go. Earlier passes 
 - Comfort: no full-screen flashing faster than about three times a second; intense effects have a reduced setting (`Save::glitches`).
 - Keys work in a browser (no Ctrl/Alt shortcuts the browser owns; see CLAUDE.md's browser keys).
 
-**D. Usability** Use `ux-heuristics` (Nielsen's ten, Krug's trunk test), read as "this fake app":
+**D. Usability** Use the heuristics guide (`fake-app-craft/references/ux-heuristics/SKILL.md`: Nielsen's ten, Krug's trunk test), read as "this fake app":
 - Can a player tell where they are, what they can do, and what just happened?
 - Can they see why an action is refused (the preview is the rule: `Game::preview`)?
 - Is every action reachable by both mouse and keys?
