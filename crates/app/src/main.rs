@@ -641,7 +641,7 @@ impl App {
                 .map_or(String::new(), |_| "Scrapped.".to_string())),
             WbOut::Patch(id, bin) => self.save.patch(id, &bin),
             WbOut::Optimize(id) => self.save.optimize(id),
-            WbOut::Scan(range) => match self.save.wardial(&self.data, &range) {
+            WbOut::Scan(range, from) => match self.save.wardial(&self.data, &range) {
                 Ok(res) => {
                     let new = res
                         .cells
@@ -657,7 +657,7 @@ impl App {
                         "Wardialed block {:02}: {new} new carrier(s), {traps} trap(s). -{}¢",
                         res.block, res.cost
                     );
-                    self.home.show_scan(res, &self.save);
+                    self.home.show_scan(res, &self.save, from);
                     Ok(msg)
                 }
                 Err(e) => Err(e),

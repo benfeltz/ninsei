@@ -150,7 +150,12 @@ pub fn show(
     g.title(&p, tc, wr, title, ink());
     g.title(&p, wc + 2, wr, "■", ink());
     let inner = (wc + 1, wr + 1, ww - 2, wh - 2);
-    let ctx = Ctx { ui, g: &g, p: &p };
+    let ctx = Ctx {
+        ui,
+        g: &g,
+        p: &p,
+        tool: Tool::TigerTeam,
+    };
     let mut legend = vec!["1-5 Section".to_string()];
     match tt.page {
         Page::Assessment => assessment(&ctx, data, save, tt, &keys, inner, dial, &mut legend),

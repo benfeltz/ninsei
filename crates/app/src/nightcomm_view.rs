@@ -218,7 +218,12 @@ pub fn show(
         c += used + 1;
     }
     let inner = (1, 1, g.cols - 2, g.rows - 2);
-    let ctx = Ctx { ui, g: &g, p: &p };
+    let ctx = Ctx {
+        ui,
+        g: &g,
+        p: &p,
+        tool: ninsei_core::hub::Tool::NightComm,
+    };
     let mut legend: Vec<String> = Vec::new();
     match nc.tab {
         Tab::Intel => intel(&ctx, save, nc, &keys, inner, dial, &mut legend),
@@ -294,6 +299,9 @@ pub(crate) struct Ctx<'a> {
     pub(crate) ui: &'a Ui,
     pub(crate) g: &'a Cells,
     pub(crate) p: &'a egui::Painter,
+    /// The program drawing: it salts the pages' widget ids (NiGHTCOMM and Tiger Team Pro
+    /// can both be open, drawing the same pages) and says where a scan's result goes.
+    pub(crate) tool: ninsei_core::hub::Tool,
 }
 
 impl Ctx<'_> {
@@ -304,8 +312,11 @@ impl Ctx<'_> {
         w: usize,
         id: impl std::hash::Hash + std::fmt::Debug,
     ) -> egui::Response {
-        self.ui
-            .interact(self.g.at(c, r, w, 1), Id::new(id), Sense::click())
+        self.ui.interact(
+            self.g.at(c, r, w, 1),
+            Id::new(self.tool).with(id),
+            Sense::click(),
+        )
     }
 
     /// An inverse-video row: the period's selection.
@@ -594,7 +605,7 @@ pub(crate) fn wardial(
     let open = row.blocks - row.scanned.min(row.blocks);
     let can = open > 0 && save.bank >= def.cost;
     if (keys.space || keys.enter) && can {
-        out.push(WbOut::Scan(def.id.clone()));
+        out.push(WbOut::Scan(def.id.clone(), Some(cx.tool)));
     }
     legend.push(if open == 0 {
         "tapped out".to_string()
@@ -1234,14 +1245,14 @@ mod tests {
         let range = home.nightcomm.range.clone().expect("a range is picked");
         assert!(
             out.iter()
-                .any(|o| matches!(o, WbOut::Scan(r) if *r == range)),
+                .any(|o| matches!(o, WbOut::Scan(r, Some(Tool::NightComm)) if *r == range)),
             "space scans {range}"
         );
         let mut broke = save.clone();
         broke.bank = 0;
         let out = frame(&mut h, &mut home, &data, &broke, Tool::NightComm, text(" "));
         assert!(
-            !out.iter().any(|o| matches!(o, WbOut::Scan(_))),
+            !out.iter().any(|o| matches!(o, WbOut::Scan(..))),
             "no scan you can't pay for"
         );
     }

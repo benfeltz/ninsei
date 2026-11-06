@@ -111,8 +111,9 @@ pub(crate) fn font() -> FontId {
 pub enum WbOut {
     /// Dial a phonebook entry (and jack in), with an optional seed.
     Dial(u32, Option<u64>),
-    /// Wardial a range (by id).
-    Scan(String),
+    /// Wardial a range (by id), from this tool's wardialer (none: the Shell's `wardial`).
+    /// The result shows where it was asked for.
+    Scan(String, Option<Tool>),
     /// A line typed at a modem terminal (NiGHTCOMM's TERM or Tiger Team Pro's Console), for
     /// the modem (core's `at::run`).
     At(Tool, String),
@@ -493,17 +494,24 @@ impl Home {
         }
     }
 
-    /// Shows a finished scan filling in: on NiGHTCOMM's WARDiAL page once you have it,
-    /// else on CarrierTerm's WarDial tab.
-    pub fn show_scan(&mut self, result: ScanResult, save: &Save) {
+    /// Shows a finished scan filling in, in the wardialer it came `from`. From the Shell, in
+    /// the best one you have: Tiger Team Pro, NiGHTCOMM, or CarrierTerm's WarDial tab.
+    pub fn show_scan(&mut self, result: ScanResult, save: &Save, from: Option<Tool>) {
         self.range_sel = Some(result.range.clone());
         self.nightcomm.range = Some(result.range.clone());
         self.tigerteam.nc.range = Some(result.range.clone());
         self.scan = Some((result, 0.0));
-        if save.has_tool("tigerteam") {
+        let to = from.unwrap_or(if save.has_tool("tigerteam") {
+            Tool::TigerTeam
+        } else if save.has_tool("nightcomm") {
+            Tool::NightComm
+        } else {
+            Tool::Terminal
+        });
+        if to == Tool::TigerTeam {
             self.tigerteam.page = ninsei_core::tigerteam::Page::Recon;
             self.open(Tool::TigerTeam);
-        } else if save.has_tool("nightcomm") {
+        } else if to == Tool::NightComm {
             self.nightcomm.tab = ninsei_core::nightcomm::Tab::Wardial;
             self.open(Tool::NightComm);
         } else {
@@ -864,7 +872,7 @@ impl Home {
             // The scan's result opens where it's shown (`show_scan`).
             ShellEffect::Scan(range) => {
                 self.range_sel = Some(range.clone());
-                out.push(WbOut::Scan(range));
+                out.push(WbOut::Scan(range, None));
             }
             ShellEffect::Call(id) => out.push(WbOut::Call(id)),
             ShellEffect::Open(t) => self.open(t),

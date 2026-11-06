@@ -6,7 +6,7 @@
 use egui::{RichText, Ui, Visuals};
 use ninsei_core::directory::{self, Filter, Listed};
 use ninsei_core::hexedit::HexBuffer;
-use ninsei_core::hub::{Answer, Save, ScanResult, Upgrade};
+use ninsei_core::hub::{Answer, Save, ScanResult, Tool, Upgrade};
 use ninsei_core::modem::Handshake;
 use ninsei_core::{Data, binary, tuning};
 
@@ -1121,7 +1121,7 @@ pub fn wardial(
                 )
                 .clicked()
             {
-                out.push(WbOut::Scan(r.id.clone()));
+                out.push(WbOut::Scan(r.id.clone(), Some(Tool::Terminal)));
             }
             let note = if left == 0 {
                 "tapped out"
