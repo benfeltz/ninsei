@@ -36,11 +36,12 @@ Every push to `main` builds `dist/` and publishes it to GitHub Pages (`.github/w
 
 Between runs you're on your own machine, on the same monitor as your runs. What the desktop looks like is up to the deck's OS: the starter Sense/Net runs **Liza**, a 1-bit desktop after the first Mac; the Ono-Sendai runs **AnarchyOS**, a tiling desktop after Omarchy; the Hosaka runs **Desktop**, after Amiga Workbench 1.3. One theme colours the desktop and your runs; pick it in **Prefs**. Open **CarrierTerm**, pick a number from your phonebook and dial it: the modem handshakes, then the desktop drags down like an Amiga screen to reveal the run behind it. Reach the exit and you jack out home; flatline and the deck crashes first.
 
-**CarrierTerm** is Sense/Net's friendly dialer: a splash, then a searchable directory of your boards and networks, with a card for the one you pick and a big button to dial it. What's behind a number (tier, heat, layers, ICE, pay, trace, quirks) is **NiGHTCOMM**'s business: the hacker terminal, `NIGHTCOM.ZIP` on Dead Sector, with a l33t splash and the intel on every number you know. Without it, the Shell's `phonebook` is a directory too.
+**CarrierTerm** is Sense/Net's friendly dialer: a splash, then a searchable directory of your boards and networks, with a card for the one you pick and a big button to dial it. **NiGHTCOMM** is the hacker's dashboard, `NIGHTCOM.ZIP` on Dead Sector, with a l33t splash. It's laid out like btop: **¹iNTEL** is your phonebook with **heat** and how your last runs there ended, **²WARDiAL** is a better wardialer with a map of every block you've dialed, and **³RANGES** lists the number ranges you know, where you learned them and the watched lines you've found. Keys: `1`–`3` pages, `s` sort, `/` filter, `d` dial, `space` scan. Without it, the Shell's `phonebook` is a directory too.
 
 ![CarrierTerm's directory](docs/shots/carrierterm-directory.png)
 ![NiGHTCOMM's splash](docs/shots/nightcomm-splash.png)
 ![NiGHTCOMM](docs/shots/nightcomm.png)
+![NiGHTCOMM's ranges](docs/shots/nightcomm-ranges.png)
 
 New to the Net? **Welcome to the Net** is the HyperCard stack Sense/Net ships with the deck: it opens on a new save's first boot, lives on Liza's desktop (and under Special), and `help net` opens it from the Shell on any deck. One idea per card, ◀ ▶ to page, Home for the sections. It's data in [`data/stacks/welcome.ron`](data/stacks/welcome.ron), and its numbers come from the rules.
 
@@ -100,11 +101,11 @@ Presets live in [`data/displays.ron`](data/displays.ron). To add one, add an ent
 
 CarrierTerm is a dialing directory: every number you know, the boards first, then the networks. Type to search by name, number or listing, or filter to businesses or bulletin boards. Pick a line and its card says who it is and how to reach it; the big button dials a network or calls a board (Enter does too, and the arrows move the pick). While it dials, the card ticks through the handshake in step with the modem, and **Hang up** cuts the call.
 
-What's behind a number isn't CarrierTerm's business. With **NiGHTCOMM** you see:
+What's behind a number isn't CarrierTerm's business. Every network has:
 
 - **Tier**: LAN, CORP or MEGACORP. Bigger networks, tougher ICE, better pay.
 - **Traits**: *sentry-heavy* / *barrier-heavy* / *code-gate-heavy* (plan your breakers), *black ice*, *no BBS*, *graveyard shift* (trace -25%), *night shift* (+25%), *chatty*, *vault-rich*, *skint*.
-- **Heat**: every run on a network heats it up (stronger ICE, faster trace); it cools while you hit other numbers.
+- **Heat**: every run on a network heats it up (stronger ICE, faster trace); it cools while you hit other numbers. **NiGHTCOMM** shows it, cold, warm or HOT.
 
 Every dial is a fresh layout with the same personality. Tiers, traits and companies live in [`data/hub/networks.ron`](data/hub/networks.ron).
 
@@ -128,7 +129,7 @@ Every tool from a board opens with its crew's **cracktro**, every time: an ANSI 
 
 ### Finding numbers: WarDial
 
-CarrierTerm's **WarDial** tab scans a number range you know, 100 numbers at a time, and the grid fills in as the modem chews through them: `.` voice, `-` busy, `F` fax, `C` **carrier** (straight into your phonebook), `!` **trap** (the telco is listening: your next call runs hotter). Each scan costs a phone bill.
+CarrierTerm's **WarDial** tab (NiGHTCOMM's **²WARDiAL** page, once you have it) scans a number range you know, 100 numbers at a time, and the grid fills in as the modem chews through them: `.` voice, `-` busy, `F` fax, `C` **carrier** (straight into your phonebook), `!` **trap** (the telco is listening: your next call runs hotter). Each scan costs a phone bill.
 
 You always know the wide, sparse local exchange (`555-xxxx`). Better targets live on **tighter ranges**: a corp's lines (`555-7xxx`), then its core (`555-77xx`), where carriers are dense and mostly CORP or MEGACORP. You learn ranges from hints: data vaults and black ICE drop them, BBS **TEXTFILES** sell them, and a phone phreak on the street trades them. Hints you find come home even if you flatline. Ranges live in [`data/hub/exchanges.ron`](data/hub/exchanges.ron).
 

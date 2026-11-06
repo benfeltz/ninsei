@@ -114,7 +114,7 @@ impl Workbench {
                 Kind::HexEd => (pos2(130.0, 36.0), vec2(800.0, 500.0)),
                 Kind::Qwk => (pos2(190.0, 46.0), vec2(700.0, 470.0)),
                 Kind::IceDb => (pos2(220.0, 60.0), vec2(700.0, 470.0)),
-                Kind::NightComm => (pos2(180.0, 50.0), vec2(720.0, 470.0)),
+                Kind::NightComm => (pos2(150.0, 50.0), vec2(880.0, 500.0)),
                 Kind::Guide => (pos2(240.0, 70.0), vec2(640.0, 440.0)),
                 Kind::Requester(_) => (pos2(260.0, 150.0), vec2(330.0, 150.0)),
             };

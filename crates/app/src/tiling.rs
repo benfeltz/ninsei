@@ -74,7 +74,7 @@ fn entries(fuzzy: bool, save: &ninsei_core::hub::Save) -> Vec<Entry> {
     ];
     v.retain(|e| match e {
         Entry::Tool(t, _) => save.opens(*t),
-        Entry::WarDial => save.has_tool("wardial"),
+        Entry::WarDial => save.has_tool("wardial") && !save.has_tool("nightcomm"),
         Entry::Command(_) => true,
     });
     if fuzzy {

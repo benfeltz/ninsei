@@ -164,7 +164,7 @@ impl Liza {
             Tool::Stash => (pos2(110.0, 84.0), vec2(640.0, 380.0)),
             Tool::HexEd => (pos2(40.0, 40.0), vec2(800.0, 500.0)),
             Tool::Qwk => (pos2(70.0, 50.0), vec2(700.0, 470.0)),
-            Tool::NightComm => (pos2(90.0, 46.0), vec2(720.0, 470.0)),
+            Tool::NightComm => (pos2(60.0, 46.0), vec2(880.0, 500.0)),
             Tool::IceDb => (pos2(100.0, 60.0), vec2(700.0, 470.0)),
             Tool::Guide => (pos2(150.0, 70.0), vec2(640.0, 440.0)),
         };

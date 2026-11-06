@@ -2,6 +2,7 @@
 
 mod bbs_view;
 mod btop;
+mod cells;
 mod chrome;
 mod crash;
 mod crt;
@@ -18,6 +19,7 @@ mod netmap_draft;
 mod netmap_iso;
 mod netmap_paint;
 mod netpane;
+mod nightcomm_view;
 mod panes;
 mod patterns;
 mod sound;
@@ -652,7 +654,7 @@ impl App {
                         "Wardialed block {:02}: {new} new carrier(s), {traps} trap(s). -{}¢",
                         res.block, res.cost
                     );
-                    self.home.show_scan(res);
+                    self.home.show_scan(res, &self.save);
                     Ok(msg)
                 }
                 Err(e) => Err(e),

@@ -226,6 +226,8 @@ pub struct Home {
     pub(crate) hex: Option<(u32, HexBuffer)>,
     /// Phonebook entry highlighted in CarrierTerm.
     pub(crate) term_sel: Option<u32>,
+    /// NiGHTCOMM's page, order, filter and picks.
+    pub(crate) nightcomm: crate::nightcomm_view::NightComm,
     pub(crate) term_tab: TermTab,
     /// Range highlighted in WarDial.
     pub(crate) range_sel: Option<String>,
@@ -285,6 +287,7 @@ impl Home {
             opens: vec![Tool::Shell],
             hex: None,
             term_sel: None,
+            nightcomm: Default::default(),
             term_tab: TermTab::Phonebook,
             range_sel: None,
             scan: None,
@@ -484,12 +487,19 @@ impl Home {
         }
     }
 
-    /// Shows a finished scan filling in on the WarDial tab.
-    pub fn show_scan(&mut self, result: ScanResult) {
+    /// Shows a finished scan filling in: on NiGHTCOMM's WARDiAL page once you have it,
+    /// else on CarrierTerm's WarDial tab.
+    pub fn show_scan(&mut self, result: ScanResult, save: &Save) {
         self.range_sel = Some(result.range.clone());
+        self.nightcomm.range = Some(result.range.clone());
         self.scan = Some((result, 0.0));
-        self.term_tab = TermTab::WarDial;
-        self.open(Tool::Terminal);
+        if save.has_tool("nightcomm") {
+            self.nightcomm.tab = ninsei_core::nightcomm::Tab::Wardial;
+            self.open(Tool::NightComm);
+        } else {
+            self.term_tab = TermTab::WarDial;
+            self.open(Tool::Terminal);
+        }
     }
 
     /// Starts the modem handshake for a phonebook entry, in CarrierTerm.
@@ -574,11 +584,13 @@ impl Home {
                 // Drawn this pass, splash or not, so hanging up a dial doesn't replay it.
                 self.intro_drawn
                     .insert("carrierterm", child.ctx().cumulative_pass_nr());
-                // No dialer, no WarDial tab: CarrierTerm is just the phonebook.
-                if !save.has_tool("wardial") {
+                // No dialer, no WarDial tab: CarrierTerm is just the phonebook. Once
+                // NiGHTCOMM is here, wardialing is its job.
+                let wardial_tab = save.has_tool("wardial") && !save.has_tool("nightcomm");
+                if !wardial_tab {
                     self.term_tab = TermTab::Phonebook;
                 }
-                if self.dialing.is_none() && save.has_tool("wardial") {
+                if self.dialing.is_none() && wardial_tab {
                     child.horizontal(|ui| {
                         for (tab, label) in [
                             (TermTab::Phonebook, " Phonebook "),
@@ -629,7 +641,15 @@ impl Home {
             Tool::IceDb if self.intro_gate(child, data, save, "icedb") => return,
             Tool::NightComm if self.intro_gate(child, data, save, "nightcomm") => return,
             Tool::NightComm => {
-                hubtools::nightcomm(child, data, save, &mut self.term_sel, &mut dial);
+                crate::nightcomm_view::show(
+                    child,
+                    data,
+                    save,
+                    &mut self.nightcomm,
+                    self.scan.as_ref(),
+                    &mut dial,
+                    out,
+                );
             }
             Tool::HexEd => hubtools::hexed(child, save, &mut self.hex, out, &mut edit),
             Tool::Qwk => self.qwk_reader(child, data, save),
@@ -772,10 +792,9 @@ impl Home {
         match effect {
             ShellEffect::None => {}
             ShellEffect::Dial(entry, seed) => self.start_dial(entry, seed),
+            // The scan's result opens where it's shown (`show_scan`).
             ShellEffect::Scan(range) => {
-                self.term_tab = TermTab::WarDial;
                 self.range_sel = Some(range.clone());
-                self.open(Tool::Terminal);
                 out.push(WbOut::Scan(range));
             }
             ShellEffect::Call(id) => out.push(WbOut::Call(id)),

@@ -8,7 +8,6 @@ use ninsei_core::directory::{self, Filter, Listed};
 use ninsei_core::hexedit::HexBuffer;
 use ninsei_core::hub::{Answer, Save, ScanResult, Upgrade};
 use ninsei_core::modem::Handshake;
-use ninsei_core::tuning::HEAT_MAX;
 use ninsei_core::{Data, binary, tuning};
 
 use crate::hexview::{self, HexCtx, HexOut};
@@ -1046,125 +1045,6 @@ fn dialing_card(ui: &mut Ui, save: &Save, d: &Dialing) -> bool {
     );
     ui.add_space(10.0);
     big_button(ui, "Hang up".into())
-}
-
-/// NiGHTCOMM, the hacker terminal: every number you know with its tier and heat, and what's
-/// behind it (layers, ICE, pay, trace, quirks). Dialing goes through CarrierTerm's modem.
-pub fn nightcomm(
-    ui: &mut Ui,
-    data: &Data,
-    save: &Save,
-    sel: &mut Option<u32>,
-    dial: &mut Option<u32>,
-) {
-    let mono = |t: String, c| RichText::new(t).monospace().color(c);
-    ui.label(
-        RichText::new("NiGHTCOMM 3.1  ·  know your lines")
-            .monospace()
-            .strong()
-            .color(accent()),
-    );
-    ui.separator();
-    if save.phonebook.is_empty() {
-        ui.label(dim("The phonebook is empty."));
-        return;
-    }
-    if sel.is_none_or(|id| save.entry(id).is_none()) {
-        *sel = save.phonebook.first().map(|e| e.id);
-    }
-
-    ui.label(mono(
-        format!(
-            "{:<3} {:<9} {:<22} {:<5} {:<7} {}",
-            "#", "NUMBER", "NAME", "TIER", "HEAT", "RUNS"
-        ),
-        ink(),
-    ));
-    egui::ScrollArea::vertical()
-        .max_height(150.0)
-        .show(ui, |ui| {
-            for (i, e) in save.phonebook.iter().enumerate() {
-                let tier = "▪".repeat(e.tier as usize);
-                let heat: String = (0..HEAT_MAX)
-                    .map(|h| if h < e.heat { '█' } else { '░' })
-                    .collect();
-                let line = format!(
-                    "{:<3} {:<9} {:<22} {:<5} {heat:<7} {}",
-                    i + 1,
-                    e.number,
-                    e.name,
-                    tier,
-                    e.runs
-                );
-                let on = *sel == Some(e.id);
-                let r = ui.selectable_label(on, mono(line, if on { shadow() } else { ink() }));
-                if r.clicked() {
-                    *sel = Some(e.id);
-                }
-                if r.double_clicked() {
-                    *dial = Some(e.id);
-                }
-            }
-        });
-    ui.add_space(6.0);
-
-    let Some(e) = sel.and_then(|id| save.entry(id)) else {
-        return;
-    };
-    let (net, mods) = Save::site_params(data, e);
-    let tier = data
-        .networks
-        .tier(e.tier)
-        .map_or("?".to_string(), |t| t.label.clone());
-    ui.label(
-        RichText::new(format!("{}  ·  {}", e.name, e.business))
-            .color(accent())
-            .strong(),
-    );
-    ui.label(mono(
-        format!(
-            "TIER {} {tier}  ·  {} layers{}  ·  ICE +{}  ·  pay {}%  ·  trace {}%",
-            e.tier,
-            net.mid_layers + 2,
-            match net.subnets {
-                0 => String::new(),
-                1 => "  ·  1 subnet".to_string(),
-                n => format!("  ·  {n} subnets"),
-            },
-            mods.ice_bonus,
-            mods.pay_pct,
-            mods.trace_pct
-        ),
-        ink(),
-    ));
-    if e.traits.is_empty() {
-        ui.label(dim("  no known quirks"));
-    }
-    for t in &e.traits {
-        if let Some(def) = data.networks.trait_def(t) {
-            ui.horizontal(|ui| {
-                ui.label(
-                    RichText::new(format!("  {}", def.label))
-                        .color(ink())
-                        .strong(),
-                );
-                ui.label(dim(&def.blurb));
-            });
-        }
-    }
-    if e.heat > 0 {
-        ui.label(dim(format!(
-            "  heat {}/{HEAT_MAX} from {} run(s): their ICE and trace are up.",
-            e.heat, e.runs
-        )));
-    }
-    ui.add_space(6.0);
-    ui.horizontal(|ui| {
-        if ui.button(format!(" Dial {} ", e.number)).clicked() {
-            *dial = Some(e.id);
-        }
-        ui.label(dim("double-click a number to dial it"));
-    });
 }
 
 /// Finds listed beside the scan grid.
