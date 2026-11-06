@@ -97,6 +97,9 @@ fn buying_hardware() {
     s.buy_hardware(&d, &Hardware::Deck("onosendai".into()))
         .unwrap();
     assert_eq!(s.bank, 0);
+    assert!(s.decks.iter().any(|k| k == "onosendai"), "it's yours");
+    assert_eq!(s.deck, "sensenet", "buying a deck doesn't switch to it");
+    s.use_deck(&d, "onosendai").unwrap();
     assert_eq!((s.deck.as_str(), s.firmware.as_str()), ("onosendai", "7.0"));
     assert!(
         s.buy_hardware(&d, &Hardware::Deck("onosendai".into()))
@@ -142,6 +145,7 @@ fn hardware_survives_a_save() {
         .unwrap();
     s.buy_hardware(&d, &Hardware::Deck("onosendai".into()))
         .unwrap();
+    s.use_deck(&d, "onosendai").unwrap();
     let back = Save::load(&s.to_text()).unwrap();
     assert_eq!(
         (back.monitor.as_str(), back.deck.as_str()),
@@ -189,6 +193,8 @@ fn layouts_are_kept_per_deck_firmware() {
     // Another deck has its own slot.
     s.buy_hardware(&d, &Hardware::Deck("onosendai".into()))
         .unwrap();
+    assert_eq!(s.layout(&d), Some("hosaka layout"), "still on the old deck");
+    s.use_deck(&d, "onosendai").unwrap();
     assert_eq!(s.layout(&d), None);
     s.set_layout(&d, "ono layout".into());
     s.use_deck(&d, "sensenet").unwrap();

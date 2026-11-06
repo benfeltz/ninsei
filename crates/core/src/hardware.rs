@@ -378,13 +378,16 @@ impl Save {
             Hardware::Monitor(id) => {
                 self.monitors.push(id.clone());
                 self.plug_monitor(data, id)?;
+                Ok(format!("bought the {title} (-{price}¢). it's plugged in."))
             }
+            // A new deck waits on the shelf: you switch when you're ready (Prefs, or `deck`).
             Hardware::Deck(id) => {
                 self.decks.push(id.clone());
-                self.use_deck(data, id)?;
+                Ok(format!(
+                    "bought the {title} (-{price}¢). switch to it in Prefs, or type `deck {id}`."
+                ))
             }
         }
-        Ok(format!("bought the {title} (-{price}¢). it's plugged in."))
     }
 
     /// Plugs in a monitor you own. A mono tube switches to its theme.
