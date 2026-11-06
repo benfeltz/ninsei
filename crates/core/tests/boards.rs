@@ -19,6 +19,7 @@ fn entry(number: &str, tier: u32, traits: &[&str]) -> Entry {
         traits: traits.iter().map(|t| t.to_string()).collect(),
         heat: 0,
         runs: 0,
+        last: Vec::new(),
     }
 }
 

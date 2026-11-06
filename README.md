@@ -36,11 +36,17 @@ Every push to `main` builds `dist/` and publishes it to GitHub Pages (`.github/w
 
 Between runs you're on your own machine, on the same monitor as your runs. What the desktop looks like is up to the deck's OS: the starter Sense/Net runs **Liza**, a 1-bit desktop after the first Mac; the Ono-Sendai runs **AnarchyOS**, a tiling desktop after Omarchy; the Hosaka runs **Desktop**, after Amiga Workbench 1.3. One theme colours the desktop and your runs; pick it in **Prefs**. Open **CarrierTerm**, pick a number from your phonebook and dial it: the modem handshakes, then the desktop drags down like an Amiga screen to reveal the run behind it. Reach the exit and you jack out home; flatline and the deck crashes first.
 
-**CarrierTerm** is Sense/Net's friendly dialer: a splash, then a business directory of names, numbers and lines of business. What's behind a number (tier, heat, layers, ICE, pay, trace, quirks) is **NiGHTCOMM**'s business: the hacker terminal, `NIGHTCOM.ZIP` on Dead Sector, with a l33t splash and the intel on every number you know. Without it, the Shell's `phonebook` is a directory too.
+**CarrierTerm** is Sense/Net's friendly dialer: a splash, then a searchable directory of your boards and networks, with a card for the one you pick and a big button to dial it. **NiGHTCOMM** is the hacker's dashboard, `NIGHTCOM.ZIP` on Dead Sector, with a l33t splash. It's laid out like btop: **¹iNTEL** is your phonebook with **heat** and how your last runs there ended, **²WARDiAL** is a better wardialer with a map of every block you've dialed, **³RANGES** lists the number ranges you know, where you learned them and the watched lines you've found, and **⁴TERM** is a modem terminal: type `ATDT 555-0420` to dial a number by hand (a real call: a cent or so, and the same trap risk as a scan; a watched line you know needs `ATDT 555-0911!`), `ATDS2` for the phonebook's second number, `ATH` to hang up, `ATM0`/`ATM1` for the speaker, `ATI`. A number answers by hand the way it would in a scan. Keys: `1`–`4` pages (TERM: from an empty line), `s` sort, `/` filter, `d` dial, `space` scan. Without it, the Shell's `phonebook` is a directory too.
+
+**Tiger Team Pro** is the corporate audit suite, a site licence on CorpLink's employee board (`TTPRO30.ZIP`), with a calm licensed-software splash. It looks like a Turbo Vision application: a menu bar of sections, windows with drop shadows, a status line of keys. It does everything NiGHTCOMM does (**3 Reconnaissance**, **4 Address Space**, **5 Console**) and writes up what's behind every number: **1 Assessment** ranks your targets by exposure and reports on one (topology, defences, trace, asset value, and each trait as a finding with a severity), and **2 Engagements** puts every target in one sortable table. Enter engages. With it, the Shell's `phonebook` shows tier and traits.
 
 ![CarrierTerm's directory](docs/shots/carrierterm-directory.png)
 ![NiGHTCOMM's splash](docs/shots/nightcomm-splash.png)
 ![NiGHTCOMM](docs/shots/nightcomm.png)
+![NiGHTCOMM's ranges](docs/shots/nightcomm-ranges.png)
+![Tiger Team Pro's splash](docs/shots/tigerteam-splash.png)
+![Tiger Team Pro](docs/shots/tigerteam.png)
+![Tiger Team Pro's engagements](docs/shots/tigerteam-engagements.png)
 
 New to the Net? **Welcome to the Net** is the HyperCard stack Sense/Net ships with the deck: it opens on a new save's first boot, lives on Liza's desktop (and under Special), and `help net` opens it from the Shell on any deck. One idea per card, ◀ ▶ to page, Home for the sections. It's data in [`data/stacks/welcome.ron`](data/stacks/welcome.ron), and its numbers come from the rules.
 
@@ -66,14 +72,16 @@ New to the Net? **Welcome to the Net** is the HyperCard stack Sense/Net ships wi
 
 The look and feel each deck is going for (and the references behind it) is in [`docs/design.md`](docs/design.md).
 
-What your screen looks like is the kit you own. Buy more in **RIG → HARDWARE** with banked credits; swap in Prefs, the view menu, or the Shell (`monitor <id>`, `deck <id>`). Testing? **F8** at home drops 1000¢ in the bank.
+What your screen looks like is the kit you own. Buy more in **RIG**, an issue of *CPU Shopper* magazine, with banked credits; swap in Prefs, the view menu, or the Shell (`monitor <id>`, `deck <id>`). Testing? **F8** at home drops 1000¢ in the bank.
 
 - **Monitors** set the CRT look. You start with the Sense/Net Personal Display 9″, a small, sharp black-and-white tube (paper white, gentle curve, no colour fringing) that suits Liza's 1-bit patterns. The Zenith Amber Terminal, Hercules Green Phosphor, Apple Monitor II, Commodore 1702 and IBM 8513 VGA are on the shelf. A **mono** tube only shows its own colour (white is paper white, amber is amber); a **colour** monitor runs any theme, Synthwave and Workbench included.
 - **Decks** set the UX. You start on the **Sense/Net Personal Deck**, a friendly 1-bit machine running Liza (its own desktop, map and run screen are on the way, #46). RIG sells the **Ono-Sendai Cyberspace VII** (wireframes over a glowing grid) and the **Hosaka Executive 4**, which sees the net as a technical drawing. Decks are look and feel only: stats come from RIG upgrades.
 
 Everything is data in [`data/hub/hardware.ron`](data/hub/hardware.ron). A deck lists **firmware** (UX versions), each put together from named parts: `map` (`Iso` | `Draft` | `Paint`), `chrome` (pane style) and `desktop` (the overworld). A new UX version for a deck is a new firmware entry; a new kind of part is one renderer plus one name.
 
-![hardware in RIG](docs/shots/rig-hardware.png)
+![CPU Shopper, the cover](docs/shots/cpu-shopper-cover.png)
+![CPU Shopper, a deck's full page](docs/shots/cpu-shopper-deck.png)
+![CPU Shopper, a page of price lists and a mail-order ad](docs/shots/cpu-shopper-page.png)
 ![prefs](docs/shots/prefs-hardware.png)
 ![a run on the Hosaka](docs/shots/run-hosaka.png)
 
@@ -98,11 +106,15 @@ Presets live in [`data/displays.ron`](data/displays.ron). To add one, add an ent
 
 ### Choosing a network: CarrierTerm
 
-Your phonebook starts with a handful of numbers, mostly small LANs. Each entry tells you what you're walking into:
+CarrierTerm is a dialing directory: every number you know, the boards first, then the networks. Type to search by name, number or listing, or filter to businesses or bulletin boards. Pick a line and its card says who it is and how to reach it; the big button dials a network or calls a board (Enter does too, and the arrows move the pick). While it dials, the card ticks through the handshake in step with the modem, and **Hang up** cuts the call.
+
+What's behind a number isn't CarrierTerm's business. Every network has:
 
 - **Tier**: LAN, CORP or MEGACORP. Bigger networks, tougher ICE, better pay.
 - **Traits**: *sentry-heavy* / *barrier-heavy* / *code-gate-heavy* (plan your breakers), *black ice*, *no BBS*, *graveyard shift* (trace -25%), *night shift* (+25%), *chatty*, *vault-rich*, *skint*.
-- **Heat**: every run on a network heats it up (stronger ICE, faster trace); it cools while you hit other numbers.
+- **Heat**: every run on a network heats it up (stronger ICE, faster trace); it cools while you hit other numbers. **NiGHTCOMM** shows it, cold, warm or HOT.
+
+**Tiger Team Pro** shows all three, written up as an assessment.
 
 Every dial is a fresh layout with the same personality. Tiers, traits and companies live in [`data/hub/networks.ron`](data/hub/networks.ron).
 
@@ -126,7 +138,7 @@ Every tool from a board opens with its crew's **cracktro**, every time: an ANSI 
 
 ### Finding numbers: WarDial
 
-CarrierTerm's **WarDial** tab scans a number range you know, 100 numbers at a time, and the grid fills in as the modem chews through them: `.` voice, `-` busy, `F` fax, `C` **carrier** (straight into your phonebook), `!` **trap** (the telco is listening: your next call runs hotter). Each scan costs a phone bill.
+CarrierTerm's **WarDial** tab (NiGHTCOMM's **²WARDiAL** page, once you have it) scans a number range you know, 100 numbers at a time, and the grid fills in as the modem chews through them: `.` voice, `-` busy, `F` fax, `C` **carrier** (straight into your phonebook), `!` **trap** (the telco is listening: your next call runs hotter). Each scan costs a phone bill.
 
 You always know the wide, sparse local exchange (`555-xxxx`). Better targets live on **tighter ranges**: a corp's lines (`555-7xxx`), then its core (`555-77xx`), where carriers are dense and mostly CORP or MEGACORP. You learn ranges from hints: data vaults and black ICE drop them, BBS **TEXTFILES** sell them, and a phone phreak on the street trades them. Hints you find come home even if you flatline. Ranges live in [`data/hub/exchanges.ron`](data/hub/exchanges.ron).
 
@@ -136,7 +148,7 @@ You always know the wide, sparse local exchange (`555-xxxx`). Better targets liv
 
 Runs are for taking things; home is for building. **Reach the exit** and the run's credits and fragments are banked, and you pick programs to keep in your stash. **Flatline** and you lose it all, except the 10% your dead man's switch wires out.
 
-- **RIG**: spend banked credits on permanent upgrades: RAM, CPU, HDD, integrity, stash slots. Each level costs more than the last ([`data/hub/rig.ron`](data/hub/rig.ron)).
+- **RIG** is **CPU Shopper**, a mail-order computer magazine: a cover, a contents page, then full-page deck ads, upgrade boxes, dot-leader price lists and an index of advertisers. Every page is the same size and fills it: small sections share a page. Turn pages with the same ◀ Home ▶ bar as Welcome to the Net (or ← → / PgUp PgDn / Home) and order from any page. It sells permanent upgrades (RAM, CPU, HDD, integrity, stash slots, each level dearer than the last; [`data/hub/rig.ron`](data/hub/rig.ron)), monitors and decks, desktop add-ons, run panes, and mail-order software. Everything is priced in its own file; [`data/hub/shopper.ron`](data/hub/shopper.ron) only dresses it, so a new item shows up in the next issue without any code.
 - **STASH**: programs you kept (2 slots to start) and your loadout for the next run. Your deck's **Security Suite** (Firewall and Patch) is always free. Breakers aren't in the box: the Gutter's FREEWARE has IcePick and Decoder, free, and the Gutter is a local call. Stash programs you take into a run leave the stash: they come back only if you do.
 - **HexEd** (once downloaded): the hex editor, at home, on your stash, with banked fragments to optimize. In a run you can only compile while connected to a BBS.
 
@@ -161,7 +173,7 @@ Runs are for taking things; home is for building. **Reach the exit** and the run
 
 Tabs can be dragged, split and rearranged, and **your layout is saved** (one per deck firmware) and comes back next run. **view → add pane** adds secondary panes you own, which you can close again; **view → reset layout** goes back to the firmware's default.
 
-**Secondary panes are bought** in RIG (**RUN PANES**), or come with a deck's firmware. They're data in [`data/hub/panes.ron`](data/hub/panes.ron), and each deck's look dresses them its own way. The first is **net**, network traffic. The Ono-Sendai 7.0 ships with it: a mirrored dot graph after btop's net box, scrolling in real time (download up from the middle, upload down), with rate, peak and total. On the Hosaka it's a network usage report. Hits taken and credits coming in are downloads; CPU spent and hops are uploads.
+**Secondary panes are bought** in RIG (CPU Shopper's **Run panes** section), or come with a deck's firmware. They're data in [`data/hub/panes.ron`](data/hub/panes.ron), and each deck's look dresses them its own way. The first is **net**, network traffic. The Ono-Sendai 7.0 ships with it: a mirrored dot graph after btop's net box, scrolling in real time (download up from the middle, upload down), with rate, peak and total. On the Hosaka it's a network usage report. Hits taken and credits coming in are downloads; CPU spent and hops are uploads.
 
 ![net pane](docs/shots/net-pane-synthwave.png)
 
@@ -362,7 +374,7 @@ Everything is data in [`data/`](data), compiled into the binary:
 - `netmap.ron`: the network map's shape and drafting symbol for each kind of node
 - `sounds/<pack>.ron`: a sound pack, what each cue plays (a deck's firmware picks one)
 - `patterns.ron`: the 1-bit fill patterns the Sense/Net deck shades with
-- `hub/`: desktop icons, RIG upgrades, hardware, desktop add-ons, run panes, network tiers/traits/companies, wardial ranges, downloadable tools
+- `hub/`: desktop icons, RIG upgrades, CPU Shopper's dressing (`shopper.ron`), hardware, desktop add-ons, run panes, network tiers/traits/companies, wardial ranges, downloadable tools
 - `bbs/<id>/splash.txt`: that board's splash art. Colours use Mystic/Renegade **pipe codes** (`|00`-`|15` foreground, `|16`-`|23` background); raw ANSI `ESC[...m` escapes work too, so `.ans` art from PabloDraw or Moebius can be pasted in.
 
 `Data::validate` cross-checks the files (every id a table names must exist), and the tests run it.

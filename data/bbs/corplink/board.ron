@@ -66,6 +66,9 @@
             (file: "FREEZE.EXE",   item: Warez("lagspike"), price: 220, desc: "Process freezer (LagSpike)"),
             (file: "WORM-QA.ZIP",  item: Warez("wyrm"),     price: 180, desc: "QA worm (Wyrm). Do not run"),
         ]),
+        (name: "SITE LICENSES", stock: 1, always: true, files: [
+            (file: "TTPRO30.ZIP",  item: Tool("tigerteam"), price: 900, desc: "Tiger Team Pro 3.0. Site license"),
+        ]),
         (name: "HARDWARE REQUISITIONS", stock: 3, files: [
             (file: "RAM-REQ.FRM",  item: Ram(2),            price: 220, desc: "Memory upgrade request. +2 GB"),
             (file: "CPU-REQ.FRM",  item: Cpu(1),            price: 420, desc: "Processor upgrade. +1 cpu cycle"),

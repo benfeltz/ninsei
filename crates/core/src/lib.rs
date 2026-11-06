@@ -2,13 +2,16 @@
 //! the app sends [`Action`]s in and renders the [`Game`] state that comes out.
 
 pub mod ansi;
+pub mod at;
 pub mod bbs;
 pub mod binary;
+pub mod book;
 pub mod cards;
 pub mod command;
 pub mod cue;
 pub mod data;
 pub mod desktop;
+pub mod directory;
 pub mod display;
 pub mod fight;
 pub mod game;
@@ -24,12 +27,15 @@ pub mod leet;
 pub mod modem;
 pub mod netview;
 pub mod network;
+pub mod nightcomm;
 pub mod panes;
 pub mod pattern;
 pub mod probe;
 pub mod qwk;
 pub mod rng;
+pub mod shopper;
 pub mod suite;
+pub mod tigerteam;
 pub mod tuning;
 
 pub use command::{Command, parse_command};

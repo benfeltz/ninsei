@@ -128,7 +128,13 @@ fn shell_commands() {
         "an empty phonebook has nothing to dial"
     );
     assert_eq!(run("run shell").1, ShellEffect::Open(Tool::Shell));
-    assert_eq!(run("RUN RIG").1, ShellEffect::Open(Tool::Rig));
+    assert_eq!(run("run cpu shopper").1, ShellEffect::Open(Tool::Rig));
+    assert_eq!(run("run CPUShopper").1, ShellEffect::Open(Tool::Rig));
+    assert_eq!(
+        run("RUN RIG").1,
+        ShellEffect::Open(Tool::Rig),
+        "the old name still works"
+    );
     assert!(run("run nope").0[0].contains("not found"));
     // A fresh save has the white mono tube: paper white yes, green no.
     assert_eq!(

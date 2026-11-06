@@ -126,6 +126,7 @@ fn the_whole_network_fits_the_view() {
                 traits: Vec::new(),
                 heat: 0,
                 runs: 0,
+                last: Vec::new(),
             });
             let g = s.clone().dial(&d, 0, seed).unwrap();
             let cam = Iso::fit(&g.net, w, h, [w / 2.0, h / 2.0]);

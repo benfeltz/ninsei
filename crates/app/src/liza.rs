@@ -27,6 +27,8 @@ mod look {
     pub const ICON_SCALE: f32 = 3.0;
     pub const ICON_PITCH: f32 = 82.0;
     pub const ICON_COL_W: f32 = 96.0;
+    /// Room kept clear at the foot of the icon column for the Trash.
+    pub const TRASH_ROOM: f32 = 96.0;
     pub const BOOT_SCALE: f32 = 5.0;
     /// How long the boot card stays up, unless clicked away.
     pub const BOOT_SECS: f64 = 1.8;
@@ -72,12 +74,13 @@ const MENUS: &[(&str, &[(&str, Act)])] = &[
             ("Phonebook", Act::Open(Tool::Terminal)),
             ("QWK Mail", Act::Open(Tool::Qwk)),
             ("NiGHTCOMM", Act::Open(Tool::NightComm)),
+            ("Tiger Team Pro", Act::Open(Tool::TigerTeam)),
         ],
     ),
     (
         "Deck",
         &[
-            ("RIG", Act::Open(Tool::Rig)),
+            ("CPU Shopper", Act::Open(Tool::Rig)),
             ("Stash", Act::Open(Tool::Stash)),
             ("HexEd", Act::Open(Tool::HexEd)),
             ("ICE DB", Act::Open(Tool::IceDb)),
@@ -100,16 +103,33 @@ struct Win {
     size: Vec2,
 }
 
+/// Where the `n`th desktop icon sits: down the right edge, and when a column is full (the
+/// Trash keeps the bottom corner) a new column to its left, the way the Finder lines them up.
+fn icon_cell(screen: Rect, n: usize) -> Rect {
+    let top = screen.top() + look::MENU_H + 14.0;
+    let room = screen.bottom() - top - look::TRASH_ROOM;
+    let per_col = ((room / look::ICON_PITCH).floor() as usize).max(1);
+    let (col, row) = (n / per_col, n % per_col);
+    Rect::from_min_size(
+        pos2(
+            screen.right() - look::ICON_COL_W * (col + 1) as f32,
+            top + row as f32 * look::ICON_PITCH,
+        ),
+        vec2(look::ICON_COL_W, look::ICON_PITCH - 6.0),
+    )
+}
+
 fn title(tool: Tool) -> &'static str {
     match tool {
         Tool::Qwk => "QWK Reader",
         Tool::NightComm => "NiGHTCOMM",
+        Tool::TigerTeam => "Tiger Team Pro",
         Tool::IceDb => "ICE DB",
         Tool::Guide => "Welcome to the Net",
         Tool::Shell => "Shell",
-        Tool::Terminal => "Phonebook",
+        Tool::Terminal => "CarrierTerm",
         Tool::Prefs => "Prefs",
-        Tool::Rig => "RIG",
+        Tool::Rig => "CPU Shopper",
         Tool::Stash => "Stash",
         Tool::HexEd => "HexEd",
     }
@@ -149,7 +169,8 @@ impl Liza {
         }
     }
 
-    /// Opens (or brings forward) a tool's window.
+    /// Opens (or brings forward) a tool's window. A book (RIG, the Welcome stack) gets a window
+    /// its fixed page fits exactly, so it never scrolls.
     fn open(&mut self, tool: Tool) {
         if let Some(i) = self.wins.iter().position(|w| w.tool == tool) {
             let w = self.wins.remove(i);
@@ -160,13 +181,14 @@ impl Liza {
             Tool::Shell => (pos2(40.0, 330.0), vec2(620.0, 290.0)),
             Tool::Terminal => (pos2(60.0, 44.0), vec2(720.0, 440.0)),
             Tool::Prefs => (pos2(140.0, 44.0), vec2(560.0, 600.0)),
-            Tool::Rig => (pos2(80.0, 54.0), vec2(620.0, 330.0)),
+            Tool::Rig => (pos2(80.0, 30.0), book_window()),
             Tool::Stash => (pos2(110.0, 84.0), vec2(640.0, 380.0)),
             Tool::HexEd => (pos2(40.0, 40.0), vec2(800.0, 500.0)),
             Tool::Qwk => (pos2(70.0, 50.0), vec2(700.0, 470.0)),
-            Tool::NightComm => (pos2(90.0, 46.0), vec2(720.0, 470.0)),
+            Tool::NightComm => (pos2(60.0, 46.0), vec2(880.0, 500.0)),
+            Tool::TigerTeam => (pos2(50.0, 40.0), vec2(900.0, 540.0)),
             Tool::IceDb => (pos2(100.0, 60.0), vec2(700.0, 470.0)),
-            Tool::Guide => (pos2(150.0, 70.0), vec2(640.0, 440.0)),
+            Tool::Guide => (pos2(120.0, 30.0), book_window()),
         };
         self.wins.push(Win { tool, pos, size });
         // Without MultiFinder, Liza keeps a few windows: the oldest goes.
@@ -254,15 +276,8 @@ impl DesktopView for Liza {
         }
 
         // Icons down the right, then the Trash in the corner.
-        let col = screen.right() - look::ICON_COL_W;
         for (n, icon) in data.icons.iter().filter(|i| save.opens(i.tool)).enumerate() {
-            let cell = Rect::from_min_size(
-                pos2(
-                    col,
-                    screen.top() + look::MENU_H + 14.0 + n as f32 * look::ICON_PITCH,
-                ),
-                vec2(look::ICON_COL_W, look::ICON_PITCH - 6.0),
-            );
+            let cell = icon_cell(screen, n);
             let picked = self.selected == Some(icon.tool);
             let hit = draw_icon(&painter, icon, cell, picked, c);
             let r = ui.interact(hit, Id::new(("liza-icon", n)), sense(Sense::click()));
@@ -768,6 +783,12 @@ fn label(painter: &egui::Painter, text: &str, center: Pos2, picked: bool, c: Two
     r
 }
 
+/// A window whose body holds one book (`pager::SIZE`): the body is the window less its title
+/// bar and margins (see `content` in the window loop), plus a pixel of slack.
+fn book_window() -> egui::Vec2 {
+    crate::pager::SIZE + vec2(12.0 + 2.0, look::TITLE_H + 8.0 + 2.0)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -870,11 +891,10 @@ mod tests {
         let data = Data::builtin().unwrap();
         let ctx = egui::Context::default();
         let (mut liza, mut home) = booted(&ctx, &data);
+        let screen = ctx.content_rect();
         for (n, icon) in data.icons.iter().enumerate() {
-            let at = pos2(
-                1280.0 - look::ICON_COL_W / 2.0,
-                look::MENU_H + 14.0 + n as f32 * look::ICON_PITCH + 20.0,
-            );
+            let cell = icon_cell(screen, n);
+            let at = pos2(cell.center().x, cell.top() + 20.0);
             let t = 10.0 + n as f64 * 10.0;
             frame(&ctx, &mut liza, &mut home, &data, click(at), t);
             frame(&ctx, &mut liza, &mut home, &data, click(at), t + 0.1);

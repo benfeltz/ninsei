@@ -21,6 +21,7 @@ fn site(tier: u32, traits: &[&str]) -> (Data, Save) {
         traits: traits.iter().map(|t| t.to_string()).collect(),
         heat: 0,
         runs: 0,
+        last: Vec::new(),
     });
     (d, s)
 }

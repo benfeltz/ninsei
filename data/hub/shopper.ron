@@ -1,0 +1,80 @@
+// CPU Shopper: RIG as an issue of a mail-order computer magazine (after Computer Shopper, 1986).
+//
+// The magazine only DRESSES what's for sale; it never prices anything. The catalog is built from
+// each item's own file, so a new item shows up in the next issue on its own:
+//   RIG upgrades      hub/rig.ron
+//   monitors, decks   hub/hardware.ron
+//   desktop add-ons   hub/desktops.ron (only for desktops your decks run)
+//   run panes         hub/panes.ron
+//   software          hub/tools.ron, any tool with `shop: Some((price, vendor, review))`
+// An item without an ad here is a dot-leader line in its section's price list. Write an ad to
+// promote it to a boxed ad; delete the ad and it falls back to a line, never disappears.
+//
+//   cover     lines on the cover; `section` points at the page the cover prints
+//   sections  every section exactly once: its title, the printed page it starts on, and the
+//             vendor for its items that don't name one
+//   vendors   advertisers. `hotline` is 1-800 decoration, never a dialable 555 number
+//   ads       item: Upgrade(Ram) | Monitor(id) | Deck(id) | Addon(id) | Pane(id) | Tool(id)
+//             size: Full (a page to itself) | Half | Box (four to a page)
+//             optional: vendor, headline, bullets (★ points), note (small print), callout
+//             (shown instead of the price, e.g. "CALL for SPECIAL PRICE!"; it still orders)
+//             A deck's Full ad takes its whole page: its picture (`art` in hardware.ron) and,
+//             under it, the add-ons for its desktop. Add-ons for an OS none of your decks run
+//             are listed with CALL NOW instead of a price.
+(
+    title: "CPU SHOPPER",
+    issue: "VOL. 9 NO. 11",
+    month: "NOVEMBER",
+    strap: "THE NET'S BIGGEST BUYER'S GUIDE",
+    newsstand: "2¢ AT THE NEWSSTAND",
+    banner: "OVER 880 PAGES · 412 ADVERTISERS · 1,900 PRODUCTS",
+    pages: 880,
+    cover: [
+        (kicker: Some("TESTED"), headline: "ONO-SENDAI CYBERSPACE VII",
+         line: "Is the hacker's deck worth it? Our lab jacks in.", section: Decks),
+        (headline: "HOW MUCH RAM IS ENOUGH?", line: "Six programs, one deck, no excuses.", section: Upgrades),
+        (headline: "MONITOR SHOOTOUT", line: "Amber vs. green vs. IBM VGA. Your eyes will thank you.", section: Monitors),
+        (headline: "MAIL-ORDER MADNESS", line: "Software in a plain wrapper. No questions asked.", section: Software),
+    ],
+    sections: [
+        (section: Decks,    title: "Decks",               page: 12,  vendor: "sensenet"),
+        (section: Upgrades, title: "Upgrades",            page: 203, vendor: "chiba"),
+        (section: Monitors, title: "Monitors",            page: 340, vendor: "chiba"),
+        (section: Addons,   title: "Desktop add-ons",     page: 512, vendor: "deskacc"),
+        (section: Panes,    title: "Run panes",           page: 600, vendor: "chiba"),
+        (section: Software, title: "Mail-order software", page: 790, vendor: "d1rge"),
+    ],
+    vendors: [
+        (id: "onosendai", name: "Ono-Sendai Direct", hotline: Some("1-800-ONO-DECK"), slogan: Some("JACK IN TODAY"),
+         terms: ["FREE delivery to your deck.", "Firmware swaps free, forever.", "Looks and feel only. No performance claims.", "Credits only. No C.O.D."]),
+        (id: "hosaka", name: "Hosaka Corporate Sales", hotline: Some("1-800-HOSAKA-4"), slogan: Some("THE OFFICE OF TOMORROW"),
+         terms: ["Volume licensing available.", "Installed by a Hosaka technician.", "Credits only."]),
+        (id: "sensenet", name: "Sense/Net Home Computing", hotline: Some("1-800-SENSE-IT"), slogan: Some("THE COMPUTER FOR THE REST OF US"),
+         terms: ["In every starter kit.", "Friendly support, 9 to 5."]),
+        (id: "chiba", name: "Chiba Micro Supply", hotline: Some("1-800-CHIBA-24"), slogan: Some("FAST DELIVERY GUARANTEED"),
+         terms: ["Prices climb as your rig grows.", "Credits from your bank only.", "Installed before your next run.", "All sales final."]),
+        (id: "deskacc", name: "Desk Accessory Warehouse", hotline: Some("1-800-DESK-ACC"), slogan: Some("MAKE YOUR DESKTOP YOURS"),
+         terms: ["Only for the desktops your decks run.", "Installs at once."]),
+        (id: "tigerteam", name: "Tiger Team Systems", hotline: Some("1-800-TIGER-TS"), slogan: Some("KNOW YOUR EXPOSURE"),
+         terms: ["Site licences for the enterprise.", "For authorized security testing only."]),
+        (id: "d1rge", name: "d1rge mail order", slogan: Some("PLAIN WRAPPER · NO QUESTIONS"),
+         terms: ["Shipped on 1 disk, no manual.", "Tools arrive on your desktop."]),
+    ],
+    ads: [
+        (item: Deck("onosendai"), size: Full, vendor: Some("onosendai"), headline: Some("CYBERSPACE VII"),
+         bullets: ["Cyberspace 7.0 firmware", "Isometric wireframe map", "btop-style run screen", "AnarchyOS tiling desktop", "net traffic pane included", "6.2 classic panes, free"],
+         note: Some("trodes not included")),
+        (item: Deck("hosaka"), size: Full, vendor: Some("hosaka"), headline: Some("Executive 4"),
+         bullets: ["PlanView 4.0 firmware", "Draftsman network plans", "Office-suite run screen", "Desktop (Workbench) OS"],
+         callout: Some("CALL for SPECIAL PRICE!")),
+        (item: Deck("sensenet"), size: Full, headline: Some("Personal Deck"),
+         bullets: ["Liza, the friendly desktop", "Your net as a HyperCard stack", "1-bit, crisp, everything labelled"]),
+        (item: Upgrade(Ram), size: Half, bullets: ["Snaps into any deck", "Lifetime warranty"]),
+        (item: Upgrade(Cpu), size: Half, bullets: ["Overclocked and burned in", "Every fight, every turn"]),
+        (item: Tool("tigerteam"), size: Half, headline: Some("TIGER TEAM PRO 3.0"),
+         bullets: ["Network Assessment Suite. Know your exposure before they do.", "A full network profile on every number you know", "Findings ranked by severity", "Everything NiGHTCOMM does, and more"],
+         note: Some("For authorized security testing only."), callout: Some("CALL FOR PRICING")),
+        (item: Tool("nightcomm"), size: Box, headline: Some("NiGHTCOMM"),
+         bullets: ["kn0w y0ur l1n3z.", "wardial, ranges, heat"]),
+    ],
+)

@@ -733,6 +733,7 @@ impl Probe {
             traits: Vec::new(),
             heat: 0,
             runs: 0,
+            last: Vec::new(),
         });
         if let Ok(g) = save.dial(&self.data, 0, self.cfg.seed ^ seed.wrapping_mul(0x9E37)) {
             let (g, _) = play(g, bot);
@@ -771,12 +772,29 @@ impl Probe {
                 let _ = save.toggle_stash(&data.rig, id);
             }
         }
-        // The coolest number at the tier it's playing (or the nearest below it).
+        // The coolest number at the tier it's playing (or the nearest below it). Heat only
+        // shows in NiGHTCOMM, so without it the bot just spreads its runs around. With Tiger
+        // Team Pro's profiles it takes the best paying number that isn't hot.
+        let sees_heat = save.has_dialer();
+        let sees_pay = save.has_tool("tigerteam");
         let pick = (1..=self.tier).rev().find_map(|t| {
             save.phonebook
                 .iter()
                 .filter(|e| e.tier == t)
-                .min_by_key(|e| (e.heat, e.runs))
+                .min_by_key(|e| {
+                    let heat = if sees_heat { e.heat } else { 0 };
+                    let pay = if sees_pay {
+                        crate::tigerteam::profile(&data, e).pay_pct
+                    } else {
+                        0
+                    };
+                    (
+                        sees_pay && heat >= crate::nightcomm::HOT,
+                        std::cmp::Reverse(pay),
+                        heat,
+                        e.runs,
+                    )
+                })
                 .map(|e| (e.id, e.tier))
         });
         let Some((entry, tier)) = pick else {

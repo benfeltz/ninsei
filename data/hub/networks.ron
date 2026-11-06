@@ -20,6 +20,8 @@
 //              Subnets(n)    +n subnet nodes
 //              Board(id)     this network's BBS is data/bbs/<id>/ (otherwise one of the boards
 //                            for its tier, picked by the phone number)
+//            Each trait also has a `finding` and a `severity` (Info, Low, Medium, High): how
+//            Tiger Team Pro's assessment words it, in the security team's voice.
 // companies: names and lines of business for phonebook entries.
 (
     tiers: [
@@ -28,21 +30,21 @@
         (tier: 3, label: "MEGACORP", mid_layers: 6, ice_bonus: 9, pay_pct: 200, traits: (2, 2), subnets: 1, choke: 3, black: 16, trace_pct: 115),
     ],
     traits: [
-        (id: "sentry_heavy",   label: "sentry-heavy",    blurb: "Sentries patrol everything. Bring a garrote.",   effect: IceClass(Sentry)),
-        (id: "barrier_heavy",  label: "barrier-heavy",   blurb: "Walls on walls. Bring a crowbar.",              effect: IceClass(Barrier)),
-        (id: "codegate_heavy", label: "code-gate-heavy", blurb: "Everything's behind a gate. Bring a decoder.",  effect: IceClass(CodeGate)),
-        (id: "black_ice",      label: "black ice",       blurb: "Someone here plays rough.",                     effect: BlackIce(22)),
-        (id: "no_bbs",         label: "no BBS",          blurb: "No board on this net. No rest stop.",           effect: NoBbs),
-        (id: "graveyard",      label: "graveyard shift", blurb: "Skeleton crew watching. Trace -25%.",           effect: Trace(75)),
-        (id: "night_shift",    label: "night shift",     blurb: "Wide awake and bored. Trace +25%.",             effect: Trace(125)),
-        (id: "chatty",         label: "chatty",          blurb: "Lots of people on the line.",                   effect: Chatty(20)),
-        (id: "vault_rich",     label: "vault-rich",      blurb: "Data everywhere, lightly guarded.",             effect: VaultRich(20)),
-        (id: "mesh",           label: "mesh",            blurb: "Wide open, routes everywhere. Pick your fights.",       effect: Shape((min_width: 3, max_width: 5, links: 75, choke: 0))),
-        (id: "chokepoints",    label: "chokepoints",     blurb: "Every other hop funnels through one guarded box.",      effect: Shape((min_width: 2, max_width: 4, links: 35, choke: 2))),
-        (id: "daisy_chain",    label: "daisy chain",     blurb: "Long thin lines. No way around anything.",              effect: Shape((min_width: 1, max_width: 2, links: 15, choke: 0))),
-        (id: "segmented",      label: "segmented",       blurb: "Private segments behind every door. Vaults inside.",    effect: Subnets(1)),
-        (id: "skint",          label: "skint",           blurb: "Nothing worth stealing. Credits -30%.",         effect: Pay(70)),
-        (id: "pirate_board",   label: "pirate board",    blurb: "Someone's running DEAD SECTOR off their backbone.", effect: Board("deadsector")),
+        (id: "sentry_heavy",   label: "sentry-heavy",    blurb: "Sentries patrol everything. Bring a garrote.",   effect: IceClass(Sentry), finding: "Sentry countermeasures patrol every segment.", severity: High),
+        (id: "barrier_heavy",  label: "barrier-heavy",   blurb: "Walls on walls. Bring a crowbar.",              effect: IceClass(Barrier), finding: "Layered barriers on every segment.", severity: Medium),
+        (id: "codegate_heavy", label: "code-gate-heavy", blurb: "Everything's behind a gate. Bring a decoder.",  effect: IceClass(CodeGate), finding: "Access is controlled by code gates throughout.", severity: Medium),
+        (id: "black_ice",      label: "black ice",       blurb: "Someone here plays rough.",                     effect: BlackIce(22), finding: "Lethal countermeasures (black ICE) are deployed.", severity: High),
+        (id: "no_bbs",         label: "no BBS",          blurb: "No board on this net. No rest stop.",           effect: NoBbs, finding: "No bulletin board on site.", severity: Info),
+        (id: "graveyard",      label: "graveyard shift", blurb: "Skeleton crew watching. Trace -25%.",           effect: Trace(75), finding: "Reduced overnight staffing: trace response 75%.", severity: Low),
+        (id: "night_shift",    label: "night shift",     blurb: "Wide awake and bored. Trace +25%.",             effect: Trace(125), finding: "Full overnight staffing: trace response 125%.", severity: Medium),
+        (id: "chatty",         label: "chatty",          blurb: "Lots of people on the line.",                   effect: Chatty(20), finding: "Heavy user traffic on the line.", severity: Info),
+        (id: "vault_rich",     label: "vault-rich",      blurb: "Data everywhere, lightly guarded.",             effect: VaultRich(20), finding: "Large data stores with light protection.", severity: Info),
+        (id: "mesh",           label: "mesh",            blurb: "Wide open, routes everywhere. Pick your fights.",       effect: Shape((min_width: 3, max_width: 5, links: 75, choke: 0)), finding: "Flat, heavily meshed topology.", severity: Low),
+        (id: "chokepoints",    label: "chokepoints",     blurb: "Every other hop funnels through one guarded box.",      effect: Shape((min_width: 2, max_width: 4, links: 35, choke: 2)), finding: "Every other layer funnels through one guarded node.", severity: Medium),
+        (id: "daisy_chain",    label: "daisy chain",     blurb: "Long thin lines. No way around anything.",              effect: Shape((min_width: 1, max_width: 2, links: 15, choke: 0)), finding: "Linear topology with no alternate routes.", severity: Medium),
+        (id: "segmented",      label: "segmented",       blurb: "Private segments behind every door. Vaults inside.",    effect: Subnets(1), finding: "Private segments behind subnet doors.", severity: Low),
+        (id: "skint",          label: "skint",           blurb: "Nothing worth stealing. Credits -30%.",         effect: Pay(70), finding: "Low-value assets: payouts 70%.", severity: Info),
+        (id: "pirate_board",   label: "pirate board",    blurb: "Someone's running DEAD SECTOR off their backbone.", effect: Board("deadsector"), finding: "An unlicensed bulletin board runs on the backbone.", severity: Info),
     ],
     companies: [
         (name: "Ono Drycleaning",      business: "laundry"),

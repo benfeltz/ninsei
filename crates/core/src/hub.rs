@@ -11,7 +11,8 @@ use crate::rng::Rng;
 use crate::tuning::{
     BBS_LAYER, DEADMAN_PCT, FRAGMENTS_PER_OPT, HEAT_COOL, HEAT_ICE, HEAT_MAX, HEAT_PER_RUN,
     HEAT_TRACE_PCT, HUB_DRAG_SECS, HUB_PALETTE_CHARS, LOCAL_RANGE, MAX_OPT, NET_MID_LAYERS,
-    PHONEBOOK_START, START_HDD, START_WAREZ, STASH_BASE_SLOTS, TRAP_TRACE_PCT, WARDIAL_BLOCK,
+    PHONEBOOK_START, RESULTS_KEPT, START_HDD, START_WAREZ, STASH_BASE_SLOTS, TRAP_TRACE_PCT,
+    WARDIAL_BLOCK,
 };
 
 /// Bump when the save's shape changes incompatibly.
@@ -40,14 +41,16 @@ pub enum Tool {
     Qwk,
     /// The ICE database: every ICE you've fought.
     IceDb,
-    /// NiGHTCOMM, the hacker terminal: heat, tiers and traits on every number you know.
+    /// NiGHTCOMM, the hacker's dashboard: heat, a wardialer, ranges and a modem terminal.
     NightComm,
+    /// Tiger Team Pro, the corporate audit suite: everything NiGHTCOMM does, plus network intel.
+    TigerTeam,
     /// The Welcome to the Net stack (`data/stacks/welcome.ron`).
     Guide,
 }
 
 impl Tool {
-    pub const ALL: [Tool; 10] = [
+    pub const ALL: [Tool; 11] = [
         Tool::Terminal,
         Tool::Rig,
         Tool::Stash,
@@ -55,6 +58,7 @@ impl Tool {
         Tool::Qwk,
         Tool::IceDb,
         Tool::NightComm,
+        Tool::TigerTeam,
         Tool::Guide,
         Tool::Shell,
         Tool::Prefs,
@@ -69,7 +73,7 @@ impl Tool {
     pub fn volume(self) -> &'static str {
         match self {
             Tool::Terminal => "CarrierTerm",
-            Tool::Rig => "RIG",
+            Tool::Rig => "CPU Shopper",
             Tool::Stash => "STASH",
             Tool::HexEd => "HexEd",
             Tool::Shell => "Shell",
@@ -77,6 +81,7 @@ impl Tool {
             Tool::Qwk => "QWK",
             Tool::IceDb => "ICE DB",
             Tool::NightComm => "NiGHTCOMM",
+            Tool::TigerTeam => "Tiger Team Pro",
             Tool::Guide => "Welcome",
         }
     }
@@ -202,6 +207,29 @@ pub struct TraitDef {
     pub label: String,
     pub blurb: String,
     pub effect: TraitEffect,
+    /// How Tiger Team Pro's assessment words it: the corporate view of the same thing.
+    pub finding: String,
+    pub severity: Severity,
+}
+
+/// How much a finding should worry a security team.
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub enum Severity {
+    Info,
+    Low,
+    Medium,
+    High,
+}
+
+impl Severity {
+    pub fn label(self) -> &'static str {
+        match self {
+            Severity::Info => "Info",
+            Severity::Low => "Low",
+            Severity::Medium => "Medium",
+            Severity::High => "High",
+        }
+    }
 }
 
 #[derive(Deserialize, Clone, Debug)]
@@ -334,6 +362,9 @@ impl NetworksDef {
             }
         }
         for (i, t) in self.traits.iter().enumerate() {
+            if t.finding.trim().is_empty() {
+                return Err(format!("trait `{}` has no finding", t.id));
+            }
             if self.traits[..i].iter().any(|o| o.id == t.id) {
                 return Err(format!("trait `{}` is listed twice", t.id));
             }
@@ -366,6 +397,29 @@ pub struct Entry {
     pub heat: u32,
     #[serde(default)]
     pub runs: u32,
+    /// How the last few runs here ended, oldest first (at most `tuning::RESULTS_KEPT`).
+    #[serde(default)]
+    pub last: Vec<RunEnd>,
+}
+
+/// What a wardial scan turned up on one number worth remembering.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub enum Found {
+    /// A network's modem: the phonebook entry it went into.
+    Network(u32),
+    /// A bulletin board, by id.
+    Board(String),
+    /// A line the telco is watching.
+    Watched,
+}
+
+/// One find from a wardial scan: where it was and what answered.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct Find {
+    pub range: String,
+    pub block: u32,
+    pub number: String,
+    pub what: Found,
 }
 
 /// A range of phone numbers the wardialer can scan (`data/hub/exchanges.ron`).
@@ -711,6 +765,9 @@ pub struct Save {
     /// Blocks already wardialed, as `range:block`.
     #[serde(default)]
     pub scanned: Vec<String>,
+    /// What those scans turned up: networks, boards and watched lines, in the order found.
+    #[serde(default)]
+    pub finds: Vec<Find>,
     /// Traps tripped since the last dial: extra trace on the next run.
     #[serde(default)]
     pub telco_heat: u32,
@@ -879,6 +936,7 @@ impl Default for Save {
             next_entry: 0,
             ranges: local_range(),
             scanned: Vec::new(),
+            finds: Vec::new(),
             telco_heat: 0,
             trust: Vec::new(),
             boards: Vec::new(),
@@ -968,6 +1026,7 @@ impl Save {
             Tool::Qwk => self.has_tool("qwkread"),
             Tool::IceDb => self.has_tool("icedb"),
             Tool::NightComm => self.has_tool("nightcomm"),
+            Tool::TigerTeam => self.has_tool("tigerteam"),
             _ => true,
         }
     }
@@ -1008,6 +1067,7 @@ impl Save {
                 traits: n.traits.clone(),
                 heat: 0,
                 runs: 0,
+                last: Vec::new(),
             });
         }
         for b in &kit.boards {
@@ -1145,6 +1205,7 @@ impl Save {
             traits,
             heat: 0,
             runs: 0,
+            last: Vec::new(),
         });
         Some(id)
     }
@@ -1260,15 +1321,29 @@ impl Save {
     }
 
     /// Heat after a run on `entry`: it heats up, every other number cools down.
-    fn heat_up(&mut self, entry: u32) {
+    fn heat_up(&mut self, entry: u32, end: RunEnd) {
         for e in &mut self.phonebook {
             if e.id == entry {
                 e.runs += 1;
                 e.heat = (e.heat + HEAT_PER_RUN).min(HEAT_MAX);
+                e.last.push(end);
+                let extra = e.last.len().saturating_sub(RESULTS_KEPT);
+                e.last.drain(..extra);
             } else {
                 e.heat = e.heat.saturating_sub(HEAT_COOL);
             }
         }
+    }
+
+    /// Whether this deck can wardial: WARDIAL does, and NiGHTCOMM has its own dialer.
+    pub fn can_wardial(&self) -> bool {
+        self.has_tool("wardial") || self.has_dialer()
+    }
+
+    /// Whether this deck has a dashboard with its own modem terminal: NiGHTCOMM, or Tiger Team
+    /// Pro, which does everything NiGHTCOMM does.
+    pub fn has_dialer(&self) -> bool {
+        self.has_tool("nightcomm") || self.has_tool("tigerteam")
     }
 
     pub fn knows_range(&self, id: &str) -> bool {
@@ -1302,7 +1377,7 @@ impl Save {
             .find(|r| r.id == range)
             .ok_or("no such range.")?
             .clone();
-        if !self.has_tool("wardial") {
+        if !self.can_wardial() {
             return Err("wardial: unknown command.".into());
         }
         if !self.knows_range(range) {
@@ -1327,7 +1402,20 @@ impl Save {
         let block = open[pick.below(open.len())];
         self.bank -= def.cost;
         self.scanned.push(format!("{range}:{block}"));
+        let cells = self.dial_block(data, &def, block);
+        Ok(ScanResult {
+            range: range.into(),
+            block,
+            cells,
+            cost: def.cost,
+        })
+    }
 
+    /// Dials every number in one block of a range, booking what answers: new carriers into
+    /// the phonebook, boards learned, traps on the telco's list, finds kept. The same block
+    /// always answers the same way for a save.
+    fn dial_block(&mut self, data: &Data, def: &RangeDef, block: u32) -> Vec<(String, Answer)> {
+        let range = def.id.as_str();
         let id_hash = range
             .bytes()
             .fold(0u64, |h, b| h.wrapping_mul(31).wrapping_add(u64::from(b)));
@@ -1344,17 +1432,21 @@ impl Save {
                     self.learn_board(&data.boards[board].id, &format!("wardialing {}", def.label));
                 Answer::Board { board, new }
             } else if roll <= def.carrier_pct {
+                // Every carrier takes the same draws, known or not, so a number you already
+                // have never changes how the rest of its block answers. A new one gets its
+                // company from a stream of its own.
+                let w = [def.tiers.0, def.tiers.1, def.tiers.2];
+                let tier = rng.weighted(w).map_or(1, |i| i as u32 + 1);
+                let mut own = Rng::new(rng.next_u64());
                 if let Some(e) = self.phonebook.iter().find(|e| e.number == number) {
                     Answer::Carrier {
                         entry: e.id,
                         new: false,
                     }
                 } else {
-                    let w = [def.tiers.0, def.tiers.1, def.tiers.2];
-                    let tier = rng.weighted(w).map_or(1, |i| i as u32 + 1);
                     match self.add_entry(
                         data,
-                        &mut rng,
+                        &mut own,
                         tier,
                         def.owner.as_deref(),
                         Some(number.clone()),
@@ -1374,14 +1466,113 @@ impl Save {
                     _ => Answer::Voice,
                 }
             };
+            let what = match &answer {
+                Answer::Carrier { entry, .. } => Some(Found::Network(*entry)),
+                Answer::Board { board, .. } => Some(Found::Board(data.boards[*board].id.clone())),
+                Answer::Trap => Some(Found::Watched),
+                _ => None,
+            };
+            if let Some(what) = what {
+                self.finds.push(Find {
+                    range: range.into(),
+                    block,
+                    number: number.clone(),
+                    what,
+                });
+            }
             cells.push((number, answer));
         }
-        Ok(ScanResult {
-            range: range.into(),
-            block,
-            cells,
-            cost: def.cost,
-        })
+        cells
+    }
+
+    /// The known range a number is best dialed through: the narrowest one it falls in.
+    pub fn range_of<'a>(&self, data: &'a Data, number: &str) -> Option<&'a RangeDef> {
+        data.exchanges
+            .iter()
+            .filter(|r| self.knows_range(&r.id) && number.starts_with(&r.prefix))
+            .max_by_key(|r| r.prefix.len())
+    }
+
+    /// What one call costs: the range's scan price shared over a block's numbers.
+    pub fn call_price(def: &RangeDef) -> u32 {
+        def.cost.div_ceil(WARDIAL_BLOCK).max(1)
+    }
+
+    /// Dials one number by hand (NiGHTCOMM's TERM): a real call, billed like a share of a
+    /// scan, with the same trap risk. It answers the way its block would in a scan, so a
+    /// number never tells TERM one thing and WARDiAL another.
+    pub fn atdt(&mut self, data: &Data, number: &str) -> Result<Answer, String> {
+        if !self.has_dialer() {
+            return Err("atdt: unknown command.".into());
+        }
+        let def = self
+            .range_of(data, number)
+            .ok_or_else(|| format!("{number}: no range you know covers it."))?
+            .clone();
+        let price = Save::call_price(&def);
+        if self.bank < price {
+            return Err(format!("a call is {price}¢. you have {}¢.", self.bank));
+        }
+        let index: u32 = number[def.prefix.len()..]
+            .parse()
+            .map_err(|_| format!("{number} isn't a number."))?;
+        let block = index / WARDIAL_BLOCK;
+        // Dial the whole block on a copy, then keep only this number's answer.
+        let mut sim = self.clone();
+        let answer = sim
+            .dial_block(data, &def, block)
+            .into_iter()
+            .find(|(n, _)| n == number)
+            .map(|(_, a)| a)
+            .ok_or_else(|| format!("{number} isn't in {}.", def.pattern()))?;
+        self.bank -= price;
+        let (found, answer) = match answer {
+            Answer::Carrier { entry, new: false } => (Found::Network(entry), answer),
+            Answer::Carrier { entry, new: true } => {
+                let mut e = sim
+                    .phonebook
+                    .iter()
+                    .find(|e| e.id == entry)
+                    .cloned()
+                    .ok_or("the line dropped.")?;
+                e.id = self.next_entry;
+                self.next_entry += 1;
+                let id = e.id;
+                self.phonebook.push(e);
+                (
+                    Found::Network(id),
+                    Answer::Carrier {
+                        entry: id,
+                        new: true,
+                    },
+                )
+            }
+            Answer::Board { board, .. } => {
+                let new = self.learn_board(&data.boards[board].id, &format!("dialing {number}"));
+                (
+                    Found::Board(data.boards[board].id.clone()),
+                    Answer::Board { board, new },
+                )
+            }
+            Answer::Trap => {
+                self.telco_heat += 1;
+                (Found::Watched, Answer::Trap)
+            }
+            other => return Ok(other),
+        };
+        if !self
+            .finds
+            .iter()
+            .any(|f| f.number == number && f.what == found)
+        {
+            self.finds.push(Find {
+                range: def.id.clone(),
+                block,
+                number: number.into(),
+                what: found,
+            });
+        }
+        Ok(answer)
     }
 
     pub fn stash_cap(&self, defs: &[UpgradeDef]) -> u32 {
@@ -1585,7 +1776,7 @@ impl Save {
         };
         self.runs += 1;
         if let Some(site) = &game.site {
-            self.heat_up(site.entry);
+            self.heat_up(site.entry, end);
             // A client sold the number to the telco.
             if let Some(e) = self.phonebook.iter_mut().find(|e| e.id == site.entry) {
                 e.heat = (e.heat + game.sold_out).min(HEAT_MAX);
@@ -1718,7 +1909,7 @@ impl Save {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum RunEnd {
     Exit,
     Flatline,
@@ -1875,7 +2066,7 @@ pub fn shell_complete(before: &str, save: &Save, data: &Data) -> Vec<String> {
             .icons
             .iter()
             .filter(|i| save.opens(i.tool))
-            .map(|i| i.label.to_ascii_lowercase())
+            .map(|i| i.label.replace(' ', "").to_ascii_lowercase())
             .collect(),
         "theme" => data.themes.iter().map(|t| t.id.clone()).collect(),
         "monitor" | "display" => save.monitors.clone(),
@@ -1889,7 +2080,7 @@ pub fn shell_complete(before: &str, save: &Save, data: &Data) -> Vec<String> {
 /// Whether the Shell knows a verb: a tool's commands only once you've downloaded the tool.
 fn shell_knows(save: &Save, verb: &str) -> bool {
     match verb.to_ascii_lowercase().as_str() {
-        "wardial" | "scan" => save.has_tool("wardial"),
+        "wardial" | "scan" => save.can_wardial(),
         _ => true,
     }
 }
@@ -1974,21 +2165,38 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
             if save.phonebook.is_empty() && boards.is_empty() {
                 return (vec!["the phonebook is empty.".into()], ShellEffect::None);
             }
-            // CarrierTerm's directory is names and numbers; NiGHTCOMM knows the rest.
-            let intel = save.has_tool("nightcomm");
+            // CarrierTerm's directory is names and numbers; NiGHTCOMM knows your heat, and
+            // Tiger Team Pro knows what's behind the number too.
+            let intel = save.has_dialer();
+            let audit = save.has_tool("tigerteam");
             let mut out: Vec<String> = save
                 .phonebook
                 .iter()
                 .enumerate()
                 .map(|(i, e)| {
-                    if intel {
+                    if audit {
+                        let traits: Vec<&str> = e
+                            .traits
+                            .iter()
+                            .filter_map(|t| data.networks.trait_def(t).map(|d| d.label.as_str()))
+                            .collect();
                         format!(
-                            "{:>2}  {}  {:<22} T{}  heat {}",
+                            "{:>2}  {}  {:<22} T{} heat {}  {}",
                             i + 1,
                             e.number,
                             e.name,
                             e.tier,
-                            e.heat
+                            e.heat,
+                            traits.join(", ")
+                        )
+                    } else if intel {
+                        format!(
+                            "{:>2}  {}  {:<22} heat {} {}",
+                            i + 1,
+                            e.number,
+                            e.name,
+                            e.heat,
+                            crate::nightcomm::heat_word(e.heat)
                         )
                     } else {
                         format!("{:>2}  {}  {:<22} {}", i + 1, e.number, e.name, e.business)
@@ -2063,12 +2271,27 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
             ShellEffect::None,
         ),
         "run" | "open" => {
-            let Some(name) = arg else {
+            if arg.is_none() {
                 return (vec!["run what? try `dir`.".into()], ShellEffect::None);
+            }
+            // The whole rest of the line, so names with spaces work: `run cpu shopper`,
+            // `run cpushopper` and `run ice db` all open their tool.
+            let name = line
+                .trim()
+                .split_once(char::is_whitespace)
+                .map_or("", |(_, rest)| rest.trim());
+            let key = |s: &str| s.replace(' ', "").to_ascii_lowercase();
+            let alias = |name: &str| match key(name).as_str() {
+                // RIG was CPU Shopper's old name.
+                "rig" => Some(Tool::Rig),
+                _ => None,
             };
-            match icons.iter().find(|i| i.label.eq_ignore_ascii_case(name)) {
+            match icons.iter().find(|i| key(&i.label) == key(name)) {
                 Some(i) => (Vec::new(), ShellEffect::Open(i.tool)),
-                None => (vec![format!("{name}: object not found")], ShellEffect::None),
+                None => match alias(name) {
+                    Some(t) => (Vec::new(), ShellEffect::Open(t)),
+                    None => (vec![format!("{name}: object not found")], ShellEffect::None),
+                },
             }
         }
         "theme" => match arg.and_then(|t| data.theme(t)) {
@@ -2091,7 +2314,9 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
                 (Vec::new(), ShellEffect::Monitor(id.to_string()))
             }
             Some(id) => (
-                vec![format!("{id}: you don't own that monitor. RIG sells them.")],
+                vec![format!(
+                    "{id}: you don't own that monitor. CPU Shopper sells them."
+                )],
                 ShellEffect::None,
             ),
             None => (
@@ -2111,7 +2336,9 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
                 (Vec::new(), ShellEffect::Deck(id.to_string()))
             }
             Some(id) => (
-                vec![format!("{id}: you don't own that deck. RIG sells them.")],
+                vec![format!(
+                    "{id}: you don't own that deck. CPU Shopper sells them."
+                )],
                 ShellEffect::None,
             ),
             None => (

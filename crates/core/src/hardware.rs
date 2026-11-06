@@ -85,6 +85,9 @@ pub struct DeckDef {
     #[serde(default)]
     pub starter: bool,
     pub firmware: Vec<FirmwareDef>,
+    /// Its picture in ads (`data/art/<id>.txt`), if it has one.
+    #[serde(default)]
+    pub art: Option<String>,
 }
 
 impl DeckDef {
@@ -372,16 +375,20 @@ impl Save {
         }
         self.bank -= price;
         match hw {
+            // New hardware waits on the shelf: you swap when you're ready (Prefs, or the Shell).
             Hardware::Monitor(id) => {
                 self.monitors.push(id.clone());
-                self.plug_monitor(data, id)?;
+                Ok(format!(
+                    "bought the {title} (-{price}¢). plug it in in Prefs, or type `monitor {id}`."
+                ))
             }
             Hardware::Deck(id) => {
                 self.decks.push(id.clone());
-                self.use_deck(data, id)?;
+                Ok(format!(
+                    "bought the {title} (-{price}¢). switch to it in Prefs, or type `deck {id}`."
+                ))
             }
         }
-        Ok(format!("bought the {title} (-{price}¢). it's plugged in."))
     }
 
     /// Plugs in a monitor you own. A mono tube switches to its theme.

@@ -136,6 +136,8 @@ pub const PHONEBOOK_START: &[u32] = &[1, 1, 1, 1, 2];
 pub const HEAT_PER_RUN: u32 = 2;
 pub const HEAT_COOL: u32 = 1;
 pub const HEAT_MAX: u32 = 6;
+/// Run results remembered per phonebook number (NiGHTCOMM's LAST column).
+pub const RESULTS_KEPT: usize = 5;
 /// Per point of heat: extra ICE strength, extra trace gain (percent).
 pub const HEAT_ICE: u32 = 1;
 pub const HEAT_TRACE_PCT: u32 = 5;

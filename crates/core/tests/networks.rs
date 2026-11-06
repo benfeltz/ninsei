@@ -310,9 +310,10 @@ fn the_phonebook_is_a_directory_until_nightcomm() {
     assert!(plain[0].contains(&s.phonebook[0].business));
     s.learn_tool("nightcomm");
     let (intel, _) = hub::shell("phonebook", &s, &d);
+    assert!(intel[0].contains("heat"), "{intel:?}");
     assert!(
-        intel[0].contains("T1") && intel[0].contains("heat"),
-        "{intel:?}"
+        !intel.iter().any(|l| l.contains(" T1") || l.contains(" T2")),
+        "tier is Tiger Team Pro's business, not NiGHTCOMM's: {intel:?}"
     );
 }
 

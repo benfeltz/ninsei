@@ -260,6 +260,7 @@ fn tiers_set_chokepoints_black_ice_and_trace() {
         traits: traits.iter().map(|t| t.to_string()).collect(),
         heat: 0,
         runs: 0,
+        last: Vec::new(),
     };
     for t in &data.networks.tiers {
         let (p, m) = Save::site_params(&data, &entry(t.tier, &[]));

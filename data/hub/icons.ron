@@ -21,7 +21,7 @@
         "................",
         "................",
     ]),
-    (label: "RIG", tool: Rig, pixels: [
+    (label: "CPU Shopper", tool: Rig, pixels: [
         "................",
         "..kkkkk.........",
         ".kooooook.......",
@@ -127,6 +127,24 @@
         "................",
         "..k.k.k..k.k.k..",
         "................",
+        "................",
+    ]),
+    (label: "Tiger Team", tool: TigerTeam, pixels: [
+        "................",
+        "..kkkkkkkkkk....",
+        "..kwwwwwwwwk....",
+        "..kwkkkkkkwk....",
+        "..kwwwwwwwwk....",
+        "..kwkkkkwwwk....",
+        "..kwwwwkkkkkk...",
+        "..kwkkkkwwwwwk..",
+        "..kwwwwkwoowwk..",
+        "..kwkkkkwoowwk..",
+        "..kwwwwkwwwwwk..",
+        "..kkkkkkkkkkkk..",
+        ".........kkk....",
+        "..........kkk...",
+        "...........kk...",
         "................",
     ]),
     (label: "Welcome", tool: Guide, pixels: [
