@@ -558,3 +558,117 @@ fn engagements(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::home::Home;
+    use crate::home::tests::{deck, frame};
+    use crate::uitest::{Harness, key, text};
+    use egui::Key;
+
+    fn licensed(data: &Data) -> Save {
+        let mut s = deck(data);
+        s.add_starters(data);
+        s.tools = vec!["tigerteam".into()];
+        s.bank = 10_000;
+        s
+    }
+
+    /// Tiger Team Pro open for a couple of frames, so it has the keys.
+    fn opened(data: &Data, save: &Save) -> (Harness, Home) {
+        let (mut h, mut home) = (Harness::new(1280.0, 800.0), Home::new(Vec::new()));
+        for _ in 0..2 {
+            frame(&mut h, &mut home, data, save, Tool::TigerTeam, Vec::new());
+        }
+        (h, home)
+    }
+
+    /// Presses `events` in Tiger Team Pro, then lets a frame pass. Returns what it sent.
+    fn press(
+        h: &mut Harness,
+        home: &mut Home,
+        data: &Data,
+        save: &Save,
+        events: Vec<egui::Event>,
+    ) -> Vec<WbOut> {
+        let mut out = frame(h, home, data, save, Tool::TigerTeam, events);
+        out.extend(frame(h, home, data, save, Tool::TigerTeam, Vec::new()));
+        out
+    }
+
+    #[test]
+    fn digits_pick_the_section() {
+        let data = Data::builtin().unwrap();
+        let save = licensed(&data);
+        let (mut h, mut home) = opened(&data, &save);
+        // Console last: from its empty line, `1` comes back to Assessment.
+        for (i, page) in Page::ALL
+            .iter()
+            .enumerate()
+            .skip(1)
+            .chain([(0, &Page::ALL[0])])
+        {
+            press(&mut h, &mut home, &data, &save, text(&(i + 1).to_string()));
+            assert_eq!(home.tigerteam.page, *page, "{}", i + 1);
+        }
+    }
+
+    #[test]
+    fn engagements_sort_and_enter_opens_the_assessment() {
+        let data = Data::builtin().unwrap();
+        let save = licensed(&data);
+        let (mut h, mut home) = opened(&data, &save);
+        press(&mut h, &mut home, &data, &save, text("2"));
+        press(&mut h, &mut home, &data, &save, text("s"));
+        assert_eq!(home.tigerteam.order, Order::default().next());
+        press(&mut h, &mut home, &data, &save, key(Key::ArrowDown));
+        let picked = home.tigerteam.sel.expect("a target is picked");
+        press(&mut h, &mut home, &data, &save, key(Key::Enter));
+        assert_eq!(home.tigerteam.page, Page::Assessment);
+        assert_eq!(home.tigerteam.sel, Some(picked), "on the target picked");
+        assert!(
+            home.dialing.is_none(),
+            "Enter on Engagements assesses, it doesn't dial"
+        );
+    }
+
+    #[test]
+    fn recon_scans_as_tiger_team_pro() {
+        let data = Data::builtin().unwrap();
+        let save = licensed(&data);
+        let (mut h, mut home) = opened(&data, &save);
+        press(&mut h, &mut home, &data, &save, text("3"));
+        let out = press(&mut h, &mut home, &data, &save, text(" "));
+        assert!(
+            out.iter()
+                .any(|o| matches!(o, WbOut::Scan(_, Some(Tool::TigerTeam)))),
+            "the scan comes back to Tiger Team Pro"
+        );
+        assert_eq!(
+            home.nightcomm.range, None,
+            "NiGHTCOMM's own pages aren't touched"
+        );
+    }
+
+    #[test]
+    fn the_console_talks_to_the_modem_as_tiger_team_pro() {
+        let data = Data::builtin().unwrap();
+        let save = licensed(&data);
+        let (mut h, mut home) = opened(&data, &save);
+        press(&mut h, &mut home, &data, &save, text("5"));
+        press(&mut h, &mut home, &data, &save, text("ATI"));
+        let out = press(&mut h, &mut home, &data, &save, key(Key::Enter));
+        assert!(
+            out.iter()
+                .any(|o| matches!(o, WbOut::At(Tool::TigerTeam, l) if l == "ATI")),
+            "sent as Tiger Team Pro"
+        );
+        assert!(home.tigerteam.nc.term_lines.iter().any(|l| l == "> ATI"));
+        assert_eq!(
+            home.nightcomm.term_lines,
+            NightComm::default().term_lines,
+            "NiGHTCOMM's TERM hears nothing of it"
+        );
+    }
+}
