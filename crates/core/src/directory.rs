@@ -81,17 +81,18 @@ pub fn listings(save: &Save, data: &Data) -> Vec<Listing> {
 }
 
 /// Whether `l` matches what was typed in the search box: any part of its name or listing,
-/// ignoring case, or any part of its number, with or without the dash.
+/// ignoring case, or any run of its number's digits, however the number is punctuated
+/// (`555-0420`, `5550420`, `555 0420`, `(555) 0420`).
 pub fn matches(l: &Listing, query: &str) -> bool {
     let q = query.trim().to_lowercase();
     if q.is_empty() {
         return true;
     }
-    let digits = |s: &str| s.chars().filter(|c| *c != '-').collect::<String>();
+    let digits = |s: &str| s.chars().filter(char::is_ascii_digit).collect::<String>();
+    let dq = digits(&q);
     l.name.to_lowercase().contains(&q)
         || l.listed_as.to_lowercase().contains(&q)
-        || l.number.contains(&q)
-        || (!digits(&q).is_empty() && digits(&l.number).contains(&digits(&q)))
+        || (!dq.is_empty() && digits(&l.number).contains(&dq))
 }
 
 /// The directory as shown: the listings that pass `filter` and match `query`.

@@ -578,10 +578,16 @@ pub struct Directory {
     pub sel: Option<Listed>,
     pub query: String,
     pub filter: Filter,
+    /// The pass the directory was last drawn on: a gap means it just came back.
+    drawn: u64,
+    /// The search box should take the keys at the next chance (an enabled frame).
+    want_focus: bool,
 }
 
 /// Width of the directory card beside the list.
 const CARD_W: f32 = 250.0;
+/// Widest the dialing card gets beside the sidebar.
+const DIAL_CARD_W: f32 = 340.0;
 /// Height of the card's big Dial / Call button.
 const BIG_BUTTON_H: f32 = 44.0;
 /// Height of the dialing card's progress bar.
@@ -590,17 +596,80 @@ const PROGRESS_H: f32 = 12.0;
 const SEARCH_W: f32 = 220.0;
 /// Name column width in the directory list, in characters.
 const NAME_COLS: usize = 24;
+/// Number column width, in characters (`555-0420`, plus one).
+const NUMBER_COLS: usize = 9;
+/// Space between columns, in characters.
+const GUTTER: usize = 2;
 /// The fewest characters of a listing worth showing as a column.
 const LISTING_MIN_COLS: usize = 10;
 /// The narrowest the directory list goes beside the card; narrower, the card goes under it.
 const LIST_MIN_W: f32 = 300.0;
 /// The list's height when the card sits under it.
 const NARROW_LIST_H: f32 = 140.0;
+/// Height kept under the list for its status line.
+const FOOTER_H: f32 = 22.0;
+/// The search box's widget id.
+const FIND_ID: &str = "carrierterm-find";
 
 /// Width of one monospace character in `ui`'s current style.
 fn mono_char_w(ui: &Ui) -> f32 {
     let font = egui::TextStyle::Monospace.resolve(ui.style());
     ui.fonts_mut(|f| f.glyph_width(&font, 'M')).max(1.0)
+}
+
+/// The width `ui` can draw in and be seen: a tile can lay out wider than it shows.
+fn visible_width(ui: &Ui) -> f32 {
+    ui.available_width()
+        .min(ui.clip_rect().right() - ui.cursor().left())
+}
+
+/// Space a vertical separator takes between two columns.
+fn separator_gap(ui: &Ui) -> f32 {
+    // egui's separator is 6pt of spacing plus the item spacing on each side.
+    6.0 + ui.spacing().item_spacing.x * 2.0
+}
+
+/// The directory's filter buttons. Returns whether one was clicked.
+fn filter_buttons(ui: &mut Ui, filter: &mut Filter) -> bool {
+    let mut clicked = false;
+    for f in Filter::ALL {
+        if ui.selectable_label(*filter == f, f.label()).clicked() {
+            *filter = f;
+            clicked = true;
+        }
+    }
+    clicked
+}
+
+/// A full-width row of the directory, inverse when `on`. `live` rows can be clicked.
+fn dir_row(ui: &mut Ui, line: String, on: bool, live: bool) -> egui::Response {
+    let text = RichText::new(line)
+        .monospace()
+        .color(if on { shadow() } else { ink() });
+    let b = egui::Button::selectable(on, text)
+        .min_size(egui::vec2(ui.available_width(), 0.0))
+        .wrap_mode(egui::TextWrapMode::Truncate);
+    ui.add(if live {
+        b
+    } else {
+        b.sense(egui::Sense::hover())
+    })
+}
+
+/// The list's box: an outline the full height it's given, so a short list reads as a list.
+fn list_box<R>(ui: &mut Ui, height: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
+    egui::Frame::new()
+        .stroke(egui::Stroke::new(1.0, muted()))
+        .inner_margin(2.0)
+        .show(ui, |ui| {
+            egui::ScrollArea::vertical()
+                .id_salt("carrierterm-dir")
+                .auto_shrink([false, false])
+                .max_height(height)
+                .show(ui, add)
+                .inner
+        })
+        .inner
 }
 
 /// CarrierTerm: a friendly dialing directory. Search the numbers you know, pick one, and dial
@@ -617,17 +686,47 @@ pub fn carrierterm(
     hang_up: &mut bool,
     out: &mut Vec<WbOut>,
 ) {
+    // Side by side when there's room for both; in a narrow tile the card goes under the list.
+    let avail = visible_width(ui);
+    let wide = avail >= CARD_W + LIST_MIN_W;
     if let Some(d) = dialing {
-        dialing_card(ui, save, d, hang_up);
+        *hang_up = dialing_view(ui, data, save, dir, d, wide);
         return;
     }
+    // Not drawn last pass: the window just opened, or a splash or a call just ended. The
+    // search box takes the keys, so ↑↓ and Enter work straight away.
+    let pass = ui.ctx().cumulative_pass_nr();
+    if dir.drawn + 1 < pass {
+        dir.want_focus = true;
+    }
+    dir.drawn = pass;
+    let find = egui::Id::new(FIND_ID);
+    // `/` searches, when nothing else has the keys and the pointer is over the directory.
+    let over = ui.clip_rect();
+    let slash = ui.input(|i| {
+        i.pointer.hover_pos().is_some_and(|p| over.contains(p))
+            && i.events
+                .iter()
+                .any(|e| matches!(e, egui::Event::Text(t) if t == "/"))
+    });
+    if slash && ui.memory(|m| m.focused().is_none()) {
+        dir.want_focus = true;
+    }
+    // Keep the request until it can land: a disabled frame would hand the focus back.
+    if dir.want_focus && ui.is_enabled() {
+        ui.memory_mut(|m| m.request_focus(find));
+        dir.want_focus = false;
+    }
+
     let mut keys = (false, false, false);
-    ui.horizontal_wrapped(|ui| {
+    let mut refocus = false;
+    ui.horizontal(|ui| {
         ui.label(dim("Find"));
         let r = ui.add(
             egui::TextEdit::singleline(&mut dir.query)
+                .id(find)
                 .hint_text("name, number or listing")
-                .desired_width(SEARCH_W),
+                .desired_width(SEARCH_W.min(avail - 60.0).max(80.0)),
         );
         // Arrows and Enter drive the list while the search box has the keys.
         let (focus, left) = (r.has_focus(), r.lost_focus());
@@ -638,13 +737,15 @@ pub fn carrierterm(
                 left && i.key_pressed(egui::Key::Enter),
             )
         });
-        ui.add_space(8.0);
-        for f in Filter::ALL {
-            if ui.selectable_label(dir.filter == f, f.label()).clicked() {
-                dir.filter = f;
-            }
+        if wide {
+            ui.add_space(8.0);
+            refocus |= filter_buttons(ui, &mut dir.filter);
         }
     });
+    // Narrow: the filters get their own row rather than wrapping one under the box.
+    if !wide {
+        ui.horizontal(|ui| refocus |= filter_buttons(ui, &mut dir.filter));
+    }
     ui.separator();
 
     let shown = directory::search(save, data, &dir.query, dir.filter);
@@ -660,73 +761,71 @@ pub fn carrierterm(
     if enter {
         go = dir.sel;
     }
+    let searching = ui.memory(|m| m.has_focus(find));
 
-    // Side by side when there's room for both; in a narrow tile the card goes under the list.
-    // What's visible, not what the layout offers: a tile can lay out wider than it shows.
-    let avail = ui
-        .available_width()
-        .min(ui.clip_rect().right() - ui.cursor().left());
-    let wide = avail >= CARD_W + LIST_MIN_W;
-    let list_w = if wide { avail - CARD_W - 16.0 } else { avail };
+    let list_w = if wide {
+        avail - CARD_W - separator_gap(ui)
+    } else {
+        avail
+    };
     // Columns that fit: the listing is dropped first, then names are cut short.
     let cols = (list_w / mono_char_w(ui)) as usize;
-    let show_listing = cols >= 9 + 1 + NAME_COLS + 1 + LISTING_MIN_COLS;
-    let name_cols = NAME_COLS.min(cols.saturating_sub(10).max(8));
-    let mut list = |ui: &mut Ui, sel: &mut Option<Listed>| {
-        let mono = |t: String, c| RichText::new(t).monospace().color(c);
-        let head = format!("{:<9} {:<name_cols$}", "NUMBER", "NAME");
-        let head = if show_listing {
-            format!("{head} LISTED AS")
+    let show_listing = cols >= NUMBER_COLS + GUTTER + NAME_COLS + GUTTER + LISTING_MIN_COLS;
+    let name_cols = NAME_COLS.min(cols.saturating_sub(NUMBER_COLS + GUTTER + 1).max(8));
+    let line = |number: &str, name: &str, listed: &str| {
+        let name: String = name.chars().take(name_cols).collect();
+        let g = " ".repeat(GUTTER);
+        let row = format!("{number:<NUMBER_COLS$}{g}{name:<name_cols$}");
+        if show_listing {
+            format!("{row}{g}{listed}")
         } else {
-            head
-        };
-        ui.label(mono(head, muted()));
-        let max_h = if wide {
-            (ui.available_height() - 24.0).max(80.0)
+            row
+        }
+    };
+    let mut list = |ui: &mut Ui, sel: &mut Option<Listed>| {
+        ui.label(
+            RichText::new(line("NUMBER", "NAME", "LISTED AS"))
+                .monospace()
+                .color(muted()),
+        );
+        let height = if wide {
+            (ui.available_height() - FOOTER_H - 8.0).max(80.0)
         } else {
             NARROW_LIST_H
         };
-        egui::ScrollArea::vertical()
-            .id_salt("carrierterm-dir")
-            .auto_shrink([false, true])
-            .max_height(max_h)
-            .show(ui, |ui| {
-                if shown.is_empty() {
-                    ui.label(dim("Nothing matches."));
+        list_box(ui, height, |ui| {
+            if shown.is_empty() {
+                ui.label(dim("Nothing matches."));
+            }
+            for l in &shown {
+                let on = *sel == Some(l.key);
+                let r = dir_row(ui, line(&l.number, &l.name, &l.listed_as), on, true);
+                if on && moved {
+                    r.scroll_to_me(None);
                 }
-                for l in &shown {
-                    let name: String = l.name.chars().take(name_cols).collect();
-                    let line = format!("{:<9} {name:<name_cols$}", l.number);
-                    let line = if show_listing {
-                        format!("{line} {}", l.listed_as)
-                    } else {
-                        line
-                    };
-                    let on = *sel == Some(l.key);
-                    let r = ui.add(
-                        egui::Button::selectable(on, mono(line, if on { shadow() } else { ink() }))
-                            .wrap_mode(egui::TextWrapMode::Truncate),
-                    );
-                    if on && moved {
-                        r.scroll_to_me(None);
-                    }
-                    if r.clicked() {
-                        *sel = Some(l.key);
-                    }
-                    if r.double_clicked() {
-                        go = Some(l.key);
-                    }
+                if r.clicked() {
+                    *sel = Some(l.key);
+                    refocus = true;
                 }
-            });
+                if r.double_clicked() {
+                    go = Some(l.key);
+                }
+            }
+        });
         let total = directory::listings(save, data).len();
+        let keys = if searching {
+            "↑↓ choose  ·  Enter dial"
+        } else {
+            "/ to search"
+        };
         ui.label(dim(format!(
-            "{} of {total} numbers  ·  ↑↓ choose  ·  Enter dial",
+            "{} of {total} numbers  ·  {keys}",
             shown.len()
         )));
     };
     // The card's button: the line it dials, if pressed.
     let show_card = |ui: &mut Ui, sel: Option<Listed>| {
-        ui.set_width(CARD_W.min(avail));
+        ui.set_width(CARD_W.min(visible_width(ui)));
         sel.filter(|&key| card(ui, data, save, key))
     };
     let mut sel = dir.sel;
@@ -747,12 +846,32 @@ pub fn carrierterm(
     };
     dir.sel = sel;
     go = go.or(pick);
+    // Clicking a row or a filter leaves the keys with the search box, like a list box's.
+    // Not after Enter: a board's window opens and takes the keys.
+    if refocus && go.is_none() {
+        dir.want_focus = true;
+    }
 
     match go {
         Some(Listed::Entry(id)) => *dial = Some(id),
         Some(Listed::Board(b)) => out.push(WbOut::Call(data.boards[b].id.clone())),
         None => {}
     }
+}
+
+/// The card's title: the name, then what it's listed as and its number on a line below.
+fn card_title(ui: &mut Ui, name: &str, sub: String) {
+    ui.label(RichText::new(name).color(accent()).strong().size(18.0));
+    ui.label(dim(sub));
+}
+
+/// A big button across the card.
+fn big_button(ui: &mut Ui, text: String) -> bool {
+    ui.add_sized(
+        [ui.available_width(), BIG_BUTTON_H],
+        egui::Button::new(RichText::new(text).color(ink()).strong().size(16.0)),
+    )
+    .clicked()
 }
 
 /// The directory card for `key`: who it is and how to reach them, over a big Dial or Call
@@ -814,29 +933,76 @@ fn card(ui: &mut Ui, data: &Data, save: &Save, key: Listed) -> bool {
             }
         });
     ui.add_space(10.0);
-    ui.add_sized(
-        [CARD_W.min(ui.available_width()), BIG_BUTTON_H],
-        egui::Button::new(
-            RichText::new(format!("{verb} {number}"))
-                .color(ink())
-                .strong()
-                .size(16.0),
-        ),
-    )
-    .clicked()
+    big_button(ui, format!("{verb} {number}"))
 }
 
-/// A call under way: the handshake as a checklist over a progress bar, with Hang up. The
-/// lines land on the handshake's beats, so text and sound stay in step.
-fn dialing_card(ui: &mut Ui, save: &Save, d: &Dialing, hang_up: &mut bool) {
-    let Some(e) = save.entry(d.entry) else { return };
+/// A call under way. Beside the directory (shrunk to a sidebar, held still) when there's
+/// room, alone in a narrow tile.
+fn dialing_view(
+    ui: &mut Ui,
+    data: &Data,
+    save: &Save,
+    dir: &Directory,
+    d: &Dialing,
+    wide: bool,
+) -> bool {
+    let mut hang_up = false;
+    if wide {
+        let side_w = LIST_MIN_W.min(visible_width(ui) - CARD_W - separator_gap(ui));
+        ui.horizontal_top(|ui| {
+            ui.vertical(|ui| {
+                ui.set_width(side_w);
+                let cols = (side_w / mono_char_w(ui)) as usize;
+                let name_cols = cols.saturating_sub(NUMBER_COLS + GUTTER + 1).max(8);
+                let mut shown = directory::search(save, data, &dir.query, dir.filter);
+                // The number being dialed is always in view, whatever the search left.
+                if !shown.iter().any(|l| l.key == Listed::Entry(d.entry)) {
+                    shown = directory::listings(save, data);
+                }
+                let height = (ui.available_height() - 8.0).max(80.0);
+                list_box(ui, height, |ui| {
+                    for l in &shown {
+                        let name: String = l.name.chars().take(name_cols).collect();
+                        let g = " ".repeat(GUTTER);
+                        let on = l.key == Listed::Entry(d.entry);
+                        let r = dir_row(
+                            ui,
+                            format!("{:<NUMBER_COLS$}{g}{name}", l.number),
+                            on,
+                            false,
+                        );
+                        if on {
+                            r.scroll_to_me(None);
+                        }
+                    }
+                });
+            });
+            ui.separator();
+            ui.vertical(|ui| {
+                ui.set_width(DIAL_CARD_W.min(visible_width(ui)));
+                hang_up = dialing_card(ui, save, d);
+            });
+        });
+    } else {
+        ui.vertical(|ui| {
+            ui.set_width(DIAL_CARD_W.min(visible_width(ui)));
+            hang_up = dialing_card(ui, save, d);
+        });
+    }
+    hang_up
+}
+
+/// The call as a checklist over a progress bar, with Hang up, all one card wide. The lines
+/// land on the handshake's beats, so text and sound stay in step. Returns whether Hang up
+/// was pressed.
+fn dialing_card(ui: &mut Ui, save: &Save, d: &Dialing) -> bool {
+    let Some(e) = save.entry(d.entry) else {
+        return false;
+    };
     let mono = |t: String, c| RichText::new(t).monospace().color(c);
-    ui.horizontal(|ui| {
-        ui.label(RichText::new(&e.name).color(accent()).strong().size(18.0));
-        ui.label(dim(format!("{}  ·  {}", e.business, e.number)));
-    });
-    ui.add_space(6.0);
     ui.label(dim("CALLING"));
+    card_title(ui, &e.name, format!("{}  ·  {}", e.business, e.number));
+    ui.add_space(8.0);
     let h = Handshake::new(&e.number);
     let ring = h.rings.first().copied().unwrap_or(h.offhook);
     let steps = [
@@ -860,10 +1026,10 @@ fn dialing_card(ui: &mut Ui, save: &Save, d: &Dialing, hang_up: &mut bool) {
         };
         ui.label(mono(format!("{mark} {text}"), col));
     }
-    ui.add_space(6.0);
-    // The call's progress: an outlined track filling with the accent.
+    ui.add_space(8.0);
+    // The call's progress: an outlined track filling with the accent, as wide as the card.
     let frac = (d.t / h.end).clamp(0.0, 1.0);
-    let w = ui.available_width().min(CARD_W * 2.0);
+    let w = ui.available_width();
     let (rect, _) = ui.allocate_exact_size(egui::vec2(w, PROGRESS_H), egui::Sense::hover());
     let p = ui.painter();
     p.rect_filled(
@@ -878,15 +1044,7 @@ fn dialing_card(ui: &mut Ui, save: &Save, d: &Dialing, hang_up: &mut bool) {
         egui::StrokeKind::Inside,
     );
     ui.add_space(10.0);
-    if ui
-        .add_sized(
-            [CARD_W.min(ui.available_width()), BIG_BUTTON_H],
-            egui::Button::new(RichText::new("Hang up").color(ink()).strong().size(16.0)),
-        )
-        .clicked()
-    {
-        *hang_up = true;
-    }
+    big_button(ui, "Hang up".into())
 }
 
 /// NiGHTCOMM, the hacker terminal: every number you know with its tier and heat, and what's

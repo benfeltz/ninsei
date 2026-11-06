@@ -62,10 +62,25 @@ fn search_finds_names_listings_and_numbers() {
         find("SCHOOL").iter().any(|l| l.name == school[0].name),
         "listings"
     );
-    for q in ["555-0420", "0420", "5550420", " 0420 "] {
+    for q in [
+        "555-0420",
+        "0420",
+        "5550420",
+        " 0420 ",
+        "555 0420",
+        "(555) 0420",
+    ] {
         assert!(
             find(q).iter().any(|l| l.number == "555-0420"),
-            "numbers, with or without the dash: {q:?}"
+            "numbers, however they're punctuated: {q:?}"
+        );
+    }
+    for q in ["-", "--", "()"] {
+        assert!(
+            find(q)
+                .iter()
+                .all(|l| l.name.contains(q) || l.listed_as.contains(q)),
+            "punctuation alone isn't a number: {q:?}"
         );
     }
     assert!(find("zzz no such thing").is_empty());

@@ -107,7 +107,7 @@ fn title(tool: Tool) -> &'static str {
         Tool::IceDb => "ICE DB",
         Tool::Guide => "Welcome to the Net",
         Tool::Shell => "Shell",
-        Tool::Terminal => "Phonebook",
+        Tool::Terminal => "CarrierTerm",
         Tool::Prefs => "Prefs",
         Tool::Rig => "RIG",
         Tool::Stash => "Stash",
