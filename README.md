@@ -79,7 +79,8 @@ What your screen looks like is the kit you own. Buy more in **RIG**, an issue of
 
 Everything is data in [`data/hub/hardware.ron`](data/hub/hardware.ron). A deck lists **firmware** (UX versions), each put together from named parts: `map` (`Iso` | `Draft` | `Paint`), `chrome` (pane style) and `desktop` (the overworld). A new UX version for a deck is a new firmware entry; a new kind of part is one renderer plus one name.
 
-![hardware in RIG](docs/shots/rig-hardware.png)
+![CPU Shopper, the cover](docs/shots/cpu-shopper-cover.png)
+![CPU Shopper, a deck ad](docs/shots/cpu-shopper-deck.png)
 ![prefs](docs/shots/prefs-hardware.png)
 ![a run on the Hosaka](docs/shots/run-hosaka.png)
 

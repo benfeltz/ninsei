@@ -65,7 +65,7 @@
         (item: Deck("sensenet"), size: Half, headline: Some("Personal Deck"),
          bullets: ["Liza, the friendly desktop", "Your net as a HyperCard stack", "1-bit, crisp, everything labelled"]),
         (item: Upgrade(Ram), size: Half, bullets: ["Snaps into any deck", "Lifetime warranty"]),
-        (item: Upgrade(Cpu), size: Half, bullets: ["One more action every turn"]),
+        (item: Upgrade(Cpu), size: Half, bullets: ["Overclocked and burned in", "Every fight, every turn"]),
         (item: Tool("nightcomm"), size: Box, headline: Some("NiGHTCOMM"),
          bullets: ["kn0w y0ur l1n3z.", "wardial, ranges, heat"]),
     ],

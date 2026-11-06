@@ -56,22 +56,24 @@ pub fn show(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
     egui::ScrollArea::vertical()
         .id_salt(("cpu-shopper", page))
         .auto_shrink([false, false])
-        .show(ui, |ui| match &pages[page] {
-            Page::Cover => goto = cover(ui, def, &pages, save.bank),
-            Page::Contents => goto = contents(ui, def, &pages),
-            Page::Index => index(ui, def, &cat, &pages),
-            Page::Section {
-                section,
-                number,
-                blocks,
-                ..
-            } => {
-                running_head(ui, def, *number);
-                if *section == shopper::Section::Upgrades {
-                    next_run(ui, data, save);
+        .show(ui, |ui| {
+            ui.with_layout(plain(), |ui| match &pages[page] {
+                Page::Cover => goto = cover(ui, def, &pages, save.bank),
+                Page::Contents => goto = contents(ui, def, &pages),
+                Page::Index => index(ui, def, &cat, &pages),
+                Page::Section {
+                    section,
+                    number,
+                    blocks,
+                    ..
+                } => {
+                    running_head(ui, def, *number);
+                    if *section == shopper::Section::Upgrades {
+                        next_run(ui, data, save);
+                    }
+                    section_page(ui, data, save, def, &cat, blocks, out);
                 }
-                section_page(ui, data, save, def, &cat, blocks, out);
-            }
+            })
         });
     if let Some(g) = goto {
         page = g;
@@ -122,6 +124,11 @@ fn nav(ui: &mut Ui, def: &ShopperDef, pages: &[Page], page: usize, bank: u32) ->
     });
     rule(ui, 1.0);
     to
+}
+
+/// Left-aligned and not justified: egui spreads wrapped text across justified columns.
+fn plain() -> egui::Layout {
+    egui::Layout::top_down(egui::Align::Min)
 }
 
 fn text(t: impl Into<String>, size: f32) -> RichText {
@@ -194,11 +201,17 @@ fn leader(ui: &mut Ui, left: &str, right: &str, strong: bool) -> Response {
 }
 
 fn running_head(ui: &mut Ui, def: &ShopperDef, number: u32) {
-    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-        ui.label(bold(format!("Page {number}"), size::SMALL));
-        ui.add_space(20.0);
-        ui.label(bold(format!("{}, {}", def.title, def.month), size::SMALL));
-    });
+    // One line high: a right-to-left layout would otherwise take the whole page.
+    let row = vec2(ui.available_width(), size::SMALL + 8.0);
+    ui.allocate_ui_with_layout(
+        row,
+        egui::Layout::right_to_left(egui::Align::Center),
+        |ui| {
+            ui.label(bold(format!("Page {number}"), size::SMALL));
+            ui.add_space(20.0);
+            ui.label(bold(format!("{}, {}", def.title, def.month), size::SMALL));
+        },
+    );
     rule(ui, 2.0);
 }
 
@@ -229,28 +242,36 @@ fn cover(ui: &mut Ui, def: &ShopperDef, pages: &[Page], bank: u32) -> Option<usi
     let toc = shopper::contents(pages);
     let mut to = None;
     ui.columns(2, |cols| {
-        for c in &def.cover {
-            let at = toc.iter().find(|(s, ..)| *s == c.section);
-            if let Some(k) = &c.kicker {
-                cols[0].label(small(k));
+        let (left, right) = cols.split_at_mut(1);
+        let (left, right) = (&mut left[0], &mut right[0]);
+        let mut to_l = None;
+        left.with_layout(plain(), |ui| {
+            for c in &def.cover {
+                let at = toc.iter().find(|(s, ..)| *s == c.section);
+                if let Some(k) = &c.kicker {
+                    ui.label(small(k));
+                }
+                let head = ui.add(
+                    egui::Label::new(bold(&c.headline, size::HEADLINE))
+                        .sense(Sense::click())
+                        .wrap(),
+                );
+                let page = at.map_or(String::new(), |&(_, _, n)| format!(" Page {n}"));
+                ui.label(text(format!("{}{page}", c.line), size::BODY));
+                ui.add_space(8.0);
+                if head.clicked() {
+                    to_l = at.map(|&(_, i, _)| i);
+                }
             }
-            let head = cols[0].add(
-                egui::Label::new(bold(&c.headline, size::HEADLINE))
-                    .sense(Sense::click())
-                    .wrap(),
-            );
-            let page = at.map_or(String::new(), |&(_, _, n)| format!(" Page {n}"));
-            cols[0].label(text(format!("{}{page}", c.line), size::BODY));
-            cols[0].add_space(8.0);
-            if head.clicked() {
-                to = at.map(|&(_, i, _)| i);
+        });
+        right.with_layout(plain(), |ui| {
+            starburst(ui, bank);
+            ui.add_space(10.0);
+            if let Some(i) = toc_box(ui, def, pages) {
+                to = Some(i);
             }
-        }
-        starburst(&mut cols[1], bank);
-        cols[1].add_space(10.0);
-        if let Some(i) = toc_box(&mut cols[1], def, pages) {
-            to = Some(i);
-        }
+        });
+        to = to.or(to_l);
     });
     to
 }
@@ -359,9 +380,16 @@ fn section_page(
                 .take(2)
                 .collect();
             let n = pair.len();
+            if n == 1 {
+                // A lone box or list takes the whole width.
+                block(ui, data, save, def, cat, pair[0], out);
+                i += 1;
+                ui.add_space(8.0);
+                continue;
+            }
             ui.columns(2, |cols| {
                 for (c, b) in pair.into_iter().enumerate() {
-                    block(&mut cols[c], data, save, def, cat, b, out);
+                    cols[c].with_layout(plain(), |ui| block(ui, data, save, def, cat, b, out));
                 }
             });
             i += n;
