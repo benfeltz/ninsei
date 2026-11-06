@@ -204,6 +204,22 @@ fn panel_list(ui: &mut Ui, data: &Data, st: &mut SystemUi, height: f32) {
     }
 }
 
+/// Installed software, two to a row, so a full disk of tools still leaves room for the
+/// switches below it.
+fn software_grid(ui: &mut Ui, software: &[(String, String)]) {
+    egui::Grid::new("system-software")
+        .num_columns(2)
+        .spacing([24.0, 2.0])
+        .show(ui, |ui| {
+            for (i, (name, ver)) in software.iter().enumerate() {
+                ui.label(RichText::new(format!("{name} {ver}")).color(ink()));
+                if i % 2 == 1 {
+                    ui.end_row();
+                }
+            }
+        });
+}
+
 /// A scroll bar's arrow in its box, outlined: pointing up (`dir` -1) or down (1).
 fn scroll_arrow(p: &egui::Painter, b: egui::Rect, dir: f32, line: egui::Stroke) {
     use egui::pos2;
@@ -281,7 +297,6 @@ fn overview(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
     ui.label(RichText::new(format!("{}  ·  {}", o.os, o.firmware)).color(ink()));
     ui.add_space(6.0);
 
-    // Decks you own, and the firmware of the one plugged in.
     // Decks you own, one to a line, like the Monitor panel's list.
     if save.decks.len() > 1 {
         for id in &save.decks {
@@ -330,9 +345,8 @@ fn overview(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
     ui.label(RichText::new("Installed software").color(ink()).strong());
     if o.software.is_empty() {
         ui.label(dim("None."));
-    }
-    for (name, ver) in &o.software {
-        ui.label(RichText::new(format!("{name} {ver}")).color(ink()));
+    } else {
+        software_grid(ui, &o.software);
     }
     ui.add_space(8.0);
 
