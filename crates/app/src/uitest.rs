@@ -9,8 +9,9 @@ pub struct Harness {
     pub ctx: egui::Context,
     size: Vec2,
     t: f64,
-    /// What last frame's widgets said (label or value) and where they were.
-    widgets: Vec<(String, Rect)>,
+    /// What last frame's widgets said (label or value), where they were, and whether they
+    /// would take a click.
+    widgets: Vec<(String, Rect, bool)>,
 }
 
 impl Harness {
@@ -50,7 +51,7 @@ impl Harness {
                             pos2(b.x0 as f32, b.y0 as f32),
                             pos2(b.x1 as f32, b.y1 as f32),
                         );
-                        Some((text, rect))
+                        Some((text, rect, !n.is_disabled()))
                     })
                     .collect()
             })
@@ -61,13 +62,30 @@ impl Harness {
     pub fn find(&self, text: &str) -> Option<Rect> {
         self.widgets
             .iter()
-            .find(|(t, _)| t.trim().starts_with(text))
-            .map(|(_, r)| *r)
+            .find(|(t, _, _)| t.trim().starts_with(text))
+            .map(|(_, r, _)| *r)
+    }
+
+    /// Whether the first widget whose text starts with `text` takes clicks (none: not drawn).
+    pub fn enabled(&self, text: &str) -> Option<bool> {
+        self.widgets
+            .iter()
+            .find(|(t, _, _)| t.trim().starts_with(text))
+            .map(|(_, _, on)| *on)
+    }
+
+    /// Every enabled widget whose text starts with `text`, in drawing order.
+    pub fn all(&self, text: &str) -> Vec<Rect> {
+        self.widgets
+            .iter()
+            .filter(|(t, _, on)| *on && t.trim().starts_with(text))
+            .map(|(_, r, _)| *r)
+            .collect()
     }
 
     /// Every widget text last frame, for a failing test to print.
     pub fn texts(&self) -> Vec<&str> {
-        self.widgets.iter().map(|(t, _)| t.as_str()).collect()
+        self.widgets.iter().map(|(t, _, _)| t.as_str()).collect()
     }
 }
 

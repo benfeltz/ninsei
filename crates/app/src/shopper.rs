@@ -617,3 +617,192 @@ fn list_line(ui: &mut Ui, data: &Data, save: &Save, l: &Listing, out: &mut Vec<W
         out.push(WbOut::Order(l.item.clone()));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::home::Home;
+    use crate::home::tests::deck;
+    use crate::uitest::{Harness, click, key};
+    use egui::{Key, Pos2, Rect, UiBuilder};
+    use ninsei_core::hub::Tool;
+    use ninsei_core::shopper::Item;
+
+    /// One frame of `tool`'s window, sized to hold a book, with these events.
+    fn frame(
+        h: &mut Harness,
+        home: &mut Home,
+        data: &Data,
+        save: &Save,
+        tool: Tool,
+        events: Vec<egui::Event>,
+    ) -> Vec<WbOut> {
+        let mut out = Vec::new();
+        h.frame(events, |ui| {
+            let r = Rect::from_min_size(Pos2::ZERO, pager::SIZE + egui::vec2(16.0, 16.0));
+            let mut child = ui.new_child(UiBuilder::new().max_rect(r));
+            home.tool_body(&mut child, tool, data, save, &mut out);
+        });
+        out
+    }
+
+    fn press_on(h: &mut Harness, label: &str) -> Vec<egui::Event> {
+        let at = h
+            .find(label)
+            .unwrap_or_else(|| panic!("no {label:?}: {:?}", h.texts()))
+            .center();
+        click(at)
+    }
+
+    #[test]
+    fn the_bar_and_the_arrow_keys_turn_pages() {
+        let data = Data::builtin().unwrap();
+        let save = deck(&data);
+        let (mut h, mut home) = (Harness::new(1280.0, 800.0), Home::new(Vec::new()));
+        frame(&mut h, &mut home, &data, &save, Tool::Rig, Vec::new());
+        assert_eq!(
+            h.enabled("◀"),
+            Some(false),
+            "the cover has nothing before it"
+        );
+        assert_eq!(h.enabled("Home"), Some(false));
+        let next = press_on(&mut h, "▶");
+        frame(&mut h, &mut home, &data, &save, Tool::Rig, next);
+        frame(&mut h, &mut home, &data, &save, Tool::Rig, Vec::new());
+        assert_eq!(h.enabled("◀"), Some(true), "▶ turned the page");
+        let home_btn = press_on(&mut h, "Home");
+        frame(&mut h, &mut home, &data, &save, Tool::Rig, home_btn);
+        frame(&mut h, &mut home, &data, &save, Tool::Rig, Vec::new());
+        assert_eq!(h.enabled("◀"), Some(false), "Home goes back to the cover");
+        // Keys work while the pointer is over the book.
+        let over = vec![egui::Event::PointerMoved(egui::pos2(300.0, 200.0))];
+        frame(&mut h, &mut home, &data, &save, Tool::Rig, over);
+        frame(
+            &mut h,
+            &mut home,
+            &data,
+            &save,
+            Tool::Rig,
+            key(Key::ArrowRight),
+        );
+        frame(&mut h, &mut home, &data, &save, Tool::Rig, Vec::new());
+        assert_eq!(h.enabled("◀"), Some(true), "→ turns the page");
+        frame(
+            &mut h,
+            &mut home,
+            &data,
+            &save,
+            Tool::Rig,
+            key(Key::ArrowLeft),
+        );
+        frame(&mut h, &mut home, &data, &save, Tool::Rig, Vec::new());
+        assert_eq!(h.enabled("◀"), Some(false), "← turns it back");
+    }
+
+    #[test]
+    fn order_sends_the_item_and_owned_items_wont_take_an_order() {
+        let data = Data::builtin().unwrap();
+        let mut save = deck(&data);
+        save.bank = 1_000_000;
+        let (mut h, mut home) = (Harness::new(1280.0, 800.0), Home::new(Vec::new()));
+        let count = shopper::layout(&data.shopper, &save.catalog(&data)).len();
+        frame(&mut h, &mut home, &data, &save, Tool::Rig, Vec::new());
+        // Leaf through until a page has an ORDER button that takes, and press it.
+        let mut ordered = None;
+        for _ in 0..count {
+            if let Some(&r) = h.all("ORDER").first() {
+                let out = frame(
+                    &mut h,
+                    &mut home,
+                    &data,
+                    &save,
+                    Tool::Rig,
+                    click(r.center()),
+                );
+                ordered = out.into_iter().find_map(|o| match o {
+                    WbOut::Order(item) => Some(item),
+                    _ => None,
+                });
+                break;
+            }
+            let next = press_on(&mut h, "▶");
+            frame(&mut h, &mut home, &data, &save, Tool::Rig, next);
+            frame(&mut h, &mut home, &data, &save, Tool::Rig, Vec::new());
+        }
+        let item = ordered.expect("an ORDER button sends its item");
+        assert_eq!(
+            save.order_blocker(&data, &item),
+            None,
+            "{item:?} can be bought"
+        );
+        // Once it's yours, the same button won't take.
+        save.buy_item(&data, &item).unwrap();
+        frame(&mut h, &mut home, &data, &save, Tool::Rig, Vec::new());
+        let r = h.all("ORDER");
+        let out = match r.first() {
+            Some(r) => frame(
+                &mut h,
+                &mut home,
+                &data,
+                &save,
+                Tool::Rig,
+                click(r.center()),
+            ),
+            None => Vec::new(),
+        };
+        assert!(
+            !out.iter()
+                .any(|o| matches!(o, WbOut::Order(i) if *i == item)),
+            "{item:?} is owned: no second order"
+        );
+    }
+
+    #[test]
+    fn a_bought_deck_waits_in_prefs_until_you_pick_it() {
+        let data = Data::builtin().unwrap();
+        let mut save = deck(&data);
+        save.bank = 1_000_000;
+        let new = data
+            .hardware
+            .decks
+            .iter()
+            .find(|d| d.id != save.deck)
+            .unwrap();
+        save.buy_item(&data, &Item::Deck(new.id.clone())).unwrap();
+        assert_ne!(save.deck, new.id, "buying doesn't switch");
+        let (mut h, mut home) = (Harness::new(1280.0, 800.0), Home::new(Vec::new()));
+        frame(&mut h, &mut home, &data, &save, Tool::Prefs, Vec::new());
+        let pick = press_on(&mut h, &new.title());
+        let out = frame(&mut h, &mut home, &data, &save, Tool::Prefs, pick);
+        assert!(
+            out.iter()
+                .any(|o| matches!(o, WbOut::Deck(d) if *d == new.id)),
+            "picking it in Prefs plugs it in"
+        );
+    }
+
+    #[test]
+    fn a_bought_monitor_waits_in_prefs_until_you_plug_it_in() {
+        let data = Data::builtin().unwrap();
+        let mut save = deck(&data);
+        save.bank = 1_000_000;
+        let new = data
+            .hardware
+            .monitors
+            .iter()
+            .find(|m| m.id != save.monitor)
+            .unwrap();
+        save.buy_item(&data, &Item::Monitor(new.id.clone()))
+            .unwrap();
+        assert_ne!(save.monitor, new.id, "buying doesn't plug it in");
+        let (mut h, mut home) = (Harness::new(1280.0, 800.0), Home::new(Vec::new()));
+        frame(&mut h, &mut home, &data, &save, Tool::Prefs, Vec::new());
+        let pick = press_on(&mut h, &new.title());
+        let out = frame(&mut h, &mut home, &data, &save, Tool::Prefs, pick);
+        assert!(
+            out.iter()
+                .any(|o| matches!(o, WbOut::Monitor(m) if *m == new.id)),
+            "picking it in Prefs plugs it in"
+        );
+    }
+}
