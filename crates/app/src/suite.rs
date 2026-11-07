@@ -82,10 +82,12 @@ fn small(s: impl Into<String>, c: Color32) -> RichText {
     RichText::new(s).font(mono(size::SMALL)).color(c)
 }
 
-/// A document window filling the pane, on the suite's cells: a shadow,
-/// a double border, a title row with the close box, the name and the window's number, and
-/// `body` inside.
-pub fn window(ui: &mut Ui, p: &Palette, num: usize, title: &str, body: impl FnOnce(&mut Ui)) {
+/// A document window filling the pane, on the suite's cells: a shadow, a double border with
+/// the close box `[■]` and the window's number `[n]` set in its top edge, Turbo Vision style,
+/// and `body` inside. `heading` is the document's own title row (a form's or a report's
+/// name); empty when the tab over the window already names it, since a window doesn't repeat
+/// its tab.
+pub fn window(ui: &mut Ui, p: &Palette, num: usize, heading: &str, body: impl FnOnce(&mut Ui)) {
     let full = ui.available_rect_before_wrap();
     let painter = ui.painter().clone();
     painter.rect_filled(full, 0.0, p.panel);
@@ -107,21 +109,34 @@ pub fn window(ui: &mut Ui, p: &Palette, num: usize, title: &str, body: impl FnOn
         ui.allocate_rect(full, Sense::hover());
         return;
     }
-    // The title row: [■] on the left, the name in the middle, [n] on the right.
-    let w = g.cols - 2;
-    g.fill(&painter, 1, 1, w, 1, p.panel);
-    g.text(&painter, 2, 1, "[■]", p.dim);
+    // [■] and [n] in the top edge, the border broken around them.
+    g.paper = p.bg;
+    g.vision = true;
+    g.title(&painter, 1, 0, "[■]", p.dim);
     let number = format!("[{num}]");
-    g.text_right(&painter, g.cols - 2, 1, &number, p.dim);
-    let room = w.saturating_sub(6 + number.chars().count() + 2);
-    let name = cut(title, room);
-    let n = name.chars().count();
-    g.text(&painter, 1 + (w - n) / 2, 1, &name, p.bright);
-    // The body: under the title row, inside the double line (it runs through the outer
-    // cells' centres).
+    g.title(
+        &painter,
+        g.cols - number.chars().count() - 3,
+        0,
+        &number,
+        p.dim,
+    );
+    // The document's heading, if it has one of its own, on the first row.
+    let top = if heading.is_empty() {
+        1
+    } else {
+        let w = g.cols - 2;
+        let name = cut(heading, w.saturating_sub(2));
+        let n = name.chars().count();
+        g.fill(&painter, 1, 1, w, 1, p.panel);
+        g.text(&painter, 1 + (w - n) / 2, 1, &name, p.bright);
+        2
+    };
+    // The body: under the heading (or the top edge), inside the double line (it runs through
+    // the outer cells' centres).
     let edge = g.at(0, g.rows - 1, g.cols, 1).center().y;
     let inner = Rect::from_min_max(
-        g.at(1, 2, 1, 1).min + vec2(2.0, 2.0),
+        g.at(1, top, 1, 1).min + vec2(2.0, 2.0),
         pos2(g.at(g.cols - 1, 0, 1, 1).center().x - 4.0, edge - 4.0),
     );
     ui.scope_builder(
@@ -503,7 +518,7 @@ impl Panes<'_> {
         let cpu_left = g.combat.as_ref().map_or(0, |c| c.cpu);
         let mut acts: Vec<Request> = Vec::new();
         let st = &mut *self.suite;
-        window(ui, &p, Tab::Warez.number(), "WAREZ.WK1", |ui| {
+        window(ui, &p, Tab::Warez.number(), "", |ui| {
             let rows = st.rows(g);
             let picked = st.picked(g);
             // The cell address and formula bar.
@@ -1156,18 +1171,14 @@ impl ChromeView for Suite {
     }
     fn network(&self, p: &mut Panes, ui: &mut Ui) {
         let pal = p.pal;
-        window(ui, &pal, Tab::Network.number(), "PLANVIEW.DWG", |ui| {
-            p.network(ui)
-        });
+        window(ui, &pal, Tab::Network.number(), "", |ui| p.network(ui));
     }
     fn target(&self, p: &mut Panes, ui: &mut Ui) {
         p.suite_target(ui);
     }
     fn hex(&self, p: &mut Panes, ui: &mut Ui) {
         let pal = p.pal;
-        window(ui, &pal, Tab::Hex.number(), "HEXEDIT.EXE", |ui| {
-            p.hex_pane(ui)
-        });
+        window(ui, &pal, Tab::Hex.number(), "", |ui| p.hex_pane(ui));
     }
     fn terminal(&self, p: &mut Panes, ui: &mut Ui) {
         p.suite_terminal(ui);
@@ -1542,7 +1553,9 @@ mod tests {
         let mut body = Rect::NOTHING;
         h.frame(Vec::new(), |ui| {
             let mut child = ui.new_child(UiBuilder::new().max_rect(pane));
-            window(&mut child, &p, 3, "WAREZ.WK1", |ui| body = ui.max_rect());
+            window(&mut child, &p, 3, "SYSTEM RESOURCES", |ui| {
+                body = ui.max_rect()
+            });
         });
         for s in h.painted() {
             let r = s.visual_bounding_rect();
@@ -1557,8 +1570,11 @@ mod tests {
                 _ => None,
             })
             .collect();
-        for part in ["[■]", "WAREZ.WK1", "[3]"] {
-            assert!(painted.contains(part), "{part} in the title row: {painted}");
+        for part in ["[■]", "SYSTEMRESOURCES", "[3]"] {
+            assert!(
+                painted.contains(part),
+                "{part} in the window's top: {painted}"
+            );
         }
     }
 
@@ -1657,5 +1673,36 @@ mod tests {
         for w in ys.windows(2) {
             assert!((w[1] - w[0] - size::ROW_H).abs() < 0.01, "{ys:?}");
         }
+    }
+
+    #[test]
+    fn a_window_its_tab_names_doesnt_name_itself_again() {
+        let d = Data::builtin().unwrap();
+        let p = Palette::from_def(&d.themes[0]);
+        let pane = Rect::from_min_size(egui::pos2(20.0, 30.0), vec2(401.0, 233.0));
+        let body_top = |heading: &str| {
+            let mut h = Harness::new(900.0, 600.0);
+            let mut body = Rect::NOTHING;
+            h.frame(Vec::new(), |ui| {
+                let mut child = ui.new_child(UiBuilder::new().max_rect(pane));
+                window(&mut child, &p, 2, heading, |ui| body = ui.max_rect());
+            });
+            let painted: String = h
+                .painted()
+                .iter()
+                .filter_map(|s| match s {
+                    egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+                    _ => None,
+                })
+                .collect();
+            (body.top(), painted)
+        };
+        let (bare, painted) = body_top("");
+        assert_eq!(painted, "[■][2]", "only the badges in the edge");
+        let (headed, _) = body_top("SYSTEM RESOURCES");
+        assert!(
+            (headed - bare - size::ROW_H).abs() < 0.5,
+            "a heading takes one row"
+        );
     }
 }
