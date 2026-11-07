@@ -711,9 +711,9 @@ impl Default for Loadout {
     }
 }
 
-/// Which copy of a game you own. It picks the intro the game opens with: a cracked copy
-/// plays its crew's cracktro, a boxed one its publisher's splash. Boxed outranks Cracked.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+/// A copy of a game: a cracked one plays its crew's cracktro, a boxed one its publisher's
+/// splash.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum GameCopy {
     /// Downloaded from a board.
     Cracked,
@@ -721,11 +721,24 @@ pub enum GameCopy {
     Boxed,
 }
 
-/// A game on the save, and the copy you have of it.
+/// A game on the save, and which copies of it you have. You can have both: ordering the box
+/// never erases the crack, and a board still sells the crack to someone with the box.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct OwnedGame {
     pub id: String,
-    pub copy: GameCopy,
+    #[serde(default)]
+    pub cracked: bool,
+    #[serde(default)]
+    pub boxed: bool,
+}
+
+impl OwnedGame {
+    pub fn has(&self, copy: GameCopy) -> bool {
+        match copy {
+            GameCopy::Cracked => self.cracked,
+            GameCopy::Boxed => self.boxed,
+        }
+    }
 }
 
 /// Everything the hub keeps between sessions. One RON document, versioned.
@@ -849,7 +862,7 @@ pub struct Save {
     /// tools had to be found has the wardialer and HexEd already.
     #[serde(default = "legacy_tools")]
     pub tools: Vec<String>,
-    /// Games you own (ids in `data/hub/games.ron`), each with the copy you have.
+    /// Games you own (ids in `data/hub/games.ron`), each with the copies you have.
     #[serde(default)]
     pub games: Vec<OwnedGame>,
     /// Textfiles downloaded from boards, for the QWK reader.
@@ -1078,23 +1091,50 @@ impl Save {
         self.game_copy(id).is_some()
     }
 
-    /// Which copy of a game you own, if any.
-    pub fn game_copy(&self, id: &str) -> Option<GameCopy> {
-        self.games.iter().find(|g| g.id == id).map(|g| g.copy)
+    /// Whether you have this copy of a game.
+    pub fn has_copy(&self, id: &str, copy: GameCopy) -> bool {
+        self.games.iter().any(|g| g.id == id && g.has(copy))
     }
 
-    /// Adds a game you came by. A boxed copy replaces a cracked one, never the reverse. False
-    /// if nothing changed.
+    /// The copy a game opens with, if you own it: the box once you've paid for one, else the
+    /// crack.
+    pub fn game_copy(&self, id: &str) -> Option<GameCopy> {
+        [GameCopy::Boxed, GameCopy::Cracked]
+            .into_iter()
+            .find(|&c| self.has_copy(id, c))
+    }
+
+    /// Adds a copy of a game you came by, beside any other copy you have. False if you had it.
     pub fn learn_game(&mut self, id: &str, copy: GameCopy) -> bool {
-        match self.games.iter_mut().find(|g| g.id == id) {
-            Some(g) if g.copy < copy => g.copy = copy,
-            Some(_) => return false,
-            None => self.games.push(OwnedGame {
-                id: id.into(),
-                copy,
-            }),
+        if self.has_copy(id, copy) {
+            return false;
+        }
+        let i = match self.games.iter().position(|g| g.id == id) {
+            Some(i) => i,
+            None => {
+                self.games.push(OwnedGame {
+                    id: id.into(),
+                    cracked: false,
+                    boxed: false,
+                });
+                self.games.len() - 1
+            }
+        };
+        let g = &mut self.games[i];
+        match copy {
+            GameCopy::Cracked => g.cracked = true,
+            GameCopy::Boxed => g.boxed = true,
         }
         true
+    }
+
+    /// The games you have a cracked copy of: a board won't sell you one of these again.
+    pub fn cracks(&self) -> Vec<String> {
+        self.games
+            .iter()
+            .filter(|g| g.cracked)
+            .map(|g| g.id.clone())
+            .collect()
     }
 
     /// Whether a desktop tool is there at all: HexEd only once you've downloaded it.
@@ -1826,7 +1866,7 @@ impl Save {
             jobs: Vec::new(),
             trust: self.trust.clone(),
             tools: self.tools.clone(),
-            games: self.games.iter().map(|g| g.id.clone()).collect(),
+            games: self.cracks(),
             free: self.free(data).to_vec(),
             texts: self
                 .texts

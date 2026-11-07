@@ -484,7 +484,7 @@ impl Save {
         // A cracked copy doesn't count: the boxed one is still for sale.
         for g in &data.games {
             let Some(shop) = &g.shop else { continue };
-            let stock = if self.game_copy(&g.id) == Some(GameCopy::Boxed) {
+            let stock = if self.has_copy(&g.id, GameCopy::Boxed) {
                 Stock::Owned(shop.price)
             } else {
                 Stock::Price(shop.price)
@@ -541,11 +541,11 @@ impl Save {
         }
     }
 
-    /// Orders a boxed copy of a game by mail. It replaces a cracked copy if you had one.
+    /// Orders a boxed copy of a game by mail. A cracked copy you had stays on the disk.
     pub fn buy_game(&mut self, data: &Data, id: &str) -> Result<String, String> {
         let g = data.game(id).ok_or("no such game.")?;
         let shop = g.shop.as_ref().ok_or("that game isn't sold by mail.")?;
-        if self.game_copy(id) == Some(GameCopy::Boxed) {
+        if self.has_copy(id, GameCopy::Boxed) {
             return Err("you already have that.".into());
         }
         if self.bank < shop.price {

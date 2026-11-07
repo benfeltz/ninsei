@@ -25,7 +25,7 @@ pub struct HomeCall {
     bank: u32,
     stash_free: u32,
     tools: Vec<String>,
-    /// Games you own, in either copy (ids in `hub/games.ron`).
+    /// Games you have a cracked copy of (ids in `hub/games.ron`).
     games: Vec<String>,
     /// Textfiles from this board already on your disk (text ids).
     texts: Vec<String>,
@@ -61,7 +61,7 @@ impl Line for HomeCall {
         self.texts.iter().any(|t| t == id)
     }
 
-    fn has_game(&self, id: &str) -> bool {
+    fn has_crack(&self, id: &str) -> bool {
         self.games.iter().any(|g| g == id)
     }
 
@@ -85,7 +85,7 @@ impl Line for HomeCall {
             &f.item,
             |t| self.has_tool(t),
             |t| self.has_text(t),
-            |t| self.has_game(t),
+            |t| self.has_crack(t),
         ) {
             return Some(why);
         }
@@ -190,7 +190,7 @@ impl Save {
             bank: self.bank,
             stash_free,
             tools: self.tools.clone(),
-            games: self.games.iter().map(|g| g.id.clone()).collect(),
+            games: self.cracks(),
             texts: self
                 .texts
                 .iter()

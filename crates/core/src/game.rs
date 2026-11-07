@@ -77,7 +77,8 @@ pub struct Kit {
     pub trust: Vec<(String, u32)>,
     /// Desktop tools you own (ids in `hub/tools.ron`): HexEd lets you patch on a board.
     pub tools: Vec<String>,
-    /// Games you own, in either copy (ids in `hub/games.ron`): a board won't sell you one twice.
+    /// Games you have a cracked copy of (ids in `hub/games.ron`): a board won't sell you one
+    /// twice. A boxed copy doesn't count: the crack is still for sale.
     pub games: Vec<String>,
     /// Textfiles already on your disk, as (board id, text id).
     pub texts: Vec<(String, String)>,
@@ -1536,7 +1537,7 @@ impl Game {
             &def.item,
             |t| self.has_tool(t),
             |t| self.has_text(t),
-            |t| self.has_game(t),
+            |t| self.has_crack(t),
         ) {
             return Some(why);
         }
@@ -1548,8 +1549,8 @@ impl Game {
         self.tools.iter().any(|t| t == id)
     }
 
-    /// Whether you own a game, in either copy (an id in `hub/games.ron`).
-    pub fn has_game(&self, id: &str) -> bool {
+    /// Whether you have a cracked copy of a game (an id in `hub/games.ron`).
+    pub fn has_crack(&self, id: &str) -> bool {
         self.games.iter().any(|g| g == id)
     }
 
@@ -1767,7 +1768,7 @@ impl Game {
             }
             Drop::Game(id) => {
                 let name = self.data.game(&id).map_or(id.clone(), |g| g.name.clone());
-                if !self.has_game(&id) {
+                if !self.has_crack(&id) {
                     self.games.push(id);
                 }
                 self.say(LogKind::Loot, format!("+ game: {name}"));
@@ -1790,7 +1791,7 @@ pub fn tool_blocker(
     item: &Drop,
     has: impl Fn(&str) -> bool,
     has_text: impl Fn(&str) -> bool,
-    has_game: impl Fn(&str) -> bool,
+    has_crack: impl Fn(&str) -> bool,
 ) -> Option<String> {
     match item {
         Drop::Tool(id) if has(id) => Some(format!(
@@ -1801,7 +1802,7 @@ pub fn tool_blocker(
                 .map_or(id.as_str(), |t| t.name.as_str())
         )),
         Drop::Text(id) if has_text(id) => Some("that textfile's already on your disk.".into()),
-        Drop::Game(id) if has_game(id) => Some("you already have that game.".into()),
+        Drop::Game(id) if has_crack(id) => Some("you already have that game.".into()),
         _ => None,
     }
 }

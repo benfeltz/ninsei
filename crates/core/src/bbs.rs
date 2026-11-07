@@ -46,15 +46,16 @@ pub trait Line {
     fn has_tool(&self, id: &str) -> bool;
     /// Whether a textfile on this board is already on your disk.
     fn has_text(&self, id: &str) -> bool;
-    /// Whether you own a game, in either copy: an owned game lists as yours, like a tool.
-    fn has_game(&self, id: &str) -> bool;
+    /// Whether you have a cracked copy of a game: it lists as yours, like a tool. A boxed
+    /// copy doesn't count; the board still sells the crack.
+    fn has_crack(&self, id: &str) -> bool;
 }
 
 /// Whether a file is a tool or a game you already own: the listing marks it yours.
 fn owned(game: &dyn Line, item: &Drop) -> bool {
     match item {
         Drop::Tool(t) => game.has_tool(t),
-        Drop::Game(g) => game.has_game(g),
+        Drop::Game(g) => game.has_crack(g),
         _ => false,
     }
 }
@@ -109,8 +110,8 @@ impl Line for Game {
         Game::has_text(self, id)
     }
 
-    fn has_game(&self, id: &str) -> bool {
-        Game::has_game(self, id)
+    fn has_crack(&self, id: &str) -> bool {
+        Game::has_crack(self, id)
     }
 }
 
