@@ -46,7 +46,7 @@ impl<C: Clone> Sheet<C> {
             }
         }
         for (c, r, len, give, name) in other.hits {
-            self.hits.push((c + col, r + row, len, give, name));
+            self.push_hit(c + col, r + row, len, give, name);
         }
         self.rows = self.rows.max(row + other.rows);
     }
@@ -84,14 +84,21 @@ impl<C: Clone> Sheet<C> {
         c
     }
 
-    /// Makes `len` cells from (col, row) clickable.
+    /// Makes `len` cells from (col, row) clickable, never past the sheet's edge.
     pub fn hit(&mut self, col: usize, row: usize, len: usize, give: C) {
-        self.hits.push((col, row, len, give, None));
+        self.push_hit(col, row, len, give, None);
     }
 
     /// Like [`Sheet::hit`], named `label` for a screen reader instead of the glyphs it shows.
     pub fn hit_as(&mut self, col: usize, row: usize, len: usize, give: C, label: String) {
-        self.hits.push((col, row, len, give, Some(label)));
+        self.push_hit(col, row, len, give, Some(label));
+    }
+
+    fn push_hit(&mut self, col: usize, row: usize, len: usize, give: C, name: Option<String>) {
+        let len = len.min(self.cols.saturating_sub(col));
+        if len > 0 {
+            self.hits.push((col, row, len, give, name));
+        }
     }
 
     /// A key hint: key `k` in the first colour, what it `does` in the second, clickable when
@@ -198,6 +205,16 @@ mod tests {
         assert_eq!(s.rows(), 7);
         s.grow_to(2);
         assert_eq!(s.rows(), 7, "never shorter");
+        // A run is never wider than the sheet, however it was asked for.
+        s.hit(15, 5, 10, 9);
+        let mut wide: Sheet<u8> = Sheet::new(10);
+        wide.hit(0, 0, 10, 8);
+        s.stamp(wide, 14, 6);
+        assert!(s.hits.iter().all(|(c, _, len, _, _)| c + len <= s.cols));
+        assert_eq!(
+            s.hits.iter().filter(|h| h.3 == 8).map(|h| h.2).next(),
+            Some(6)
+        );
 
         let mut h = Harness::new(400.0, 200.0);
         let mut got = Vec::new();
