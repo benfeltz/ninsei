@@ -542,3 +542,111 @@ mod nibbler {
         assert_ne!(n.cells(), still);
     }
 }
+
+mod blox {
+    use ninsei_core::games::blox::{self, Blox};
+    use ninsei_core::games::{Arcade, Cell, Input};
+
+    #[test]
+    fn a_filled_row_clears() {
+        let mut b = Blox::new(5, 10, 20);
+        // Where the first piece lands on an empty board, dropped straight down.
+        let mut probe = b.clone();
+        probe.step(Input::Fire, 0);
+        let bottom = 19 * 10;
+        let landed: Vec<usize> = (0..10)
+            .filter(|&x| probe.cells()[bottom + x] != Cell::Empty)
+            .collect();
+        assert!(!landed.is_empty());
+        // Fill the rest of the bottom row, then drop it in the gap.
+        for x in (0..10).filter(|x| !landed.contains(x)) {
+            b.lay(x, 19);
+        }
+        b.step(Input::Fire, 0);
+        assert_eq!(b.lines(), 1, "the full row cleared");
+        assert!(b.score() >= blox::LINE_POINTS[1]);
+        assert!(b.status().contains("LINES 1"));
+    }
+
+    #[test]
+    fn it_ends_when_a_piece_has_no_room() {
+        let mut b = Blox::new(2, 10, 20);
+        let mut ticks = 0;
+        while !b.over() {
+            b.step(Input::None, 1);
+            ticks += 1;
+            assert!(ticks < 100_000, "it never filled up");
+        }
+        assert!(b.status().contains("GAME OVER"));
+        let still = b.cells();
+        b.step(Input::Fire, 10);
+        assert_eq!(b.cells(), still, "over is over");
+    }
+
+    #[test]
+    fn turning_never_leaves_the_field() {
+        for seed in 0..20 {
+            let mut b = Blox::new(seed, 6, 8);
+            for _ in 0..6 {
+                b.step(Input::Left, 0);
+            }
+            for _ in 0..8 {
+                b.step(Input::Up, 0);
+                assert!(
+                    b.piece().iter().all(|&(x, y)| x < 6 && y < 8),
+                    "seed {seed}"
+                );
+            }
+            for _ in 0..6 {
+                b.step(Input::Right, 0);
+                b.step(Input::Alt, 0);
+                assert!(
+                    b.piece().iter().all(|&(x, y)| x < 6 && y < 8),
+                    "seed {seed}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_bag_deals_all_seven_before_repeating() {
+        // Each hard drop deals the next piece; seven in a row are seven different pieces.
+        let mut b = Blox::new(9, 10, 20);
+        let mut kinds = Vec::new();
+        for _ in 0..7 {
+            let (x, y) = b.piece()[0];
+            if let Cell::Block(k) = b.cells()[y * 10 + x] {
+                kinds.push(k);
+            }
+            b.step(Input::Fire, 0);
+        }
+        kinds.sort_unstable();
+        assert_eq!(kinds, vec![1, 2, 3, 4, 5, 6, 7]);
+    }
+
+    #[test]
+    fn gravity_drops_a_row_a_period() {
+        let mut b = Blox::new(1, 10, 20);
+        let before = b.piece();
+        b.step(Input::None, blox::START_PERIOD - 1);
+        assert_eq!(b.piece(), before);
+        b.step(Input::None, 1);
+        let after = b.piece();
+        assert!(after.iter().zip(&before).all(|(a, p)| a.1 == p.1 + 1));
+    }
+
+    #[test]
+    fn same_seed_same_pieces() {
+        let play = |seed| {
+            let mut b = Blox::new(seed, 10, 20);
+            let mut out = Vec::new();
+            for i in 0..40 {
+                b.step(if i % 3 == 0 { Input::Fire } else { Input::Left }, 2);
+                out.push(b.cells());
+            }
+            out
+        };
+        assert_eq!(play(4), play(4));
+        assert_ne!(play(4), play(5));
+    }
+}

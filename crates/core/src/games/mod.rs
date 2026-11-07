@@ -6,6 +6,7 @@
 
 use serde::Deserialize;
 
+pub mod blox;
 pub mod nibbler;
 
 /// One press, or nothing. Arrows steer and move a cursor, `Fire` is the main button, `Alt`
