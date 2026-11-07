@@ -415,3 +415,130 @@ fn every_crack_is_signed_by_a_crew_that_cracks_games() {
         assert_eq!(crack.board.as_deref(), Some("gutter"), "{}", g.id);
     }
 }
+
+mod nibbler {
+    use ninsei_core::games::nibbler::{self, Nibbler};
+    use ninsei_core::games::{Arcade, Cell, Input};
+
+    /// Steers at the food by the first safe square it can turn to, never back on itself.
+    fn toward_food(n: &Nibbler) -> Input {
+        let (hx, hy) = (n.head().0 as i32, n.head().1 as i32);
+        let Some((fx, fy)) = n.food() else {
+            return Input::None;
+        };
+        let (fx, fy) = (fx as i32, fy as i32);
+        let cells = n.cells();
+        let safe = |dx: i32, dy: i32| {
+            let (x, y) = ((hx + dx) as usize, (hy + dy) as usize);
+            matches!(cells[y * n.cols() + x], Cell::Empty | Cell::Food)
+        };
+        let mut moves = vec![
+            ((fx - hx).signum(), 0),
+            (0, (fy - hy).signum()),
+            (1, 0),
+            (-1, 0),
+            (0, 1),
+            (0, -1),
+        ];
+        moves.retain(|&(dx, dy)| (dx, dy) != (0, 0) && safe(dx, dy));
+        match moves.first() {
+            Some((1, 0)) => Input::Right,
+            Some((-1, 0)) => Input::Left,
+            Some((0, 1)) => Input::Down,
+            Some((0, -1)) => Input::Up,
+            _ => Input::None,
+        }
+    }
+
+    #[test]
+    fn a_straight_run_into_the_wall_ends_it() {
+        let mut n = Nibbler::new(1, 32, 20);
+        let mut ticks = 0;
+        while !n.over() {
+            n.step(Input::None, 1);
+            ticks += 1;
+            assert!(ticks < 1000, "it never hit the wall");
+        }
+        assert!(!n.won());
+        assert!(n.status().contains("GAME OVER"));
+        // Over is over: nothing moves it again.
+        let still = n.cells();
+        n.step(Input::Up, 50);
+        assert_eq!(n.cells(), still);
+    }
+
+    #[test]
+    fn it_eats_grows_and_scores() {
+        let mut n = Nibbler::new(7, 32, 20);
+        for _ in 0..5000 {
+            if n.score() >= 3 * nibbler::FOOD_POINTS || n.over() {
+                break;
+            }
+            let i = toward_food(&n);
+            n.step(i, 1);
+        }
+        assert_eq!(n.score(), 3 * nibbler::FOOD_POINTS);
+        assert_eq!(n.len(), nibbler::START_LEN + 3);
+        assert!(n.status().starts_with("SCORE 30  LENGTH 6"));
+    }
+
+    #[test]
+    fn it_speeds_up_every_few_meals() {
+        let mut n = Nibbler::new(3, 40, 20);
+        assert_eq!(n.period(), nibbler::START_PERIOD);
+        while n.score() < nibbler::SPEEDUP_EVERY * nibbler::FOOD_POINTS && !n.over() {
+            let i = toward_food(&n);
+            n.step(i, 1);
+        }
+        assert_eq!(n.period(), nibbler::START_PERIOD - 1);
+    }
+
+    #[test]
+    fn it_never_turns_back_on_itself() {
+        let mut n = Nibbler::new(1, 32, 20);
+        let (x, y) = n.head();
+        n.step(Input::Left, nibbler::START_PERIOD);
+        assert_eq!(n.head(), (x + 1, y), "still heading right");
+        assert!(!n.over());
+    }
+
+    #[test]
+    fn same_seed_same_food() {
+        let foods = |seed| {
+            let mut n = Nibbler::new(seed, 32, 20);
+            let mut out = vec![n.food()];
+            while out.len() < 4 && !n.over() {
+                let i = toward_food(&n);
+                n.step(i, 1);
+                if n.food() != *out.last().unwrap() {
+                    out.push(n.food());
+                }
+            }
+            out
+        };
+        assert_eq!(foods(11), foods(11));
+        assert_ne!(foods(11), foods(12));
+    }
+
+    #[test]
+    fn the_field_is_walled_and_the_snake_is_on_it() {
+        let n = Nibbler::new(1, 32, 20);
+        let cells = n.cells();
+        assert_eq!(cells.len(), 32 * 20);
+        assert!(cells[..32].iter().all(|c| *c == Cell::Wall));
+        assert_eq!(cells.iter().filter(|c| **c == Cell::Head).count(), 1);
+        assert_eq!(cells.iter().filter(|c| **c == Cell::Food).count(), 1);
+    }
+
+    #[test]
+    fn pause_holds_the_clock() {
+        let mut n = Nibbler::new(1, 32, 20);
+        n.step(Input::Pause, 0);
+        let still = n.cells();
+        n.step(Input::None, 100);
+        assert!(n.paused() && n.cells() == still && n.status().contains("PAUSED"));
+        n.step(Input::Pause, 0);
+        n.step(Input::None, nibbler::START_PERIOD);
+        assert_ne!(n.cells(), still);
+    }
+}
