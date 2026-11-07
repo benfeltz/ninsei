@@ -1424,7 +1424,6 @@ fn hotkeys(ctx: &egui::Context, game: &Game, modal: bool, focus_input: &mut bool
 }
 
 impl App {
-    /// The run's IDE: menu, status bar, dock panes and the run's modal windows.
     /// The desktop and anything called up over it (a board dialled from home), with what they
     /// send applied: on its own while home, dragging during the transitions.
     fn hub_ui(&mut self, ctx: &egui::Context, pal: &theme::Palette) {
@@ -1511,6 +1510,7 @@ impl App {
         ctx.request_repaint_after(std::time::Duration::from_millis(250));
     }
 
+    /// The run's IDE: menu, status bar, dock panes and the run's modal windows.
     fn run_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, pal: &theme::Palette) {
         let pal = *pal;
         let ctx = ctx.clone();
