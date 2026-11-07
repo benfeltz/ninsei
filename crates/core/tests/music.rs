@@ -1,7 +1,7 @@
 //! The run's music: how trace arranges a tune, and that a tune loops seamlessly.
 
 use ninsei_core::intro::TuneDef;
-use ninsei_core::music::{Arrangement, arrangement};
+use ninsei_core::music::{Arrangement, MAX_LOOP_SECS, arrangement};
 use ninsei_core::tuning::{MUSIC_DROP_AT, MUSIC_TEMPO_AT, MUSIC_TEMPO_BPM};
 
 #[test]
@@ -260,11 +260,14 @@ fn every_scored_pack_has_a_tune_per_tier_that_sits_under_a_cracktro() {
         .fold(f32::MAX, f32::min);
     assert!(cracktro < 1.0, "a cracktro has a tune");
     for pack in scored {
-        for tier in 1..=3 {
+        for tier in d.networks.tiers.iter().map(|t| t.tier) {
             let at = format!("{pack} tier {tier}");
             let t = d.run_tune(pack, tier).expect("a tune for every tier");
             let secs = t.tune.loop_secs(0);
-            assert!((24.0..=64.0).contains(&secs), "{at} loops after {secs:.1}s");
+            assert!(
+                (24.0..=MAX_LOOP_SECS).contains(&secs),
+                "{at} loops after {secs:.1}s"
+            );
             assert!(t.drop.is_some(), "{at} has a track to drop");
             let check = |pct: u32, a: &[f32]| {
                 let (peak, rms) = level(a);
