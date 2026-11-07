@@ -95,6 +95,11 @@ pub struct TilingDesk {
     leader: bool,
     launcher: Option<Launcher>,
     help: bool,
+    /// Whether the Shell was taking the keys last frame.
+    shell_typing: bool,
+    /// The Shell has just started taking the keys: it asks for its focus next frame, after the
+    /// key that gave them back has been read by someone else.
+    focus_pending: bool,
 }
 
 impl TilingDesk {
@@ -103,6 +108,8 @@ impl TilingDesk {
             leader: false,
             launcher: None,
             help: false,
+            shell_typing: false,
+            focus_pending: false,
         }
     }
 
@@ -181,13 +188,6 @@ impl DesktopView for TilingDesk {
                 home.shell_searching(),
                 self.help || !save.tiling_help_seen,
             );
-            // egui drops the focused widget on Esc: the Shell asks for it back, so closing the
-            // help or the leader leaves it typing.
-            if t.focused() == Some(Tool::Shell)
-                && ui.input(|i| i.key_pressed(Key::Escape) || i.key_released(Key::Escape))
-            {
-                home.focus();
-            }
         }
         let screen = ui.ctx().content_rect().translate(vec2(0.0, cx.offset));
         let painter = ui.painter_at(screen);
@@ -301,6 +301,22 @@ impl DesktopView for TilingDesk {
                 .flatten()
         });
         let mut focus_to = None;
+        // Esc drops egui's focus, and a leader, launcher or help key must not be typed into the
+        // Shell: whenever the Shell goes from not taking the keys to taking them (a closed
+        // leader, launcher or help, or focus moved onto it), it asks for its focus on the next
+        // frame, once that key has been read.
+        let help_open = self.help || !save.tiling_help_seen;
+        let shell_typing = live
+            && t.focused() == Some(Tool::Shell)
+            && self.launcher.is_none()
+            && !self.leader
+            && !help_open;
+        if std::mem::take(&mut self.focus_pending) && shell_typing {
+            home.focus();
+        } else if shell_typing && !self.shell_typing {
+            self.focus_pending = true;
+        }
+        self.shell_typing = shell_typing;
         for (i, (tool, [x, y, w, h])) in layout.into_iter().enumerate() {
             let r = Rect::from_min_size(pos2(x, y), vec2(w, h));
             let on = i == t.focus;
@@ -326,7 +342,7 @@ impl DesktopView for TilingDesk {
             let content = r
                 .shrink2(vec2(10.0, 8.0))
                 .with_min_y(r.top() + size::TITLE_H - 4.0);
-            let typing = live && on && self.launcher.is_none() && !self.leader;
+            let typing = live && on && self.launcher.is_none() && !self.leader && !help_open;
             if tool == Tool::Shell {
                 home.shell(ui, content, data, save, typing, out);
                 continue;
@@ -359,7 +375,7 @@ impl DesktopView for TilingDesk {
         if live {
             self.launcher_ui(ui, home, cx, &mut t, out);
             let first = !save.tiling_help_seen;
-            if (self.help || first) && help_ui(ui, screen, first) {
+            if (self.help || first) && help_ui(ui, screen) {
                 self.help = false;
                 if first {
                     out.push(WbOut::HelpSeen);
@@ -501,9 +517,9 @@ impl TilingDesk {
     }
 }
 
-/// The key help. Returns true when it's dismissed (a click, or any key but the leader). The
-/// first-boot help is also dismissed by Esc, which then doesn't open the leader (`keys`).
-fn help_ui(ui: &mut Ui, screen: Rect, first: bool) -> bool {
+/// The key help. Returns true when it's dismissed (a click, or any key but `?` and `/`, which
+/// open it).
+fn help_ui(ui: &mut Ui, screen: Rect) -> bool {
     let lines = [
         ("AnarchyOS // ono-sendai cyberspace vii", ""),
         ("", ""),
@@ -554,7 +570,7 @@ fn help_ui(ui: &mut Ui, screen: Rect, first: bool) -> bool {
     ui.input(|i| {
         i.pointer.primary_clicked()
             || i.events.iter().any(|e| {
-                matches!(e, Event::Key { pressed: true, key, .. } if (first || *key != Key::Escape) && *key != Key::Questionmark && *key != Key::Slash)
+                matches!(e, Event::Key { pressed: true, key, .. } if *key != Key::Questionmark && *key != Key::Slash)
             })
     })
 }
@@ -688,42 +704,36 @@ mod tests {
         assert_eq!(home.system.panel, ninsei_core::system::Panel::Monitor);
     }
 
-    /// Frames of the tiling desktop at 1280x800 with a save the test can watch.
+    /// The tiling desktop at 1280x800 on a `uitest::Harness`, with the save the app would keep.
     struct Rig {
+        h: crate::uitest::Harness,
         data: ninsei_core::Data,
         save: ninsei_core::hub::Save,
-        ctx: egui::Context,
         desk: TilingDesk,
         home: Home,
-        t: f64,
     }
 
     impl Rig {
         fn new(help_seen: bool) -> Self {
-            Rig {
+            let mut r = Rig {
+                h: crate::uitest::Harness::new(1280.0, 800.0),
                 data: ninsei_core::Data::builtin().unwrap(),
                 save: ninsei_core::hub::Save {
                     tiling_help_seen: help_seen,
                     ..Default::default()
                 },
-                ctx: egui::Context::default(),
                 desk: TilingDesk::new(),
                 home: Home::new(Vec::new()),
-                t: 0.0,
-            }
+            };
+            r.frame(Vec::new());
+            r.frame(Vec::new());
+            r
         }
 
         fn frame(&mut self, events: Vec<Event>) {
-            self.t += 0.1;
-            let raw = RawInput {
-                screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(1280.0, 800.0))),
-                time: Some(self.t),
-                events,
-                ..RawInput::default()
-            };
             let mut out = Vec::new();
             let (data, save, desk, home) = (&self.data, &self.save, &mut self.desk, &mut self.home);
-            let mut o = self.ctx.run_ui(raw, |ui| {
+            self.h.frame(events, |ui| {
                 let cx = Cx {
                     data,
                     save,
@@ -732,7 +742,6 @@ mod tests {
                 };
                 desk.show(ui, home, &cx, &mut out);
             });
-            o.textures_delta.clear();
             for w in out {
                 match w {
                     crate::home::WbOut::Tiling(l) => self.save.tiling = l,
@@ -742,44 +751,33 @@ mod tests {
             }
         }
 
-        fn key(&mut self, k: egui::Key) {
-            let e = |pressed| Event::Key {
-                key: k,
-                physical_key: None,
-                pressed,
-                repeat: false,
-                modifiers: egui::Modifiers::NONE,
-            };
-            self.frame(vec![e(true), e(false)]);
+        /// Runs `events`, then a quiet frame.
+        fn send(&mut self, events: Vec<Event>) {
+            self.frame(events);
             self.frame(Vec::new());
         }
 
-        fn click(&mut self, p: egui::Pos2) {
-            let b = |pressed| Event::PointerButton {
-                pos: p,
-                button: egui::PointerButton::Primary,
-                pressed,
-                modifiers: egui::Modifiers::NONE,
-            };
-            self.frame(vec![Event::PointerMoved(p)]);
-            self.frame(vec![b(true), b(false)]);
-            self.frame(Vec::new());
+        /// A key as a real keyboard sends it: the press, and the text it types.
+        fn key_text(&mut self, k: egui::Key, s: &str) {
+            let mut e = crate::uitest::key(k);
+            e.extend(crate::uitest::text(s));
+            self.send(e);
+        }
+
+        fn key(&mut self, k: egui::Key) {
+            self.send(crate::uitest::key(k));
         }
 
         fn type_text(&mut self, s: &str) {
-            self.frame(vec![Event::Text(s.into())]);
-            self.frame(Vec::new());
+            self.send(crate::uitest::text(s));
         }
     }
 
     #[test]
     fn the_shell_takes_typing_after_the_first_boot_help_closes() {
         let mut r = Rig::new(false);
-        r.frame(Vec::new());
-        r.frame(Vec::new());
-        assert!(!r.save.tiling_help_seen);
-        // A key dismisses the help; the Shell must hear the typing that follows.
-        r.key(egui::Key::A);
+        // The key that closes the help isn't typed; what follows is.
+        r.key_text(egui::Key::A, "a");
         assert!(r.save.tiling_help_seen, "the help closed");
         r.type_text("help");
         assert_eq!(r.home.shell_text(), "help");
@@ -788,38 +786,10 @@ mod tests {
     }
 
     #[test]
-    fn the_leader_and_a_click_hand_the_keys_back_to_the_focused_shell() {
-        let mut r = Rig::new(true);
-        r.frame(Vec::new());
-        r.frame(Vec::new());
-        r.type_text("ph");
-        assert_eq!(r.home.shell_text(), "ph");
-        // The leader takes the keyboard from the Shell; Esc gives the tile back, but not
-        // the keys.
-        r.key(egui::Key::Escape);
-        r.key(egui::Key::Escape);
-        r.type_text("x");
-        assert_eq!(
-            r.home.shell_text(),
-            "phx",
-            "Esc, Esc leaves the Shell typing"
-        );
-        r.click(pos2(640.0, 400.0));
-        r.type_text("y");
-        assert_eq!(
-            r.home.shell_text(),
-            "phxy",
-            "a click in the tile keeps it typing"
-        );
-    }
-
-    #[test]
     fn the_shell_takes_typing_after_a_click_closes_the_help() {
         for p in [pos2(640.0, 400.0), pos2(640.0, 760.0), pos2(30.0, 400.0)] {
             let mut r = Rig::new(false);
-            r.frame(Vec::new());
-            r.frame(Vec::new());
-            r.click(p);
+            r.send(crate::uitest::click(p));
             assert!(r.save.tiling_help_seen, "the help closed at {p:?}");
             r.type_text("help");
             assert_eq!(r.home.shell_text(), "help", "typing after a click at {p:?}");
@@ -829,10 +799,74 @@ mod tests {
     #[test]
     fn esc_on_the_first_boot_help_closes_it_and_the_shell_takes_typing() {
         let mut r = Rig::new(false);
-        r.frame(Vec::new());
-        r.frame(Vec::new());
         r.key(egui::Key::Escape);
+        assert!(r.save.tiling_help_seen, "Esc closed the help");
+        assert!(!r.desk.leader, "and didn't open the leader");
         r.type_text("help");
         assert_eq!(r.home.shell_text(), "help");
+    }
+
+    #[test]
+    fn leader_keys_reach_the_desktop_never_the_shell() {
+        let mut r = Rig::new(true);
+        r.type_text("ph");
+        // Esc, Esc: the leader opens and closes, and the Shell types again.
+        r.key(egui::Key::Escape);
+        r.key(egui::Key::Escape);
+        r.type_text("x");
+        assert_eq!(
+            r.home.shell_text(),
+            "phx",
+            "Esc, Esc leaves the Shell typing"
+        );
+        // Esc, h (focus previous, the Shell is alone): no h on the command line.
+        r.key(egui::Key::Escape);
+        r.key_text(egui::Key::H, "h");
+        assert_eq!(r.home.shell_text(), "phx", "the leader's h isn't typed");
+        // Esc, Enter (swap with master) doesn't submit the command line.
+        r.key(egui::Key::Escape);
+        r.key(egui::Key::Enter);
+        assert_eq!(
+            r.home.shell_text(),
+            "phx",
+            "the leader's Enter isn't submitted"
+        );
+        // Esc, ?, then the key that closes the help: neither is typed.
+        r.key(egui::Key::Escape);
+        r.key_text(egui::Key::Questionmark, "?");
+        assert!(r.desk.help, "the help is open");
+        r.key_text(egui::Key::Q, "q");
+        assert!(!r.desk.help, "the help closed");
+        r.type_text("y");
+        assert_eq!(r.home.shell_text(), "phxy");
+        // A click in the focused tile keeps it typing.
+        r.send(crate::uitest::click(pos2(640.0, 400.0)));
+        r.type_text("z");
+        assert_eq!(r.home.shell_text(), "phxyz");
+    }
+
+    #[test]
+    fn moving_the_focus_onto_the_shell_with_the_leader_gives_it_the_keys() {
+        let mut r = Rig::new(true);
+        r.save.tools = ninsei_core::data::TOOLS
+            .iter()
+            .map(|t| t.to_string())
+            .collect();
+        r.home.open(Tool::IceDb);
+        r.frame(Vec::new());
+        r.frame(Vec::new());
+        assert_ne!(
+            r.save.tiling.focused(),
+            Some(Tool::Shell),
+            "the new tile is focused"
+        );
+        r.type_text("q");
+        assert_eq!(r.home.shell_text(), "", "the Shell isn't typing");
+        // Esc, h onto the Shell: the h isn't typed, what follows is.
+        r.key(egui::Key::Escape);
+        r.key_text(egui::Key::H, "h");
+        assert_eq!(r.save.tiling.focused(), Some(Tool::Shell));
+        r.type_text("ph");
+        assert_eq!(r.home.shell_text(), "ph");
     }
 }
