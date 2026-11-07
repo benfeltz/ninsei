@@ -51,7 +51,8 @@ impl<C: Clone> Sheet<C> {
         self.rows = self.rows.max(row + other.rows);
     }
 
-    /// Writes `s` at (col, row) in `fg`, cut at the sheet's edge; returns the column after it.
+    /// Writes `s` at (col, row) in `fg`; returns the column after it. Text that runs past the
+    /// sheet's edge ends in `…` in its last cell, the period's mark, never mid-word unmarked.
     pub fn put(&mut self, col: usize, row: usize, s: &str, fg: Color32) -> usize {
         self.write(col, row, s, fg, None)
     }
@@ -69,9 +70,12 @@ impl<C: Clone> Sheet<C> {
         fg: Color32,
         bg: Option<Color32>,
     ) -> usize {
+        let n = s.chars().count();
+        let cut = col + n > self.cols;
         let mut c = col;
         for ch in s.chars() {
             if c < self.cols {
+                let ch = if cut && c + 1 == self.cols { '…' } else { ch };
                 self.cells.push((c, row, ch, fg, bg));
             }
             c += 1;
@@ -179,7 +183,11 @@ mod tests {
         s.hit_as(0, 0, 5, 1, "greeting".into());
         s.put(18, 1, "cut here", Color32::WHITE);
         assert_eq!(s.rows(), 3);
-        assert_eq!(s.text(18, 1, 2), "cu", "cut at the sheet's edge");
+        assert_eq!(
+            s.text(18, 1, 2),
+            "c…",
+            "cut at the sheet's edge, and marked"
+        );
         let mut col: Sheet<u8> = Sheet::new(4);
         col.put(0, 0, "wrap", Color32::WHITE);
         col.put(0, 1, "ped", Color32::WHITE);
