@@ -34,6 +34,7 @@ pub mod pattern;
 pub mod probe;
 pub mod qwk;
 pub mod rng;
+pub mod scroll;
 pub mod shopper;
 pub mod suite;
 pub mod system;
