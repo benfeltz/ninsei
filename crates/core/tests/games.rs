@@ -1114,12 +1114,17 @@ fn every_game_crack_signs_its_crew_advertises_the_gutter_and_greets_only_the_wor
                 g.id
             );
         }
+        // The art names the board's own file, 8.3 with the crew's tag, in full.
         let art: String = i.frames.concat().concat();
-        assert!(
-            art.contains(&format!("-{}", i.tag.as_deref().unwrap())),
-            "{}: the art names the 8.3 file with the crew's tag",
-            g.id
-        );
+        let gutter = &d.boards[d.board("gutter").unwrap()];
+        let file = gutter
+            .areas
+            .iter()
+            .flat_map(|a| &a.files)
+            .find(|f| f.item == Drop::Game(g.id.clone()))
+            .map(|f| f.file.clone())
+            .unwrap();
+        assert!(art.contains(&file), "{}: the art doesn't name {file}", g.id);
     }
 }
 
