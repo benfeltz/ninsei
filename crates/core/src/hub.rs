@@ -711,6 +711,24 @@ impl Default for Loadout {
     }
 }
 
+/// A copy of a game: a cracked one plays its crew's cracktro, a boxed one its publisher's
+/// splash.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GameCopy {
+    /// Downloaded from a board.
+    Cracked,
+    /// Bought by mail order.
+    Boxed,
+}
+
+/// One copy of a game on the save. Owning both copies is two entries, side by side: ordering
+/// the box never erases the crack, and a board still sells the crack to someone with the box.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct OwnedGame {
+    pub id: String,
+    pub copy: GameCopy,
+}
+
 /// Everything the hub keeps between sessions. One RON document, versioned.
 /// Later features add fields with `#[serde(default)]` so older saves still load.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -832,6 +850,9 @@ pub struct Save {
     /// tools had to be found has the wardialer and HexEd already.
     #[serde(default = "legacy_tools")]
     pub tools: Vec<String>,
+    /// The copies of games you own (ids in `data/hub/games.ron`): one entry per game and copy.
+    #[serde(default)]
+    pub games: Vec<OwnedGame>,
     /// Textfiles downloaded from boards, for the QWK reader.
     #[serde(default)]
     pub texts: Vec<KeptText>,
@@ -980,6 +1001,7 @@ impl Default for Save {
             term_history: Vec::new(),
             shell_history: Vec::new(),
             tools: Vec::new(),
+            games: Vec::new(),
             texts: Vec::new(),
             ice_seen: Vec::new(),
             intros: default_intros(),
@@ -1050,6 +1072,47 @@ impl Save {
         }
         self.tools.push(id.into());
         true
+    }
+
+    /// Whether you own a game, in either copy (an id in `hub/games.ron`).
+    pub fn has_game(&self, id: &str) -> bool {
+        self.games.iter().any(|g| g.id == id)
+    }
+
+    /// Whether you have this copy of a game.
+    pub fn has_copy(&self, id: &str, copy: GameCopy) -> bool {
+        self.games.iter().any(|g| g.id == id && g.copy == copy)
+    }
+
+    /// The copies of a game you own, in the order you came by them (empty if none).
+    pub fn copies(&self, id: &str) -> Vec<GameCopy> {
+        self.games
+            .iter()
+            .filter(|g| g.id == id)
+            .map(|g| g.copy)
+            .collect()
+    }
+
+    /// Adds a copy of a game you came by, beside any other copy you have. False if you had
+    /// that copy already.
+    pub fn learn_game(&mut self, id: &str, copy: GameCopy) -> bool {
+        if self.has_copy(id, copy) {
+            return false;
+        }
+        self.games.push(OwnedGame {
+            id: id.into(),
+            copy,
+        });
+        true
+    }
+
+    /// The games you have a cracked copy of: a board won't sell you one of these again.
+    pub fn cracks(&self) -> Vec<String> {
+        self.games
+            .iter()
+            .filter(|g| g.copy == GameCopy::Cracked)
+            .map(|g| g.id.clone())
+            .collect()
     }
 
     /// Whether a desktop tool is there at all: HexEd only once you've downloaded it.
@@ -1781,6 +1844,7 @@ impl Save {
             jobs: Vec::new(),
             trust: self.trust.clone(),
             tools: self.tools.clone(),
+            games: self.cracks(),
             free: self.free(data).to_vec(),
             texts: self
                 .texts
@@ -1850,6 +1914,13 @@ impl Save {
             .iter()
             .filter(|t| self.learn_tool(t))
             .map(|t| game.data.tool(t).map_or(t.clone(), |d| d.name.clone()))
+            .collect();
+        // A game pulled off a board is a cracked copy, and it comes home even on a flatline.
+        let games: Vec<String> = game
+            .games
+            .iter()
+            .filter(|g| self.learn_game(g, GameCopy::Cracked))
+            .map(|g| game.data.game_label(g, GameCopy::Cracked))
             .collect();
         for (b, t) in &game.texts {
             self.keep_text(b, t);
@@ -1957,6 +2028,7 @@ impl Save {
             learned,
             boards,
             tools,
+            games,
         })
     }
 }
@@ -1984,6 +2056,8 @@ pub struct RunReport {
     pub boards: Vec<String>,
     /// Desktop tools downloaded on the run, by name.
     pub tools: Vec<String>,
+    /// Games downloaded on the run (cracked copies), by label (`BLOX [PHS]`).
+    pub games: Vec<String>,
 }
 
 /// Which machine is on screen, and the drags between them.

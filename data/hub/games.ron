@@ -1,0 +1,28 @@
+// Games you can own. Each is a tiny grid game with an engine in core (data::GAMES), and you
+// come by it one of two ways:
+//   a cracked copy  a file `Game(id)` in a board's FILES, signed by a crew: opens with `crack`
+//   a boxed copy    by mail order from CPU Shopper's Games section: opens with `splash`
+// You can own both copies side by side; each opens with its own intro and has its own label.
+// See docs/world.md for the crews and the publisher.
+//   id         what boards, the shop and the save call it (must be in data::GAMES)
+//   name       the box's name ("Nibbler"); a cracked copy is the name in capitals with its
+//              crew's tag from the crack intro ("NIBBLER [2K4]")
+//   blurb      one line for a listing
+//   publisher  who sells the boxed copy (a vendor id in shopper.ron)
+//   version    its version string, listed in System's About This Deck (default "1.0")
+//   cols, rows the play field in cells (at most 78 x 24)
+//   crack      the crew's cracktro (an intro in data/intros/ with a board and greetz)
+//   splash     the publisher's splash (an intro in data/intros/ with a tagline, no greetz)
+//   shop       sold boxed by mail order: Some((price: n)). Leave it out and it's only cracked.
+//              None is for sale yet: a game goes in the shop once it opens on the desktop.
+[
+    (id: "nibbler", name: "Nibbler", blurb: "Steer the snake, eat the dots, and don't bite your own tail.",
+     publisher: "papertiger", version: "1.0", cols: 32, rows: 20,
+     crack: "nibbler-crack", splash: "nibbler-splash"),
+    (id: "blox", name: "Blox", blurb: "Falling blocks: turn them, drop them, clear the lines.",
+     publisher: "papertiger", version: "2.0", cols: 10, rows: 20,
+     crack: "blox-crack", splash: "blox-splash"),
+    (id: "minefield", name: "Minefield", blurb: "Clear the field square by square. The numbers say how close the mines are.",
+     publisher: "papertiger", version: "1.1", cols: 16, rows: 16,
+     crack: "minefield-crack", splash: "minefield-splash"),
+]

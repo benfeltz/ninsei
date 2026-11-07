@@ -230,11 +230,16 @@ pub fn overview(save: &Save, data: &Data) -> Overview {
         },
     ];
 
-    let software = data
-        .tools
-        .iter()
-        .filter(|t| save.has_tool(&t.id))
+    // The tools you own, then each copy of each game you own by its label, with versions.
+    let tools = data.tools.iter().filter(|t| save.has_tool(&t.id));
+    let games = data.games.iter().flat_map(|g| {
+        save.copies(&g.id)
+            .into_iter()
+            .map(|c| (data.game_label(&g.id, c), g.version.clone()))
+    });
+    let software = tools
         .map(|t| (t.name.clone(), t.version.clone()))
+        .chain(games)
         .collect();
 
     Overview {

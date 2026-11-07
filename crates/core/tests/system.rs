@@ -86,6 +86,34 @@ fn installed_software_is_only_what_you_own_with_versions() {
 }
 
 #[test]
+fn about_this_deck_lists_the_games_you_own_after_the_tools() {
+    use hub::GameCopy::{Boxed, Cracked};
+    let d = data();
+    let mut s = fresh(0);
+    s.tools = vec!["hexed".into()];
+    s.learn_game("minefield", Cracked);
+    s.learn_game("blox", Boxed);
+    s.learn_game("blox", Cracked);
+    let o = system::overview(&s, &d);
+    let ver = |id: &str| d.game(id).unwrap().version.clone();
+    let hexed = d.tools.iter().find(|t| t.id == "hexed").unwrap();
+    assert_eq!(
+        o.software,
+        vec![
+            (hexed.name.clone(), hexed.version.clone()),
+            ("Blox".to_string(), ver("blox")),
+            ("BLOX [PHS]".to_string(), ver("blox")),
+            ("MINEFIELD [PHS]".to_string(), ver("minefield")),
+        ],
+        "each copy by its label, games in games.ron's order, after the tools"
+    );
+    assert!(
+        !o.software.iter().any(|(n, _)| n.contains("ibbler")),
+        "only what you own"
+    );
+}
+
+#[test]
 fn system_opens_by_its_name_and_by_prefs() {
     let d = data();
     let s = fresh(0);
