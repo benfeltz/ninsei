@@ -258,9 +258,39 @@ fn a_game_never_drops_from_loot_or_an_encounter() {
     assert!(d.validate().unwrap_err().contains("drops a game"));
 }
 
+/// The builtin data with every game boxed by mail order (none is for sale yet).
+fn shop_sells_games() -> Data {
+    let mut d = data();
+    for (g, price) in d.games.iter_mut().zip([40, 60, 30]) {
+        g.shop = Some(data::GameShop { price });
+    }
+    d.validate().unwrap();
+    d
+}
+
+#[test]
+fn no_game_is_for_sale_until_it_plays() {
+    let d = data();
+    assert!(d.games.iter().all(|g| g.shop.is_none()));
+    let cat = Save::default().catalog(&d);
+    assert!(!cat.iter().any(|l| l.section == Section::Games));
+    let pages = shopper::layout(&d.shopper, &cat);
+    assert!(
+        !shopper::contents(&pages)
+            .iter()
+            .any(|(s, ..)| *s == Section::Games),
+        "IN THIS ISSUE has no Games line"
+    );
+    let index = shopper::advertisers(&d.shopper, &cat, &pages);
+    assert!(
+        !index.iter().any(|(v, _)| v == "papertiger"),
+        "no Paper Tiger in the index"
+    );
+}
+
 #[test]
 fn a_game_bought_by_mail_is_boxed() {
-    let d = data();
+    let d = shop_sells_games();
     let mut s = Save {
         bank: 200,
         ..Save::default()
@@ -283,7 +313,7 @@ fn a_game_bought_by_mail_is_boxed() {
 
 #[test]
 fn a_game_is_in_the_next_issue_without_an_ad() {
-    let d = data();
+    let d = shop_sells_games();
     assert!(
         !d.shopper
             .ads
