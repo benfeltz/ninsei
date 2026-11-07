@@ -20,9 +20,10 @@ use crate::kit::anarchy;
 /// Sizes, in one place: the kit's (`docs/refs/anarchyos.md`).
 pub(crate) use crate::kit::anarchy::size;
 
-/// The desktop's look for the kit: the theme's colours and the app's type.
-fn look() -> anarchy::Look {
-    let mut visuals = egui::Visuals::dark();
+/// The desktop's look for the kit: the theme's colours and the app's type, and `ui`'s visuals
+/// (what the theme set: the caret, square corners) dressed for the desk.
+fn look(ui: &Ui) -> anarchy::Look {
+    let mut visuals = ui.visuals().clone();
     crate::hubtools::wb_visuals(&mut visuals);
     anarchy::Look {
         backdrop: backdrop(),
@@ -216,7 +217,7 @@ impl DesktopView for TilingDesk {
         let painter = ui.painter_at(screen);
         painter.rect_filled(screen, 0.0, shadow());
 
-        let look = look();
+        let look = look(ui);
         // The bar: the workspaces, the mode, the focused tile and the widgets.
         let workspaces: Vec<anarchy::Workspace> = (0..t.workspaces.len())
             .map(|w| anarchy::Workspace {
@@ -390,7 +391,7 @@ impl TilingDesk {
             &labels,
             |q| desktop::search(q, &labels, fuzzy),
             hint,
-            &look(),
+            &look(ui),
         );
         if let Some(i) = run {
             match &items[i] {
@@ -452,7 +453,7 @@ const HELP: [(&str, &str); 14] = [
 /// The key help. Returns true when it's dismissed (a click, or any key but `?` and `/`, which
 /// open it).
 fn help_ui(ui: &mut Ui, screen: Rect) -> bool {
-    anarchy::help(ui, screen, &HELP, &look())
+    anarchy::help(ui, screen, &HELP, &look(ui))
 }
 
 #[cfg(test)]
@@ -880,5 +881,19 @@ mod tests {
         r.key(egui::Key::Enter);
         assert!(r.desk.launcher.is_none(), "it ran and closed");
         assert!(r.home.shell_has("dial <n>"), "help ran in the Shell");
+    }
+
+    #[test]
+    fn the_launcher_is_dressed_by_the_theme() {
+        let r = Rig::new(true);
+        let p = crate::theme::Palette::from_def(&r.data.themes[0]);
+        let mut seen = None;
+        let mut h = crate::uitest::Harness::new(400.0, 300.0);
+        crate::uitest::themed(&h.ctx, &r.data);
+        h.frame(Vec::new(), |ui| seen = Some(look(ui).visuals));
+        let v = seen.unwrap();
+        assert_eq!(v.text_cursor.stroke.color, p.fg, "the theme's caret");
+        assert_eq!(v.widgets.inactive.corner_radius, egui::CornerRadius::ZERO);
+        assert_eq!(v.widgets.hovered.expansion, 0.0);
     }
 }
