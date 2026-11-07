@@ -234,8 +234,9 @@ mod in_a_run {
 /// A loop's loudest sample and its RMS.
 fn level(a: &[f32]) -> (f32, f32) {
     let peak = a.iter().fold(0.0f32, |m, s| m.max(s.abs()));
-    let rms = (a.iter().map(|s| s * s).sum::<f32>() / a.len().max(1) as f32).sqrt();
-    (peak, rms)
+    // Summed in f64: millions of squares in an f32 would lose the quiet samples.
+    let sum: f64 = a.iter().map(|&s| (s as f64).powi(2)).sum();
+    (peak, (sum / a.len().max(1) as f64).sqrt() as f32)
 }
 
 #[test]
