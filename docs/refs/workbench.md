@@ -42,7 +42,7 @@ These are the numbers the kit draws to. Change them here and in `kit::workbench:
 |---|---|
 | Width | 16px |
 | Container | `fill`, with a 1px `shadow` edge on the left |
-| Knob | as tall as the view's share of the whole (at least 12px), bevelled (2px `ink` top and left, `shadow` bottom and right) on `backdrop` |
+| Knob | as tall as the view's share of the whole (at least 12px), in `ink` (it stands out from the container on every theme, mono tubes included), bevelled with `shadow` bottom and right |
 | Track | a click above or below the knob scrolls a page |
 | Knob dragged | the view follows |
 | Wheel | over the window or the gadget, unless a window in front covers it |

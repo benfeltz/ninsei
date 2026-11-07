@@ -421,7 +421,7 @@ fn prop_input(ui: &Ui, r: Rect, id: Id, s: &Scroll) -> Option<f32> {
 }
 
 /// Paints the proportional gadget in `r` for `s`: the container in the gadgets' face with a dark
-/// edge on its left, and the bevelled knob.
+/// edge on its left, and the bevelled knob in the text colour.
 fn prop_paint(p: &Painter, r: Rect, s: &Scroll, look: &Look) {
     p.rect_filled(r, 0.0, look.fill);
     p.rect_filled(
@@ -430,8 +430,10 @@ fn prop_paint(p: &Painter, r: Rect, s: &Scroll, look: &Look) {
         look.shadow,
     );
     if let Some(k) = knob(r, s) {
+        // In the text colour, so it stands out from the container on every theme (on a mono
+        // tube `backdrop` and `fill` can be all but one shade).
         let k = k.shrink2(vec2(2.0, 1.0));
-        p.rect_filled(k, 0.0, look.backdrop);
+        p.rect_filled(k, 0.0, look.ink);
         bevel(p, k, true, look);
     }
 }
@@ -632,5 +634,25 @@ mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn the_knob_stands_out_from_its_container() {
+        let mut h = crate::uitest::Harness::new(100.0, 300.0);
+        let r = Rect::from_min_size(pos2(10.0, 10.0), vec2(size::PROP_W, 200.0));
+        let s = Scroll {
+            offset: 0.0,
+            view: 100.0,
+            content: 400.0,
+            line: 17.0,
+        };
+        h.frame(vec![], |ui| prop_paint(ui.painter(), r, &s, &look()));
+        let fills: Vec<Color32> = h.rects().into_iter().map(|(_, f, _)| f).collect();
+        assert_eq!(fills.first(), Some(&look().fill), "the container");
+        assert_eq!(
+            fills.last(),
+            Some(&look().ink),
+            "the knob, in the text colour"
+        );
     }
 }
