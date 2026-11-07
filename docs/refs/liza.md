@@ -35,7 +35,7 @@ These are the numbers the kit draws to. Change them here and in `kit::liza::size
 | Title | centred on a white backing | centred on a paper backing 8px either side |
 | Close box | 11×11 in a white margin, 8px in, active window only | 12×12 in a 2px paper margin, 10px in, the front window only |
 | Content | under the title bar | 6px in from the sides, 4px under the title bar and above the bottom |
-| Scroll bar | 16px, on the right edge | as System 1 (below), down the content's right side of every tool window (each window is that much wider than its tool); the Shell scrolls its own lines and has none |
+| Scroll bar | 16px, on the right edge, always there | as System 1 (below), flush on the frame's right edge from the title bar down, but only while the tool runs past the window: a tool that fits (a book at its page's size, a tool with its own lists) has no dead control beside it. Each tool window opens the bar's room wider than its tool, so the tool never reflows when it appears. The Shell scrolls its own lines and has none |
 | Grow box | 16×16, bottom right | none: windows open at their tool's size and don't resize |
 
 ## Scroll bar
@@ -46,7 +46,7 @@ These are the numbers the kit draws to. Change them here and in `kit::liza::size
 | Arrows | outlined, pointing up and down; a click scrolls a line (the type's height) |
 | Track | the 50% gray (`p50`) when there's more than fits; a click above or below the thumb scrolls a page |
 | Thumb | 16×16, paper with an ink frame; dragged, the view follows |
-| Nothing to scroll | the arrows and an empty track, no thumb |
+| Nothing to scroll | in a list box, the arrows and an empty track, no thumb; in a window, no bar |
 | Wheel | scrolls the view under the pointer, as egui does |
 
 ## List box (the Control Panel's)

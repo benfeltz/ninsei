@@ -24,6 +24,9 @@ pub mod size {
     pub const CLOSE_BOX: f32 = 12.0;
     /// The 1-bit drop shadow under windows and menus.
     pub const SHADOW: f32 = 2.0;
+    /// A window's content, in from its frame and its title bar.
+    pub const PAD_X: f32 = 6.0;
+    pub const PAD_Y: f32 = 4.0;
     pub const BUTTON_H: f32 = 22.0;
     pub const BUTTON_R: f32 = 8.0;
     pub const BUTTON_MIN_W: f32 = 60.0;
@@ -101,8 +104,17 @@ pub fn title_bar(rect: Rect) -> Rect {
 /// Where a window's contents go: inside its frame, under the title bar.
 pub fn window_content(rect: Rect) -> Rect {
     Rect::from_min_max(
-        title_bar(rect).left_bottom() + vec2(6.0, 4.0),
-        rect.max - vec2(6.0, 4.0),
+        title_bar(rect).left_bottom() + vec2(size::PAD_X, size::PAD_Y),
+        rect.max - vec2(size::PAD_X, size::PAD_Y),
+    )
+}
+
+/// Where a window's scrolled body goes ([`scrolled`]): from the content's left, under the title
+/// bar, to the window's bottom right corner, so its scroll bar sits flush on the frame.
+pub fn window_scrolled(rect: Rect) -> Rect {
+    Rect::from_min_max(
+        title_bar(rect).left_bottom() + vec2(size::PAD_X, 0.0),
+        rect.max,
     )
 }
 
@@ -354,8 +366,10 @@ pub fn scroll_bar(ui: &Ui, p: &Painter, r: Rect, id: Id, s: Scroll, look: &Look)
     to
 }
 
-/// `body` in a view that scrolls with the kit's scroll bar down its right side, filling `ui`.
-/// The wheel over either scrolls it; the bar shows where it stands.
+/// `body` in a view that scrolls, filling `ui` (a window's [`window_scrolled`]): the view is in
+/// from the top and bottom, and from the right by the scroll bar's room. The bar sits flush on
+/// the right edge, only while there's more than shows (a tool that fits has no dead control
+/// beside it). The wheel over either scrolls it.
 pub fn scrolled(ui: &mut Ui, id: Id, look: &Look, body: impl FnOnce(&mut Ui)) {
     let rect = ui.max_rect();
     let bar = Rect::from_min_max(pos2(rect.right() - size::SCROLL_W, rect.top()), rect.max);
@@ -364,13 +378,16 @@ pub fn scrolled(ui: &mut Ui, id: Id, look: &Look, body: impl FnOnce(&mut Ui)) {
     // The bar acts on last frame's numbers, so this frame's view already shows the move.
     let last = ui.data(|d| d.get_temp::<Scroll>(key));
     let set = last.and_then(|s| bar_input(ui, bar, key, &s));
-    let view_rect = rect.with_max_x(bar.left());
+    let view_rect = Rect::from_min_max(
+        rect.min + vec2(0.0, size::PAD_Y),
+        pos2(bar.left() - size::PAD_X, rect.bottom() - size::PAD_Y),
+    );
     let mut view = ui.new_child(
         egui::UiBuilder::new()
             .max_rect(view_rect)
             .layout(egui::Layout::top_down(egui::Align::Min)),
     );
-    // A vertical scroll area clips only top and bottom; the bar's edge is the view's too.
+    // A vertical scroll area clips only top and bottom; the view's sides are its edges too.
     view.set_clip_rect(view_rect.intersect(ui.clip_rect()));
     let mut area = egui::ScrollArea::vertical()
         .id_salt(key)
@@ -387,9 +404,14 @@ pub fn scrolled(ui: &mut Ui, id: Id, look: &Look, body: impl FnOnce(&mut Ui)) {
         line,
     };
     ui.data_mut(|d| d.insert_temp(key, now));
-    bar_paint(ui.painter(), bar, &now, look);
+    if now.active() {
+        bar_paint(ui.painter(), bar, &now, look);
+    }
     ui.advance_cursor_after_rect(rect);
 }
+
+/// The room [`scrolled`] keeps beside its view: the bar and the gap before it.
+pub const SCROLLED_W: f32 = size::SCROLL_W + size::PAD_X;
 
 /// A list box `size` big: a framed list of `n` cells `cell_h` tall from `top` down, the
 /// `sel`ected one drawn by `cell` as on (it returns the cell's name, for the accessibility tree), and the scroll bar down its right side (active once the
@@ -1075,6 +1097,11 @@ mod tests {
         let (_, down, _, thumb) = parts(&s);
         assert!(thumb.is_none());
         assert_eq!(view(&mut h, 100.0, click(down.center())).offset, 0.0);
+        let bar = Rect::from_min_max(down.min - vec2(0.0, 300.0), down.max);
+        assert!(
+            h.rects().iter().all(|(r, _, _)| !bar.intersects(*r)),
+            "no dead scroll bar beside a view that fits"
+        );
     }
 
     /// A frame of a list box of `n` cells 20 high in a box 100 high; returns the pick.

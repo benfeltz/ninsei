@@ -320,7 +320,7 @@ impl DesktopView for Liza {
         let show =
             |ui: &mut Ui, id: Id, body: &mut dyn FnMut(&mut Ui)| kit::scrolled(ui, id, &c, body);
         let scroller = home::Scroller {
-            width: kit::size::SCROLL_W,
+            width: kit::SCROLLED_W,
             show: &show,
         };
         let (mut raise, mut close) = (None, None);
@@ -359,12 +359,14 @@ impl DesktopView for Liza {
             if tool == Tool::Shell {
                 home.shell(ui, content, data, save, live && front, out);
             } else {
+                // From the content's left to the frame, so the scroll bar sits on it.
+                let body = kit::window_scrolled(rect);
                 let mut child = ui.new_child(
                     egui::UiBuilder::new()
-                        .max_rect(content)
+                        .max_rect(body)
                         .layout(egui::Layout::top_down(egui::Align::Min)),
                 );
-                child.set_clip_rect(content);
+                child.set_clip_rect(body);
                 hubtools::wb_visuals(child.visuals_mut());
                 if !live {
                     child.disable();
@@ -1009,10 +1011,9 @@ mod tests {
         let w = liza.wins.last().unwrap();
         let room = (800.0 - w.pos.y - look::WIN_MARGIN).max(look::WIN_MIN_H);
         let rect = Rect::from_min_size(w.pos, vec2(w.size.x, w.size.y.min(room)));
-        let content = kit::window_content(rect);
         let down = pos2(
-            content.right() - kit::size::SCROLL_W / 2.0,
-            content.bottom() - 8.0,
+            rect.right() - kit::size::SCROLL_W / 2.0,
+            rect.bottom() - 8.0,
         );
         t += 0.1;
         frame(&ctx, &mut liza, &mut home, &data, click(down), t);
@@ -1056,6 +1057,25 @@ mod tests {
                 cut.is_empty(),
                 "{tool:?} is cut at its window's edge: {cut:?}"
             );
+        }
+    }
+
+    #[test]
+    fn a_book_has_no_scroll_bar_at_its_own_size() {
+        let data = Data::builtin().unwrap();
+        let ctx = egui::Context::default();
+        crate::uitest::themed(&ctx, &data);
+        let (mut liza, mut home) = booted(&ctx, &data);
+        let mut t = look::BOOT_SECS + 0.2;
+        for tool in [Tool::Rig, Tool::Guide] {
+            liza.open(tool);
+            for _ in 0..3 {
+                t += 0.1;
+                frame(&ctx, &mut liza, &mut home, &data, Vec::new(), t);
+            }
+            let key = Id::new(("liza-scroll", tool)).with("kit-scroll");
+            let s = ctx.data(|d| d.get_temp::<kit::Scroll>(key)).unwrap();
+            assert!(!s.active(), "{tool:?}'s page fits its window: {s:?}");
         }
     }
 }
