@@ -162,10 +162,13 @@ pub fn screen_size(ui: &egui::Ui) -> egui::Vec2 {
         + vec2(PAD, PAD) * 2.0
 }
 
-/// [`paint_screen`], in a room narrower than the terminal: the whole screen, its type made
-/// smaller to fit the width (never cut at the room's edge). At its own size when it fits.
+/// [`paint_screen`], in a room smaller than the terminal: the whole screen, its type made
+/// smaller to fit the width and the height left in view (never cut at the room's edges, nor
+/// pushed past a scroll fold). At its own size when it fits.
 pub fn paint_screen_fit(ui: &mut egui::Ui, lines: &[String], color: bool, p: &Palette) {
-    let scale = (ui.available_width() / screen_size(ui).x).min(1.0);
+    let size = screen_size(ui);
+    let tall = ui.clip_rect().bottom() - ui.cursor().top();
+    let scale = (ui.available_width() / size.x).min(tall / size.y).min(1.0);
     paint_screen_at(ui, lines, color, p, scale);
 }
 

@@ -728,24 +728,32 @@ mod tests {
     }
 
     #[test]
-    fn an_intro_in_a_room_narrower_than_its_screen_shrinks_to_fit_and_is_never_cut() {
+    fn an_intro_in_a_room_smaller_than_its_screen_shrinks_to_fit_and_is_never_cut() {
         let data = Data::builtin().unwrap();
         let save = with_intros(&data);
-        let t = tool("blox");
-        // Blox's field takes a narrow room; its cracktro's 80x24 screen is wider.
-        let mut h = Harness::new(1280.0, 800.0);
-        let rect = Rect::from_min_size(Pos2::ZERO, vec2(330.0, 500.0));
-        let mut home = Home::new(Vec::new());
-        crate::home::tests::frame_at(&mut h, &mut home, &data, &save, t, rect, Vec::new());
-        crate::home::tests::frame_at(&mut h, &mut home, &data, &save, t, rect, Vec::new());
-        assert!(home.game(t).is_none(), "the intro is up");
-        assert!(h.cut_text().is_empty(), "cut: {:?}", h.cut_text());
-        let right = h
-            .painted()
-            .iter()
-            .map(|s| s.visual_bounding_rect().right())
-            .fold(0.0_f32, f32::max);
-        assert!(right <= rect.right() + 1.0, "drawn to {right}");
+        // Narrow and tall (Blox's field), wide and short (a stack tile Minefield fits in).
+        for (id, size) in [
+            ("blox", vec2(330.0, 500.0)),
+            ("minefield", vec2(660.0, 360.0)),
+        ] {
+            let t = tool(id);
+            let mut h = Harness::new(1280.0, 800.0);
+            let rect = Rect::from_min_size(Pos2::ZERO, size);
+            let mut home = Home::new(Vec::new());
+            crate::home::tests::frame_at(&mut h, &mut home, &data, &save, t, rect, Vec::new());
+            crate::home::tests::frame_at(&mut h, &mut home, &data, &save, t, rect, Vec::new());
+            assert!(home.game(t).is_none(), "{id}: the intro is up");
+            assert!(h.cut_text().is_empty(), "{id} cut: {:?}", h.cut_text());
+            let all = h
+                .painted()
+                .iter()
+                .map(|s| s.visual_bounding_rect())
+                .fold(Rect::NOTHING, |a, b| a.union(b));
+            assert!(
+                rect.expand(1.0).contains_rect(all),
+                "{id}: drawn over {all:?}"
+            );
+        }
     }
 
     /// Where the snake's head is.
