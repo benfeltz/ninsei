@@ -978,8 +978,11 @@ impl Panes<'_> {
                             } else {
                                 cells.text(&painter, 14, 0, &entry, col);
                             }
+                            // The rule inside the row's last pixel, so the row's clip keeps all
+                            // of it.
+                            let y = r.bottom() - 0.5;
                             painter.line_segment(
-                                [r.left_bottom(), r.right_bottom()],
+                                [pos2(r.left(), y), pos2(r.right(), y)],
                                 Stroke::new(1.0, p.faint),
                             );
                         }
@@ -1662,7 +1665,8 @@ mod tests {
                 panes.suite_terminal(&mut child);
             });
         }
-        // The rules under each entry, in the faint colour: a row apart, every one.
+        // The rules under each entry, in the faint colour: a row apart, every one, each whole
+        // inside its row (a 1px line centred on the row's edge would lose half to the clip).
         let mut ys: Vec<f32> = h
             .painted()
             .iter()
@@ -1675,6 +1679,12 @@ mod tests {
             .collect();
         ys.sort_by(f32::total_cmp);
         assert!(ys.len() >= g.log.len(), "a rule under each entry: {ys:?}");
+        for y in &ys {
+            assert!(
+                (y.fract() - 0.5).abs() < 0.01,
+                "on a pixel's centre, not its edge: {y}"
+            );
+        }
         for w in ys.windows(2) {
             assert!((w[1] - w[0] - size::ROW_H).abs() < 0.01, "{ys:?}");
         }
