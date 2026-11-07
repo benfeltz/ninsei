@@ -883,4 +883,43 @@ mod tests {
         frame(&mut h, &mut home, &data, &counted, boxed, Vec::new());
         assert_eq!(home.round(boxed), Some(2));
     }
+
+    #[test]
+    fn only_a_game_with_the_keyboard_has_its_intro_skipped() {
+        let data = Data::builtin().unwrap();
+        let save = with_intros(&data);
+        let t = tool("minefield");
+        let mut h = Harness::new(1280.0, 800.0);
+        let mut home = Home::new(Vec::new());
+        frame_with(&mut h, &mut home, &data, &save, t, false, Vec::new());
+        // A key typed with the pointer over it, and a click on it, while another window has
+        // the keyboard (a board in front, a window over it): the cracktro plays on.
+        let at = pos2(400.0, 200.0);
+        let mut typed = vec![egui::Event::PointerMoved(at)];
+        typed.extend(key(Key::Space));
+        frame_with(&mut h, &mut home, &data, &save, t, false, typed);
+        frame_with(
+            &mut h,
+            &mut home,
+            &data,
+            &save,
+            t,
+            false,
+            crate::uitest::click(at),
+        );
+        frame_with(&mut h, &mut home, &data, &save, t, false, Vec::new());
+        assert!(home.game(t).is_none(), "the intro is still up");
+        // With the keyboard, a click skips it.
+        frame_with(
+            &mut h,
+            &mut home,
+            &data,
+            &save,
+            t,
+            true,
+            crate::uitest::click(at),
+        );
+        frame_with(&mut h, &mut home, &data, &save, t, true, Vec::new());
+        assert!(home.game(t).is_some());
+    }
 }

@@ -279,6 +279,9 @@ pub struct Home {
     pub(crate) guide_at: ninsei_core::cards::Place,
     /// System's open panel, and its Disk panel's pick.
     pub(crate) system: crate::system::SystemUi,
+    /// Whether the desktop's tools may take the keyboard this frame (`Cx::keys`): false
+    /// while a board called from home owns it.
+    pub(crate) desk_keys: bool,
     /// The games whose windows are open, by copy (the desktops say which, [`Home::keep_open`]):
     /// its intro while it plays, then the round being played.
     games: std::collections::HashMap<Tool, GameWin>,
@@ -352,6 +355,7 @@ impl Home {
             tune: None,
             guide_at: ninsei_core::cards::Place::Home,
             system: crate::system::SystemUi::default(),
+            desk_keys: true,
             games: Default::default(),
             dealt: Default::default(),
         }
@@ -412,7 +416,7 @@ impl Home {
         }
         let w = self.games.get_mut(&tool).expect("opened above");
         if let (Some((start, _)), Some(i)) = (w.intro, intro) {
-            match intro_frame(ui, data, save, i, start, keys) {
+            match intro_frame(ui, data, save, i, start, SkipBy::Keyboard(keys)) {
                 IntroFrame::Showing => return,
                 // Skipped: the game starts next frame, so the key that skipped it isn't the
                 // game's.
@@ -549,7 +553,7 @@ impl Home {
         let Some(&start) = self.intro_playing.get(id) else {
             return false;
         };
-        match intro_frame(ui, data, save, def, start, false) {
+        match intro_frame(ui, data, save, def, start, SkipBy::Pointer(self.desk_keys)) {
             IntroFrame::Showing => true,
             IntroFrame::Ended { skipped } => {
                 self.intro_playing.remove(id);
@@ -751,6 +755,7 @@ impl Home {
             live,
             keys: live && keys,
         };
+        self.desk_keys = cx.keys;
         view.show(ui, self, &cx, &mut out);
         out
     }
@@ -809,6 +814,7 @@ impl Home {
         };
         if tool == Tool::System {
             self.system.keys = keys;
+            self.system.blocked = !self.desk_keys;
         }
         let desktop = save.firmware_def(data).desktop;
         let need = Self::fit(tool, desktop, data);
@@ -1134,15 +1140,26 @@ impl Home {
     }
 }
 
+/// What may skip an intro.
+#[derive(Clone, Copy)]
+enum SkipBy {
+    /// A game's window: a key or a click, only while it has the keyboard (it's the front
+    /// window or the focused tile), so nothing meant for a window over it skips it.
+    Keyboard(bool),
+    /// A tool's window: a click on it, or a key with the pointer over it, unless something
+    /// over the desktop owns the keyboard (false).
+    Pointer(bool),
+}
+
 /// One frame of intro `def`, started at `start`: painted in the desk's colours, until it runs
-/// to its end or a click (or a key, with the pointer over it or `keys`) skips it.
+/// to its end or input `by` allows skips it.
 fn intro_frame(
     ui: &mut Ui,
     data: &Data,
     save: &Save,
     def: &ninsei_core::intro::IntroDef,
     start: f64,
-    keys: bool,
+    by: SkipBy,
 ) -> IntroFrame {
     let now = ui.input(|i| i.time);
     let over = |p: egui::Pos2| ui.clip_rect().contains(p);
@@ -1153,8 +1170,13 @@ fn intro_frame(
                 egui::Event::Key { pressed: true, .. } | egui::Event::Text(_)
             )
         });
-        i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(over)
-            || key && (keys || i.pointer.hover_pos().is_some_and(over))
+        let click = i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(over);
+        match by {
+            SkipBy::Keyboard(keys) => keys && (key || click),
+            SkipBy::Pointer(free) => {
+                free && (click || key && i.pointer.hover_pos().is_some_and(over))
+            }
+        }
     });
     let t = (now - start) as f32;
     if skip || def.done(t) {
@@ -1989,5 +2011,91 @@ pub(crate) mod tests {
         home.dial_from(Tool::Terminal, id, &save);
         assert!(home.dialing.is_some());
         assert!(home.take_opens().contains(&Tool::Terminal));
+    }
+
+    #[test]
+    fn under_a_board_called_from_home_system_takes_no_keys_even_with_the_pointer_on_it() {
+        let data = Data::builtin().unwrap();
+        let save = anarchy_deck(&data);
+        let rect = Rect::from_min_size(Pos2::ZERO, vec2(880.0, 500.0));
+        let over = egui::Event::PointerMoved(pos2(400.0, 250.0));
+        for (free, want) in [
+            (false, ninsei_core::system::Panel::ALL[0]),
+            (true, ninsei_core::system::Panel::ALL[1]),
+        ] {
+            let mut h = Harness::new(1280.0, 800.0);
+            let mut home = Home::new(Vec::new());
+            home.desk_keys = free;
+            frame_keys(
+                &mut h,
+                &mut home,
+                &data,
+                &save,
+                Tool::System,
+                rect,
+                false,
+                vec![over.clone()],
+            );
+            let mut two = vec![over.clone()];
+            two.extend(key(Key::Num2));
+            frame_keys(
+                &mut h,
+                &mut home,
+                &data,
+                &save,
+                Tool::System,
+                rect,
+                false,
+                two,
+            );
+            frame_keys(
+                &mut h,
+                &mut home,
+                &data,
+                &save,
+                Tool::System,
+                rect,
+                false,
+                vec![over.clone()],
+            );
+            assert_eq!(home.system.panel, want, "keys free: {free}");
+        }
+    }
+
+    #[test]
+    fn under_a_board_called_from_home_a_key_never_skips_a_tools_intro() {
+        let data = Data::builtin().unwrap();
+        let save = Save {
+            intros: true,
+            ..anarchy_deck(&data)
+        };
+        let rect = Rect::from_min_size(Pos2::ZERO, vec2(880.0, 500.0));
+        let over = egui::Event::PointerMoved(pos2(400.0, 250.0));
+        for (free, skipped) in [(false, false), (true, true)] {
+            let mut h = Harness::new(1280.0, 800.0);
+            let mut home = Home::new(Vec::new());
+            home.desk_keys = free;
+            frame_at(
+                &mut h,
+                &mut home,
+                &data,
+                &save,
+                Tool::HexEd,
+                rect,
+                vec![over.clone()],
+            );
+            assert!(
+                home.intro_playing.contains_key("hexed"),
+                "the cracktro is up"
+            );
+            let mut k = vec![over.clone()];
+            k.extend(key(Key::Space));
+            frame_at(&mut h, &mut home, &data, &save, Tool::HexEd, rect, k);
+            assert_eq!(
+                !home.intro_playing.contains_key("hexed"),
+                skipped,
+                "keys free: {free}"
+            );
+        }
     }
 }

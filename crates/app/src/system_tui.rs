@@ -168,7 +168,7 @@ pub fn show(ui: &mut Ui, data: &Data, save: &Save, st: &mut SystemUi, out: &mut 
 /// focus (in egui and in the page).
 fn keys(ui: &Ui, st: &SystemUi, cmds: &mut Vec<Cmd>) {
     let live = st.keys || ui.rect_contains_pointer(ui.max_rect());
-    if !live || ui.ctx().text_edit_focused() {
+    if !live || st.blocked || ui.ctx().text_edit_focused() {
         return;
     }
     ui.input(|i| {

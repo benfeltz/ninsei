@@ -43,6 +43,9 @@ pub struct SystemUi {
     pub cursor: usize,
     /// AnarchyOS: the tile is focused, so its keys are live.
     pub keys: bool,
+    /// Something over the desktop (a board called from home) owns the keyboard: no keys at
+    /// all, not even with the pointer over System.
+    pub blocked: bool,
     pub picked: Option<Disk>,
     pub confirm_scrap: Option<u32>,
     /// Defragment in progress: its frames (from core) and when it started.
@@ -896,8 +899,12 @@ fn keys(
     shelf: &[Program],
     out: &mut Vec<WbOut>,
 ) {
-    // The keys belong to whatever has the focus (a text field, the panel list), not to Disk.
-    if !ui.rect_contains_pointer(ui.max_rect()) || ui.memory(|m| m.focused().is_some()) {
+    // The keys belong to whatever has the focus (a text field, the panel list), not to Disk,
+    // and to nothing here while a board called from home is up.
+    if st.blocked
+        || !ui.rect_contains_pointer(ui.max_rect())
+        || ui.memory(|m| m.focused().is_some())
+    {
         return;
     }
     let all: Vec<&Disk> = on.iter().chain(shelf).map(|p| &p.at).collect();
