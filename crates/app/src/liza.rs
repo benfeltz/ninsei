@@ -3,7 +3,7 @@
 //! right, a Trash, and a happy deck at boot. Everything is two theme colours (ink on paper) and
 //! patterns from `data/patterns.ron`; a front-end on `home`, like the other desktops.
 
-use egui::{Align2, Color32, FontFamily, FontId, Id, Pos2, Rect, Sense, Stroke, StrokeKind, Ui};
+use egui::{Align2, FontFamily, FontId, Id, Pos2, Rect, Sense, Stroke, StrokeKind, Ui};
 use egui::{Vec2, pos2, vec2};
 use ninsei_core::Data;
 use ninsei_core::desktop::AddonEffect;
@@ -11,15 +11,11 @@ use ninsei_core::hardware::Desktop;
 use ninsei_core::hub::{IconDef, Tool};
 
 use crate::home::{self, Cx, Desk, DesktopView, Home, WbOut, font};
+use crate::kit::liza::{self as kit, Look, size};
 use crate::{hubtools, patterns};
 
 /// Every size and timing the desktop uses.
 mod look {
-    pub const MENU_H: f32 = 22.0;
-    pub const TITLE_H: f32 = 20.0;
-    /// The 1-bit drop shadow under windows and menus.
-    pub const SHADOW: f32 = 2.0;
-    pub const CLOSE_BOX: f32 = 12.0;
     /// Gap kept between a window's bottom and the screen's.
     pub const WIN_MARGIN: f32 = 8.0;
     pub const WIN_MIN_H: f32 = 120.0;
@@ -33,8 +29,6 @@ mod look {
     /// How long the boot card stays up, unless clicked away.
     pub const BOOT_SECS: f64 = 1.8;
     pub const DOUBLE_CLICK_SECS: f64 = 0.45;
-    pub const MENU_ITEM_H: f32 = 22.0;
-    pub const MENU_W: f32 = 190.0;
     /// The desktop's pattern (calm on a lit-ink screen; the 50% checker is the boot card's).
     pub const DESKTOP: &str = "p25";
     /// The desktop pattern add-on's pattern.
@@ -105,7 +99,7 @@ struct Win {
 /// Where the `n`th desktop icon sits: down the right edge, and when a column is full (the
 /// Trash keeps the bottom corner) a new column to its left, the way the Finder lines them up.
 fn icon_cell(screen: Rect, n: usize) -> Rect {
-    let top = screen.top() + look::MENU_H + 14.0;
+    let top = screen.top() + size::MENU_H + 14.0;
     let room = screen.bottom() - top - look::TRASH_ROOM;
     let per_col = ((room / look::ICON_PITCH).floor() as usize).max(1);
     let (col, row) = (n / per_col, n % per_col);
@@ -209,18 +203,14 @@ impl Liza {
     }
 }
 
-/// Liza's two colours: ink lit on a dark paper (lit ink), from the theme's text and its deepest
-/// background.
-#[derive(Clone, Copy, Debug, PartialEq)]
-struct Two {
-    ink: Color32,
-    paper: Color32,
-}
-
-fn colours(d: Desk) -> Two {
-    Two {
+/// Liza's look: ink lit on a dark paper (lit ink), from the theme's text and its deepest
+/// background, with the patterns she draws in.
+fn look(d: Desk, data: &Data) -> Look<'_> {
+    Look {
         ink: d.ink,
         paper: d.shadow,
+        font: font(),
+        stripes: data.pattern("pinstripes"),
     }
 }
 
@@ -239,7 +229,7 @@ impl DesktopView for Liza {
             out.push(WbOut::GuideSeen);
         }
         let theme = home::desk();
-        let c = colours(theme);
+        let c = look(theme, data);
         let (ink, paper) = (c.ink, c.paper);
         // The tools draw through the desktop's colour registers: load a strict two-colour set
         // while Liza draws, and put the theme's back after.
@@ -276,7 +266,7 @@ impl DesktopView for Liza {
         for (n, icon) in data.icons.iter().filter(|i| save.opens(i.tool)).enumerate() {
             let cell = icon_cell(screen, n);
             let picked = self.selected == Some(icon.tool);
-            let hit = draw_icon(&painter, icon, cell, picked, c);
+            let hit = draw_icon(&painter, icon, cell, picked, &c);
             let r = ui.interact(hit, Id::new(("liza-icon", n)), sense(Sense::click()));
             if r.clicked() || r.double_clicked() {
                 let double = r.double_clicked()
@@ -302,7 +292,7 @@ impl DesktopView for Liza {
             "Trash",
             pos2(spot.x + size.x / 2.0, spot.y + size.y + 10.0),
             false,
-            c,
+            &c,
         );
 
         // Windows, back to front.
@@ -332,14 +322,14 @@ impl DesktopView for Liza {
                 raise = Some(i);
             }
             rects.push(rect);
-            let close_r = window_frame(&painter, data, rect, title(tool), front, c);
-            let bar = Rect::from_min_size(rect.min, vec2(rect.width(), look::TITLE_H));
+            let close_r = kit::window_frame(&painter, rect, title(tool), front, &c);
+            let bar = kit::title_bar(rect);
             let drag = ui.interact(bar, wid.with("bar"), sense(Sense::click_and_drag()));
             if drag.dragged() {
                 let p = &mut self.wins[i].pos;
                 *p += drag.drag_delta();
                 p.x = p.x.clamp(-size.x + 60.0, screen.width() - 60.0);
-                p.y = p.y.clamp(look::MENU_H, screen.height() - look::TITLE_H);
+                p.y = p.y.clamp(size::MENU_H, screen.height() - size::TITLE_H);
             }
             if drag.drag_started() || drag.clicked() {
                 raise = Some(i);
@@ -350,10 +340,7 @@ impl DesktopView for Liza {
             {
                 close = Some(i);
             }
-            let content = Rect::from_min_max(
-                bar.left_bottom() + vec2(6.0, 4.0),
-                rect.max - vec2(6.0, 4.0),
-            );
+            let content = kit::window_content(rect);
             if tool == Tool::Shell {
                 home.shell(ui, content, data, save, live && front, out);
             } else {
@@ -373,7 +360,7 @@ impl DesktopView for Liza {
                     data,
                     save,
                     out,
-                    home::drag_hint(pos.y, look::MENU_H),
+                    home::drag_hint(pos.y, size::MENU_H),
                     ("liza-scroll", tool),
                 );
             }
@@ -398,9 +385,9 @@ impl DesktopView for Liza {
 
         // The menu bar, over everything but the boot card.
         // The menu bar and the boot card sit on their own layer, over anything a window draws.
-        let mut top_ui = on_top(ui, screen, egui::Order::Tooltip, "liza-menus");
+        let top_ui = on_top(ui, screen, egui::Order::Tooltip, "liza-menus");
         let top_painter = top_ui.painter_at(screen);
-        if let Some(a) = self.menu_bar(&mut top_ui, &top_painter, screen, cx, c) {
+        if let Some(a) = self.menu_bar(&top_ui, &top_painter, screen, cx, &c) {
             self.act(a, now);
         }
 
@@ -415,44 +402,86 @@ impl DesktopView for Liza {
 
         if self.calc && addon(AddonEffect::Calculator) {
             let mut da = on_top(ui, screen, egui::Order::Tooltip, "liza-calc");
-            self.calculator(&mut da, cx, screen, c);
+            self.calculator(&mut da, cx, screen, &c);
         }
 
         let mut boot_ui = on_top(ui, screen, egui::Order::Tooltip, "liza-boot-card");
         let boot_painter = boot_ui.painter_at(screen);
-        self.boot_card(&mut boot_ui, &boot_painter, screen, data, live, c);
+        self.boot_card(&mut boot_ui, &boot_painter, screen, data, live, &c);
         home::set_desk(theme);
     }
 }
 
 impl Liza {
-    /// Draws the menu bar and any menu dropped open; returns the item picked.
+    /// Draws the menu bar and any menu dropped open, with Sense/Net's eye in its left end;
+    /// returns the item picked.
     fn menu_bar(
         &mut self,
-        ui: &mut Ui,
+        ui: &Ui,
         painter: &egui::Painter,
         screen: Rect,
         cx: &Cx,
-        c: Two,
+        c: &Look,
     ) -> Option<Act> {
         let (ink, paper) = (c.ink, c.paper);
-        let sense = |s: Sense| if cx.live { s } else { Sense::hover() };
-        let bar = Rect::from_min_size(screen.min, vec2(screen.width(), look::MENU_H));
-        painter.rect_filled(bar, 0.0, paper);
-        painter.line_segment(
-            [bar.left_bottom(), bar.right_bottom()],
-            Stroke::new(1.0, ink),
-        );
+        // A tool you haven't downloaded isn't on the menu.
+        let shown: Vec<Vec<&(&str, Act)>> = MENUS
+            .iter()
+            .map(|(_, items)| {
+                items
+                    .iter()
+                    .filter(|(_, a)| !matches!(a, Act::Open(t) if !cx.save.opens(*t)))
+                    .collect()
+            })
+            .collect();
+        let menus: Vec<kit::Menu> = MENUS
+            .iter()
+            .zip(&shown)
+            .map(|((title, _), items)| kit::Menu {
+                title,
+                items: items.iter().map(|(l, _)| *l).collect(),
+            })
+            .collect();
+        // The bank on the right, and the time with the Alarm Clock.
+        let up = ui.input(|i| i.time) as u64;
+        let right = if cx
+            .save
+            .has_effect(cx.data, Desktop::Liza, AddonEffect::Clock)
+        {
+            format!(
+                "{}¢    {:02}:{:02}",
+                cx.save.bank,
+                up / 3600 % 24,
+                up / 60 % 60
+            )
+        } else {
+            format!("{}¢", cx.save.bank)
+        };
+        let mut picked = kit::menu_bar(
+            ui,
+            painter,
+            screen,
+            &menus,
+            &right,
+            &mut self.menu,
+            c,
+            cx.live,
+        )
+        .map(|(m, k)| shown[m][k].1);
         // Sense/Net's mark: an eye. With the Calculator it opens the desk accessory.
-        let eye = bar.left_center() + vec2(18.0, 0.0);
+        let eye = kit::menu_bar_rect(screen).left_center() + vec2(18.0, 0.0);
         let calc = cx
             .save
             .has_effect(cx.data, Desktop::Liza, AddonEffect::Calculator);
-        let mut picked = None;
         if calc {
-            let r = Rect::from_center_size(eye, vec2(26.0, look::MENU_H - 2.0));
+            let r = Rect::from_center_size(eye, vec2(26.0, size::MENU_H - 2.0));
+            let sense = if cx.live {
+                Sense::click()
+            } else {
+                Sense::hover()
+            };
             let resp = ui
-                .interact(r, Id::new("liza-eye"), sense(Sense::click()))
+                .interact(r, Id::new("liza-eye"), sense)
                 .on_hover_text("Calculator");
             if self.calc {
                 painter.rect_filled(r, 0.0, ink);
@@ -470,105 +499,19 @@ impl Liza {
         painter.circle_filled(eye, 6.0, eye_paper);
         painter.circle_stroke(eye, 6.0, Stroke::new(1.5, eye_ink));
         painter.circle_filled(eye, 2.5, eye_ink);
-        let mut x = bar.left() + 40.0;
-        for (m, (name, items)) in MENUS.iter().enumerate() {
-            let w = painter
-                .layout_no_wrap(name.to_string(), font(), ink)
-                .size()
-                .x
-                + 20.0;
-            let r = Rect::from_min_size(pos2(x, bar.top()), vec2(w, look::MENU_H - 1.0));
-            let open = self.menu == Some(m);
-            if open {
-                painter.rect_filled(r, 0.0, ink);
-            }
-            painter.text(
-                r.center(),
-                Align2::CENTER_CENTER,
-                *name,
-                font(),
-                if open { paper } else { ink },
-            );
-            let resp = ui.interact(r, Id::new(("liza-menu", m)), sense(Sense::click()));
-            if resp.clicked() {
-                self.menu = if open { None } else { Some(m) };
-            } else if self.menu.is_some() && resp.hovered() {
-                // Sliding along the bar with a menu open opens the next one.
-                self.menu = Some(m);
-            }
-            // A tool you haven't downloaded isn't on the menu.
-            let items: Vec<&(&str, Act)> = items
-                .iter()
-                .filter(|(_, a)| !matches!(a, Act::Open(t) if !cx.save.opens(*t)))
-                .collect();
-            if self.menu == Some(m) {
-                let drop = Rect::from_min_size(
-                    pos2(r.left(), bar.bottom()),
-                    vec2(look::MENU_W, items.len() as f32 * look::MENU_ITEM_H + 8.0),
-                );
-                painter.rect_filled(drop.translate(Vec2::splat(look::SHADOW)), 0.0, ink);
-                painter.rect_filled(drop, 0.0, paper);
-                painter.rect_stroke(drop, 0.0, Stroke::new(1.0, ink), StrokeKind::Inside);
-                for (k, (label, act)) in items.iter().enumerate() {
-                    let row = Rect::from_min_size(
-                        drop.min + vec2(1.0, 4.0 + k as f32 * look::MENU_ITEM_H),
-                        vec2(drop.width() - 2.0, look::MENU_ITEM_H),
-                    );
-                    let hit = ui.interact(row, Id::new(("liza-item", m, k)), sense(Sense::click()));
-                    let lit = hit.hovered();
-                    if lit {
-                        painter.rect_filled(row, 0.0, ink);
-                    }
-                    painter.text(
-                        row.left_center() + vec2(14.0, 0.0),
-                        Align2::LEFT_CENTER,
-                        *label,
-                        font(),
-                        if lit { paper } else { ink },
-                    );
-                    if hit.clicked() {
-                        picked = Some(*act);
-                        self.menu = None;
-                    }
-                }
-            }
-            x += w;
-        }
-        // The bank on the right, and the time with the Alarm Clock.
-        let up = ui.input(|i| i.time) as u64;
-        let right = if cx
-            .save
-            .has_effect(cx.data, Desktop::Liza, AddonEffect::Clock)
-        {
-            format!(
-                "{}¢    {:02}:{:02}",
-                cx.save.bank,
-                up / 3600 % 24,
-                up / 60 % 60
-            )
-        } else {
-            format!("{}¢", cx.save.bank)
-        };
-        painter.text(
-            bar.right_center() - vec2(12.0, 0.0),
-            Align2::RIGHT_CENTER,
-            right,
-            font(),
-            ink,
-        );
         picked
     }
 
     /// The Calculator desk accessory: a small window doing the sums you'd do on the back of an
     /// envelope before a run.
-    fn calculator(&mut self, ui: &mut Ui, cx: &Cx, screen: Rect, c: Two) {
+    fn calculator(&mut self, ui: &mut Ui, cx: &Cx, screen: Rect, c: &Look) {
         let (save, data) = (cx.save, cx.data);
         let rect = Rect::from_min_size(
-            screen.min + vec2(look::CALC_POS.0, look::MENU_H + look::CALC_POS.1),
+            screen.min + vec2(look::CALC_POS.0, size::MENU_H + look::CALC_POS.1),
             vec2(look::CALC_SIZE.0, look::CALC_SIZE.1),
         );
-        let painter = ui.painter_at(rect.expand(look::SHADOW + 1.0));
-        let close = window_frame(&painter, data, rect, "Calculator", true, c);
+        let painter = ui.painter_at(rect.expand(size::SHADOW + 1.0));
+        let close = kit::window_frame(&painter, rect, "Calculator", true, c);
         if cx.live
             && ui
                 .interact(close, Id::new("liza-calc-close"), Sense::click())
@@ -604,7 +547,7 @@ impl Liza {
                 save.phonebook.len()
             ),
         ];
-        let top = rect.top() + look::TITLE_H + 12.0;
+        let top = rect.top() + size::TITLE_H + 12.0;
         for (i, l) in lines.iter().enumerate() {
             painter.text(
                 pos2(rect.left() + 14.0, top + i as f32 * 22.0),
@@ -624,7 +567,7 @@ impl Liza {
         screen: Rect,
         data: &Data,
         live: bool,
-        c: Two,
+        c: &Look,
     ) {
         if self.booted {
             return;
@@ -655,20 +598,18 @@ impl Liza {
         }
         let art = &data.liza.boot;
         let size = patterns::bitmap_size(art, look::BOOT_SCALE);
-        let c = screen.center();
-        let top = c.y - size.y / 2.0 - 70.0;
+        let mid = screen.center();
+        let top = mid.y - size.y / 2.0 - 70.0;
         patterns::bitmap(
             painter,
             art,
-            pos2(c.x - size.x / 2.0, top),
+            pos2(mid.x - size.x / 2.0, top),
             look::BOOT_SCALE,
             ink,
             paper,
         );
-        let boxr = Rect::from_center_size(pos2(c.x, top + size.y + 70.0), vec2(380.0, 84.0));
-        painter.rect_filled(boxr.translate(Vec2::splat(look::SHADOW)), 0.0, ink);
-        painter.rect_filled(boxr, 0.0, paper);
-        painter.rect_stroke(boxr, 0.0, Stroke::new(1.0, ink), StrokeKind::Inside);
+        let boxr = Rect::from_center_size(pos2(mid.x, top + size.y + 70.0), vec2(380.0, 84.0));
+        kit::shadowed(painter, boxr, c);
         painter.rect_stroke(
             boxr.shrink(4.0),
             0.0,
@@ -701,46 +642,9 @@ fn on_top(ui: &mut Ui, rect: Rect, order: egui::Order, name: &str) -> Ui {
     )
 }
 
-/// Window chrome: a 1-px frame with a drop shadow, a title bar striped when it's in front, the
-/// title on a solid backing, and a close box. Returns the close box.
-fn window_frame(
-    painter: &egui::Painter,
-    data: &Data,
-    rect: Rect,
-    title: &str,
-    front: bool,
-    c: Two,
-) -> Rect {
-    let (ink, paper) = (c.ink, c.paper);
-    painter.rect_filled(rect.translate(Vec2::splat(look::SHADOW)), 0.0, ink);
-    painter.rect_filled(rect, 0.0, paper);
-    painter.rect_stroke(rect, 0.0, Stroke::new(1.0, ink), StrokeKind::Inside);
-    let bar = Rect::from_min_size(rect.min, vec2(rect.width(), look::TITLE_H));
-    painter.line_segment(
-        [bar.left_bottom(), bar.right_bottom()],
-        Stroke::new(1.0, ink),
-    );
-    if front && let Some(p) = data.pattern("pinstripes") {
-        patterns::fill(painter, p, bar.shrink2(vec2(3.0, 4.0)), ink, paper);
-    }
-    let close = Rect::from_min_size(
-        bar.left_center() + vec2(10.0, -look::CLOSE_BOX / 2.0),
-        Vec2::splat(look::CLOSE_BOX),
-    );
-    if front {
-        painter.rect_filled(close.expand(2.0), 0.0, paper);
-        painter.rect_stroke(close, 0.0, Stroke::new(1.0, ink), StrokeKind::Inside);
-    }
-    let galley = painter.layout_no_wrap(title.to_string(), font(), ink);
-    let tbox = Rect::from_center_size(bar.center(), galley.size() + vec2(16.0, 2.0));
-    painter.rect_filled(tbox, 0.0, paper);
-    painter.galley(tbox.min + vec2(8.0, 1.0), galley, ink);
-    close
-}
-
 /// An icon in 1-bit: the art's outlines in ink, its body in paper (inverted when selected),
 /// with the name under it on a solid backing. Returns the area that takes clicks.
-fn draw_icon(painter: &egui::Painter, icon: &IconDef, cell: Rect, picked: bool, c: Two) -> Rect {
+fn draw_icon(painter: &egui::Painter, icon: &IconDef, cell: Rect, picked: bool, c: &Look) -> Rect {
     let (ink, paper) = (c.ink, c.paper);
     let w = icon.width() as f32 * look::ICON_SCALE;
     let h = icon.pixels.len() as f32 * look::ICON_SCALE;
@@ -773,7 +677,7 @@ fn draw_icon(painter: &egui::Painter, icon: &IconDef, cell: Rect, picked: bool, 
 }
 
 /// A name under an icon, on paper (inverted when selected).
-fn label(painter: &egui::Painter, text: &str, center: Pos2, picked: bool, c: Two) -> Rect {
+fn label(painter: &egui::Painter, text: &str, center: Pos2, picked: bool, c: &Look) -> Rect {
     let (fg, bg) = if picked {
         (c.paper, c.ink)
     } else {
@@ -789,7 +693,7 @@ fn label(painter: &egui::Painter, text: &str, center: Pos2, picked: bool, c: Two
 /// A window whose body holds one book (`pager::SIZE`): the body is the window less its title
 /// bar and margins (see `content` in the window loop), plus a pixel of slack.
 fn book_window() -> egui::Vec2 {
-    crate::pager::SIZE + vec2(12.0 + 2.0, look::TITLE_H + 8.0 + 2.0)
+    crate::pager::SIZE + vec2(12.0 + 2.0, size::TITLE_H + 8.0 + 2.0)
 }
 
 #[cfg(test)]
@@ -926,10 +830,10 @@ mod tests {
             );
         }
         // Net > Phonebook, by clicking.
-        let net = pos2(40.0 + 60.0, look::MENU_H / 2.0);
+        let net = pos2(40.0 + 60.0, size::MENU_H / 2.0);
         frame(&ctx, &mut liza, &mut home, &data, click(net), 3.0);
         assert_eq!(liza.menu, Some(1), "Net dropped open");
-        let item = pos2(net.x, look::MENU_H + 4.0 + look::MENU_ITEM_H / 2.0);
+        let item = pos2(net.x, size::MENU_H + 4.0 + size::MENU_ITEM_H / 2.0);
         frame(
             &ctx,
             &mut liza,
@@ -994,7 +898,7 @@ mod tests {
         run(
             &mut liza,
             &mut home,
-            click(pos2(18.0, look::MENU_H / 2.0)),
+            click(pos2(18.0, size::MENU_H / 2.0)),
             3.2,
         );
         assert!(liza.calc, "the eye opened it");
@@ -1017,7 +921,7 @@ mod tests {
         let (mut liza, mut home) = booted(&ctx, &data);
         frame(&ctx, &mut liza, &mut home, &data, Vec::new(), 4.0);
         assert_eq!(home::desk(), before, "the theme's registers come back");
-        let c = colours(before);
+        let c = look(before, &data);
         assert_eq!(
             (c.ink, c.paper),
             (before.ink, before.shadow),

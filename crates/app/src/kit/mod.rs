@@ -11,6 +11,7 @@ pub mod anarchy;
 pub mod cells;
 pub mod fit;
 pub mod list;
+pub mod liza;
 pub mod sheet;
 
 pub use cells::Cells;
