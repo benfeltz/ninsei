@@ -1,6 +1,6 @@
 //! The Liza kit: the widgets of a 1-bit desktop after the first Mac's System 1. Windows with a
-//! striped title bar and a close box, the menu bar and its menus, push buttons, check boxes and
-//! radio buttons, and the alert. It draws and reports clicks and picks; what the menus hold, what
+//! striped title bar and a close box, the menu bar and its menus, the scroll bar and the list
+//! box, push buttons, check boxes and radio buttons, and the alert. It draws and reports clicks and picks; what the menus hold, what
 //! a window shows and what a button does are the caller's. The numbers are the
 //! spec sheet's (`docs/refs/liza.md`). Nothing here names a tool or a deck.
 
@@ -8,6 +8,7 @@ use egui::{Align2, Color32, FontId, Id, Key, Painter, Pos2, Rect, Response, Sens
 use egui::{StrokeKind, Ui, Vec2, pos2, vec2};
 use ninsei_core::pattern::PatternDef;
 
+use super::List;
 use crate::patterns;
 
 /// Sizes, in one place (the spec sheet's).
@@ -41,6 +42,8 @@ pub mod size {
     pub const ALERT_MARGIN: f32 = 12.0;
     pub const ALERT_ICON: f32 = 28.0;
     pub const BUTTON_GAP: f32 = 10.0;
+    /// A scroll bar's width, and the side of its arrow boxes and its thumb.
+    pub const SCROLL_W: f32 = 16.0;
 }
 
 /// Liza's two colours and her type, from the theme, and the patterns she fills with.
@@ -51,6 +54,8 @@ pub struct Look<'a> {
     pub font: FontId,
     /// The front window's title bar.
     pub stripes: Option<&'a PatternDef>,
+    /// The 50% gray: a scroll bar's track.
+    pub gray: Option<&'a PatternDef>,
 }
 
 /// A box with the 1-bit drop shadow: paper in an ink frame.
@@ -204,6 +209,275 @@ pub fn menu_bar(
 /// The menu bar's rect across the top of `screen`.
 pub fn menu_bar_rect(screen: Rect) -> Rect {
     Rect::from_min_size(screen.min, vec2(screen.width(), size::MENU_H))
+}
+
+/// Where a scrolling view stands, in points: how far down it is, how much shows, how much
+/// there is, and how far an arrow moves it.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Scroll {
+    pub offset: f32,
+    pub view: f32,
+    pub content: f32,
+    pub line: f32,
+}
+
+impl Scroll {
+    /// How far down it can go.
+    fn max(&self) -> f32 {
+        (self.content - self.view).max(0.0)
+    }
+
+    /// There's more than shows.
+    pub fn active(&self) -> bool {
+        self.max() > 0.5
+    }
+}
+
+/// A scroll bar's parts in `r`: the up arrow's box, the down arrow's, the track between them
+/// and, when there's anything to scroll, the thumb on it.
+fn bar_parts(r: Rect, s: &Scroll) -> (Rect, Rect, Rect, Option<Rect>) {
+    let w = size::SCROLL_W;
+    let up = Rect::from_min_size(r.min, vec2(w, w));
+    let down = Rect::from_min_max(pos2(r.left(), r.bottom() - w), r.max);
+    let track = Rect::from_min_max(up.left_bottom(), down.right_top());
+    let travel = (track.height() - w).max(0.0);
+    let thumb = (s.active() && travel > 0.0).then(|| {
+        let y = (track.top() + travel * (s.offset / s.max()).clamp(0.0, 1.0)).round();
+        Rect::from_min_size(pos2(r.left(), y), vec2(w, w))
+    });
+    (up, down, track, thumb)
+}
+
+/// What the scroll bar in `r` does to `s` this frame: an arrow scrolls a line, a click on the
+/// track above or below the thumb a page, the thumb drags the view, and the wheel over the bar
+/// scrolls it. Returns the new offset when it changed.
+fn bar_input(ui: &Ui, r: Rect, id: Id, s: &Scroll) -> Option<f32> {
+    if !s.active() {
+        return None;
+    }
+    let (up, down, track, thumb) = bar_parts(r, s);
+    let mut to = s.offset;
+    if ui.interact(up, id.with("up"), Sense::click()).clicked() {
+        to -= s.line;
+    }
+    if ui.interact(down, id.with("down"), Sense::click()).clicked() {
+        to += s.line;
+    }
+    let t = ui.interact(track, id.with("track"), Sense::click_and_drag());
+    let grab = id.with("grab");
+    // A drag holds the thumb only if it started on it (egui starts it a few points later).
+    if t.drag_started()
+        && let (Some(th), Some(p)) = (thumb, ui.input(|i| i.pointer.press_origin()))
+        && th.contains(p)
+    {
+        ui.data_mut(|d| d.insert_temp(grab, (s.offset, p.y)));
+    }
+    let held = ui.data(|d| d.get_temp::<(f32, f32)>(grab));
+    match held {
+        Some((from, y)) if t.dragged() => {
+            let travel = (track.height() - size::SCROLL_W).max(1.0);
+            if let Some(p) = t.interact_pointer_pos() {
+                to = from + (p.y - y) * s.max() / travel;
+            }
+        }
+        Some(_) if !t.dragged() => ui.data_mut(|d| d.remove::<(f32, f32)>(grab)),
+        _ => {}
+    }
+    if t.clicked()
+        && let (Some(th), Some(p)) = (thumb, t.interact_pointer_pos())
+    {
+        let page = (s.view - s.line).max(s.line);
+        if p.y < th.top() {
+            to -= page;
+        } else if p.y > th.bottom() {
+            to += page;
+        }
+    }
+    if ui.rect_contains_pointer(r) {
+        let wheel = ui.input(|i| i.smooth_scroll_delta.y);
+        if wheel != 0.0 {
+            to -= wheel;
+            ui.ctx().input_mut(|i| i.smooth_scroll_delta.y = 0.0);
+        }
+    }
+    let to = to.clamp(0.0, s.max()).round();
+    (to != s.offset).then_some(to)
+}
+
+/// Paints the scroll bar in `r` for `s`: its frame, the arrow boxes, and the gray track with the
+/// thumb on it, or an empty track when there's nothing to scroll.
+fn bar_paint(p: &Painter, r: Rect, s: &Scroll, look: &Look) {
+    let (ink, paper) = (look.ink, look.paper);
+    let (up, down, track, thumb) = bar_parts(r, s);
+    p.rect_filled(r, 0.0, paper);
+    if let (Some(_), Some(g)) = (thumb, look.gray) {
+        patterns::fill(p, g, track, ink, paper);
+    }
+    let line = Stroke::new(1.0, ink);
+    p.rect_stroke(r, 0.0, line, StrokeKind::Inside);
+    for (b, dir) in [(up, -1.0), (down, 1.0)] {
+        p.rect_stroke(b, 0.0, line, StrokeKind::Inside);
+        arrow(p, b, dir, line);
+    }
+    if let Some(th) = thumb {
+        p.rect_filled(th, 0.0, paper);
+        p.rect_stroke(th, 0.0, line, StrokeKind::Inside);
+    }
+}
+
+/// A scroll bar's arrow in its box, outlined: pointing up (`dir` -1) or down (1).
+fn arrow(p: &Painter, b: Rect, dir: f32, line: Stroke) {
+    let c = b.center();
+    let (tip, base) = (c.y + dir * 4.0, c.y - dir * 3.0);
+    let pts = vec![
+        pos2(c.x, tip),
+        pos2(c.x + 5.0, base),
+        pos2(c.x - 5.0, base),
+        pos2(c.x, tip),
+    ];
+    p.add(egui::Shape::line(pts, line));
+}
+
+/// A scroll bar in `r` ([`size::SCROLL_W`] wide) for `s`. Returns the new offset when it was
+/// scrolled.
+pub fn scroll_bar(ui: &Ui, p: &Painter, r: Rect, id: Id, s: Scroll, look: &Look) -> Option<f32> {
+    let to = bar_input(ui, r, id, &s);
+    bar_paint(
+        p,
+        r,
+        &Scroll {
+            offset: to.unwrap_or(s.offset),
+            ..s
+        },
+        look,
+    );
+    to
+}
+
+/// `body` in a view that scrolls with the kit's scroll bar down its right side, filling `ui`.
+/// The wheel over either scrolls it; the bar shows where it stands.
+pub fn scrolled(ui: &mut Ui, id: Id, look: &Look, body: impl FnOnce(&mut Ui)) {
+    let rect = ui.max_rect();
+    let bar = Rect::from_min_max(pos2(rect.right() - size::SCROLL_W, rect.top()), rect.max);
+    let key = id.with("kit-scroll");
+    let line = ui.fonts_mut(|f| f.row_height(&look.font)).ceil();
+    // The bar acts on last frame's numbers, so this frame's view already shows the move.
+    let last = ui.data(|d| d.get_temp::<Scroll>(key));
+    let set = last.and_then(|s| bar_input(ui, bar, key, &s));
+    let mut view = ui.new_child(
+        egui::UiBuilder::new()
+            .max_rect(rect.with_max_x(bar.left()))
+            .layout(egui::Layout::top_down(egui::Align::Min)),
+    );
+    let mut area = egui::ScrollArea::vertical()
+        .id_salt(key)
+        .auto_shrink([false, false])
+        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden);
+    if let Some(o) = set {
+        area = area.vertical_scroll_offset(o);
+    }
+    let out = area.show(&mut view, body);
+    let now = Scroll {
+        offset: out.state.offset.y,
+        view: out.inner_rect.height(),
+        content: out.content_size.y,
+        line,
+    };
+    ui.data_mut(|d| d.insert_temp(key, now));
+    bar_paint(ui.painter(), bar, &now, look);
+    ui.advance_cursor_after_rect(rect);
+}
+
+/// A list box `size` big: a framed list of `n` cells `cell_h` tall from `top` down, the
+/// `sel`ected one drawn by `cell` as on (it returns the cell's name, for the accessibility tree), and the scroll bar down its right side (active once the
+/// cells run past the box, scrolling them a whole cell at a time). A click on a cell picks it and
+/// gives the box the focus; with the focus ↑↓ walk the list. Returns the cell picked.
+#[allow(clippy::too_many_arguments)]
+pub fn list_box(
+    ui: &mut Ui,
+    size: Vec2,
+    id: Id,
+    n: usize,
+    cell_h: f32,
+    top: f32,
+    sel: usize,
+    look: &Look,
+    mut cell: impl FnMut(&Painter, Rect, usize, bool) -> String,
+) -> Option<usize> {
+    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+    let rect = Rect::from_min_size(rect.min.round(), rect.size().round());
+    // The box itself takes the focus (a click anywhere in it), so the arrows can walk it.
+    let boxed = ui.interact(rect, id, Sense::click());
+    if boxed.clicked() {
+        boxed.request_focus();
+    }
+    let mut picked = None;
+    if boxed.has_focus() {
+        ui.memory_mut(|m| {
+            m.set_focus_lock_filter(
+                id,
+                egui::EventFilter {
+                    vertical_arrows: true,
+                    ..Default::default()
+                },
+            )
+        });
+        let (up, down) = ui.input(|i| (i.key_pressed(Key::ArrowUp), i.key_pressed(Key::ArrowDown)));
+        if up && sel > 0 {
+            picked = Some(sel - 1);
+        }
+        if down && sel + 1 < n {
+            picked = Some(sel + 1);
+        }
+    }
+    let at = picked.unwrap_or(sel);
+    let bar = Rect::from_min_max(pos2(rect.right() - size::SCROLL_W, rect.top()), rect.max);
+    let rows = (((rect.height() - top) / cell_h).floor() as usize).max(1);
+    let key = id.with("list");
+    let mut list: List = ui.data(|d| d.get_temp(key)).unwrap_or_default();
+    let follow = (ui.data(|d| d.get_temp::<usize>(key.with("sel"))) != Some(at)).then_some(at);
+    list.view(n, follow, rows);
+    let s = Scroll {
+        offset: list.top as f32 * cell_h,
+        view: rows as f32 * cell_h,
+        content: n as f32 * cell_h,
+        line: cell_h,
+    };
+    if ui.rect_contains_pointer(rect.with_max_x(bar.left())) {
+        let wheel = ui.input(|i| i.smooth_scroll_delta.y);
+        if wheel != 0.0 && s.active() {
+            list.wheel(wheel / cell_h);
+            ui.ctx().input_mut(|i| i.smooth_scroll_delta.y = 0.0);
+        }
+    }
+    let p = ui.painter_at(rect);
+    p.rect_filled(rect, 0.0, look.paper);
+    if let Some(o) = scroll_bar(ui, &p, bar, id.with("bar"), s, look) {
+        list.top = (o / cell_h).round() as usize;
+    }
+    let shown = list.view(n, None, rows);
+    p.rect_stroke(rect, 0.0, Stroke::new(1.0, look.ink), StrokeKind::Inside);
+    let cells_w = rect.width() - size::SCROLL_W;
+    for i in shown {
+        let r = Rect::from_min_size(
+            rect.min + vec2(0.0, top + list.row(i) as f32 * cell_h),
+            vec2(cells_w, cell_h),
+        );
+        let hit = ui.interact(r, id.with(i), Sense::click());
+        if hit.clicked() {
+            picked = Some(i);
+            ui.memory_mut(|m| m.request_focus(id));
+        }
+        let name = cell(&p, r, i, i == at);
+        hit.widget_info(|| {
+            egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, i == at, &name)
+        });
+    }
+    ui.data_mut(|d| {
+        d.insert_temp(key, list);
+        d.insert_temp(key.with("sel"), picked.unwrap_or(sel));
+    });
+    picked
 }
 
 /// A push button's width for `label`: its text and the room either side, at least the minimum,
@@ -449,6 +723,7 @@ mod tests {
             paper: Color32::BLACK,
             font: FontId::monospace(14.0),
             stripes: None,
+            gray: None,
         }
     }
 
@@ -677,5 +952,166 @@ mod tests {
                 );
             }
         }
+    }
+
+    /// A frame of a 200x300 view of a body `tall` high; returns where it stands after.
+    fn view(h: &mut Harness, tall: f32, ev: Vec<egui::Event>) -> Scroll {
+        let id = Id::new("v");
+        h.frame(ev, |ui| {
+            let r = Rect::from_min_size(pos2(10.0, 10.0), vec2(200.0, 300.0));
+            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(r));
+            scrolled(&mut child, id, &look(), |ui| {
+                ui.allocate_exact_size(vec2(100.0, tall), Sense::hover());
+            });
+        });
+        h.ctx
+            .data(|d| d.get_temp::<Scroll>(id.with("kit-scroll")))
+            .unwrap()
+    }
+
+    /// The scroll bar's parts for the view above.
+    fn parts(s: &Scroll) -> (Rect, Rect, Rect, Option<Rect>) {
+        let bar = Rect::from_min_max(pos2(210.0 - size::SCROLL_W, 10.0), pos2(210.0, 310.0));
+        bar_parts(bar, s)
+    }
+
+    #[test]
+    fn the_arrows_scroll_a_line_and_the_track_a_page() {
+        let mut h = Harness::new(400.0, 400.0);
+        view(&mut h, 1000.0, vec![]);
+        let s = view(&mut h, 1000.0, vec![]);
+        assert!(s.active() && s.offset == 0.0);
+        let (up, down, _, thumb) = parts(&s);
+        let s = view(&mut h, 1000.0, click(down.center()));
+        assert_eq!(s.offset, s.line, "a line down");
+        let s = view(&mut h, 1000.0, click(up.center()));
+        assert_eq!(s.offset, 0.0, "and back");
+        let below = pos2(down.center().x, thumb.unwrap().bottom() + 40.0);
+        let s = view(&mut h, 1000.0, click(below));
+        assert_eq!(s.offset, (s.view - s.line).round(), "a page down");
+    }
+
+    #[test]
+    fn the_thumb_drags_the_view_and_the_wheel_over_the_bar_scrolls_it() {
+        let mut h = Harness::new(400.0, 400.0);
+        view(&mut h, 1000.0, vec![]);
+        let s = view(&mut h, 1000.0, vec![]);
+        let th = parts(&s).3.unwrap();
+        let (from, to) = (th.center(), th.center() + vec2(0.0, 60.0));
+        let b = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        view(
+            &mut h,
+            1000.0,
+            vec![egui::Event::PointerMoved(from), b(from, true)],
+        );
+        view(
+            &mut h,
+            1000.0,
+            vec![egui::Event::PointerMoved(from + vec2(0.0, 30.0))],
+        );
+        view(&mut h, 1000.0, vec![egui::Event::PointerMoved(to)]);
+        let s = view(&mut h, 1000.0, vec![b(to, false)]);
+        assert!(s.offset > 0.0, "the drag moved it: {s:?}");
+        let th2 = parts(&s).3.unwrap();
+        assert!(
+            (th2.center().y - to.y).abs() <= 1.5,
+            "the thumb is under the pointer"
+        );
+        let before = s.offset;
+        let wheel = vec![
+            egui::Event::PointerMoved(th2.center()),
+            egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: vec2(0.0, -40.0),
+                modifiers: egui::Modifiers::NONE,
+                phase: egui::TouchPhase::Move,
+            },
+        ];
+        view(&mut h, 1000.0, wheel);
+        let mut s = view(&mut h, 1000.0, vec![]);
+        for _ in 0..10 {
+            s = view(&mut h, 1000.0, vec![]);
+        }
+        assert!(s.offset > before, "the wheel over the bar scrolled it down");
+    }
+
+    #[test]
+    fn a_view_that_fits_has_no_thumb_and_its_arrows_do_nothing() {
+        let mut h = Harness::new(400.0, 400.0);
+        view(&mut h, 100.0, vec![]);
+        let s = view(&mut h, 100.0, vec![]);
+        assert!(!s.active());
+        let (_, down, _, thumb) = parts(&s);
+        assert!(thumb.is_none());
+        assert_eq!(view(&mut h, 100.0, click(down.center())).offset, 0.0);
+    }
+
+    /// A frame of a list box of `n` cells 20 high in a box 100 high; returns the pick.
+    fn list(h: &mut Harness, n: usize, sel: &mut usize, ev: Vec<egui::Event>) -> Option<usize> {
+        let mut got = None;
+        h.frame(ev, |ui| {
+            let r = Rect::from_min_size(pos2(0.0, 0.0), vec2(120.0, 100.0));
+            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(r));
+            got = list_box(
+                &mut child,
+                r.size(),
+                Id::new("l"),
+                n,
+                20.0,
+                0.0,
+                *sel,
+                &look(),
+                |_, _, i, _| format!("cell {i}"),
+            );
+        });
+        if let Some(i) = got {
+            *sel = i;
+        }
+        got
+    }
+
+    #[test]
+    fn a_list_box_picks_by_click_and_walks_by_arrows_once_focused() {
+        let mut h = Harness::new(400.0, 400.0);
+        let mut sel = 0;
+        list(&mut h, 4, &mut sel, vec![]);
+        // Arrows do nothing until it has the focus.
+        list(&mut h, 4, &mut sel, crate::uitest::key(Key::ArrowDown));
+        assert_eq!(sel, 0);
+        let c2 = h.find("cell 2").unwrap();
+        list(&mut h, 4, &mut sel, click(c2.center()));
+        assert_eq!(sel, 2);
+        list(&mut h, 4, &mut sel, crate::uitest::key(Key::ArrowDown));
+        assert_eq!(sel, 3);
+        list(&mut h, 4, &mut sel, crate::uitest::key(Key::ArrowDown));
+        assert_eq!(sel, 3, "stops at the end");
+        list(&mut h, 4, &mut sel, crate::uitest::key(Key::ArrowUp));
+        assert_eq!(sel, 2);
+    }
+
+    #[test]
+    fn a_long_list_box_scrolls_with_the_pick_in_whole_cells() {
+        let mut h = Harness::new(400.0, 400.0);
+        let mut sel = 0;
+        list(&mut h, 12, &mut sel, vec![]);
+        assert!(
+            h.find("cell 4").is_some() && h.find("cell 5").is_none(),
+            "five cells show"
+        );
+        let c0 = h.find("cell 0").unwrap();
+        list(&mut h, 12, &mut sel, click(c0.center()));
+        for _ in 0..7 {
+            list(&mut h, 12, &mut sel, crate::uitest::key(Key::ArrowDown));
+        }
+        list(&mut h, 12, &mut sel, vec![]);
+        assert_eq!(sel, 7);
+        let c7 = h.find("cell 7").expect("the pick is on screen");
+        assert_eq!(c7.top() % 20.0, 0.0, "on a whole cell");
+        assert!(h.find("cell 2").is_none());
     }
 }

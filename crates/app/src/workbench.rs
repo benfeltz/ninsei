@@ -405,7 +405,16 @@ impl DesktopView for Workbench {
                         _ => Tool::HexEd,
                     };
                     let hint = crate::home::drag_hint(pos.y, SCREEN_BAR_H);
-                    home.tool_in(&mut child, tool, data, save, out, hint, ("wb-scroll", tool));
+                    home.tool_in(
+                        &mut child,
+                        tool,
+                        data,
+                        save,
+                        out,
+                        hint,
+                        None,
+                        ("wb-scroll", tool),
+                    );
                 }
                 Kind::Requester(tool) => {
                     if let Some(action) = requester(ui, &painter, content, tool, live, wid) {

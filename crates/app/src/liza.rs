@@ -211,6 +211,7 @@ fn look(d: Desk, data: &Data) -> Look<'_> {
         paper: d.shadow,
         font: font(),
         stripes: data.pattern("pinstripes"),
+        gray: data.pattern("p50"),
     }
 }
 
@@ -308,6 +309,13 @@ impl DesktopView for Liza {
                 .then(|| i.pointer.interact_pos())
                 .flatten()
         });
+        // A tool taller than its window scrolls with Liza's own scroll bar.
+        let show =
+            |ui: &mut Ui, id: Id, body: &mut dyn FnMut(&mut Ui)| kit::scrolled(ui, id, &c, body);
+        let scroller = home::Scroller {
+            width: kit::size::SCROLL_W,
+            show: &show,
+        };
         let (mut raise, mut close) = (None, None);
         let n = self.wins.len();
         let mut rects = Vec::with_capacity(n);
@@ -361,6 +369,7 @@ impl DesktopView for Liza {
                     save,
                     out,
                     home::drag_hint(pos.y, size::MENU_H),
+                    Some(&scroller),
                     ("liza-scroll", tool),
                 );
             }
@@ -970,5 +979,36 @@ mod tests {
         liza.wins.last_mut().unwrap().pos.y = 46.0;
         run(&mut liza, &mut home);
         assert!(home.notices.is_empty(), "back up, it draws again");
+    }
+
+    #[test]
+    fn a_short_window_scrolls_its_tool_with_the_scroll_bar() {
+        let data = Data::builtin().unwrap();
+        let ctx = egui::Context::default();
+        crate::uitest::themed(&ctx, &data);
+        let (mut liza, mut home) = booted(&ctx, &data);
+        let mut t = look::BOOT_SECS + 0.2;
+        liza.open(Tool::System);
+        // Low on the screen, the window is only its minimum height: System runs past it.
+        liza.wins.last_mut().unwrap().pos.y = 680.0;
+        for _ in 0..3 {
+            t += 0.1;
+            frame(&ctx, &mut liza, &mut home, &data, Vec::new(), t);
+        }
+        let key = Id::new(("liza-scroll", Tool::System)).with("kit-scroll");
+        let at = |ctx: &egui::Context| ctx.data(|d| d.get_temp::<kit::Scroll>(key)).unwrap();
+        let s = at(&ctx);
+        assert!(s.active(), "it scrolls: {s:?}");
+        let w = liza.wins.last().unwrap();
+        let room = (800.0 - w.pos.y - look::WIN_MARGIN).max(look::WIN_MIN_H);
+        let rect = Rect::from_min_size(w.pos, vec2(w.size.x, w.size.y.min(room)));
+        let content = kit::window_content(rect);
+        let down = pos2(
+            content.right() - kit::size::SCROLL_W / 2.0,
+            content.bottom() - 8.0,
+        );
+        t += 0.1;
+        frame(&ctx, &mut liza, &mut home, &data, click(down), t);
+        assert_eq!(at(&ctx).offset, s.line, "the down arrow scrolled it a line");
     }
 }

@@ -653,7 +653,8 @@ impl Home {
 
     /// Draws `tool` in `ui` (a desktop's window or tile, dressed by `hubtools::wb_visuals`)
     /// unless its face needs more room than `ui` has ([`Home::fit`]); then the one notice in
-    /// its place, with the desktop's `hint`. Returns whether the tool was drawn.
+    /// its place, with the desktop's `hint`. A tool taller than `ui` scrolls with the desktop's
+    /// `scroller`, or egui's bar in the theme's colours. Returns whether the tool was drawn.
     #[allow(clippy::too_many_arguments)]
     pub fn tool_in(
         &mut self,
@@ -663,13 +664,19 @@ impl Home {
         save: &Save,
         out: &mut Vec<WbOut>,
         hint: Option<&str>,
+        scroller: Option<&Scroller>,
         salt: impl std::hash::Hash + std::fmt::Debug,
     ) -> bool {
         let rect = ui.max_rect();
         let desktop = save.firmware_def(data).desktop;
         let need = Self::fit(tool, desktop);
         if let Some(need) = need
-            && let (have, false) = fit::check(ui, rect, need, scroll_bar())
+            && let (have, false) = fit::check(
+                ui,
+                rect,
+                need,
+                scroller.map_or_else(scroll_bar, |s| s.width),
+            )
         {
             #[cfg(test)]
             self.notices.push(tool);
@@ -684,7 +691,12 @@ impl Home {
             );
             return false;
         }
-        scrolled(ui, salt, |ui| self.tool_body(ui, tool, data, save, out));
+        match scroller {
+            Some(s) => (s.show)(ui, Id::new(salt), &mut |ui| {
+                self.tool_body(ui, tool, data, save, out)
+            }),
+            None => scrolled(ui, salt, |ui| self.tool_body(ui, tool, data, save, out)),
+        }
         true
     }
 
@@ -994,6 +1006,16 @@ pub(crate) fn scroll_bar() -> f32 {
     crate::theme::visible_scroll().allocated_width()
 }
 
+/// A desktop's own scroll bar for a tool taller than its window: the room the bar takes beside
+/// the tool, and the view that scrolls it (given an id and the body to draw).
+pub(crate) struct Scroller<'a> {
+    pub width: f32,
+    pub show: &'a ScrollView<'a>,
+}
+
+/// Draws a body (the last argument) in a view that scrolls, keyed by the id.
+pub(crate) type ScrollView<'a> = dyn Fn(&mut Ui, Id, &mut dyn FnMut(&mut Ui)) + 'a;
+
 /// A tool's body in a window or tile that may be shorter than it: it scrolls, with a solid bar
 /// drawn in the text colour so every theme shows it.
 pub(crate) fn scrolled(
@@ -1065,7 +1087,7 @@ pub(crate) mod tests {
         let mut out = Vec::new();
         h.frame(events, |ui| {
             let mut child = ui.new_child(UiBuilder::new().max_rect(rect));
-            let drawn = home.tool_in(&mut child, tool, data, save, &mut out, None, "test");
+            let drawn = home.tool_in(&mut child, tool, data, save, &mut out, None, None, "test");
             assert!(drawn, "{tool:?} drawn at {rect:?}, which it can't take");
         });
         out
@@ -1185,7 +1207,16 @@ pub(crate) mod tests {
                 have = Home::fit(tool, Desktop::Tiling).map_or((0, 0), |need| {
                     fit::check(&child, rect, need, scroll_bar()).0
                 });
-                drawn = home.tool_in(&mut child, tool, data, save, &mut Vec::new(), None, "t");
+                drawn = home.tool_in(
+                    &mut child,
+                    tool,
+                    data,
+                    save,
+                    &mut Vec::new(),
+                    None,
+                    None,
+                    "t",
+                );
             });
         }
         assert_eq!(

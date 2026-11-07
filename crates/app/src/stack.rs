@@ -500,6 +500,7 @@ impl ChromeView for Stack {
             paper: cx.pal.bg,
             font: egui::TextStyle::Monospace.resolve(&ctx.global_style()),
             stripes: None,
+            gray: None,
         };
         let screen = ctx.content_rect();
         // Over the lower left, below the ICE's numbers and clear of the programs (the Stack's

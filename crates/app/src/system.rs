@@ -15,12 +15,11 @@ use crate::theme::Palette;
 mod tests;
 
 /// Liza's Control Panel list, after System 6's: a framed list of icons with their names under
-/// them, an (inactive) scroll bar down its right side, and the system's version beneath.
+/// them, the scroll bar down its right side (inactive while every panel fits), and the system's
+/// version beneath.
 mod cp {
     /// The list's width, scroll bar included.
     pub const LIST_W: f32 = 150.0;
-    /// The scroll bar's width, and the size of its arrow boxes.
-    pub const SCROLL_W: f32 = 16.0;
     /// Icons draw at twice their pixels: 32x32, the Control Panel's size.
     pub const ICON_SCALE: f32 = 2.0;
     /// One panel's cell: icon, gap, name, gap.
@@ -105,102 +104,65 @@ fn control_panel(ui: &mut Ui, data: &Data, save: &Save, st: &mut SystemUi, out: 
 }
 
 /// The Control Panel's list: each panel's icon over its name, the open one inverted, icon and
-/// name together. Click one to open it; then ↑↓ walk the list.
+/// name together, in the kit's list box. Click one to open it; then ↑↓ walk the list.
 fn panel_list(ui: &mut Ui, data: &Data, st: &mut SystemUi, height: f32) {
-    use egui::{Rect, Sense, Stroke, pos2, vec2};
-    let id = egui::Id::new("system-panel-list");
-    let (rect, _) = ui.allocate_exact_size(vec2(cp::LIST_W, height), Sense::hover());
-    // The list itself takes focus (a click anywhere in it), so the arrows can walk it.
-    let list = ui.interact(rect, id, Sense::click());
-    if list.clicked() {
-        list.request_focus();
-    }
-    if list.has_focus() {
-        ui.memory_mut(|m| {
-            m.set_focus_lock_filter(
-                id,
-                egui::EventFilter {
-                    vertical_arrows: true,
-                    ..Default::default()
-                },
-            )
-        });
-        let (up, down) = ui.input(|i| {
-            (
-                i.key_pressed(egui::Key::ArrowUp),
-                i.key_pressed(egui::Key::ArrowDown),
-            )
-        });
-        let at = Panel::ALL.iter().position(|&p| p == st.panel).unwrap_or(0);
-        if up && at > 0 {
-            st.panel = Panel::ALL[at - 1];
-        }
-        if down && at + 1 < Panel::ALL.len() {
-            st.panel = Panel::ALL[at + 1];
-        }
-    }
-
-    let (paper, ink) = (backdrop(), ink());
-    let line = Stroke::new(1.0, ink);
-    let p = ui.painter_at(rect);
-    p.rect_filled(rect, 0.0, paper);
-    p.rect_stroke(rect, 0.0, line, egui::StrokeKind::Inside);
-    // The scroll bar: inactive, since every panel fits, so arrows and an empty track.
-    let bar = Rect::from_min_max(pos2(rect.right() - cp::SCROLL_W, rect.top()), rect.max);
-    p.vline(bar.left(), bar.y_range(), line);
-    let up = Rect::from_min_size(bar.min, vec2(cp::SCROLL_W, cp::SCROLL_W));
-    let down = Rect::from_min_max(pos2(bar.left(), bar.bottom() - cp::SCROLL_W), bar.max);
-    p.hline(bar.x_range(), up.bottom(), line);
-    p.hline(bar.x_range(), down.top(), line);
-    scroll_arrow(&p, up, -1.0, line);
-    scroll_arrow(&p, down, 1.0, line);
-
-    let cells_w = rect.width() - cp::SCROLL_W;
-    for (i, &panel) in Panel::ALL.iter().enumerate() {
-        let on = st.panel == panel;
-        let cell = Rect::from_min_size(
-            rect.min + vec2(0.0, cp::TOP + i as f32 * cp::CELL_H),
-            vec2(cells_w, cp::CELL_H),
-        );
-        let r = ui.interact(cell, id.with(i), Sense::click());
-        r.widget_info(|| {
-            egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, panel.label())
-        });
-        if r.clicked() {
-            st.panel = panel;
-            ui.memory_mut(|m| m.request_focus(id));
-        }
-        let (fg, bg) = if on { (paper, ink) } else { (ink, paper) };
-        // The icon, pixel-aligned, centred at the top of the cell.
-        let px = ninsei_core::system::panel_icon(data, panel);
-        let side = ninsei_core::system::PANEL_ICON as f32 * cp::ICON_SCALE;
-        let art = pos2((cell.center().x - side / 2.0).round(), cell.top().round());
-        for (y, row) in px.iter().enumerate() {
-            for (x, ch) in row.chars().enumerate() {
-                let col = match ch {
-                    'k' => fg,
-                    'w' => bg,
-                    _ => continue,
-                };
-                let at = art + vec2(x as f32, y as f32) * cp::ICON_SCALE;
-                p.rect_filled(
-                    Rect::from_min_size(at, egui::Vec2::splat(cp::ICON_SCALE)),
-                    0.0,
-                    col,
-                );
+    use egui::{Rect, pos2, vec2};
+    let look = crate::kit::liza::Look {
+        gray: data.pattern("p50"),
+        ..mac()
+    };
+    let at = Panel::ALL.iter().position(|&p| p == st.panel).unwrap_or(0);
+    let picked = crate::kit::liza::list_box(
+        ui,
+        vec2(cp::LIST_W, height),
+        egui::Id::new("system-panel-list"),
+        Panel::ALL.len(),
+        cp::CELL_H,
+        cp::TOP,
+        at,
+        &look,
+        |p, cell, i, on| {
+            let panel = Panel::ALL[i];
+            let (fg, bg) = if on {
+                (look.paper, look.ink)
+            } else {
+                (look.ink, look.paper)
+            };
+            // The icon, pixel-aligned, centred at the top of the cell.
+            let px = ninsei_core::system::panel_icon(data, panel);
+            let side = ninsei_core::system::PANEL_ICON as f32 * cp::ICON_SCALE;
+            let art = pos2((cell.center().x - side / 2.0).round(), cell.top().round());
+            for (y, row) in px.iter().enumerate() {
+                for (x, ch) in row.chars().enumerate() {
+                    let col = match ch {
+                        'k' => fg,
+                        'w' => bg,
+                        _ => continue,
+                    };
+                    let at = art + vec2(x as f32, y as f32) * cp::ICON_SCALE;
+                    p.rect_filled(
+                        Rect::from_min_size(at, egui::Vec2::splat(cp::ICON_SCALE)),
+                        0.0,
+                        col,
+                    );
+                }
             }
-        }
-        // The name under it, on a solid backing (inverse when open).
-        let galley = p.layout_no_wrap(panel.label().to_string(), font(), fg);
-        let name = Rect::from_center_size(
-            pos2(
-                cell.center().x,
-                art.y + side + 4.0 + galley.size().y / 2.0 + 1.0,
-            ),
-            galley.size() + vec2(6.0, 2.0),
-        );
-        p.rect_filled(name, 0.0, bg);
-        p.galley(name.min + vec2(3.0, 1.0), galley, fg);
+            // The name under it, on a solid backing (inverse when open).
+            let galley = p.layout_no_wrap(panel.label().to_string(), font(), fg);
+            let name = Rect::from_center_size(
+                pos2(
+                    cell.center().x,
+                    art.y + side + 4.0 + galley.size().y / 2.0 + 1.0,
+                ),
+                galley.size() + vec2(6.0, 2.0),
+            );
+            p.rect_filled(name, 0.0, bg);
+            p.galley(name.min + vec2(3.0, 1.0), galley, fg);
+            panel.label().to_string()
+        },
+    );
+    if let Some(i) = picked {
+        st.panel = Panel::ALL[i];
     }
 }
 
@@ -218,20 +180,6 @@ fn software_grid(ui: &mut Ui, software: &[(String, String)]) {
                 }
             }
         });
-}
-
-/// A scroll bar's arrow in its box, outlined: pointing up (`dir` -1) or down (1).
-fn scroll_arrow(p: &egui::Painter, b: egui::Rect, dir: f32, line: egui::Stroke) {
-    use egui::pos2;
-    let c = b.center();
-    let (tip, base) = (c.y + dir * 4.0, c.y - dir * 3.0);
-    let pts = vec![
-        pos2(c.x, tip),
-        pos2(c.x + 5.0, base),
-        pos2(c.x - 5.0, base),
-        pos2(c.x, tip),
-    ];
-    p.add(egui::Shape::line(pts, line));
 }
 
 /// Desktop: Workbench 1.3's Preferences. A row of chunky gadgets across the top picks the
@@ -410,6 +358,7 @@ fn mac() -> crate::kit::liza::Look<'static> {
         paper: backdrop(),
         font: font(),
         stripes: None,
+        gray: None,
     }
 }
 

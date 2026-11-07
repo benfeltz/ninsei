@@ -336,6 +336,7 @@ impl DesktopView for TilingDesk {
                 save,
                 out,
                 full_screen_hint(t.shape().full, t.tiles().len()),
+                None,
                 ("tile-scroll", tool),
             );
         }
