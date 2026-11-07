@@ -288,9 +288,13 @@ pub struct GameDef {
     /// Its version string, as System's About This Deck lists it.
     #[serde(default = "first_version")]
     pub version: String,
-    /// The play field, in cells.
+    /// The rules it runs.
+    pub engine: crate::games::Engine,
+    /// The play field, in cells: at least the engine's `min_size`.
     pub cols: u32,
     pub rows: u32,
+    /// How long one tick of the game's clock lasts: the app steps it once per tick.
+    pub tick_ms: u32,
     /// The cracktro a board's copy opens with (a crack in `data/intros/`).
     pub crack: String,
     /// The splash the boxed copy opens with (a splash in `data/intros/`).
@@ -306,10 +310,8 @@ pub struct GameShop {
     pub price: u32,
 }
 
-/// The games core plays: `games.ron` must have a row for each, and a row for nothing else.
-/// A placeholder until the engines land (task 47.3), which build this list from their own
-/// registry so it can't drift from them.
-pub const GAMES: &[&str] = &["nibbler", "blox", "minefield"];
+/// The shortest and longest tick a game may ask for.
+pub const GAME_TICK_MS: std::ops::RangeInclusive<u32> = 10..=1000;
 
 /// Every tool's id: what `hub::Save::has_tool` and the desktops ask about.
 pub const TOOLS: &[&str] = &[
@@ -1298,7 +1300,7 @@ impl Data {
         Ok(())
     }
 
-    /// Every game has a row and an engine, its field fits a screen, its crack is a crack and
+    /// Every game's field fits its engine and a screen, its tick is sane, its crack is a crack and
     /// its splash a splash, and its publisher advertises in CPU Shopper.
     fn validate_games(&self) -> Result<(), String> {
         for (i, g) in self.games.iter().enumerate() {
@@ -1306,14 +1308,20 @@ impl Data {
             if self.games[..i].iter().any(|o| o.id == g.id) {
                 return err("listed twice".into());
             }
-            if !GAMES.contains(&g.id.as_str()) {
-                return err("has no engine (not in data::GAMES)".into());
-            }
             let (cols, rows) = (crate::bbs::COLS as u32, crate::bbs::ROWS as u32);
-            if !(1..=cols).contains(&g.cols) || !(1..=rows).contains(&g.rows) {
+            let (min_c, min_r) = g.engine.min_size();
+            if !(min_c..=cols).contains(&g.cols) || !(min_r..=rows).contains(&g.rows) {
                 return err(format!(
-                    "a {}x{} field (1-{cols} x 1-{rows})",
-                    g.cols, g.rows
+                    "a {}x{} field ({:?} plays on {min_c}-{cols} x {min_r}-{rows})",
+                    g.cols, g.rows, g.engine
+                ));
+            }
+            if !GAME_TICK_MS.contains(&g.tick_ms) {
+                return err(format!(
+                    "tick_ms {} ({}-{})",
+                    g.tick_ms,
+                    GAME_TICK_MS.start(),
+                    GAME_TICK_MS.end()
                 ));
             }
             match self.intro(&g.crack) {
@@ -1348,9 +1356,6 @@ impl Data {
             if g.shop.as_ref().is_some_and(|s| s.price == 0) {
                 return err("sold for nothing".into());
             }
-        }
-        if let Some(id) = GAMES.iter().find(|id| self.game(id).is_none()) {
-            return Err(format!("no row for game `{id}`"));
         }
         Ok(())
     }

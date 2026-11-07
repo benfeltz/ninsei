@@ -13,13 +13,15 @@ fn data() -> Data {
 #[test]
 fn every_game_validates() {
     let d = data();
-    assert_eq!(d.games.len(), data::GAMES.len());
-    for id in data::GAMES {
-        let g = d.game(id).expect("a row for every engine");
+    for e in games::Engine::ALL {
+        assert!(d.games.iter().any(|g| g.engine == e), "a game runs {e:?}");
+    }
+    for g in &d.games {
         assert!(!g.name.is_empty() && !g.blurb.is_empty() && !g.version.is_empty());
         assert_eq!(
             g.publisher, "papertiger",
-            "{id}: Paper Tiger boxes the games"
+            "{}: Paper Tiger boxes the games",
+            g.id
         );
     }
 }
@@ -66,11 +68,11 @@ fn a_bad_game_is_rejected() {
     assert!(check(|g| g.version = "9.9".into()).contains("doesn't name `Nibbler 9.9`"));
     assert!(check(|g| g.cols = 0).contains("field"));
     assert!(check(|g| g.rows = 99).contains("field"));
-    assert!(check(|g| g.id = "pong".into()).contains("no engine"));
+    // NIBBLER needs room for its walls and a snake.
+    assert!(check(|g| g.cols = 7).contains("Nibbler plays on 8-78"));
+    assert!(check(|g| g.tick_ms = 0).contains("tick_ms"));
+    assert!(check(|g| g.tick_ms = 5000).contains("tick_ms"));
     assert!(check(|g| g.shop = Some(data::GameShop { price: 0 })).contains("for nothing"));
-    let mut d = data();
-    d.games.pop();
-    assert!(d.validate().unwrap_err().contains("no row for game"));
     let mut d = data();
     let twice = d.games[0].clone();
     d.games.push(twice);
