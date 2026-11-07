@@ -164,8 +164,11 @@ impl<C: Clone> Sheet<C> {
             let r = g.at(*hc, *hr, (*len).max(1), 1);
             // Salted with this sheet's own room, so two sheets in one Ui never share an id.
             let hit = ui.interact(r, resp.id.with(("sheet-hit", i)), Sense::CLICK);
-            let label = name.clone().unwrap_or_else(|| self.text(*hc, *hr, *len));
-            hit.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &label));
+            // Built only when egui asks (a screen reader, a test): it scans the sheet.
+            hit.widget_info(|| {
+                let label = name.clone().unwrap_or_else(|| self.text(*hc, *hr, *len));
+                egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label)
+            });
             if hit.hovered() {
                 ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
             }
