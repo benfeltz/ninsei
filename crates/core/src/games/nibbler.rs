@@ -5,16 +5,10 @@ use std::collections::VecDeque;
 
 use super::{Arcade, Cell, Input, unpaused};
 use crate::rng::Rng;
-
-/// Ticks between moves at the start, and the fastest it ever goes.
-pub const START_PERIOD: u32 = 4;
-pub const FASTEST_PERIOD: u32 = 1;
-/// Meals between speed-ups.
-pub const SPEEDUP_EVERY: u32 = 5;
-/// Points a meal.
-pub const FOOD_POINTS: u32 = 10;
-/// The snake's length when it hatches.
-pub const START_LEN: usize = 3;
+use crate::tuning::{
+    NIBBLER_FASTEST_PERIOD, NIBBLER_FOOD_POINTS, NIBBLER_SPEEDUP_EVERY, NIBBLER_START_LEN,
+    NIBBLER_START_PERIOD,
+};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Dir {
@@ -66,7 +60,7 @@ impl Nibbler {
     pub fn new(seed: u64, cols: usize, rows: usize) -> Self {
         let (cols, rows) = super::Engine::Nibbler.field(cols, rows);
         let (x, y) = (cols / 2, rows / 2);
-        let body = (0..START_LEN).map(|i| (x - i, y)).collect();
+        let body = (0..NIBBLER_START_LEN).map(|i| (x - i, y)).collect();
         let mut n = Self {
             cols,
             rows,
@@ -104,9 +98,9 @@ impl Nibbler {
 
     /// Ticks between moves now: faster every few meals.
     pub fn period(&self) -> u32 {
-        START_PERIOD
-            .saturating_sub(self.meals / SPEEDUP_EVERY)
-            .max(FASTEST_PERIOD)
+        NIBBLER_START_PERIOD
+            .saturating_sub(self.meals / NIBBLER_SPEEDUP_EVERY)
+            .max(NIBBLER_FASTEST_PERIOD)
     }
 
     /// Where the food is, if any is left.
@@ -222,7 +216,7 @@ impl Arcade for Nibbler {
     }
 
     fn score(&self) -> u32 {
-        self.meals * FOOD_POINTS
+        self.meals * NIBBLER_FOOD_POINTS
     }
 
     fn status(&self) -> String {

@@ -158,3 +158,25 @@ pub const BBS_CALL_COST: u32 = 10;
 
 /// Credits the dev key (F8 at home) drops in the bank, for trying out the shops.
 pub const DEV_CREDITS: u32 = 1000;
+
+/// The games on the desktop (`crates/core/src/games/`). Arcade rules, never a run's balance:
+/// the probe never plays them. Periods are in the game's own ticks (`GameDef::tick_ms`).
+/// NIBBLER: ticks between moves at the start and at its fastest, meals between speed-ups,
+/// points a meal, and the snake's length when it hatches.
+pub const NIBBLER_START_PERIOD: u32 = 4;
+pub const NIBBLER_FASTEST_PERIOD: u32 = 1;
+pub const NIBBLER_SPEEDUP_EVERY: u32 = 5;
+pub const NIBBLER_FOOD_POINTS: u32 = 10;
+pub const NIBBLER_START_LEN: usize = 3;
+/// BLOX: ticks between drops at level 0, how much faster each level is and the fastest drop;
+/// rows a level; points for clearing 1-4 rows at once (times the level plus one); points a
+/// row for a soft and a hard drop.
+pub const BLOX_START_PERIOD: u32 = 16;
+pub const BLOX_PERIOD_STEP: u32 = 1;
+pub const BLOX_FASTEST_PERIOD: u32 = 2;
+pub const BLOX_LINES_PER_LEVEL: u32 = 10;
+pub const BLOX_LINE_POINTS: [u32; 5] = [0, 40, 100, 300, 1200];
+pub const BLOX_SOFT_POINTS: u32 = 1;
+pub const BLOX_HARD_POINTS: u32 = 2;
+/// MINEFIELD: share of the squares that hide a mine, in percent (at least one mine).
+pub const MINEFIELD_MINE_PCT: usize = 15;

@@ -4,9 +4,7 @@
 
 use super::{Arcade, Cell, Input, unpaused};
 use crate::rng::Rng;
-
-/// Share of the squares that hide a mine, in percent (at least one mine).
-pub const MINE_PCT: usize = 15;
+use crate::tuning::MINEFIELD_MINE_PCT;
 
 #[derive(Clone, Debug)]
 pub struct Minefield {
@@ -33,7 +31,7 @@ impl Minefield {
             cols,
             rows,
             rng: Rng::new(seed),
-            mines: (n * MINE_PCT / 100).clamp(1, n - 1),
+            mines: (n * MINEFIELD_MINE_PCT / 100).clamp(1, n - 1),
             mine: vec![false; n],
             open: vec![false; n],
             flag: vec![false; n],

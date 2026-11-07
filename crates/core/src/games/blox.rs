@@ -3,18 +3,11 @@
 
 use super::{Arcade, Cell, Input, unpaused};
 use crate::rng::Rng;
+use crate::tuning::{
+    BLOX_FASTEST_PERIOD, BLOX_HARD_POINTS, BLOX_LINE_POINTS, BLOX_LINES_PER_LEVEL,
+    BLOX_PERIOD_STEP, BLOX_SOFT_POINTS, BLOX_START_PERIOD,
+};
 
-/// Ticks between drops at level 0, how much faster each level is, and the fastest drop.
-pub const START_PERIOD: u32 = 16;
-pub const PERIOD_STEP: u32 = 1;
-pub const FASTEST_PERIOD: u32 = 2;
-/// Rows cleared to go up a level.
-pub const LINES_PER_LEVEL: u32 = 10;
-/// Points for clearing 1-4 rows at once, times the level plus one.
-pub const LINE_POINTS: [u32; 5] = [0, 40, 100, 300, 1200];
-/// Points a row for a soft drop and for a hard drop.
-pub const SOFT_POINTS: u32 = 1;
-pub const HARD_POINTS: u32 = 2;
 /// Sideways nudges tried when a turn doesn't fit where it is.
 const KICKS: [i32; 5] = [0, -1, 1, -2, 2];
 
@@ -84,7 +77,7 @@ impl Blox {
     }
 
     pub fn level(&self) -> u32 {
-        self.lines / LINES_PER_LEVEL
+        self.lines / BLOX_LINES_PER_LEVEL
     }
 
     pub fn lines(&self) -> u32 {
@@ -93,9 +86,9 @@ impl Blox {
 
     /// Ticks between drops at this level.
     pub fn period(&self) -> u32 {
-        START_PERIOD
-            .saturating_sub(self.level() * PERIOD_STEP)
-            .max(FASTEST_PERIOD)
+        BLOX_START_PERIOD
+            .saturating_sub(self.level() * BLOX_PERIOD_STEP)
+            .max(BLOX_FASTEST_PERIOD)
     }
 
     /// The falling piece's squares, (col, row).
@@ -189,7 +182,7 @@ impl Blox {
         let mut board = vec![0; cleared * cols];
         board.extend(kept);
         self.board = board;
-        self.score += LINE_POINTS[cleared.min(4)] * (self.level() + 1);
+        self.score += BLOX_LINE_POINTS[cleared.min(4)] * (self.level() + 1);
         self.lines += cleared as u32;
         self.spawn();
     }
@@ -207,13 +200,13 @@ impl Arcade for Blox {
             Input::Alt => self.turn(3),
             Input::Down => {
                 if self.fall() {
-                    self.score += SOFT_POINTS;
+                    self.score += BLOX_SOFT_POINTS;
                 }
             }
             Input::Fire => {
                 while self.fits(self.rot, self.x, self.y + 1) {
                     self.y += 1;
-                    self.score += HARD_POINTS;
+                    self.score += BLOX_HARD_POINTS;
                 }
                 self.settle();
             }

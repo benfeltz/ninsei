@@ -424,8 +424,9 @@ fn every_crack_is_signed_by_a_crew_that_cracks_games() {
 }
 
 mod nibbler {
-    use ninsei_core::games::nibbler::{self, Nibbler};
+    use ninsei_core::games::nibbler::Nibbler;
     use ninsei_core::games::{Arcade, Cell, Input};
+    use ninsei_core::tuning;
 
     /// Steers at the food by the first safe square it can turn to, never back on itself.
     fn toward_food(n: &Nibbler) -> Input {
@@ -478,33 +479,33 @@ mod nibbler {
     fn it_eats_grows_and_scores() {
         let mut n = Nibbler::new(7, 32, 20);
         for _ in 0..5000 {
-            if n.score() >= 3 * nibbler::FOOD_POINTS || n.over() {
+            if n.score() >= 3 * tuning::NIBBLER_FOOD_POINTS || n.over() {
                 break;
             }
             let i = toward_food(&n);
             n.step(i, 1);
         }
-        assert_eq!(n.score(), 3 * nibbler::FOOD_POINTS);
-        assert_eq!(n.len(), nibbler::START_LEN + 3);
+        assert_eq!(n.score(), 3 * tuning::NIBBLER_FOOD_POINTS);
+        assert_eq!(n.len(), tuning::NIBBLER_START_LEN + 3);
         assert!(n.status().starts_with("SCORE 30  LENGTH 6"));
     }
 
     #[test]
     fn it_speeds_up_every_few_meals() {
         let mut n = Nibbler::new(3, 40, 20);
-        assert_eq!(n.period(), nibbler::START_PERIOD);
-        while n.score() < nibbler::SPEEDUP_EVERY * nibbler::FOOD_POINTS && !n.over() {
+        assert_eq!(n.period(), tuning::NIBBLER_START_PERIOD);
+        while n.score() < tuning::NIBBLER_SPEEDUP_EVERY * tuning::NIBBLER_FOOD_POINTS && !n.over() {
             let i = toward_food(&n);
             n.step(i, 1);
         }
-        assert_eq!(n.period(), nibbler::START_PERIOD - 1);
+        assert_eq!(n.period(), tuning::NIBBLER_START_PERIOD - 1);
     }
 
     #[test]
     fn it_never_turns_back_on_itself() {
         let mut n = Nibbler::new(1, 32, 20);
         let (x, y) = n.head();
-        n.step(Input::Left, nibbler::START_PERIOD);
+        n.step(Input::Left, tuning::NIBBLER_START_PERIOD);
         assert_eq!(n.head(), (x + 1, y), "still heading right");
         assert!(!n.over());
     }
@@ -545,14 +546,15 @@ mod nibbler {
         n.step(Input::None, 100);
         assert!(n.paused() && n.cells() == still && n.status().contains("PAUSED"));
         n.step(Input::Pause, 0);
-        n.step(Input::None, nibbler::START_PERIOD);
+        n.step(Input::None, tuning::NIBBLER_START_PERIOD);
         assert_ne!(n.cells(), still);
     }
 }
 
 mod blox {
-    use ninsei_core::games::blox::{self, Blox};
+    use ninsei_core::games::blox::Blox;
     use ninsei_core::games::{Arcade, Cell, Input};
+    use ninsei_core::tuning;
 
     #[test]
     fn a_filled_row_clears() {
@@ -571,7 +573,7 @@ mod blox {
         }
         b.step(Input::Fire, 0);
         assert_eq!(b.lines(), 1, "the full row cleared");
-        assert!(b.score() >= blox::LINE_POINTS[1]);
+        assert!(b.score() >= tuning::BLOX_LINE_POINTS[1]);
         assert!(b.status().contains("LINES 1"));
     }
 
@@ -635,7 +637,7 @@ mod blox {
     fn gravity_drops_a_row_a_period() {
         let mut b = Blox::new(1, 10, 20);
         let before = b.piece();
-        b.step(Input::None, blox::START_PERIOD - 1);
+        b.step(Input::None, tuning::BLOX_START_PERIOD - 1);
         assert_eq!(b.piece(), before);
         b.step(Input::None, 1);
         let after = b.piece();
