@@ -1472,4 +1472,110 @@ mod tests {
         assert!(widths[0] < intro / 2.0, "Blox alone is narrow: {widths:?}");
         assert!(widths[1] > intro, "its splash's screen fits: {widths:?}");
     }
+
+    /// Liza drawn on a harness for `save`, past its boot card.
+    fn desk_on(data: &Data, save: &Save) -> (crate::uitest::Harness, Liza, Home) {
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        crate::uitest::themed(&h.ctx, data);
+        let (mut liza, mut home) = (Liza::new(), Home::new(Vec::new()));
+        drawn(&mut h, &mut liza, &mut home, data, save, Vec::new());
+        h.wait(look::BOOT_SECS);
+        drawn(&mut h, &mut liza, &mut home, data, save, Vec::new());
+        drawn(&mut h, &mut liza, &mut home, data, save, Vec::new());
+        (h, liza, home)
+    }
+
+    fn drawn(
+        h: &mut crate::uitest::Harness,
+        liza: &mut Liza,
+        home: &mut Home,
+        data: &Data,
+        save: &Save,
+        events: Vec<Event>,
+    ) {
+        h.frame(events, |ui| {
+            let cx = Cx {
+                data,
+                save,
+                offset: 0.0,
+                live: true,
+                keys: true,
+            };
+            liza.show(ui, home, &cx, &mut Vec::new());
+        });
+    }
+
+    /// Clicks the painted text `label` (the last painted, so the one on top).
+    fn click_text(
+        h: &mut crate::uitest::Harness,
+        liza: &mut Liza,
+        home: &mut Home,
+        data: &Data,
+        save: &Save,
+        label: &str,
+    ) {
+        let at = h
+            .painted_text()
+            .into_iter()
+            .rev()
+            .find(|(t, _)| t == label)
+            .unwrap_or_else(|| panic!("no {label:?} painted"))
+            .1
+            .center();
+        drawn(h, liza, home, data, save, crate::uitest::click(at));
+        drawn(h, liza, home, data, save, Vec::new());
+    }
+
+    /// Every game copy's label but `but`'s.
+    fn other_labels(data: &Data, but: &[Tool]) -> Vec<String> {
+        data.games
+            .iter()
+            .flat_map(|g| {
+                [
+                    ninsei_core::hub::GameCopy::Cracked,
+                    ninsei_core::hub::GameCopy::Boxed,
+                ]
+                .map(|c| game(&g.id, c))
+            })
+            .filter(|t| !but.contains(t))
+            .map(|t| t.name(data))
+            .collect()
+    }
+
+    #[test]
+    fn a_game_you_dont_own_is_nowhere_on_liza_and_the_games_menu_opens_the_copy_picked() {
+        use ninsei_core::hub::GameCopy::{Boxed, Cracked};
+        let data = Data::builtin().unwrap();
+        // No game: no Games menu on the bar, no game's icon.
+        let none = Save {
+            guide_seen: true,
+            intros: false,
+            ..Save::default()
+        };
+        let (h, ..) = desk_on(&data, &none);
+        let texts: Vec<String> = h.painted_text().into_iter().map(|(t, _)| t).collect();
+        assert!(!texts.iter().any(|t| t == GAMES_MENU), "no Games menu");
+        for l in other_labels(&data, &[]) {
+            assert!(!texts.contains(&l), "{l} painted");
+        }
+        // Both copies of Nibbler: two icons, two menu items, each opening its own copy.
+        let mut save = none.clone();
+        save.learn_game("nibbler", Cracked);
+        save.learn_game("nibbler", Boxed);
+        let owned = [game("nibbler", Cracked), game("nibbler", Boxed)];
+        let (mut h, mut liza, mut home) = desk_on(&data, &save);
+        let icons: Vec<String> = h.painted_text().into_iter().map(|(t, _)| t).collect();
+        assert!(icons.contains(&"NIBBLER [2K4]".into()) && icons.contains(&"Nibbler".into()));
+        click_text(&mut h, &mut liza, &mut home, &data, &save, GAMES_MENU);
+        assert!(liza.menu.is_some(), "the Games menu dropped open");
+        let shown: Vec<String> = h.painted_text().into_iter().map(|(t, _)| t).collect();
+        for l in other_labels(&data, &owned) {
+            assert!(!shown.contains(&l), "{l} painted");
+        }
+        click_text(&mut h, &mut liza, &mut home, &data, &save, "NIBBLER [2K4]");
+        assert_eq!(liza.wins.last().map(|w| w.tool), Some(owned[0]));
+        click_text(&mut h, &mut liza, &mut home, &data, &save, GAMES_MENU);
+        click_text(&mut h, &mut liza, &mut home, &data, &save, "Nibbler");
+        assert_eq!(liza.wins.last().map(|w| w.tool), Some(owned[1]));
+    }
 }

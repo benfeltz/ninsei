@@ -169,6 +169,20 @@ impl Harness {
             .collect()
     }
 
+    /// Every piece of text last frame painted (labels drawn by hand, not widgets), with where.
+    pub fn painted_text(&self) -> Vec<(String, Rect)> {
+        self.shapes
+            .iter()
+            .filter_map(|s| match s {
+                egui::Shape::Text(t) => Some((
+                    t.galley.text().to_string(),
+                    Rect::from_min_size(t.pos, t.galley.size()),
+                )),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// What last frame painted, in order, flattened.
     pub fn painted(&self) -> &[egui::Shape] {
         &self.shapes

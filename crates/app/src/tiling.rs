@@ -1071,4 +1071,37 @@ mod tests {
         assert_eq!(r.home.game(mine).unwrap().cursor(), Some((at.0 + 1, at.1)));
         assert_eq!(r.save.tiling.focused(), Some(Tool::Shell));
     }
+
+    #[test]
+    fn the_launcher_draws_only_the_games_you_own() {
+        use ninsei_core::hub::GameCopy::{Boxed, Cracked};
+        let mut r = Rig::new(true);
+        r.save.learn_game("blox", Boxed);
+        r.key(egui::Key::Escape);
+        r.key(egui::Key::Space);
+        r.type_text("b");
+        assert!(r.h.find("Blox").is_some(), "{:?}", r.h.texts());
+        for g in &r.data.games {
+            for c in [Cracked, Boxed] {
+                let t = Tool::game(&g.id, c).unwrap();
+                if !r.save.opens(t) {
+                    let label = t.name(&r.data);
+                    assert!(r.h.find(&label).is_none(), "{label} listed");
+                }
+            }
+        }
+        // Typing a game you don't own finds nothing to open.
+        r.key(egui::Key::Escape);
+        r.key(egui::Key::Escape);
+        r.key(egui::Key::Space);
+        r.type_text("nibbler");
+        r.key(egui::Key::Enter);
+        assert!(
+            !r.save
+                .tiling
+                .tiles()
+                .iter()
+                .any(|t| matches!(t, Tool::Game(..)))
+        );
+    }
 }

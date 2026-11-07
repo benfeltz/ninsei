@@ -1046,4 +1046,38 @@ mod tests {
         let behind = Tool::game("nibbler", ninsei_core::hub::GameCopy::Cracked).unwrap();
         assert!(home.game(behind).unwrap().paused(), "a window behind waits");
     }
+
+    #[test]
+    fn desktop_draws_only_the_games_you_own() {
+        use ninsei_core::hub::GameCopy::{Boxed, Cracked};
+        let data = Data::builtin().unwrap();
+        let mut save = desk(&data);
+        save.learn_game("blox", Boxed);
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        crate::uitest::themed(&h.ctx, &data);
+        let (mut wb, mut home) = (Workbench::new(), Home::new(Vec::new()));
+        for _ in 0..2 {
+            h.frame(Vec::new(), |ui| {
+                let cx = Cx {
+                    data: &data,
+                    save: &save,
+                    offset: 0.0,
+                    live: true,
+                    keys: true,
+                };
+                wb.show(ui, &mut home, &cx, &mut Vec::new());
+            });
+        }
+        let painted: Vec<String> = h.painted_text().into_iter().map(|(t, _)| t).collect();
+        assert!(painted.contains(&"Blox".to_string()), "the box you own");
+        for g in &data.games {
+            for c in [Cracked, Boxed] {
+                let t = Tool::game(&g.id, c).unwrap();
+                if !save.opens(t) {
+                    let label = t.name(&data);
+                    assert!(!painted.contains(&label), "{label} painted");
+                }
+            }
+        }
+    }
 }

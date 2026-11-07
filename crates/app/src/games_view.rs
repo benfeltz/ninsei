@@ -791,21 +791,23 @@ mod tests {
         assert_eq!(step_of(&mut h, &mut home, &data, &save, t), want);
     }
 
+    /// The desktops drawn: `liza.rs`, `workbench.rs` and `tiling.rs` each have a test that
+    /// paints them and finds no unowned game.
     #[test]
-    fn a_game_you_dont_own_is_on_no_desktop() {
+    fn the_lists_the_desktops_draw_from_hold_only_the_copies_you_own() {
         let data = Data::builtin().unwrap();
         let mut save = deck(&data);
         save.learn_game("blox", GameCopy::Boxed);
         let unowned = |t: &Tool| matches!(t, Tool::Game(id, _) if id.as_str() != "blox");
         let shown: Vec<Tool> = save.icons(&data).into_iter().map(|i| i.tool).collect();
-        assert!(!shown.iter().any(unowned), "no icon on Liza or Desktop");
+        assert!(!shown.iter().any(unowned), "Save::icons");
         assert_eq!(
             Tool::games(&data, &save),
             [Tool::game("blox", GameCopy::Boxed).unwrap()]
         );
         assert!(
             !Tool::games(&data, &save).iter().any(unowned),
-            "no Games menu item, no launcher entry"
+            "Tool::games"
         );
         let words = ninsei_core::hub::shell_complete("run ", &save, &data);
         assert!(words.contains(&"blox".to_string()));
