@@ -9,9 +9,7 @@
 //! `?` help. The mouse works too: click a tile to focus it, a workspace to switch.
 //! Browser-safe: no Ctrl or Alt shortcuts.
 
-use egui::{
-    Align2, Event, FontFamily, FontId, Id, Key, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2,
-};
+use egui::{Event, FontFamily, FontId, Key, Rect, Ui, pos2, vec2};
 use ninsei_core::desktop::{self, AddonEffect, Tiling};
 use ninsei_core::hardware::Desktop;
 use ninsei_core::hub::Tool;
@@ -95,17 +93,10 @@ fn entries(fuzzy: bool, save: &ninsei_core::hub::Save) -> Vec<Entry> {
     v
 }
 
-#[derive(Default)]
-struct Launcher {
-    query: String,
-    sel: usize,
-    focused: bool,
-}
-
 pub struct TilingDesk {
     /// Esc was pressed: the next key is a desktop command.
     leader: bool,
-    launcher: Option<Launcher>,
+    launcher: Option<anarchy::Launcher>,
     help: bool,
     /// Whether the Shell was taking the keys last frame.
     shell_typing: bool,
@@ -166,7 +157,9 @@ impl TilingDesk {
                     match (key, digit) {
                         (_, Some(n)) if modifiers.shift => t.send(n),
                         (_, Some(n)) => t.switch(n),
-                        (Key::Space | Key::P, _) => self.launcher = Some(Launcher::default()),
+                        (Key::Space | Key::P, _) => {
+                            self.launcher = Some(anarchy::Launcher::default())
+                        }
                         (Key::H | Key::ArrowLeft | Key::K | Key::ArrowUp, _) => t.step(-1),
                         (Key::L | Key::ArrowRight | Key::J | Key::ArrowDown, _) => t.step(1),
                         (Key::Enter, _) => t.swap_master(),
@@ -385,98 +378,20 @@ impl TilingDesk {
             .has_effect(cx.data, Desktop::Tiling, AddonEffect::Fuzzy);
         let items = entries(fuzzy, cx.save);
         let labels: Vec<String> = items.iter().map(Entry::label).collect();
-        let screen = ui.ctx().content_rect();
-        let r = Rect::from_center_size(
-            pos2(screen.center().x, screen.top() + screen.height() * 0.35),
-            vec2(size::LAUNCHER[0], size::LAUNCHER[1]),
+        let hint = if fuzzy {
+            "open a tool or run a command"
+        } else {
+            "open a tool"
+        };
+        let run = anarchy::launcher(
+            ui.ctx(),
+            ui.ctx().content_rect(),
+            l,
+            &labels,
+            |q| desktop::search(q, &labels, fuzzy),
+            hint,
+            &look(),
         );
-        let mut run = None;
-        // The box is painted inside the Area, on its own layer, so the widgets draw on top.
-        egui::Area::new(Id::new("launcher-area"))
-            .order(egui::Order::Foreground)
-            .fade_in(false)
-            .fixed_pos(r.min)
-            .show(ui.ctx(), |ui| {
-                let p = ui.painter();
-                p.rect_filled(r.expand(3.0), size::ROUND + 2.0, shadow());
-                p.rect_filled(r, size::ROUND, backdrop());
-                p.rect_stroke(
-                    r,
-                    size::ROUND,
-                    Stroke::new(2.0, accent()),
-                    StrokeKind::Inside,
-                );
-                ui.allocate_rect(r, Sense::hover());
-                let inner = r.shrink2(vec2(12.0, 10.0));
-                let mut ui = ui.new_child(
-                    egui::UiBuilder::new()
-                        .max_rect(inner)
-                        .layout(egui::Layout::top_down(egui::Align::Min)),
-                );
-                let ui = &mut ui;
-                ui.set_width(inner.width());
-                crate::hubtools::wb_visuals(ui.visuals_mut());
-                let edit = egui::TextEdit::singleline(&mut l.query)
-                    .hint_text(if fuzzy {
-                        "open a tool or run a command"
-                    } else {
-                        "open a tool"
-                    })
-                    .font(font())
-                    .desired_width(f32::INFINITY)
-                    .id(Id::new("launcher-input"));
-                let resp = ui.add(edit);
-                if !l.focused {
-                    resp.request_focus();
-                    l.focused = true;
-                }
-                if resp.changed() {
-                    l.sel = 0;
-                }
-                // Filtered after the edit, so the list matches what was just typed.
-                let hits = desktop::search(&l.query, &labels, fuzzy);
-                let (down, up, enter) = ui.input(|i| {
-                    (
-                        i.key_pressed(Key::ArrowDown),
-                        i.key_pressed(Key::ArrowUp),
-                        i.key_pressed(Key::Enter),
-                    )
-                });
-                if !hits.is_empty() {
-                    if down {
-                        l.sel = (l.sel + 1) % hits.len();
-                    }
-                    if up {
-                        l.sel = (l.sel + hits.len() - 1) % hits.len();
-                    }
-                    l.sel = l.sel.min(hits.len() - 1);
-                }
-                ui.add_space(6.0);
-                for (k, &i) in hits.iter().take(12).enumerate() {
-                    let on = k == l.sel;
-                    let txt = egui::RichText::new(&labels[i]).font(font()).color(if on {
-                        shadow()
-                    } else {
-                        ink()
-                    });
-                    let b = egui::Button::new(txt)
-                        .fill(if on { accent() } else { backdrop() })
-                        .frame(on);
-                    if ui.add_sized([ui.available_width(), 20.0], b).clicked() {
-                        run = Some(i);
-                    }
-                }
-                if hits.is_empty() {
-                    ui.label(
-                        egui::RichText::new("nothing matches")
-                            .font(font())
-                            .color(muted()),
-                    );
-                }
-                if enter && let Some(&i) = hits.get(l.sel) {
-                    run = Some(i);
-                }
-            });
         if let Some(i) = run {
             match &items[i] {
                 Entry::Tool(tool, _) => t.open(*tool),
@@ -537,46 +452,7 @@ const HELP: [(&str, &str); 14] = [
 /// The key help. Returns true when it's dismissed (a click, or any key but `?` and `/`, which
 /// open it).
 fn help_ui(ui: &mut Ui, screen: Rect) -> bool {
-    let lines = HELP;
-    let r = Rect::from_center_size(
-        screen.center(),
-        vec2(580.0, 22.0 * lines.len() as f32 + 24.0),
-    );
-    let painter = ui.ctx().layer_painter(egui::LayerId::new(
-        egui::Order::Foreground,
-        Id::new("tiling-help"),
-    ));
-    painter.rect_filled(r.expand(3.0), size::ROUND + 2.0, shadow());
-    painter.rect_filled(r, size::ROUND, backdrop());
-    painter.rect_stroke(
-        r,
-        size::ROUND,
-        Stroke::new(2.0, accent()),
-        StrokeKind::Inside,
-    );
-    for (i, (k, v)) in lines.iter().enumerate() {
-        let y = r.top() + 14.0 + i as f32 * 22.0;
-        painter.text(
-            pos2(r.left() + 18.0, y),
-            Align2::LEFT_TOP,
-            *k,
-            font(),
-            accent(),
-        );
-        painter.text(
-            pos2(r.left() + 150.0, y),
-            Align2::LEFT_TOP,
-            *v,
-            font(),
-            ink(),
-        );
-    }
-    ui.input(|i| {
-        i.pointer.primary_clicked()
-            || i.events.iter().any(|e| {
-                matches!(e, Event::Key { pressed: true, key, .. } if *key != Key::Questionmark && *key != Key::Slash)
-            })
-    })
+    anarchy::help(ui, screen, &HELP, &look())
 }
 
 #[cfg(test)]
@@ -969,5 +845,40 @@ mod tests {
             None,
             "alone, it has the whole workspace"
         );
+    }
+
+    #[test]
+    fn the_launcher_scrolls_to_an_entry_past_its_first_screenful() {
+        let mut r = Rig::new(true);
+        r.save.tools = ninsei_core::data::TOOLS
+            .iter()
+            .map(|t| t.to_string())
+            .collect();
+        let fzf = r
+            .data
+            .addons
+            .iter()
+            .find(|a| a.effect == AddonEffect::Fuzzy)
+            .expect("the fzf add-on")
+            .id
+            .clone();
+        r.save.addons.push(fzf);
+        let labels: Vec<String> = entries(true, &r.save).iter().map(Entry::label).collect();
+        assert!(labels.len() > 12, "more than a screenful: {labels:?}");
+        r.key(egui::Key::Escape);
+        r.key(egui::Key::Space);
+        // `$ help`, past the first screenful: its list shows that it ran.
+        let help = labels.iter().position(|l| l == "$ help").expect("help");
+        assert!(help >= 12);
+        for _ in 0..help {
+            r.key(egui::Key::ArrowDown);
+        }
+        let l = r.desk.launcher.as_ref().expect("the launcher");
+        assert_eq!(l.sel, help);
+        assert!(l.list.shows(help), "the entry is in view");
+        assert!(!l.list.shows(0), "the first has scrolled away");
+        r.key(egui::Key::Enter);
+        assert!(r.desk.launcher.is_none(), "it ran and closed");
+        assert!(r.home.shell_has("dial <n>"), "help ran in the Shell");
     }
 }
