@@ -931,3 +931,43 @@ fn every_panel_fits_its_window_on_liza_and_desktop() {
         }
     }
 }
+
+#[test]
+fn liza_draws_the_mac_controls_on_every_panel() {
+    // The theme panel's radios are the Mac's (and a blocked one is dimmed), Disk's buttons are
+    // Mac push buttons with their round corners.
+    let d = data();
+    let mut s = save(&d);
+    let mono = d.hardware.monitors.iter().find(|m| !m.colour).unwrap();
+    s.monitor = mono.id.clone();
+    s.phosphor = mono.locked_theme(&d).unwrap().to_string();
+    let mut h = Harness::new(900.0, 700.0);
+    let mut st = SystemUi {
+        panel: Panel::Theme,
+        ..SystemUi::default()
+    };
+    frame(&mut h, &d, &s, &mut st, Vec::new());
+    let other = d.themes.iter().find(|t| t.id != s.phosphor).unwrap();
+    assert_eq!(
+        h.enabled(&other.label),
+        Some(false),
+        "a blocked theme is disabled"
+    );
+    // The kit's radio (its circle 5.5 across the stroke), drawn dimmer than the ink.
+    let dimmed = h.painted().iter().any(|sh| {
+        matches!(sh, egui::Shape::Circle(c)
+            if c.radius == 5.5 && c.stroke.color.a() < ink().a())
+    });
+    assert!(dimmed, "the blocked themes' radios are the kit's, dimmed");
+
+    let (d, s, mut h, mut st) = on_disk();
+    let ev = press(&h, &file_of(&d, &s, &Disk::Stash(7)));
+    frame(&mut h, &d, &s, &mut st, ev);
+    let install = h.find("Install ▸").unwrap();
+    let rounded = h.painted().iter().any(|sh| {
+        matches!(sh, egui::Shape::Rect(r)
+            if r.rect.contains(install.center())
+                && r.corner_radius.nw as f32 == crate::kit::liza::size::BUTTON_R)
+    });
+    assert!(rounded, "Install is a Mac push button");
+}

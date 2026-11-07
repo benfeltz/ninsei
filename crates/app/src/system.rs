@@ -79,7 +79,7 @@ fn panel_body(
     ui.vertical(|ui| match panel {
         Panel::Overview => overview(ui, data, save, look, out),
         Panel::Monitor => monitor(ui, data, save, look, out),
-        Panel::Theme => theme(ui, data, save, out),
+        Panel::Theme => theme(ui, data, save, look, out),
         Panel::Disk => disk_panel(ui, data, save, look, st, out),
     });
 }
@@ -370,6 +370,14 @@ fn check(ui: &mut Ui, look: Look, on: &mut bool, label: &str) -> egui::Response 
     }
 }
 
+/// A push button: the Mac's on Liza, egui's on Desktop. Disabled when `ui` is.
+fn push(ui: &mut Ui, look: Look, label: &str) -> egui::Response {
+    match look {
+        Look::Mac => crate::kit::liza::push_button(ui, label, false, &mac()),
+        Look::Amiga => ui.button(label),
+    }
+}
+
 /// A radio button: the Mac's on Liza, egui's on Desktop.
 fn radio(ui: &mut Ui, look: Look, on: bool, label: &str) -> egui::Response {
     match look {
@@ -379,14 +387,14 @@ fn radio(ui: &mut Ui, look: Look, on: bool, label: &str) -> egui::Response {
 }
 
 /// Every theme with its six colours; locked to one on a mono monitor.
-fn theme(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
+fn theme(ui: &mut Ui, data: &Data, save: &Save, look: Look, out: &mut Vec<WbOut>) {
     head(ui, "Theme");
     for t in &data.themes {
         let blocker = save.theme_blocker(data, &t.id);
         ui.horizontal(|ui| {
             let resp = ui
                 .add_enabled_ui(blocker.is_none(), |ui| {
-                    ui.radio(save.phosphor == t.id, format!("{:<18}", t.label))
+                    radio(ui, look, save.phosphor == t.id, &format!("{:<18}", t.label))
                 })
                 .inner;
             if let Some(why) = &blocker {
@@ -470,15 +478,14 @@ fn disk_panel(
         ui.label(RichText::new("Disk").color(ink()).strong().size(16.0));
         ui.add_space(12.0);
         let busy = st.defrag.is_some();
+        let label = if busy {
+            "Defragmenting…"
+        } else {
+            "Defragment"
+        };
         if ui
-            .add_enabled(
-                !busy,
-                egui::Button::new(if busy {
-                    "Defragmenting…"
-                } else {
-                    "Defragment"
-                }),
-            )
+            .add_enabled_ui(!busy, |ui| push(ui, look, label))
+            .inner
             .on_hover_text("Lay every program out end to end")
             .clicked()
         {
@@ -510,7 +517,7 @@ fn disk_panel(
         ui.vertical(|ui| {
             info(ui, data, st, &on, &shelf);
             ui.add_space(6.0);
-            actions(ui, save, data, st, out);
+            actions(ui, save, data, look, st, out);
         });
     });
 }
@@ -815,7 +822,14 @@ fn box_list(ui: &mut Ui, save: &Save, data: &Data, st: &mut SystemUi, shelf: &[P
 }
 
 /// Install, Remove and Scrap for the picked program, with scrap's confirmation.
-fn actions(ui: &mut Ui, save: &Save, data: &Data, st: &mut SystemUi, out: &mut Vec<WbOut>) {
+fn actions(
+    ui: &mut Ui,
+    save: &Save,
+    data: &Data,
+    look: Look,
+    st: &mut SystemUi,
+    out: &mut Vec<WbOut>,
+) {
     let Some(at) = st.picked.clone() else {
         ui.label(dim("Pick a program."));
         return;
@@ -823,10 +837,10 @@ fn actions(ui: &mut Ui, save: &Save, data: &Data, st: &mut SystemUi, out: &mut V
     if let Some(id) = st.confirm_scrap {
         ui.label(RichText::new("Scrap it for good?").color(ink()).strong());
         ui.horizontal(|ui| {
-            if ui.button("Cancel").clicked() {
+            if push(ui, look, "Cancel").clicked() {
                 st.confirm_scrap = None;
             }
-            if ui.button("Scrap").clicked() {
+            if push(ui, look, "Scrap").clicked() {
                 out.push(WbOut::Scrap(id));
                 st.confirm_scrap = None;
                 st.picked = None;
@@ -836,8 +850,7 @@ fn actions(ui: &mut Ui, save: &Save, data: &Data, st: &mut SystemUi, out: &mut V
     }
     ui.horizontal(|ui| {
         if save.is_installed(&at) {
-            if ui
-                .button("◂ Remove")
+            if push(ui, look, "◂ Remove")
                 .on_hover_text("Back into the box (Enter)")
                 .clicked()
             {
@@ -845,7 +858,9 @@ fn actions(ui: &mut Ui, save: &Save, data: &Data, st: &mut SystemUi, out: &mut V
             }
         } else {
             let blocker = save.install_blocker(data, &at);
-            let resp = ui.add_enabled(blocker.is_none(), egui::Button::new("Install ▸"));
+            let resp = ui
+                .add_enabled_ui(blocker.is_none(), |ui| push(ui, look, "Install ▸"))
+                .inner;
             match blocker {
                 Some(why) => {
                     resp.on_disabled_hover_text(why);
@@ -861,8 +876,7 @@ fn actions(ui: &mut Ui, save: &Save, data: &Data, st: &mut SystemUi, out: &mut V
             }
         }
         if let Disk::Stash(id) = at
-            && ui
-                .button("Scrap…")
+            && push(ui, look, "Scrap…")
                 .on_hover_text("Delete it for good (Del)")
                 .clicked()
         {

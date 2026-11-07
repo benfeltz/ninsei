@@ -591,23 +591,43 @@ pub fn button(
             StrokeKind::Inside,
         );
     }
+    // A disabled button in a live Ui has its label at half strength (a disabled Ui already
+    // paints everything so).
+    let dim = !enabled && ui.is_enabled();
     p.text(
         r.center(),
         Align2::CENTER_CENTER,
         label,
         look.font.clone(),
-        if enabled { fg } else { fg.gamma_multiply(0.5) },
+        if dim { fg.gamma_multiply(0.5) } else { fg },
     );
     resp
+}
+
+/// A push button laid out in `ui`: its width from its label, the room for the default ring
+/// around it. Disabled when `ui` is.
+pub fn push_button(ui: &mut Ui, label: &str, default: bool, look: &Look) -> Response {
+    let w = button_width(ui.ctx(), label, look);
+    let ring = size::RING_OUT;
+    let (r, _) = ui.allocate_exact_size(
+        vec2(w + 2.0 * ring, size::BUTTON_H + 2.0 * ring),
+        Sense::hover(),
+    );
+    let face = Rect::from_min_size(r.min + Vec2::splat(ring), vec2(w, size::BUTTON_H));
+    let id = ui.id().with(("push", label));
+    let enabled = ui.is_enabled();
+    button(ui, ui.painter(), face, id, label, default, enabled, look)
 }
 
 /// A check box (`round` false) or radio button (true) with its label, laid out in `ui`: the
 /// square or circle, an X or a dot when `on`, thicker while pressed. Returns its response;
 /// clicked is the caller's to act on.
 fn toggle(ui: &mut Ui, on: bool, label: &str, round: bool, look: &Look) -> Response {
+    // Disabled, egui paints the Ui at half strength: a dimmed control, as the Mac's was.
+    let ink = look.ink;
     let g = ui
         .painter()
-        .layout_no_wrap(label.to_string(), look.font.clone(), look.ink);
+        .layout_no_wrap(label.to_string(), look.font.clone(), ink);
     let want = vec2(
         size::CHECK + size::CHECK_GAP + g.size().x,
         g.size().y.max(size::CHECK),
@@ -625,33 +645,31 @@ fn toggle(ui: &mut Ui, on: bool, label: &str, round: bool, look: &Look) -> Respo
         pos2(r.left(), r.center().y - size::CHECK / 2.0).round(),
         Vec2::splat(size::CHECK),
     );
-    let line = Stroke::new(
-        if resp.is_pointer_button_down_on() {
-            2.0
-        } else {
-            1.0
-        },
-        look.ink,
-    );
+    let width = if resp.is_pointer_button_down_on() {
+        2.0
+    } else {
+        1.0
+    };
+    let line = Stroke::new(width, ink);
     if round {
         let c = b.center();
         p.circle_filled(c, size::CHECK / 2.0, look.paper);
         p.circle_stroke(c, size::CHECK / 2.0 - 0.5, line);
         if on {
-            p.circle_filled(c, size::CHECK / 4.0, look.ink);
+            p.circle_filled(c, size::CHECK / 4.0, ink);
         }
     } else {
         p.rect_filled(b, 0.0, look.paper);
         p.rect_stroke(b, 0.0, line, StrokeKind::Inside);
         if on {
-            let x = Stroke::new(1.0, look.ink);
+            let x = Stroke::new(1.0, ink);
             let i = b.shrink(1.0);
             p.line_segment([i.left_top(), i.right_bottom()], x);
             p.line_segment([i.right_top(), i.left_bottom()], x);
         }
     }
     let at = pos2(b.right() + size::CHECK_GAP, r.center().y - g.size().y / 2.0).round();
-    p.galley(at, g, look.ink);
+    p.galley(at, g, ink);
     resp
 }
 
