@@ -182,15 +182,15 @@ fn grid(ui: &mut Ui, h: &mut HexBuffer, p: &Palette) {
     let hex_c = |col: usize| 8 + 3 * col + usize::from(col >= 8);
     let ascii_c = 8 + 3 * ROW + 2;
     let rows = LEN / ROW;
-    let probe = Cells::sized(
+    let (resp, g) = Cells::allocate(
         ui,
-        egui::Pos2::ZERO,
         font,
         Some(CELL_H),
         (ascii_c + ROW + 1, rows + 1),
+        vec2(0.0, 2.0),
+        Sense::click(),
     );
-    let (rect, resp) = ui.allocate_exact_size(probe.rect.size() + vec2(0.0, 4.0), Sense::click());
-    let g = probe.at_pos(rect.min + vec2(0.0, 2.0));
+    let rect = resp.rect;
     let cw = g.cw;
     let focused = ui.memory(|m| m.has_focus(grid_id()));
     let painter = ui.painter_at(rect);

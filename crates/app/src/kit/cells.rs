@@ -108,6 +108,23 @@ impl Cells {
         }
     }
 
+    /// Allocates a face's grid in `ui`: `cols` × `rows` cells in `font` (rows `ch` tall, or the
+    /// font's line height) with `pad` around them, sensing `sense`. Measures once, so the room
+    /// taken and the cells drawn in it can't disagree. Returns the response for the whole
+    /// room (its rect includes the padding) and the cells inside it.
+    pub fn allocate(
+        ui: &mut Ui,
+        font: FontId,
+        ch: Option<f32>,
+        dims: (usize, usize),
+        pad: egui::Vec2,
+        sense: egui::Sense,
+    ) -> (egui::Response, Cells) {
+        let probe = Cells::sized(ui, Pos2::ZERO, font, ch, dims);
+        let (rect, resp) = ui.allocate_exact_size(probe.rect.size() + pad * 2.0, sense);
+        (resp, probe.at_pos(rect.min + pad))
+    }
+
     /// The same grid moved so it starts at `min`.
     pub fn at_pos(mut self, min: Pos2) -> Cells {
         self.rect = Rect::from_min_size(min, self.rect.size());

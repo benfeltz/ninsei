@@ -151,11 +151,6 @@ impl BbsView {
 /// in four intensities. The BBS window and the QWK reader both draw through it.
 pub fn paint_screen(ui: &mut egui::Ui, lines: &[String], color: bool, p: &Palette) {
     let font = FontId::new(FONT_SIZE, FontFamily::Monospace);
-    let cw = ui.ctx().fonts_mut(|f| f.glyph_width(&font, 'M'));
-    let size = vec2(
-        cw * COLS as f32 + PAD * 2.0,
-        ROW_HEIGHT * ROWS as f32 + PAD * 2.0,
-    );
     let fgc = |i: u8| if color { cga(i) } else { mono(i, p) };
     let bgc_of = |i: u8| {
         if i == 0 {
@@ -166,18 +161,19 @@ pub fn paint_screen(ui: &mut egui::Ui, lines: &[String], color: bool, p: &Palett
             mono(i, p).gamma_multiply(0.5)
         }
     };
-    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
-    let painter = ui.painter_at(rect);
-    let bg = if color { Color32::BLACK } else { p.bg };
-    painter.rect_filled(rect, 0.0, bg);
     // The terminal's own cells: its font, rows packed tight, inside the padding.
-    let g = Cells::sized(
+    let (resp, g) = Cells::allocate(
         ui,
-        rect.min + vec2(PAD, PAD),
         font,
         Some(ROW_HEIGHT),
         (COLS, ROWS),
+        vec2(PAD, PAD),
+        Sense::hover(),
     );
+    let rect = resp.rect;
+    let painter = ui.painter_at(rect);
+    let bg = if color { Color32::BLACK } else { p.bg };
+    painter.rect_filled(rect, 0.0, bg);
     let (mut fg_c, mut bg_c) = (ansi::DEFAULT_FG, ansi::DEFAULT_BG);
     for (row, line) in lines.iter().enumerate().take(ROWS) {
         let mut col = 0usize;

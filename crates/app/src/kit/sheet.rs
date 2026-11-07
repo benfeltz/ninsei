@@ -130,16 +130,15 @@ impl<C: Clone> Sheet<C> {
     /// Paints the sheet in `ui` in `font` (rows `ch` tall, or the font's line height), and
     /// returns what was clicked. Where clickable runs overlap, the last one added wins.
     pub fn paint(&self, ui: &mut Ui, font: FontId, ch: Option<f32>) -> Vec<C> {
-        let probe = Cells::sized(
+        let (resp, g) = Cells::allocate(
             ui,
-            egui::Pos2::ZERO,
-            font.clone(),
+            font,
             ch,
             (self.cols, self.rows),
+            egui::Vec2::ZERO,
+            Sense::hover(),
         );
-        let (rect, _) = ui.allocate_exact_size(probe.rect.size(), Sense::hover());
-        let g = probe.at_pos(rect.min);
-        let p = ui.painter_at(rect);
+        let p = ui.painter_at(resp.rect);
         for &(c, r, chr, fg, bg) in &self.cells {
             if let Some(bg) = bg {
                 // A hair over the cell, so a run of them joins with no seam.
