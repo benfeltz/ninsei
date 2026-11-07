@@ -1233,3 +1233,16 @@ fn every_splash_ends_on_its_last_frame() {
         assert_eq!(last, i.frames.len() - 1, "{} loops back", g.splash);
     }
 }
+
+#[test]
+fn the_2400_club_greets_only_what_a_kid_on_the_gutter_could_know() {
+    // Kids on a 2400 line know the scene boards and the customer line every deck ships with;
+    // CorpLink is a megacorp's staff intranet, and only its staff know its name.
+    let d = data();
+    let i = d.intro(&d.game("nibbler").unwrap().crack).unwrap();
+    assert!(
+        !i.greetz.iter().any(|g| g.contains("CORPLINK")),
+        "{:?}",
+        i.greetz
+    );
+}

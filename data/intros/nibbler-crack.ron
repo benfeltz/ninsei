@@ -80,7 +80,7 @@
     effects: [
         (fx: Bounce, from: 1, to: 2),
     ],
-    greetz: ["PHOSPHOR (plz call!!)", "m0th (thx 4 the upload slot)", "c4se", "ratz", "zero_kool", "lag", "acid_burn", "d1rge (we know u r reading)", "the NiGHTMOTHS", "RAZORWIRE", "kr4ken", "dot_matrix", "pixelpusher", "n1ghtowl", "the phreaks of 555-7", "THE NEON GUTTER", "DEAD SECTOR (let us in!!)", "SENSE/NET CUSTOMERLINK (hi!!)", "CORPLINK EMPLOYEE SERVICES (j/k)"],
+    greetz: ["PHOSPHOR (plz call!!)", "m0th (thx 4 the upload slot)", "c4se", "ratz", "zero_kool", "lag", "acid_burn", "d1rge (we know u r reading)", "the NiGHTMOTHS", "RAZORWIRE", "kr4ken", "dot_matrix", "pixelpusher", "n1ghtowl", "the phreaks of 555-7", "THE NEON GUTTER", "DEAD SECTOR (let us in!!)", "SENSE/NET CUSTOMERLINK (hi!!)"],
     tune: Some((bpm: 188, tracks: [
         (wave: Square, vol: 0.16, pattern: "C5 E5 G5 E5 C5 E5 G5 C6 B4 D5 G5 D5 B4 D5 G5 B5 A4 C5 F5 C5 A4 C5 F5 A5 G4 B4 D5 G5 F5 D5 B4 G4"),
         (wave: Triangle, vol: 0.3, pattern: "C3 C3 G2 G2 C3 C3 G2 G2 G2 G2 D3 D3 G2 G2 D3 D3 F2 F2 C3 C3 F2 F2 C3 C3 G2 G2 D3 D3 G2 G2 B2 B2"),
