@@ -477,7 +477,7 @@ impl ChromeView for Stack {
         let Some(f) = Fight::of(ctx, cx) else {
             return Vec::new();
         };
-        let pressed = f.with(|a| liza::alert_keys(ctx, a));
+        let pressed = f.with(|a| liza::alert_keys(ctx, Id::new("stack-alert"), a));
         f.press(ctx, pressed)
     }
 }
@@ -701,5 +701,37 @@ pub(crate) mod tests {
         let hit = g.preview(b).unwrap().hit();
         assert!(hit > 0);
         assert!((0..g.hdd.len()).all(|i| g.preview(i).map_or(0, |p| p.hit()) <= hit));
+    }
+
+    #[test]
+    fn the_esc_that_leaves_the_message_box_doesnt_close_the_alert() {
+        let d = Data::builtin().unwrap();
+        let g = a_fight(&d);
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        let mut line = String::new();
+        let mut suite = crate::suite::State::default();
+        let mut frame = |h: &mut crate::uitest::Harness, ev, focus: bool| {
+            h.frame(ev, |ui| {
+                let mut cx = FrameCx {
+                    game: &g,
+                    pal: crate::theme::Palette::from_def(&d.themes[0]),
+                    suite: &mut suite,
+                    keys_free: true,
+                };
+                Stack.keys(ui.ctx(), &mut cx);
+                // The Message box: a text field with the keyboard.
+                let r = ui.text_edit_singleline(&mut line);
+                if focus {
+                    r.request_focus();
+                }
+                Stack.overlay(ui.ctx(), &mut cx);
+            });
+        };
+        frame(&mut h, vec![], true);
+        frame(&mut h, vec![], true);
+        frame(&mut h, crate::uitest::key(egui::Key::Escape), false);
+        assert!(alert_up(&h.ctx, &g), "Esc only let go of the Message box");
+        frame(&mut h, crate::uitest::key(egui::Key::Escape), false);
+        assert!(!alert_up(&h.ctx, &g), "the next Esc closes the alert");
     }
 }

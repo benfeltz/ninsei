@@ -707,11 +707,16 @@ pub fn alert(
     pressed
 }
 
-/// The alert's keys: Enter presses the default button and Esc the cancel button, when `keys`.
-/// It takes the key it acts on, so nothing that reads keys after it sees it too. Call it before
-/// anything else that reads Enter or Esc this frame. Returns the button pressed.
-pub fn alert_keys(ctx: &egui::Context, a: &Alert) -> Option<usize> {
-    if !a.keys {
+/// The alert's keys: Enter presses the default button and Esc the cancel button, when `keys`
+/// held last frame too (so the Esc that lets go of a text field, which egui drops before this
+/// frame draws, doesn't also cancel). It takes the key it acts on, so nothing that reads keys
+/// after it sees it too. Call it before anything else that reads Enter or Esc this frame.
+/// Returns the button pressed.
+pub fn alert_keys(ctx: &egui::Context, id: Id, a: &Alert) -> Option<usize> {
+    let was = id.with("keys");
+    let before = ctx.data(|d| d.get_temp::<bool>(was)).unwrap_or(false);
+    ctx.data_mut(|d| d.insert_temp(was, a.keys));
+    if !(a.keys && before) {
         return None;
     }
     let take = |key, button: Option<usize>| {
@@ -898,7 +903,7 @@ mod tests {
                 cancel: Some(0),
                 keys,
             };
-            got = alert_keys(ui.ctx(), &a)
+            got = alert_keys(ui.ctx(), Id::new("a"), &a)
                 .or(alert(ui.ctx(), Id::new("a"), pos2(40.5, 30.3), 460.0, &a, &look()));
         });
         got
@@ -1123,5 +1128,21 @@ mod tests {
         let c7 = h.find("cell 7").expect("the pick is on screen");
         assert_eq!(c7.top() % 20.0, 0.0, "on a whole cell");
         assert!(h.find("cell 2").is_none());
+    }
+
+    #[test]
+    fn the_alert_ignores_the_key_that_freed_the_keyboard() {
+        let mut h = Harness::new(800.0, 600.0);
+        // A text field had the keys; this frame's Esc let go of it.
+        ask(&mut h, false, Some(1), vec![]);
+        assert_eq!(
+            ask(&mut h, true, Some(1), crate::uitest::key(Key::Escape)),
+            None
+        );
+        // The next Esc is the alert's.
+        assert_eq!(
+            ask(&mut h, true, Some(1), crate::uitest::key(Key::Escape)),
+            Some(0)
+        );
     }
 }
