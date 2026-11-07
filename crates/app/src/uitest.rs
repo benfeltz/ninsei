@@ -12,6 +12,8 @@ pub struct Harness {
     /// What last frame's widgets said (label or value), where they were, and whether they
     /// would take a click.
     widgets: Vec<(String, Rect, bool)>,
+    /// Check boxes last frame, by label: ticked or not.
+    ticks: Vec<(String, bool)>,
 }
 
 impl Harness {
@@ -24,6 +26,7 @@ impl Harness {
             size: vec2(w, h),
             t: 0.0,
             widgets: Vec::new(),
+            ticks: Vec::new(),
         }
     }
 
@@ -38,6 +41,20 @@ impl Harness {
         self.t += 0.1;
         let mut out = self.ctx.run_ui(raw, |u| ui(u));
         out.textures_delta.clear();
+        self.ticks = out
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .map(|u| {
+                u.nodes
+                    .iter()
+                    .filter_map(|(_, n)| {
+                        let ticked = n.toggled()? == egui::accesskit::Toggled::True;
+                        Some((n.label()?.to_string(), ticked))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         self.widgets = out
             .platform_output
             .accesskit_update
@@ -103,6 +120,14 @@ impl Harness {
             .filter(|(_, r, _)| r.is_positive() && !area.contains_rect(*r))
             .map(|(t, r, _)| (t.clone(), *r))
             .collect()
+    }
+
+    /// Whether last frame's check box labelled `text` was ticked (none: no such box).
+    pub fn ticked(&self, text: &str) -> Option<bool> {
+        self.ticks
+            .iter()
+            .find(|(t, _)| t.trim() == text)
+            .map(|(_, on)| *on)
     }
 
     /// Every widget text last frame, for a failing test to print.

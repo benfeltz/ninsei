@@ -39,6 +39,8 @@ pub mod size {
     /// Narrowest a form shows its notes column at.
     pub const FORM_NOTES_W: f32 = 440.0;
     pub const DIALOG_W: f32 = 420.0;
+    /// The Sound dialog's width.
+    pub const SOUND_W: f32 = 300.0;
 }
 
 /// What the suite remembers between frames: the spreadsheet's cursor (by program uid, since the
@@ -1042,6 +1044,54 @@ impl Panes<'_> {
         });
     }
 
+    /// SOUNDLVL.RPT: the speaker's output as a report: level and peak on a form, and the
+    /// level by band as a bar chart.
+    fn suite_vis(&mut self, ui: &mut Ui) {
+        use ninsei_core::scope;
+        let p = self.pal;
+        let (samples, rate) = ((self.hear)(), self.scope_rate);
+        crate::vispane::alive(ui, &samples);
+        let samples = &samples[..];
+        // A report's figures are read, not watched: the bands take a new reading a few times a
+        // second, like the level.
+        let bands: Vec<f32> = crate::vispane::bars(ui, "suite-vis", samples, rate, SUITE_BANDS)
+            .iter()
+            .enumerate()
+            .map(|(i, v)| crate::vispane::held(ui, &format!("suite-vis-band{i}"), *v))
+            .collect();
+        window(ui, &p, Tab::Vis.number(), "SOUND LEVEL REPORT", |ui| {
+            page(ui, "suite-vis", |ui| {
+                let pk = crate::vispane::held(ui, "suite-vis-peak", scope::peak(samples));
+                let level = crate::vispane::held(ui, "suite-vis-level", scope::level(samples));
+                let rows = [
+                    (
+                        "OUTPUT LEVEL",
+                        scope::db_text(level),
+                        "average (RMS)",
+                        false,
+                    ),
+                    (
+                        "PEAK",
+                        scope::db_text(pk),
+                        "loudest sample",
+                        scope::clipping(pk),
+                    ),
+                ];
+                form(ui, &p, "suite-vis-form", &rows);
+                heading(ui, &p, "LEVEL BY BAND");
+                let rows: Vec<(String, f32)> = bands
+                    .iter()
+                    .enumerate()
+                    .map(|(b, h)| {
+                        let label = format!("{:>5} Hz", scope::band_label(b, SUITE_BANDS, rate));
+                        (label, scope::db_at(*h))
+                    })
+                    .collect();
+                db_chart(ui, &p, &rows);
+            });
+        });
+    }
+
     fn suite_net(&mut self, ui: &mut Ui) {
         let g = self.game;
         let p = self.pal;
@@ -1116,7 +1166,10 @@ fn fkey(k: Key, st: &State, g: &Game) -> Option<Request> {
 
 const SUITE_MENUS: Menus = &[
     ("File", &[MenuPart::Decks, MenuPart::Monitors]),
-    ("Edit", &[MenuPart::Glitches, MenuPart::Toggles]),
+    (
+        "Edit",
+        &[MenuPart::Glitches, MenuPart::Toggles, MenuPart::Sound],
+    ),
     ("View", &[MenuPart::Layout, MenuPart::Panes]),
     ("Run", &[MenuPart::Turn]),
     ("Window", &[MenuPart::Themes]),
@@ -1157,6 +1210,9 @@ impl ChromeView for Suite {
     fn net(&self, p: &mut Panes, ui: &mut Ui) {
         p.suite_net(ui);
     }
+    fn vis(&self, p: &mut Panes, ui: &mut Ui) {
+        p.suite_vis(ui);
+    }
 
     fn title(&self, tab: Tab) -> Option<&'static str> {
         Some(match tab {
@@ -1168,6 +1224,7 @@ impl ChromeView for Suite {
             Tab::Terminal => " ACTIVITY.LOG ",
             Tab::Todo => " WORKORD.DBF ",
             Tab::Net => " NETUSAGE.RPT ",
+            Tab::Vis => " SOUNDLVL.RPT ",
         })
     }
     fn scroll_bars(&self, _tab: Tab) -> Option<[bool; 2]> {
@@ -1179,6 +1236,12 @@ impl ChromeView for Suite {
     }
     fn menus(&self) -> Menus {
         SUITE_MENUS
+    }
+    fn sound(&self, ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
+        sound_dialog(ctx, cx)
+    }
+    fn sound_item(&self) -> &'static str {
+        "Sound..."
     }
 
     fn status(&self, ui: &mut Ui, pal: &Palette, game: &Game) -> bool {
@@ -1316,61 +1379,197 @@ impl ChromeView for Suite {
         let p = cx.pal;
         let waiting = st.dialogs.len();
         let mut ok = was_up && cx.keys_free && ctx.input(|i| i.key_pressed(Key::Enter));
-        egui::Area::new(egui::Id::new("suite-dialog"))
-            .order(egui::Order::Foreground)
-            .anchor(Align2::CENTER_CENTER, vec2(0.0, -40.0))
-            .show(ctx, |ui| {
-                egui::Frame::new()
-                    .fill(p.bg)
-                    .stroke(Stroke::new(2.0, p.fg))
-                    .inner_margin(egui::Margin::same(3))
-                    .shadow(egui::Shadow {
-                        offset: [8, 8],
-                        blur: 0,
-                        spread: 0,
-                        color: p.faint,
-                    })
-                    .show(ui, |ui| {
-                        ui.set_width(size::DIALOG_W);
-                        let (bar, _) = ui.allocate_exact_size(
-                            vec2(size::DIALOG_W, size::TITLE_H + 2.0),
-                            Sense::hover(),
-                        );
-                        ui.painter().rect_filled(bar, 0.0, p.panel);
-                        ui.painter().text(
-                            bar.center(),
-                            Align2::CENTER_CENTER,
-                            &n.title,
-                            mono(size::MONO),
-                            p.bright,
-                        );
-                        egui::Frame::new()
-                            .inner_margin(egui::Margin::symmetric(14, 10))
-                            .show(ui, |ui| {
-                                for l in &n.lines {
-                                    ui.label(t(l, p.fg));
-                                }
-                                ui.add_space(8.0);
-                                ui.horizontal(|ui| {
-                                    if waiting > 1 {
-                                        ui.label(small(format!("1 of {waiting}"), p.dim));
-                                    }
-                                    ui.with_layout(
-                                        egui::Layout::right_to_left(egui::Align::Center),
-                                        |ui| {
-                                            if ui.button(t("[  OK  ]", p.bright)).clicked() {
-                                                ok = true;
-                                            }
-                                            ui.label(small("Enter", p.dim));
-                                        },
-                                    );
-                                });
-                            });
-                    });
-            });
+        dialog(ctx, "suite-dialog", &p, &n.title, size::DIALOG_W, |ui| {
+            for l in &n.lines {
+                ui.label(t(l, p.fg));
+            }
+            ui.add_space(8.0);
+            let count = (waiting > 1).then(|| format!("1 of {waiting}"));
+            if buttons(ui, &p, count, &[("[  OK  ]", "Enter")]) == Some(0) {
+                ok = true;
+            }
+        });
         if ok {
             st.dialogs.remove(0);
         }
         Vec::new()
     }
+}
+
+/// Bands in the sound level report.
+const SUITE_BANDS: usize = 8;
+
+/// A bar chart of levels in dB, from the floor (-60) to full scale, ticked every 20 dB, each
+/// row labelled at the left and its reading at the right: the sound report's chart.
+fn db_chart(ui: &mut Ui, p: &Palette, rows: &[(String, f32)]) {
+    use ninsei_core::scope::{FLOOR_DB, height};
+    let h = rows.len() as f32 * 15.0 + 16.0;
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::hover());
+    let painter = ui.painter_at(rect);
+    let plot = Rect::from_min_max(rect.min + vec2(64.0, 2.0), rect.max - vec2(56.0, 14.0));
+    let ticks = [FLOOR_DB, -40.0, -20.0, 0.0];
+    for (k, db) in ticks.iter().enumerate() {
+        let x = plot.left() + plot.width() * height(*db);
+        painter.line_segment(
+            [pos2(x, plot.top()), pos2(x, plot.bottom())],
+            Stroke::new(1.0, if k == 0 { p.dim } else { p.faint }),
+        );
+        painter.text(
+            pos2(x, plot.bottom() + 2.0),
+            Align2::CENTER_TOP,
+            format!("{db:.0}"),
+            mono(size::SMALL),
+            p.dim,
+        );
+    }
+    for (i, (label, db)) in rows.iter().enumerate() {
+        let y = plot.top() + i as f32 * 15.0 + 7.0;
+        painter.text(
+            pos2(rect.left(), y),
+            Align2::LEFT_CENTER,
+            label,
+            mono(size::SMALL),
+            p.dim,
+        );
+        let bar = Rect::from_min_size(
+            pos2(plot.left(), y - 4.0),
+            vec2(plot.width() * height(*db), 8.0),
+        );
+        painter.rect_filled(bar, 0.0, p.fg);
+        let reading = if *db <= FLOOR_DB {
+            "--- dB".to_string()
+        } else {
+            format!("{db:.0} dB")
+        };
+        painter.text(
+            pos2(plot.right() + 4.0, y),
+            Align2::LEFT_CENTER,
+            reading,
+            mono(size::SMALL),
+            p.fg,
+        );
+    }
+}
+
+/// The volume bar's cells in the Sound dialog: 10% apiece.
+const SOUND_NOTCHES: u32 = 10;
+
+/// The Sound dialog (Edit > Sound...): a Volume bar of [`SOUND_NOTCHES`] cells, a Mute check
+/// box, OK and Cancel. ←/→ move the bar, Space checks the box, Enter is OK and Esc is Cancel,
+/// which puts back what was set when it opened. Changes are heard as they're made.
+fn sound_dialog(ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
+    let (p, now) = (cx.pal, cx.level);
+    let (mut to, k) = crate::volume::start(ctx, now, Key::Space, SOUND_NOTCHES);
+    let (mut ok, mut cancel) = (k.ok, k.esc);
+    let click = |ui: &mut Ui, text: RichText, label: &str| {
+        let r = ui.add(egui::Label::new(text).sense(Sense::click()));
+        crate::volume::named(r, label).clicked()
+    };
+    dialog(ctx, "suite-sound", &p, "Sound", size::SOUND_W, |ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        ui.horizontal(|ui| {
+            ui.label(t("Volume   ", p.fg));
+            let lit = now.notch(SOUND_NOTCHES);
+            for n in 1..=SOUND_NOTCHES {
+                let c = if n <= lit { p.bright } else { p.faint };
+                let pct = ninsei_core::hub::notch_volume(n, SOUND_NOTCHES);
+                if click(ui, t("■", c), &format!("{pct}%")) {
+                    to.volume = pct;
+                }
+            }
+            ui.label(t(format!("  {:>3}%", now.volume), p.fg));
+        });
+        ui.add_space(6.0);
+        let mark = if now.on { "[ ]" } else { "[X]" };
+        if click(ui, t(format!("{mark} Mute"), p.fg), "Mute") {
+            to.on = !to.on;
+        }
+        ui.add_space(10.0);
+        ui.spacing_mut().item_spacing.x = 6.0;
+        match buttons(ui, &p, None, &[("[Cancel]", "Esc"), ("[  OK  ]", "Enter")]) {
+            Some(0) => cancel = true,
+            Some(_) => ok = true,
+            None => {}
+        }
+    });
+    if cancel {
+        return cx.popup.cancel(now);
+    }
+    if ok {
+        cx.popup.close();
+    }
+    now.to(to)
+}
+
+/// A suite dialog: a hard shadow, a double-weight frame, the title on a filled bar, and `body`
+/// inside, centred a little above the middle of the screen.
+fn dialog(
+    ctx: &egui::Context,
+    id: &str,
+    p: &Palette,
+    title: &str,
+    width: f32,
+    body: impl FnOnce(&mut Ui),
+) {
+    egui::Area::new(egui::Id::new(id))
+        .order(egui::Order::Foreground)
+        .anchor(Align2::CENTER_CENTER, vec2(0.0, -40.0))
+        .show(ctx, |ui| {
+            egui::Frame::new()
+                .fill(p.bg)
+                .stroke(Stroke::new(2.0, p.fg))
+                .inner_margin(egui::Margin::same(3))
+                .shadow(egui::Shadow {
+                    offset: [8, 8],
+                    blur: 0,
+                    spread: 0,
+                    color: p.faint,
+                })
+                .show(ui, |ui| {
+                    ui.set_width(width);
+                    let (bar, _) =
+                        ui.allocate_exact_size(vec2(width, size::TITLE_H + 2.0), Sense::hover());
+                    ui.painter().rect_filled(bar, 0.0, p.panel);
+                    ui.painter().text(
+                        bar.center(),
+                        Align2::CENTER_CENTER,
+                        title,
+                        mono(size::MONO),
+                        p.bright,
+                    );
+                    egui::Frame::new()
+                        .inner_margin(egui::Margin::symmetric(14, 10))
+                        .show(ui, body);
+                });
+        });
+}
+
+/// A dialog's button row: an optional note at the left, then `buttons` from the right (the
+/// last is the default, lit), each with its key beside it. Which one was clicked.
+fn buttons(
+    ui: &mut Ui,
+    p: &Palette,
+    note: Option<String>,
+    buttons: &[(&str, &str)],
+) -> Option<usize> {
+    let mut hit = None;
+    ui.horizontal(|ui| {
+        if let Some(note) = note {
+            ui.label(small(note, p.dim));
+        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            for (i, (label, key)) in buttons.iter().enumerate() {
+                let lit = if i + 1 == buttons.len() {
+                    p.bright
+                } else {
+                    p.fg
+                };
+                if ui.button(t(*label, lit)).clicked() {
+                    hit = Some(i);
+                }
+                ui.label(small(*key, p.dim));
+            }
+        });
+    });
+    hit
 }

@@ -102,11 +102,11 @@ const TUNE: &str = "(bpm: 120, tracks: [(wave: Square, vol: 0.2, pattern: \"C4 .
 
 #[test]
 fn a_pack_without_music_is_silent() {
-    let d = data();
-    assert!(d.run_tune("hosaka", 1).is_none());
-    assert!(d.run_tune("sensenet", 2).is_none());
-    assert!(d.run_tune("nope", 1).is_none());
+    // An empty music section parses and validates, and every tier is silent.
+    let d = with_music("").unwrap();
     assert!(d.validate().is_ok());
+    assert!((1..=3).all(|t| d.run_tune("ono", t).is_none()));
+    assert!(data().run_tune("nope", 1).is_none());
     // A tier with no tune is fine too.
     let d = with_music(&format!("(tier: 2, tune: {TUNE})")).unwrap();
     assert!(d.run_tune("ono", 2).is_some());

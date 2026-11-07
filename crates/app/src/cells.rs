@@ -36,8 +36,7 @@ impl Cells {
     /// borders in `border` on `paper` and unlit meter cells in `empty`.
     pub fn fit(ui: &Ui, area: Rect, border: Color32, paper: Color32, empty: Color32) -> Cells {
         let font = egui::TextStyle::Monospace.resolve(ui.style());
-        let cw = ui.fonts_mut(|f| f.glyph_width(&font, 'M')).max(1.0);
-        let ch = (font.size * (1.0 + LEADING)).round().max(1.0);
+        let egui::Vec2 { x: cw, y: ch } = Cells::cell_size(ui.ctx());
         let cols = (area.width() / cw).floor().max(1.0) as usize;
         let rows = (area.height() / ch).floor().max(1.0) as usize;
         let size = vec2(cols as f32 * cw, rows as f32 * ch);
@@ -57,6 +56,39 @@ impl Cells {
             empty,
             vision: false,
         }
+    }
+
+    /// A grid of exactly `cols` × `rows` cells from `min` (a box sized in cells, rather than
+    /// cells fitted to an area).
+    pub fn grid(
+        ui: &Ui,
+        min: Pos2,
+        (cols, rows): (usize, usize),
+        border: Color32,
+        paper: Color32,
+        empty: Color32,
+    ) -> Cells {
+        let egui::Vec2 { x: cw, y: ch } = Cells::cell_size(ui.ctx());
+        Cells {
+            rect: Rect::from_min_size(min, vec2(cols as f32 * cw, rows as f32 * ch)),
+            cw,
+            ch,
+            cols,
+            rows,
+            font: egui::TextStyle::Monospace.resolve(ui.style()),
+            border,
+            paper,
+            empty,
+            vision: false,
+        }
+    }
+
+    /// One cell's size in the monospace font: a grid of `cols` × `rows` of these fits
+    /// exactly.
+    pub fn cell_size(ctx: &egui::Context) -> egui::Vec2 {
+        let font = egui::TextStyle::Monospace.resolve(&ctx.global_style());
+        let cw = ctx.fonts_mut(|f| f.glyph_width(&font, 'M')).max(1.0);
+        vec2(cw, (font.size * (1.0 + LEADING)).round().max(1.0))
     }
 
     /// The pixel rect of `w` × `h` cells from column `c`, row `r`.
@@ -180,6 +212,40 @@ impl Cells {
         for d in [-gap, gap] {
             let rect = Rect::from_min_max(a, b).expand(d);
             p.rect_stroke(rect, 0.0, stroke, egui::StrokeKind::Middle);
+        }
+    }
+
+    /// A btop meter standing up: `h` cells in column `c` rising from row `bottom`, `on` of
+    /// them lit along the `ramp` from the bottom, the rest drawn as empty cells, as
+    /// [`Cells::meter`] does lying down.
+    pub fn meter_up(
+        &self,
+        p: &Painter,
+        c: usize,
+        bottom: usize,
+        h: usize,
+        on: usize,
+        ramp: &[Color32],
+    ) {
+        for i in 0..h.min(bottom + 1) {
+            let cell = self
+                .at(c, bottom - i, 1, 1)
+                .shrink2(vec2(self.cw * 0.12, self.ch * 0.22));
+            if i < on {
+                let k = if h <= 1 {
+                    ramp.len() - 1
+                } else {
+                    i * (ramp.len() - 1) / (h - 1)
+                };
+                p.rect_filled(cell, 0.0, ramp[k]);
+            } else {
+                p.rect_stroke(
+                    cell,
+                    0.0,
+                    Stroke::new(1.0, self.empty),
+                    egui::StrokeKind::Inside,
+                );
+            }
         }
     }
 

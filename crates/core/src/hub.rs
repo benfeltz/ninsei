@@ -734,6 +734,9 @@ pub struct Save {
     /// Modem sounds on or off.
     #[serde(default = "default_sound")]
     pub sound: bool,
+    /// How loud everything plays, in percent (100 is full); [`Save::sound`] mutes it all.
+    #[serde(default = "default_volume")]
+    pub volume: u8,
     /// Credits banked at home.
     #[serde(default)]
     pub bank: u32,
@@ -916,6 +919,22 @@ fn default_sound() -> bool {
     true
 }
 
+fn default_volume() -> u8 {
+    100
+}
+
+/// A level in percent as the nearest notch of a control with `steps` notches above silent (a
+/// slider of 0-7, ten meter cells).
+pub fn volume_notch(pct: u32, steps: u32) -> u32 {
+    (pct.min(100) * steps + 50) / 100
+}
+
+/// The level in percent at notch `notch` of `steps` (past the top is full).
+pub fn notch_volume(notch: u32, steps: u32) -> u32 {
+    let steps = steps.max(1);
+    (notch.min(steps) * 100 + steps / 2) / steps
+}
+
 impl Default for Save {
     fn default() -> Self {
         Self {
@@ -927,6 +946,7 @@ impl Default for Save {
             phosphor: default_phosphor(),
             crt: default_crt(),
             sound: default_sound(),
+            volume: default_volume(),
             bank: 0,
             fragments: 0,
             key: 0,
@@ -977,6 +997,16 @@ struct VersionProbe {
 }
 
 impl Save {
+    /// Sets how loud everything plays, in percent (past 100 is full).
+    pub fn set_volume(&mut self, pct: u32) {
+        self.volume = pct.min(100) as u8;
+    }
+
+    /// The level as a gain for the speaker: 0 (silent) to 1 (full).
+    pub fn volume_gain(&self) -> f32 {
+        f32::from(self.volume.min(100)) / 100.0
+    }
+
     /// Parses a save. Anything unreadable or from another version is an error;
     /// the app then starts a fresh hub instead of crashing.
     pub fn load(text: &str) -> Result<Save, String> {
@@ -2140,7 +2170,7 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
                 "crt              CRT effects on/off",
                 "monitor [id]     plug in a monitor you own",
                 "deck [id]        run with a deck you own",
-                "sound            modem sounds on/off",
+                "sound            all sound on/off",
                 "echo <text>      say something",
                 "leet <text>      say it in l33t",
                 "clear            clear the window",

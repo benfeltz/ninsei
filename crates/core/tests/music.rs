@@ -1,7 +1,7 @@
 //! The run's music: how trace arranges a tune, and that a tune loops seamlessly.
 
 use ninsei_core::intro::TuneDef;
-use ninsei_core::music::{Arrangement, arrangement};
+use ninsei_core::music::{Arrangement, MAX_LOOP_SECS, arrangement};
 use ninsei_core::tuning::{MUSIC_DROP_AT, MUSIC_TEMPO_AT, MUSIC_TEMPO_BPM};
 
 #[test]
@@ -186,37 +186,131 @@ mod in_a_run {
     }
 
     #[test]
-    fn a_deck_without_music_plays_nothing() {
-        let d = data();
+    fn a_pack_without_music_is_valid_and_plays_nothing() {
+        // Every deck's pack, its music taken out: still valid, and every run is silent.
+        // (An empty music section parses: `cues.rs` checks that.)
+        let mut d = Data::builtin().unwrap();
+        for p in &mut d.sounds {
+            p.music.clear();
+        }
+        assert!(d.validate().is_ok());
+        let decks: Vec<String> = d.hardware.decks.iter().map(|k| k.id.clone()).collect();
+        assert!(decks.len() >= 3, "{decks:?}");
+        for deck in &decks {
+            let (s, g) = dialed(&d, deck);
+            assert_eq!(g.phase, Phase::Exploring);
+            assert!(wanted(Screen::Run, false, &s, &g, &d).is_none(), "{deck}");
+        }
+    }
+
+    #[test]
+    fn the_sense_net_plays_its_own_tune() {
+        let d = Data::builtin().unwrap();
+        let (s, g) = dialed(&d, "sensenet");
+        // The starter deck's firmware (Liza 1.0) names the Sense/Net pack.
+        assert_eq!(s.firmware_def(&d).sounds, "sensenet");
+        let w = wanted(Screen::Run, false, &s, &g, &d).expect("music in a Liza run");
+        assert_eq!(w.pack, "sensenet");
+        let own = d.run_tune("sensenet", g.tier()).unwrap();
+        assert!(std::ptr::eq(w.tune, own), "the tier's own tune");
+        assert_eq!(w.tune.tier, g.tier());
+        assert_eq!(w.arrangement, Arrangement::PLAIN);
+    }
+
+    #[test]
+    fn a_hosaka_run_plays_hold_music() {
+        let d = Data::builtin().unwrap();
         let (s, g) = dialed(&d, "hosaka");
+        // PlanView 4.0 names the Hosaka pack.
         assert_eq!(s.firmware_def(&d).sounds, "hosaka");
-        assert_eq!(g.phase, Phase::Exploring);
-        assert!(wanted(Screen::Run, false, &s, &g, &d).is_none());
+        let w = wanted(Screen::Run, false, &s, &g, &d).expect("music in a PlanView run");
+        assert_eq!(w.pack, "hosaka");
+        let own = d.run_tune("hosaka", g.tier()).unwrap();
+        assert!(std::ptr::eq(w.tune, own), "the tier's own tune");
+        assert_eq!(w.arrangement, Arrangement::PLAIN);
     }
 }
 
+/// A loop's loudest sample and its RMS.
+fn level(a: &[f32]) -> (f32, f32) {
+    let peak = a.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+    // Summed in f64: millions of squares in an f32 would lose the quiet samples.
+    let sum: f64 = a.iter().map(|&s| (s as f64).powi(2)).sum();
+    (peak, (sum / a.len().max(1) as f64).sqrt() as f32)
+}
+
 #[test]
-fn the_ono_sendai_scores_every_tier_and_the_others_stay_silent() {
+fn every_scored_pack_has_a_tune_per_tier_that_sits_under_a_cracktro() {
+    const HI: u32 = 48_000;
     let d = ninsei_core::Data::builtin().unwrap();
-    for tier in 1..=3 {
-        let t = d.run_tune("ono", tier).expect("a tune for every tier");
-        let step = (t.tune.step_secs() * RATE as f32) as usize;
-        let secs = (t.tune.loop_steps() * step) as f32 / RATE as f32;
-        assert!(secs >= 24.0, "tier {tier} loops after {secs:.1}s");
-        let a = t.tune.render_loop(RATE, &Arrangement::PLAIN);
-        assert!(
-            a.iter().any(|s| s.abs() > 0.05),
-            "tier {tier} makes a sound"
-        );
-        assert!(
-            a[a.len() - 50..].iter().all(|s| s.abs() < 0.05),
-            "tier {tier} ends quiet"
-        );
-        let hot = t.tune.render_loop(RATE, &arrangement(100, t.drop));
-        assert!(hot.len() < a.len(), "tier {tier} speeds up");
+    let scored: Vec<&str> = d
+        .sounds
+        .iter()
+        .filter(|p| !p.music.is_empty())
+        .map(|p| p.id.as_str())
+        .collect();
+    for pack in ["ono", "sensenet", "hosaka"] {
+        assert!(scored.contains(&pack), "{pack} has music: {scored:?}");
     }
-    for pack in ["hosaka", "sensenet"] {
-        assert!((1..=3).all(|t| d.run_tune(pack, t).is_none()), "{pack}");
+    // The quietest cracktro tune: run music plays under every one of them.
+    let cracktro = d
+        .intros
+        .iter()
+        .filter_map(|i| Some(level(&i.tune.as_ref()?.render(HI, i.secs)).1))
+        .fold(f32::MAX, f32::min);
+    assert!(cracktro < 1.0, "a cracktro has a tune");
+    for pack in scored {
+        for tier in d.networks.tiers.iter().map(|t| t.tier) {
+            let at = format!("{pack} tier {tier}");
+            let t = d.run_tune(pack, tier).expect("a tune for every tier");
+            let secs = t.tune.loop_secs(0);
+            assert!(
+                (24.0..=MAX_LOOP_SECS).contains(&secs),
+                "{at} loops after {secs:.1}s"
+            );
+            assert!(t.drop.is_some(), "{at} has a track to drop");
+            let check = |pct: u32, a: &[f32]| {
+                let (peak, rms) = level(a);
+                assert!(peak < 0.5, "{at} at {pct}% peaks at {peak:.3}: no clipping");
+                assert!(
+                    (0.035..=0.08).contains(&rms) && rms < cracktro,
+                    "{at} at {pct}%: RMS {rms:.4} (a cracktro is {cracktro:.4})"
+                );
+                // No click where it wraps: the seam jumps no further than the music does
+                // inside (a note held over the end rings on into the start).
+                let inside = a
+                    .windows(2)
+                    .map(|w| (w[0] - w[1]).abs())
+                    .fold(0.0, f32::max);
+                let seam = (a[a.len() - 1] - a[0]).abs();
+                assert!(
+                    seam <= inside,
+                    "{at} at {pct}% wraps with a {seam:.3} jump (inside: {inside:.3})"
+                );
+            };
+            // The tune as written (0% trace) at the speaker's rate; the arrangements at 8 kHz,
+            // where the levels come out the same and a loop renders six times faster.
+            check(0, &t.tune.render_loop(HI, &Arrangement::PLAIN));
+            let plain = t.tune.render_loop(RATE, &Arrangement::PLAIN);
+            check(0, &plain);
+            for pct in [MUSIC_DROP_AT, MUSIC_TEMPO_AT] {
+                let arr = arrangement(pct, t.drop);
+                let a = t.tune.render_loop(RATE, &arr);
+                check(pct, &a);
+                // Against the whole tune at the same tempo, so only the drop can differ. Not
+                // assert_ne: a failure would print the samples.
+                let whole = Arrangement { drop: None, ..arr };
+                let thins = if whole == Arrangement::PLAIN {
+                    a != plain
+                } else {
+                    a != t.tune.render_loop(RATE, &whole)
+                };
+                assert!(thins, "{at} at {pct}% thins out");
+                if pct >= MUSIC_TEMPO_AT {
+                    assert!(a.len() < plain.len(), "{at} speeds up");
+                }
+            }
+        }
     }
 }
 
