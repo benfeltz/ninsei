@@ -2,7 +2,8 @@
 //!
 //! - **The catalog** ([`Save::catalog`]) is everything with a price in its own file: RIG
 //!   upgrades (`rig.ron`), monitors and decks (`hardware.ron`), desktop add-ons
-//!   (`desktops.ron`), run panes (`panes.ron`) and any tool with a `shop` block (`tools.ron`).
+//!   (`desktops.ron`), run panes (`panes.ron`), any tool with a `shop` block (`tools.ron`) and
+//!   any game with one (`games.ron`, boxed by its publisher).
 //!   A new item is an entry in its own file; it's in the next issue without a line of code.
 //! - **The magazine** (`data/hub/shopper.ron`, [`ShopperDef`]) only dresses the catalog: the
 //!   cover, the sections and their page numbers, the advertisers, and the ads. An item without an
@@ -16,7 +17,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::data::Data;
 use crate::hardware::{Desktop, Hardware};
-use crate::hub::{Save, Upgrade};
+use crate::hub::{GameCopy, Save, Upgrade};
 
 /// Something CPU Shopper sells.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq, Hash)]
@@ -31,6 +32,8 @@ pub enum Item {
     Pane(String),
     /// A desktop tool with a `shop` block (`tools.ron`), by mail order.
     Tool(String),
+    /// A boxed copy of a game with a `shop` block (`games.ron`), by mail order.
+    Game(String),
 }
 
 /// A part of the magazine. Every item belongs to exactly one.
@@ -42,16 +45,18 @@ pub enum Section {
     Addons,
     Panes,
     Software,
+    Games,
 }
 
 impl Section {
-    pub const ALL: [Section; 6] = [
+    pub const ALL: [Section; 7] = [
         Section::Decks,
         Section::Upgrades,
         Section::Monitors,
         Section::Addons,
         Section::Panes,
         Section::Software,
+        Section::Games,
     ];
 
     pub fn of(item: &Item) -> Section {
@@ -62,6 +67,7 @@ impl Section {
             Item::Addon(_) => Section::Addons,
             Item::Pane(_) => Section::Panes,
             Item::Tool(_) => Section::Software,
+            Item::Game(_) => Section::Games,
         }
     }
 }
@@ -326,6 +332,7 @@ fn exists(data: &Data, item: &Item) -> bool {
         Item::Addon(id) => data.addons.iter().any(|d| &d.id == id),
         Item::Pane(id) => data.panes.iter().any(|d| &d.id == id),
         Item::Tool(id) => data.tools.iter().any(|t| &t.id == id && t.shop.is_some()),
+        Item::Game(id) => data.game(id).is_some_and(|g| g.shop.is_some()),
     }
 }
 
@@ -474,6 +481,25 @@ impl Save {
             l.review = shop.review;
             out.push(l);
         }
+        // A cracked copy doesn't count: the boxed one is still for sale.
+        for g in &data.games {
+            let Some(shop) = &g.shop else { continue };
+            let stock = if self.has_copy(&g.id, GameCopy::Boxed) {
+                Stock::Owned(shop.price)
+            } else {
+                Stock::Price(shop.price)
+            };
+            let mut l = listing(
+                Item::Game(g.id.clone()),
+                "GAMES",
+                &g.name,
+                &g.blurb,
+                format!("version {}", g.version),
+                stock,
+            );
+            l.vendor = Some(g.publisher.clone());
+            out.push(l);
+        }
         out
     }
 
@@ -511,7 +537,26 @@ impl Save {
             Item::Addon(id) => self.buy_addon(data, id),
             Item::Pane(id) => self.buy_pane(data, id),
             Item::Tool(id) => self.buy_tool(data, id),
+            Item::Game(id) => self.buy_game(data, id),
         }
+    }
+
+    /// Orders a boxed copy of a game by mail. A cracked copy you had stays on the disk.
+    pub fn buy_game(&mut self, data: &Data, id: &str) -> Result<String, String> {
+        let g = data.game(id).ok_or("no such game.")?;
+        let shop = g.shop.as_ref().ok_or("that game isn't sold by mail.")?;
+        if self.has_copy(id, GameCopy::Boxed) {
+            return Err("you already have that.".into());
+        }
+        if self.bank < shop.price {
+            return Err(format!(
+                "{} is {}¢. the bank has {}¢.",
+                g.name, shop.price, self.bank
+            ));
+        }
+        self.bank -= shop.price;
+        self.learn_game(id, GameCopy::Boxed);
+        Ok(format!("{} arrived by mail (-{}¢).", g.name, shop.price))
     }
 
     /// Orders a desktop tool by mail. It's yours for good, like one downloaded from a board.

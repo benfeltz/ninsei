@@ -156,3 +156,35 @@ fn modem_sounds_default_on_and_toggle_from_the_shell() {
     let d = Data::builtin().unwrap();
     assert_eq!(hub::shell("sound", &s, &d).1, hub::ShellEffect::Sound);
 }
+
+#[test]
+fn the_volume_starts_full_stays_in_range_and_comes_back() {
+    let mut s = Save::load("(version: 1, runs: 4)").unwrap();
+    assert_eq!(s.volume, 100, "old saves play at full volume");
+    assert_eq!(Save::default().volume, 100);
+    assert_eq!(s.volume_gain(), 1.0);
+    s.set_volume(25);
+    assert_eq!((s.volume, s.volume_gain()), (25, 0.25));
+    s.set_volume(300);
+    assert_eq!(s.volume, 100);
+    // A control with notches: seven on a Mac slider, ten meter cells.
+    assert_eq!(hub::notch_volume(5, 7), 71);
+    assert_eq!(hub::volume_notch(71, 7), 5);
+    assert_eq!(hub::volume_notch(71, 10), 7);
+    assert_eq!(hub::notch_volume(9, 7), 100, "past the top is full");
+    assert_eq!(hub::volume_notch(300, 7), 7);
+    assert_eq!(hub::notch_volume(0, 10), 0);
+    for steps in [7, 10, 20] {
+        for n in 0..=steps {
+            let pct = hub::notch_volume(n, steps);
+            assert_eq!(
+                hub::volume_notch(pct, steps),
+                n,
+                "notch {n} of {steps} round-trips"
+            );
+        }
+    }
+    // It comes back with the save.
+    s.set_volume(60);
+    assert_eq!(Save::load(&s.to_text()).unwrap().volume, 60);
+}

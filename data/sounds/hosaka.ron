@@ -1,33 +1,178 @@
-// The Hosaka's sound pack: a company workstation. Soft sines and triangles, office chimes,
-// a polite "ding". Calm on purpose: even the flatline is a tidy shutdown tune.
+// The Hosaka's sound pack: a company workstation. Soft sines and triangles (and a quiet
+// noise tick in the music), office chimes, a polite "ding". Calm on purpose: even the
+// flatline is a tidy shutdown tune.
 // Same format as ono.ron (see there); every cue needs an entry.
-[
-    (cue: Hop,      notes: [(wave: Sine,     from: 1000, to: 1000, ms: 22,  vol: 0.12)]),
-    (cue: IceRez,   notes: [(wave: Sine,     from: 660,  to: 660,  ms: 90,  vol: 0.20),
-                            (wave: Sine,     from: 880,  to: 880,  ms: 120, vol: 0.20)]),
-    (cue: Hit,      notes: [(wave: Noise,    from: 7000, to: 7000, ms: 12,  vol: 0.10),
-                            (wave: Triangle, from: 880,  to: 860,  ms: 45,  vol: 0.22)]),
-    (cue: Shield,   notes: [(wave: Sine,     from: 523,  to: 523,  ms: 60,  vol: 0.20),
-                            (wave: Sine,     from: 659,  to: 659,  ms: 90,  vol: 0.20)]),
-    (cue: Heal,     notes: [(wave: Sine,     from: 784,  to: 1046, ms: 140, vol: 0.20)]),
-    (cue: Block,    notes: [(wave: Sine,     from: 300,  to: 240,  ms: 70,  vol: 0.22)]),
-    (cue: Damage,   notes: [(wave: Triangle, from: 330,  to: 330,  ms: 120, vol: 0.28),
-                            (wave: Triangle, from: 262,  to: 262,  ms: 170, vol: 0.28)]),
-    (cue: Derez,    notes: [(wave: Sine,     from: 1046, to: 1046, ms: 60,  vol: 0.20),
-                            (wave: Sine,     from: 1318, to: 1318, ms: 60,  vol: 0.20),
-                            (wave: Sine,     from: 1568, to: 1568, ms: 150, vol: 0.20)]),
-    (cue: Loot,     notes: [(wave: Triangle, from: 1568, to: 1568, ms: 40,  vol: 0.18),
-                            (wave: Sine,     from: 2093, to: 2093, ms: 130, vol: 0.18)]),
-    (cue: Download, notes: [(wave: Sine,     from: 700,  to: 1400, ms: 200, vol: 0.18)]),
-    (cue: TraceUp,  notes: [(wave: Sine,     from: 1760, to: 1760, ms: 110, vol: 0.22)]),
-    (cue: Encounter,notes: [(wave: Sine,     from: 988,  to: 988,  ms: 70,  vol: 0.20),
-                            (wave: Sine,     from: 1319, to: 1319, ms: 70,  vol: 0.20),
-                            (wave: Sine,     from: 1568, to: 1568, ms: 110, vol: 0.20)]),
-    (cue: Flatline, notes: [(wave: Sine,     from: 660,  to: 660,  ms: 160, vol: 0.24),
-                            (wave: Sine,     from: 495,  to: 495,  ms: 160, vol: 0.24),
-                            (wave: Sine,     from: 330,  to: 330,  ms: 320, vol: 0.24)]),
-    (cue: JackOut,  notes: [(wave: Sine,     from: 523,  to: 523,  ms: 110, vol: 0.20),
-                            (wave: Sine,     from: 784,  to: 784,  ms: 110, vol: 0.20),
-                            (wave: Sine,     from: 1046, to: 1046, ms: 110, vol: 0.20),
-                            (wave: Sine,     from: 1568, to: 1568, ms: 200, vol: 0.20)]),
-]
+//
+// Music: what the office plays while you're on hold. Sine tunes over triangle basses, major
+// seventh chords, a bossa or walking bass at a polite tempo, a tick at most for drums. As the
+// trace runs high, the calm goes wrong while staying polite: a track drops out and the tune
+// turns hollow, then the hold music hurries. Each tier keeps its chords on an 8-bar cycle.
+(
+    cues: [
+        (cue: Hop,      notes: [(wave: Sine,     from: 1000, to: 1000, ms: 22,  vol: 0.12)]),
+        (cue: IceRez,   notes: [(wave: Sine,     from: 660,  to: 660,  ms: 90,  vol: 0.20),
+                                (wave: Sine,     from: 880,  to: 880,  ms: 120, vol: 0.20)]),
+        (cue: Hit,      notes: [(wave: Noise,    from: 7000, to: 7000, ms: 12,  vol: 0.10),
+                                (wave: Triangle, from: 880,  to: 860,  ms: 45,  vol: 0.22)]),
+        (cue: Shield,   notes: [(wave: Sine,     from: 523,  to: 523,  ms: 60,  vol: 0.20),
+                                (wave: Sine,     from: 659,  to: 659,  ms: 90,  vol: 0.20)]),
+        (cue: Heal,     notes: [(wave: Sine,     from: 784,  to: 1046, ms: 140, vol: 0.20)]),
+        (cue: Block,    notes: [(wave: Sine,     from: 300,  to: 240,  ms: 70,  vol: 0.22)]),
+        (cue: Damage,   notes: [(wave: Triangle, from: 330,  to: 330,  ms: 120, vol: 0.28),
+                                (wave: Triangle, from: 262,  to: 262,  ms: 170, vol: 0.28)]),
+        (cue: Derez,    notes: [(wave: Sine,     from: 1046, to: 1046, ms: 60,  vol: 0.20),
+                                (wave: Sine,     from: 1318, to: 1318, ms: 60,  vol: 0.20),
+                                (wave: Sine,     from: 1568, to: 1568, ms: 150, vol: 0.20)]),
+        (cue: Loot,     notes: [(wave: Triangle, from: 1568, to: 1568, ms: 40,  vol: 0.18),
+                                (wave: Sine,     from: 2093, to: 2093, ms: 130, vol: 0.18)]),
+        (cue: Download, notes: [(wave: Sine,     from: 700,  to: 1400, ms: 200, vol: 0.18)]),
+        (cue: TraceUp,  notes: [(wave: Sine,     from: 1760, to: 1760, ms: 110, vol: 0.22)]),
+        (cue: Encounter,notes: [(wave: Sine,     from: 988,  to: 988,  ms: 70,  vol: 0.20),
+                                (wave: Sine,     from: 1319, to: 1319, ms: 70,  vol: 0.20),
+                                (wave: Sine,     from: 1568, to: 1568, ms: 110, vol: 0.20)]),
+        (cue: Flatline, notes: [(wave: Sine,     from: 660,  to: 660,  ms: 160, vol: 0.24),
+                                (wave: Sine,     from: 495,  to: 495,  ms: 160, vol: 0.24),
+                                (wave: Sine,     from: 330,  to: 330,  ms: 320, vol: 0.24)]),
+        (cue: JackOut,  notes: [(wave: Sine,     from: 523,  to: 523,  ms: 110, vol: 0.20),
+                                (wave: Sine,     from: 784,  to: 784,  ms: 110, vol: 0.20),
+                                (wave: Sine,     from: 1046, to: 1046, ms: 110, vol: 0.20),
+                                (wave: Sine,     from: 1568, to: 1568, ms: 200, vol: 0.20)]),
+    ],
+    music: [
+        // Tier 1, the lobby: F major at 96 bpm. A sine tune over a bossa bass, with soft
+        // triangle chords on the offbeats. The chords drop out when the trace runs high and
+        // the tune goes hollow.
+        (tier: 1, drop: Some(2), tune: (bpm: 96, tracks: [
+            (wave: Sine, vol: 0.08, pattern: "
+                E5 - - - - - C5 - A4 - - - C5 - - -
+                D5 - - - - - Bb4 - G4 - - - A4 - Bb4 -
+                C5 - - - - - E5 - G5 - - - E5 - - .
+                F5 - - - - - - - D5 - - - A4 - - .
+                Bb4 - - - D5 - - - F5 - - - A5 - - -
+                G5 - - - E5 - - - Bb4 - - - C5 - D5 -
+                E5 - - - - - - - - - - - . . . .
+                . . . . C5 - D5 - E5 - G5 - Bb5 - - .
+                A5 - - - G5 - - - E5 - - - C5 - - -
+                D5 - - - F5 - - - Bb5 - - - A5 - G5 -
+                E5 - - - - - G5 - C6 - - - A5 - - .
+                A5 - - - - - F5 - D5 - - - - - . .
+                F5 - - - D5 - - - Bb4 - - - D5 - - -
+                E5 - - - G5 - - - Bb5 - - - - - . .
+                A5 - - - - - - - E5 - - - C5 - - -
+                D5 - - - - - . . . . . . C5 - D5 -
+            "),
+            (wave: Triangle, vol: 0.13, pattern: "
+                F2 - - - - . C3 - C3 - - - - . F2 .
+                G2 - - - - . D3 - D3 - - - - . G2 .
+                A2 - - - - . E3 - E3 - - - - . A2 .
+                Bb2 - - - - . F3 - F3 - - - - . Bb2 .
+                G2 - - - - . D3 - D3 - - - - . G2 .
+                C3 - - - - . G2 - G2 - - - - . C3 .
+                F2 - - - - . C3 - C3 - - - - . F2 .
+                C3 - - - - . G2 - G2 - - - - . E2 .
+            "),
+            (wave: Triangle, vol: 0.09, pattern: "
+                . . A3 - . E4 - . . C4 - . . E4 - .
+                . . Bb3 - . F4 - . . D4 - . . F4 - .
+                . . C4 - . G4 - . . E4 - . . G4 - .
+                . . D4 - . A4 - . . F4 - . . A4 - .
+                . . Bb3 - . F4 - . . D4 - . . F4 - .
+                . . E4 - . Bb4 - . . G4 - . . Bb4 - .
+                . . A3 - . E4 - . . C4 - . . E4 - .
+                . . E4 - . Bb4 - . . G4 - . . Bb4 - .
+            "),
+        ])),
+        // Tier 2, the department: Eb major at 104 bpm, the training video. A walking bass,
+        // busier chords and a rim tick on 2 and 4. The tune drops out when the trace runs
+        // high, and the department plays on without it.
+        (tier: 2, drop: Some(0), tune: (bpm: 104, tracks: [
+            (wave: Sine, vol: 0.085, pattern: "
+                G5 - F5 - Eb5 - D5 - Eb5 - G5 - Bb5 - - .
+                G5 - - - Eb5 - - - C5 - D5 - Eb5 - - .
+                F5 - Eb5 - C5 - Ab4 - C5 - Eb5 - Ab5 - - .
+                G5 - F5 - D5 - - - Bb4 - - - - - . .
+                Bb4 - Eb5 - G5 - Bb5 - D6 - - - Bb5 - - .
+                C6 - - - G5 - - - Eb5 - C5 - Eb5 - G5 -
+                Ab5 - G5 - F5 - Eb5 - C5 - - - Eb5 - - .
+                D5 - - - F5 - - - Ab5 - G5 - F5 - D5 -
+                Eb5 - - - - - - - . . G5 - Bb5 - D6 -
+                Eb6 - - - D6 - C6 - Bb5 - - - G5 - - .
+                Ab5 - - - C6 - - - Eb5 - F5 - Ab5 - - .
+                G5 - - - F5 - - - D5 - Eb5 - F5 - - .
+                G5 - Bb5 - D6 - Bb5 - G5 - F5 - Eb5 - - .
+                Eb5 - G5 - C6 - - - Bb5 - - - G5 - - .
+                Ab5 - - - G5 - - - F5 - - - Eb5 - - .
+                D5 - - - - - - - F5 - - - . . . .
+            "),
+            (wave: Triangle, vol: 0.14, pattern: "
+                Eb2 - - . G2 - - . Bb2 - - . B2 - - .
+                C3 - - . Bb2 - - . G2 - - . Gb2 - - .
+                F2 - - . Ab2 - - . C3 - - . A2 - - .
+                Bb2 - - . Ab2 - - . F2 - - . D2 - - .
+                Eb2 - - . F2 - - . G2 - - . Bb2 - - .
+                Ab2 - - . C3 - - . Eb3 - - . C3 - - .
+                F2 - - . G2 - - . Ab2 - - . A2 - - .
+                Bb2 - - . F2 - - . Ab2 - - . D2 - - .
+            "),
+            (wave: Triangle, vol: 0.09, pattern: "
+                . . G3 - . D4 - . . Bb3 - . . D4 - .
+                . . Eb4 - . Bb3 - . . G3 - . . Bb3 - .
+                . . Ab3 - . Eb4 - . . C4 - . . Eb4 - .
+                . . D4 - . Ab3 - . . F3 - . . Ab3 - .
+                . . G3 - . D4 - . . Bb3 - . . D4 - .
+                . . C4 - . G4 - . . Eb4 - . . G4 - .
+                . . Ab3 - . Eb4 - . . C4 - . . Eb4 - .
+                . . D4 - . Ab3 - . . F3 - . . Ab3 - .
+            "),
+            (wave: Noise, vol: 0.015, pattern: "
+                . . . . x . . . . . . . x . . .
+            "),
+        ])),
+        // Tier 3, the executive floor: E major at 92 bpm, polite but colder. A high, sparse
+        // tune, a borrowed C major seventh, half-note bass and a clock ticking. The chords drop
+        // out when the trace runs high.
+        (tier: 3, drop: Some(2), tune: (bpm: 92, tracks: [
+            (wave: Sine, vol: 0.08, pattern: "
+                B5 - - - - - - - D#6 - - - - - - .
+                E6 - - - - - - - B5 - - - G5 - - .
+                G#5 - - - - - - - E5 - - - C#6 - - .
+                C6 - - - - - - - - - - - . . . .
+                G#5 - - - B5 - - - D#6 - - - F#6 - - .
+                E6 - - - - - - - G5 - - - B5 - - .
+                A5 - - - C#6 - - - E6 - - - - - . .
+                D#6 - - - - - - - . . . . . . . .
+                . . . . . . . . B5 - G#5 - E5 - - .
+                G5 - - - - - - - B5 - - - - - . .
+                C#6 - - - B5 - - - G#5 - - - E5 - - .
+                F#5 - - - - - - - E5 - - - C6 - - .
+                B5 - - - - - - - - - - - D#6 - - .
+                E6 - - - - - - - D6 - - - B5 - - .
+                C#6 - - - - - - - A5 - - - - - . .
+                A5 - - - - - - - F#5 - - - D#5 - - .
+            "),
+            (wave: Triangle, vol: 0.13, pattern: "
+                E2 - - - - - - . B2 - - - - - - .
+                C3 - - - - - - . G2 - - - - - - .
+                A2 - - - - - - . E3 - - - - - - .
+                A2 - - - - - - . E3 - - - - - - .
+                E2 - - - - - - . B2 - - - - - - .
+                C3 - - - - - - . G2 - - - - - - .
+                F#2 - - - - - - . C#3 - - - - - - .
+                B2 - - - - - - . F#2 - - - - - - .
+            "),
+            (wave: Triangle, vol: 0.08, pattern: "
+                G#3 - - . B3 - - . D#4 - - . F#4 - - .
+                E4 - - . G4 - - . B4 - - . G4 - - .
+                C#4 - - . E4 - - . G#4 - - . E4 - - .
+                C4 - - . E4 - - . F#4 - - . E4 - - .
+                G#3 - - . B3 - - . D#4 - - . B3 - - .
+                E4 - - . G4 - - . B4 - - . G4 - - .
+                A3 - - . C#4 - - . E4 - - . C#4 - - .
+                D#4 - - . F#4 - - . A4 - - . F#4 - - .
+            "),
+            (wave: Noise, vol: 0.012, pattern: "
+                x . . . x . . . x . . . x . . .
+            "),
+        ])),
+    ],
+)

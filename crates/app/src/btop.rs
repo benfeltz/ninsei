@@ -742,3 +742,156 @@ pub fn status_sparks(ui: &mut Ui, p: &Palette, g: &ninsei_core::Game) {
     spark(ui, p, &tail(&trace), tuning::TRACE_MAX, 32.0);
     spark(ui, p, &tail(&cpu), g.deck.cpu_max.max(1), 32.0);
 }
+
+/// The volume box: a btop box of whole cells over the status line's speaker.
+pub mod vol {
+    /// The box, in cells.
+    pub const COLS: usize = 24;
+    pub const ROWS: usize = 4;
+    /// The meter's cells: one notch each, 5% apiece.
+    pub const NOTCHES: u32 = 20;
+    /// Points between the box and the speaker under it.
+    pub const GAP: f32 = 2.0;
+}
+
+fn speaker_at() -> egui::Id {
+    egui::Id::new("btop-speaker")
+}
+
+/// The speaker on the status line, as a bar module shows it: an icon and the level, or
+/// `muted`. A click opens the volume box over it, or closes it.
+pub fn speaker(ui: &mut Ui, cx: &mut crate::chrome::FrameCx) -> Vec<crate::panes::Request> {
+    let l = cx.level;
+    let icon = match (l.on, l.volume) {
+        (false, _) => "🔇",
+        (true, 0) => "🔈",
+        (true, v) if v < 50 => "🔉",
+        _ => "🔊",
+    };
+    let what = if l.on {
+        format!("{}%", l.volume)
+    } else {
+        "muted".into()
+    };
+    let lit = if cx.popup.is_open() {
+        cx.pal.bright
+    } else {
+        cx.pal.dim
+    };
+    let r = ui.add(egui::Label::new(text(format!("{icon} {what}"), lit)).sense(Sense::click()));
+    ui.ctx().data_mut(|d| d.insert_temp(speaker_at(), r.rect));
+    // It closes whenever, but only opens when nothing else has the keyboard.
+    if r.clicked() && (cx.keys_free || cx.popup.is_open()) {
+        cx.popup.toggle(l);
+    }
+    Vec::new()
+}
+
+/// The volume box: a meter of [`vol::NOTCHES`] cells (click one to set the level), `- 70% +`
+/// cut into the bottom edge, and the mute switch. `←`/`→` or `-`/`+` step it, `m` mutes,
+/// Esc or Enter closes it.
+pub fn sound_popup(
+    ctx: &egui::Context,
+    cx: &mut crate::chrome::FrameCx,
+) -> Vec<crate::panes::Request> {
+    use crate::kit::cells::Cells;
+    let (p, now) = (cx.pal, cx.level);
+    let (mut to, k) = crate::volume::start(ctx, now, egui::Key::M, vol::NOTCHES);
+    if k.esc || k.ok {
+        cx.popup.close();
+    }
+    let screen = ctx.content_rect();
+    let under = ctx
+        .data(|d| d.get_temp::<Rect>(speaker_at()))
+        .unwrap_or(Rect::from_min_size(screen.left_bottom(), egui::Vec2::ZERO));
+    let cell = Cells::cell_size(ctx);
+    let size = vec2(vol::COLS as f32 * cell.x, vol::ROWS as f32 * cell.y);
+    // Over the speaker (under it if there's no room), its left edge on the speaker's, kept on
+    // screen, on whole pixels.
+    let left = under.left().min(screen.right() - size.x).max(screen.left());
+    let above = under.top() - vol::GAP - size.y;
+    let top = if above >= screen.top() {
+        above
+    } else {
+        under.bottom() + vol::GAP
+    };
+    let rect = Rect::from_min_size(pos2(left.round(), top.round()), size);
+    egui::Area::new(egui::Id::new("btop-volume"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(rect.min)
+        .show(ctx, |ui| {
+            let (_, painter) = ui.allocate_painter(size, Sense::hover());
+            let c = Cells::grid(ui, rect.min, (vol::COLS, vol::ROWS), p.dim, p.bg, p.faint);
+            painter.rect_filled(c.rect, 0.0, p.bg);
+            c.frame(&painter, 0, 0, vol::COLS, vol::ROWS);
+            c.title(&painter, 2, 0, "volume", p.bright);
+            let n = vol::NOTCHES as usize;
+            let colours: Vec<Color32> = (0..n)
+                .map(|i| {
+                    if now.on {
+                        ramp(&p, (i as f32 + 1.0) / n as f32)
+                    } else {
+                        p.dim
+                    }
+                })
+                .collect();
+            c.meter(
+                &painter,
+                2,
+                1,
+                n,
+                now.notch(vol::NOTCHES) as usize,
+                &colours,
+            );
+            let hit = |ui: &mut Ui, r: Rect, label: String| {
+                crate::volume::hit(ui, r, "btop-volume", &label, Sense::click()).clicked()
+            };
+            for i in 0..n {
+                let pct = ninsei_core::hub::notch_volume(i as u32 + 1, vol::NOTCHES);
+                if hit(ui, c.at(2 + i, 1, 1, 1), format!("{pct}%")) {
+                    to.volume = pct;
+                }
+            }
+            // The switch, its key lit the way btop lights a box's hotkey.
+            c.text(&painter, 2, 2, if now.on { "[ ]" } else { "[x]" }, p.fg);
+            c.text(&painter, 6, 2, "m", p.bright);
+            c.text(&painter, 7, 2, "ute", p.fg);
+            if hit(ui, c.at(2, 2, 8, 1), "mute".into()) {
+                to.on = !to.on;
+            }
+            // The number keeps its width, so `+` never moves under the mouse.
+            let level = format!("- {:>3}% +", now.volume);
+            let used = c.title(&painter, 2, vol::ROWS - 1, &level, p.fg);
+            if hit(ui, c.at(3, vol::ROWS - 1, 1, 1), "-".into()) {
+                to = now.nudged(-1, vol::NOTCHES);
+            }
+            if used > 2 && hit(ui, c.at(2 + used - 2, vol::ROWS - 1, 1, 1), "+".into()) {
+                to = now.nudged(1, vol::NOTCHES);
+            }
+        });
+    now.to(to)
+}
+
+/// The vis box: the spectrum as columns of whole cells, one cell wide with a cell between,
+/// lit bottom up along the ramp; the level cut into the bottom edge.
+pub fn vis_box(ui: &mut Ui, p: &Palette, samples: &[f32], rate: u32) {
+    use crate::kit::cells::Cells;
+    let level = crate::vispane::held(ui, "btop-vis", ninsei_core::scope::level(samples));
+    let note = ninsei_core::scope::db_text(level);
+    boxed(ui, p, "vis", note.trim(), |ui| {
+        let area = ui.available_rect_before_wrap();
+        let c = Cells::fit(ui, area, p.dim, p.bg, p.faint);
+        let n = (c.cols / 2).max(1);
+        let bars = crate::vispane::bars(ui, "btop-vis", samples, rate, n);
+        let painter = ui.painter_at(area);
+        let left = (c.cols - (n * 2 - 1).min(c.cols)) / 2;
+        let colours: Vec<Color32> = (0..c.rows)
+            .map(|r| ramp(p, (r as f32 + 1.0) / c.rows as f32))
+            .collect();
+        let lit = ninsei_core::scope::cells_lit(&bars, c.rows);
+        for (i, on) in lit.into_iter().enumerate() {
+            c.meter_up(&painter, left + i * 2, c.rows - 1, c.rows, on, &colours);
+        }
+        ui.allocate_rect(area, Sense::hover());
+    });
+}

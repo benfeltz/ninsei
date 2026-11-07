@@ -29,7 +29,7 @@ pub const HELP: &[&str] = &[
     "newrun [seed]   start a new run",
     "theme <name>    amber | green | ice",
     "crt             toggle scanlines",
-    "sound           modem sounds on/off",
+    "sound           all sound on/off",
     "clear           clear the terminal",
 ];
 

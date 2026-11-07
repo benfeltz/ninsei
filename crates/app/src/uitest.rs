@@ -14,6 +14,8 @@ pub struct Harness {
     widgets: Vec<(String, Rect, bool)>,
     /// What last frame painted, flattened.
     shapes: Vec<egui::Shape>,
+    /// Check boxes last frame, by label: ticked or not.
+    ticks: Vec<(String, bool)>,
 }
 
 impl Harness {
@@ -27,6 +29,7 @@ impl Harness {
             t: 0.0,
             widgets: Vec::new(),
             shapes: Vec::new(),
+            ticks: Vec::new(),
         }
     }
 
@@ -51,6 +54,20 @@ impl Harness {
         for c in std::mem::take(&mut out.shapes) {
             flat(c.shape, &mut self.shapes);
         }
+        self.ticks = out
+            .platform_output
+            .accesskit_update
+            .as_ref()
+            .map(|u| {
+                u.nodes
+                    .iter()
+                    .filter_map(|(_, n)| {
+                        let ticked = n.toggled()? == egui::accesskit::Toggled::True;
+                        Some((n.label()?.to_string(), ticked))
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
         self.widgets = out
             .platform_output
             .accesskit_update
@@ -132,6 +149,14 @@ impl Harness {
     /// What last frame painted, in order, flattened.
     pub fn painted(&self) -> &[egui::Shape] {
         &self.shapes
+    }
+
+    /// Whether last frame's check box labelled `text` was ticked (none: no such box).
+    pub fn ticked(&self, text: &str) -> Option<bool> {
+        self.ticks
+            .iter()
+            .find(|(t, _)| t.trim() == text)
+            .map(|(_, on)| *on)
     }
 
     /// Every widget text last frame, for a failing test to print.

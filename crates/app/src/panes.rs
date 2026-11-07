@@ -23,6 +23,8 @@ pub enum Tab {
     Todo,
     /// Secondary: network traffic, btop's net box.
     Net,
+    /// Secondary: what the speaker is playing (a spectrum, a level, a scope).
+    Vis,
 }
 
 impl Tab {
@@ -38,7 +40,7 @@ impl Tab {
     ];
     /// Panes you add yourself, each with its id in `data/hub/panes.ron` (bought in RIG or
     /// bundled with a firmware).
-    pub const SECONDARY: [(Tab, &'static str); 1] = [(Tab::Net, "net")];
+    pub const SECONDARY: [(Tab, &'static str); 2] = [(Tab::Net, "net"), (Tab::Vis, "vis")];
 
     pub fn is_secondary(self) -> bool {
         Self::SECONDARY.iter().any(|(t, _)| *t == self)
@@ -63,6 +65,7 @@ impl Tab {
             Tab::Terminal => 6,
             Tab::Todo => 7,
             Tab::Net => 8,
+            Tab::Vis => 9,
         }
     }
 }
@@ -90,6 +93,10 @@ pub enum Request {
     Type(String),
     /// Print a line in the log (completions, a cancelled line).
     Say(String),
+    /// How loud everything plays, in percent.
+    Volume(u32),
+    /// Sound on or off (the same switch as the System app's).
+    SoundOn(bool),
 }
 
 pub struct Panes<'a> {
@@ -114,6 +121,10 @@ pub struct Panes<'a> {
     pub keep_room: usize,
     /// The suite chrome's state: the sheet's cursor and sort, and its dialogs.
     pub suite: &'a mut crate::suite::State,
+    /// What the speaker is playing right now (the vis pane's samples, oldest first), asked
+    /// for only by a vis pane that's drawn, and the rate they're at.
+    pub hear: &'a dyn Fn() -> Vec<f32>,
+    pub scope_rate: u32,
     pub out: Vec<Request>,
 }
 
@@ -152,6 +163,7 @@ impl egui_dock::TabViewer for Panes<'_> {
             }
             Tab::Terminal => " terminal ",
             Tab::Net => " net ",
+            Tab::Vis => " vis ",
             Tab::Todo => {
                 let open = self
                     .game
@@ -177,7 +189,7 @@ impl egui_dock::TabViewer for Panes<'_> {
             return b;
         }
         match tab {
-            Tab::Network | Tab::Terminal | Tab::Net => [false, false],
+            Tab::Network | Tab::Terminal | Tab::Net | Tab::Vis => [false, false],
             _ => [false, true],
         }
     }
@@ -193,6 +205,7 @@ impl egui_dock::TabViewer for Panes<'_> {
             Tab::Terminal => v.terminal(self, ui),
             Tab::Todo => v.todo(self, ui),
             Tab::Net => v.net(self, ui),
+            Tab::Vis => v.vis(self, ui),
         }
     }
 }
@@ -898,6 +911,8 @@ mod tests {
                     keep: &mut *keep,
                     keep_room: room,
                     suite: &mut suite,
+                    hear: &Vec::new,
+                    scope_rate: 0,
                     out: Vec::new(),
                 };
                 panes.keep_picker(ui);

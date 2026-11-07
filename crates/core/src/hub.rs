@@ -711,6 +711,24 @@ impl Default for Loadout {
     }
 }
 
+/// A copy of a game: a cracked one plays its crew's cracktro, a boxed one its publisher's
+/// splash.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum GameCopy {
+    /// Downloaded from a board.
+    Cracked,
+    /// Bought by mail order.
+    Boxed,
+}
+
+/// One copy of a game on the save. Owning both copies is two entries, side by side: ordering
+/// the box never erases the crack, and a board still sells the crack to someone with the box.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct OwnedGame {
+    pub id: String,
+    pub copy: GameCopy,
+}
+
 /// Everything the hub keeps between sessions. One RON document, versioned.
 /// Later features add fields with `#[serde(default)]` so older saves still load.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
@@ -734,6 +752,9 @@ pub struct Save {
     /// Modem sounds on or off.
     #[serde(default = "default_sound")]
     pub sound: bool,
+    /// How loud everything plays, in percent (100 is full); [`Save::sound`] mutes it all.
+    #[serde(default = "default_volume")]
+    pub volume: u8,
     /// Credits banked at home.
     #[serde(default)]
     pub bank: u32,
@@ -829,6 +850,9 @@ pub struct Save {
     /// tools had to be found has the wardialer and HexEd already.
     #[serde(default = "legacy_tools")]
     pub tools: Vec<String>,
+    /// The copies of games you own (ids in `data/hub/games.ron`): one entry per game and copy.
+    #[serde(default)]
+    pub games: Vec<OwnedGame>,
     /// Textfiles downloaded from boards, for the QWK reader.
     #[serde(default)]
     pub texts: Vec<KeptText>,
@@ -916,6 +940,22 @@ fn default_sound() -> bool {
     true
 }
 
+fn default_volume() -> u8 {
+    100
+}
+
+/// A level in percent as the nearest notch of a control with `steps` notches above silent (a
+/// slider of 0-7, ten meter cells).
+pub fn volume_notch(pct: u32, steps: u32) -> u32 {
+    (pct.min(100) * steps + 50) / 100
+}
+
+/// The level in percent at notch `notch` of `steps` (past the top is full).
+pub fn notch_volume(notch: u32, steps: u32) -> u32 {
+    let steps = steps.max(1);
+    (notch.min(steps) * 100 + steps / 2) / steps
+}
+
 impl Default for Save {
     fn default() -> Self {
         Self {
@@ -927,6 +967,7 @@ impl Default for Save {
             phosphor: default_phosphor(),
             crt: default_crt(),
             sound: default_sound(),
+            volume: default_volume(),
             bank: 0,
             fragments: 0,
             key: 0,
@@ -960,6 +1001,7 @@ impl Default for Save {
             term_history: Vec::new(),
             shell_history: Vec::new(),
             tools: Vec::new(),
+            games: Vec::new(),
             texts: Vec::new(),
             ice_seen: Vec::new(),
             intros: default_intros(),
@@ -977,6 +1019,16 @@ struct VersionProbe {
 }
 
 impl Save {
+    /// Sets how loud everything plays, in percent (past 100 is full).
+    pub fn set_volume(&mut self, pct: u32) {
+        self.volume = pct.min(100) as u8;
+    }
+
+    /// The level as a gain for the speaker: 0 (silent) to 1 (full).
+    pub fn volume_gain(&self) -> f32 {
+        f32::from(self.volume.min(100)) / 100.0
+    }
+
     /// Parses a save. Anything unreadable or from another version is an error;
     /// the app then starts a fresh hub instead of crashing.
     pub fn load(text: &str) -> Result<Save, String> {
@@ -1020,6 +1072,47 @@ impl Save {
         }
         self.tools.push(id.into());
         true
+    }
+
+    /// Whether you own a game, in either copy (an id in `hub/games.ron`).
+    pub fn has_game(&self, id: &str) -> bool {
+        self.games.iter().any(|g| g.id == id)
+    }
+
+    /// Whether you have this copy of a game.
+    pub fn has_copy(&self, id: &str, copy: GameCopy) -> bool {
+        self.games.iter().any(|g| g.id == id && g.copy == copy)
+    }
+
+    /// The copies of a game you own, in the order you came by them (empty if none).
+    pub fn copies(&self, id: &str) -> Vec<GameCopy> {
+        self.games
+            .iter()
+            .filter(|g| g.id == id)
+            .map(|g| g.copy)
+            .collect()
+    }
+
+    /// Adds a copy of a game you came by, beside any other copy you have. False if you had
+    /// that copy already.
+    pub fn learn_game(&mut self, id: &str, copy: GameCopy) -> bool {
+        if self.has_copy(id, copy) {
+            return false;
+        }
+        self.games.push(OwnedGame {
+            id: id.into(),
+            copy,
+        });
+        true
+    }
+
+    /// The games you have a cracked copy of: a board won't sell you one of these again.
+    pub fn cracks(&self) -> Vec<String> {
+        self.games
+            .iter()
+            .filter(|g| g.copy == GameCopy::Cracked)
+            .map(|g| g.id.clone())
+            .collect()
     }
 
     /// Whether a desktop tool is there at all: HexEd only once you've downloaded it.
@@ -1751,6 +1844,7 @@ impl Save {
             jobs: Vec::new(),
             trust: self.trust.clone(),
             tools: self.tools.clone(),
+            games: self.cracks(),
             free: self.free(data).to_vec(),
             texts: self
                 .texts
@@ -1820,6 +1914,13 @@ impl Save {
             .iter()
             .filter(|t| self.learn_tool(t))
             .map(|t| game.data.tool(t).map_or(t.clone(), |d| d.name.clone()))
+            .collect();
+        // A game pulled off a board is a cracked copy, and it comes home even on a flatline.
+        let games: Vec<String> = game
+            .games
+            .iter()
+            .filter(|g| self.learn_game(g, GameCopy::Cracked))
+            .map(|g| game.data.game_label(g, GameCopy::Cracked))
             .collect();
         for (b, t) in &game.texts {
             self.keep_text(b, t);
@@ -1927,6 +2028,7 @@ impl Save {
             learned,
             boards,
             tools,
+            games,
         })
     }
 }
@@ -1954,6 +2056,8 @@ pub struct RunReport {
     pub boards: Vec<String>,
     /// Desktop tools downloaded on the run, by name.
     pub tools: Vec<String>,
+    /// Games downloaded on the run (cracked copies), by label (`BLOX [PHS]`).
+    pub games: Vec<String>,
 }
 
 /// Which machine is on screen, and the drags between them.
@@ -2140,7 +2244,7 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
                 "crt              CRT effects on/off",
                 "monitor [id]     plug in a monitor you own",
                 "deck [id]        run with a deck you own",
-                "sound            modem sounds on/off",
+                "sound            all sound on/off",
                 "echo <text>      say something",
                 "leet <text>      say it in l33t",
                 "clear            clear the window",
