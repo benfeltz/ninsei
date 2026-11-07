@@ -4,7 +4,7 @@
 (
     group: "Paper Tiger Software",
     secs: 3.5,
-    frame_secs: 1.6,
+    frame_secs: 1.8,
     frames: [
         [
             "",

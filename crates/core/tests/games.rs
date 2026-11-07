@@ -1217,3 +1217,14 @@ fn a_game_in_a_rolled_area_is_rejected() {
             .contains("never touches a run's dice")
     );
 }
+
+#[test]
+fn every_splash_ends_on_its_last_frame() {
+    // A splash runs once, Loading then Ready: it mustn't loop back before the game opens.
+    let d = data();
+    for g in &d.games {
+        let i = d.intro(&g.splash).unwrap();
+        let last = ((i.secs - 0.01) / i.frame_secs) as usize % i.frames.len();
+        assert_eq!(last, i.frames.len() - 1, "{} loops back", g.splash);
+    }
+}
