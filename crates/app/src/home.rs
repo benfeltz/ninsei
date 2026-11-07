@@ -1168,6 +1168,7 @@ pub(crate) fn size_game_window(
     size: &mut Vec2,
     ui: &Ui,
     data: &Data,
+    save: &Save,
     tool: Tool,
     scrolled: fn(Rect) -> Rect,
     bar_w: f32,
@@ -1177,24 +1178,33 @@ pub(crate) fn size_game_window(
         return;
     }
     let view = |r: Rect| crate::kit::scrollbar::view_rect(scrolled(r), bar_w, pad);
-    *size = game_window(ui, data, tool, view).unwrap_or(vec2(400.0, 300.0));
+    *size = game_window(ui, data, save, tool, view).unwrap_or(vec2(400.0, 300.0));
 }
 
 /// How big a window must open for a game: the room its first (square-ish) grid needs in the
-/// kit's cells, or its intro's 80x24 screen if that's bigger, plus what the window's frame
-/// takes around its `view` (the rect its tool is drawn in, from the window's rect). `None`
-/// for anything but a game.
+/// kit's cells, or its intro's 80x24 screen if that's bigger and it plays one (intros on, and
+/// the copy has one), plus what the window's frame takes around its `view` (the rect its
+/// tool is drawn in, from the window's rect). `None` for anything but a game.
 pub(crate) fn game_window(
     ui: &Ui,
     data: &Data,
+    save: &Save,
     tool: Tool,
     view: impl Fn(Rect) -> Rect,
 ) -> Option<Vec2> {
-    let (def, _) = tool.game_def(data)?;
+    let (def, copy) = tool.game_def(data)?;
     let grid = crate::games_view::grids(def)[0];
     let cell = crate::kit::Cells::cell_size(ui.ctx());
     let field = vec2(grid.cols as f32 * cell.x, grid.rows as f32 * cell.y);
-    let room = field.max(crate::bbs_view::screen_size(ui));
+    let intro = match copy {
+        GameCopy::Cracked => &def.crack,
+        GameCopy::Boxed => &def.splash,
+    };
+    let room = if save.intros && data.intro(intro).is_some() {
+        field.max(crate::bbs_view::screen_size(ui))
+    } else {
+        field
+    };
     let probe = Rect::from_min_size(Pos2::ZERO, vec2(2000.0, 2000.0));
     let frame = probe.size() - view(probe).size();
     // A point of slack either way, so rounding never costs a cell.

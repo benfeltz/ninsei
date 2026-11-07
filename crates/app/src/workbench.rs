@@ -314,7 +314,16 @@ impl DesktopView for Workbench {
             if let Kind::Tool(t) = self.wins[i].kind {
                 let size = &mut self.wins[i].size;
                 let (bar, pad) = (kit::size::PROP_W, kit::SCROLL_PAD);
-                crate::home::size_game_window(size, ui, data, t, kit::window_scrolled, bar, pad);
+                crate::home::size_game_window(
+                    size,
+                    ui,
+                    data,
+                    save,
+                    t,
+                    kit::window_scrolled,
+                    bar,
+                    pad,
+                );
             }
             let (kind, pos, size) = (self.wins[i].kind, self.wins[i].pos, self.wins[i].size);
             // A window never runs off the bottom of the screen: it gets shorter and scrolls.

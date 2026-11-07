@@ -378,7 +378,7 @@ impl DesktopView for Liza {
             let front = i + 1 == n;
             let (tool, size) = (self.wins[i].tool, &mut self.wins[i].size);
             let (bar, pad) = (kit::size::SCROLL_W, kit::SCROLL_PAD);
-            home::size_game_window(size, ui, data, tool, kit::window_scrolled, bar, pad);
+            home::size_game_window(size, ui, data, save, tool, kit::window_scrolled, bar, pad);
             let (tool, pos, size) = (self.wins[i].tool, self.wins[i].pos, self.wins[i].size);
             let room = (screen.height() - pos.y - look::WIN_MARGIN).max(look::WIN_MIN_H);
             let rect = Rect::from_min_size(at(pos), vec2(size.x, size.y.min(room)));
@@ -1429,5 +1429,47 @@ mod tests {
             home.game(minefield).unwrap().cursor(),
             Some((at.0 + 1, at.1))
         );
+    }
+
+    #[test]
+    fn a_games_window_is_as_big_as_its_field_or_its_intro_when_one_plays() {
+        let data = Data::builtin().unwrap();
+        let ctx = egui::Context::default();
+        crate::uitest::themed(&ctx, &data);
+        let blox = game("blox", ninsei_core::hub::GameCopy::Boxed);
+        let mut widths = Vec::new();
+        for intros in [false, true] {
+            let save = Save {
+                intros,
+                ..gamer(&data)
+            };
+            let (mut liza, mut home) = (Liza::new(), Home::new(Vec::new()));
+            frame_with(&ctx, &mut liza, &mut home, &data, &save, Vec::new(), 0.0);
+            liza.open(blox);
+            let t = look::BOOT_SECS + 0.2;
+            frame_with(&ctx, &mut liza, &mut home, &data, &save, Vec::new(), t);
+            frame_with(
+                &ctx,
+                &mut liza,
+                &mut home,
+                &data,
+                &save,
+                Vec::new(),
+                t + 0.1,
+            );
+            assert!(
+                home.notices.is_empty(),
+                "intros {intros}: {:?}",
+                home.notices
+            );
+            widths.push(liza.wins.last().unwrap().size.x);
+        }
+        let mut intro = 0.0;
+        let mut o = ctx.run_ui(egui::RawInput::default(), |ui| {
+            intro = crate::bbs_view::screen_size(ui).x;
+        });
+        o.textures_delta.clear();
+        assert!(widths[0] < intro / 2.0, "Blox alone is narrow: {widths:?}");
+        assert!(widths[1] > intro, "its splash's screen fits: {widths:?}");
     }
 }
