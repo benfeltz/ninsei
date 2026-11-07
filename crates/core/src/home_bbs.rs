@@ -30,7 +30,8 @@ pub struct HomeCall {
     /// Textfiles from this board already on your disk (text ids).
     texts: Vec<String>,
     tool_defs: Vec<crate::data::ToolDef>,
-    game_defs: Vec<crate::data::GameDef>,
+    /// Each game's id and its crack's label, for "you already have".
+    cracks: Vec<(String, String)>,
 }
 
 impl Line for HomeCall {
@@ -81,9 +82,7 @@ impl Line for HomeCall {
         if matches!(f.item, Drop::Warez(_)) && self.stash_free == 0 {
             return Some("your stash is full.".into());
         }
-        if let Some(why) =
-            crate::game::tool_blocker(&self.tool_defs, &self.game_defs, &f.item, self)
-        {
+        if let Some(why) = crate::game::tool_blocker(&self.tool_defs, &self.cracks, &f.item, self) {
             return Some(why);
         }
         if self.bank < f.price {
@@ -195,7 +194,7 @@ impl Save {
                 .map(|k| k.id.clone())
                 .collect(),
             tool_defs: data.tools.clone(),
-            game_defs: data.games.clone(),
+            cracks: data.crack_labels(),
         }
     }
 
@@ -292,7 +291,7 @@ impl Save {
             }
             Drop::Game(id) => {
                 self.learn_game(id, crate::hub::GameCopy::Cracked);
-                let name = data.game(id).map_or(id.as_str(), |g| g.name.as_str());
+                let name = data.game_label(id, crate::hub::GameCopy::Cracked);
                 format!("{name} is on your disk")
             }
             _ => return Err("deck mods go on a live deck. download it in a run.".into()),

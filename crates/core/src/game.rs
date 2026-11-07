@@ -1532,7 +1532,9 @@ impl Game {
         if matches!(def.item, Drop::Warez(_)) && self.hdd.len() as u32 >= self.deck.hdd_max {
             return Some("hdd full. free a slot before downloading warez.".into());
         }
-        if let Some(why) = tool_blocker(&self.data.tools, &self.data.games, &def.item, self) {
+        if let Some(why) =
+            tool_blocker(&self.data.tools, &self.data.crack_labels(), &def.item, self)
+        {
             return Some(why);
         }
         None
@@ -1761,7 +1763,7 @@ impl Game {
                 self.say(LogKind::Loot, format!("+ tool: {name}"));
             }
             Drop::Game(id) => {
-                let name = self.data.game(&id).map_or(id.clone(), |g| g.name.clone());
+                let name = self.data.game_label(&id, crate::hub::GameCopy::Cracked);
                 if !self.has_crack(&id) {
                     self.games.push(id);
                 }
@@ -1780,10 +1782,10 @@ impl Game {
 }
 
 /// Why a tool, game or textfile can't be downloaded on `line`, wherever you are: it's
-/// already yours. `tools` and `games` name it.
+/// already yours. `tools` and `cracks` (each game's id and crack label) name it.
 pub fn tool_blocker(
     tools: &[crate::data::ToolDef],
-    games: &[crate::data::GameDef],
+    cracks: &[(String, String)],
     item: &Drop,
     line: &dyn crate::bbs::Line,
 ) -> Option<String> {
@@ -1793,7 +1795,7 @@ pub fn tool_blocker(
         }
         _ if !line.owns(item) => return None,
         Drop::Tool(id) => tools.iter().find(|t| t.id == *id).map(|t| &t.name),
-        Drop::Game(id) => games.iter().find(|g| g.id == *id).map(|g| &g.name),
+        Drop::Game(id) => cracks.iter().find(|(g, _)| g == id).map(|(_, l)| l),
         _ => None,
     };
     Some(format!("you already have {}.", name.map_or("that", |n| n)))

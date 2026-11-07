@@ -274,11 +274,13 @@ fn first_version() -> String {
     "1.0".into()
 }
 
-/// A game you can own (`data/hub/games.ron`): a cracked copy from a board, or a boxed one by
-/// mail order. Which copy you own picks the intro it opens with; either one plays.
+/// A game you can own (`data/hub/games.ron`): a cracked copy from a board, a boxed one by mail
+/// order, or both side by side. Each copy opens with its own intro and has its own label
+/// ([`Data::game_label`]).
 #[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct GameDef {
     pub id: String,
+    /// The box's name, `Nibbler`; a crack is labelled from it ([`Data::game_label`]).
     pub name: String,
     pub blurb: String,
     /// Who publishes the boxed copy (a vendor id in `hub/shopper.ron`).
@@ -1415,6 +1417,37 @@ impl Data {
 
     pub fn game(&self, id: &str) -> Option<&GameDef> {
         self.games.iter().find(|g| g.id == id)
+    }
+
+    /// Every game's id with its crack's label.
+    pub fn crack_labels(&self) -> Vec<(String, String)> {
+        self.games
+            .iter()
+            .map(|g| {
+                (
+                    g.id.clone(),
+                    self.game_label(&g.id, crate::hub::GameCopy::Cracked),
+                )
+            })
+            .collect()
+    }
+
+    /// What a copy of a game is called: a box is the plain name (`Nibbler`), a crack the name
+    /// in capitals with its crew's tag (`NIBBLER [2K4]`), as it came off the board.
+    pub fn game_label(&self, id: &str, copy: crate::hub::GameCopy) -> String {
+        let Some(g) = self.game(id) else {
+            return id.to_string();
+        };
+        match copy {
+            crate::hub::GameCopy::Boxed => g.name.clone(),
+            crate::hub::GameCopy::Cracked => {
+                let name = g.name.to_uppercase();
+                match self.intro(&g.crack).and_then(|i| i.tag.as_deref()) {
+                    Some(tag) => format!("{name} [{tag}]"),
+                    None => name,
+                }
+            }
+        }
     }
 
     pub fn warez_ix(&self, id: &str) -> Option<usize> {

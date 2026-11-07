@@ -721,24 +721,12 @@ pub enum GameCopy {
     Boxed,
 }
 
-/// A game on the save, and which copies of it you have. You can have both: ordering the box
-/// never erases the crack, and a board still sells the crack to someone with the box.
+/// One copy of a game on the save. Owning both copies is two entries, side by side: ordering
+/// the box never erases the crack, and a board still sells the crack to someone with the box.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct OwnedGame {
     pub id: String,
-    #[serde(default)]
-    pub cracked: bool,
-    #[serde(default)]
-    pub boxed: bool,
-}
-
-impl OwnedGame {
-    pub fn has(&self, copy: GameCopy) -> bool {
-        match copy {
-            GameCopy::Cracked => self.cracked,
-            GameCopy::Boxed => self.boxed,
-        }
-    }
+    pub copy: GameCopy,
 }
 
 /// Everything the hub keeps between sessions. One RON document, versioned.
@@ -862,7 +850,7 @@ pub struct Save {
     /// tools had to be found has the wardialer and HexEd already.
     #[serde(default = "legacy_tools")]
     pub tools: Vec<String>,
-    /// Games you own (ids in `data/hub/games.ron`), each with the copies you have.
+    /// The copies of games you own (ids in `data/hub/games.ron`): one entry per game and copy.
     #[serde(default)]
     pub games: Vec<OwnedGame>,
     /// Textfiles downloaded from boards, for the QWK reader.
@@ -1088,43 +1076,33 @@ impl Save {
 
     /// Whether you own a game, in either copy (an id in `hub/games.ron`).
     pub fn has_game(&self, id: &str) -> bool {
-        self.game_copy(id).is_some()
+        self.games.iter().any(|g| g.id == id)
     }
 
     /// Whether you have this copy of a game.
     pub fn has_copy(&self, id: &str, copy: GameCopy) -> bool {
-        self.games.iter().any(|g| g.id == id && g.has(copy))
+        self.games.iter().any(|g| g.id == id && g.copy == copy)
     }
 
-    /// The copy a game opens with, if you own it: the box once you've paid for one, else the
-    /// crack.
-    pub fn game_copy(&self, id: &str) -> Option<GameCopy> {
-        [GameCopy::Boxed, GameCopy::Cracked]
-            .into_iter()
-            .find(|&c| self.has_copy(id, c))
+    /// The copies of a game you own, in the order you came by them (empty if none).
+    pub fn copies(&self, id: &str) -> Vec<GameCopy> {
+        self.games
+            .iter()
+            .filter(|g| g.id == id)
+            .map(|g| g.copy)
+            .collect()
     }
 
-    /// Adds a copy of a game you came by, beside any other copy you have. False if you had it.
+    /// Adds a copy of a game you came by, beside any other copy you have. False if you had
+    /// that copy already.
     pub fn learn_game(&mut self, id: &str, copy: GameCopy) -> bool {
         if self.has_copy(id, copy) {
             return false;
         }
-        let i = match self.games.iter().position(|g| g.id == id) {
-            Some(i) => i,
-            None => {
-                self.games.push(OwnedGame {
-                    id: id.into(),
-                    cracked: false,
-                    boxed: false,
-                });
-                self.games.len() - 1
-            }
-        };
-        let g = &mut self.games[i];
-        match copy {
-            GameCopy::Cracked => g.cracked = true,
-            GameCopy::Boxed => g.boxed = true,
-        }
+        self.games.push(OwnedGame {
+            id: id.into(),
+            copy,
+        });
         true
     }
 
@@ -1132,7 +1110,7 @@ impl Save {
     pub fn cracks(&self) -> Vec<String> {
         self.games
             .iter()
-            .filter(|g| g.cracked)
+            .filter(|g| g.copy == GameCopy::Cracked)
             .map(|g| g.id.clone())
             .collect()
     }
@@ -1942,7 +1920,7 @@ impl Save {
             .games
             .iter()
             .filter(|g| self.learn_game(g, GameCopy::Cracked))
-            .map(|g| game.data.game(g).map_or(g.clone(), |d| d.name.clone()))
+            .map(|g| game.data.game_label(g, GameCopy::Cracked))
             .collect();
         for (b, t) in &game.texts {
             self.keep_text(b, t);
@@ -2078,7 +2056,7 @@ pub struct RunReport {
     pub boards: Vec<String>,
     /// Desktop tools downloaded on the run, by name.
     pub tools: Vec<String>,
-    /// Games downloaded on the run (cracked copies), by name.
+    /// Games downloaded on the run (cracked copies), by label (`BLOX [PHS]`).
     pub games: Vec<String>,
 }
 

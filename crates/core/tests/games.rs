@@ -63,7 +63,7 @@ fn a_bad_game_is_rejected() {
     assert!(check(|g| g.crack = "hexed".into()).contains("has no crew tag"));
     assert!(check(|g| g.splash = crack.clone()).contains("is a crack"));
     assert!(check(|g| g.publisher = "kowloon".into()).contains("unknown publisher"));
-    assert!(check(|g| g.version = "9.9".into()).contains("doesn't name `NIBBLER 9.9`"));
+    assert!(check(|g| g.version = "9.9".into()).contains("doesn't name `Nibbler 9.9`"));
     assert!(check(|g| g.cols = 0).contains("field"));
     assert!(check(|g| g.rows = 99).contains("field"));
     assert!(check(|g| g.id = "pong".into()).contains("no engine"));
@@ -78,28 +78,33 @@ fn a_bad_game_is_rejected() {
 }
 
 #[test]
-fn the_box_never_erases_the_crack() {
+fn both_copies_are_owned_side_by_side() {
     use hub::GameCopy::{Boxed, Cracked};
+    let d = data();
     let mut s = Save::default();
-    assert!(!s.has_game("blox") && s.game_copy("blox").is_none());
+    assert!(!s.has_game("blox") && s.copies("blox").is_empty());
     assert!(s.learn_game("blox", Cracked));
-    assert!(!s.learn_game("blox", Cracked), "once");
-    assert_eq!(s.game_copy("blox"), Some(Cracked));
-    assert!(s.learn_game("blox", Boxed), "the box goes beside the crack");
-    assert!(s.has_copy("blox", Cracked) && s.has_copy("blox", Boxed));
-    assert_eq!(
-        s.game_copy("blox"),
-        Some(Boxed),
-        "it opens with the box you paid for"
+    assert!(
+        !s.learn_game("blox", Cracked),
+        "the same copy twice is one entry"
     );
+    assert_eq!(s.games.len(), 1);
+    assert!(s.learn_game("blox", Boxed), "the box goes beside the crack");
+    assert_eq!(s.copies("blox"), vec![Cracked, Boxed]);
+    assert_eq!(s.games.len(), 2, "one entry per game and copy");
+    let labels: Vec<String> = s
+        .copies("blox")
+        .into_iter()
+        .map(|c| d.game_label("blox", c))
+        .collect();
+    assert_eq!(labels, vec!["BLOX [PHS]".to_string(), "Blox".to_string()]);
     assert!(s.learn_game("nibbler", Boxed));
-    assert!(!s.has_copy("nibbler", Cracked));
     assert!(
         s.learn_game("nibbler", Cracked),
         "a crack goes beside the box too"
     );
-    assert!(s.has_copy("nibbler", Boxed) && s.has_copy("nibbler", Cracked));
-    assert_eq!(s.games.len(), 2, "one row a game");
+    assert_eq!(d.game_label("nibbler", Cracked), "NIBBLER [2K4]");
+    assert_eq!(d.game_label("nibbler", Boxed), "Nibbler");
     assert_eq!(s.cracks(), vec!["blox".to_string(), "nibbler".to_string()]);
 }
 
@@ -113,7 +118,7 @@ fn a_save_from_before_games_loads_with_none() {
     let back = Save::load(&old).expect("a save without games still loads");
     assert!(back.games.is_empty());
     let kept = Save::load(&text).unwrap();
-    assert_eq!(kept.game_copy("blox"), Some(hub::GameCopy::Boxed));
+    assert_eq!(kept.copies("blox"), vec![hub::GameCopy::Boxed]);
 }
 
 /// The builtin data with BLOX for free in the Gutter's first always-stocked area (no board
@@ -180,14 +185,17 @@ fn a_game_downloads_and_comes_home_cracked() {
     g.phase = Phase::Flatlined;
     let mut save = Save::default();
     let report = save.record(&g, &[], &d.rig).unwrap();
-    assert_eq!(save.game_copy("blox"), Some(GameCopy::Cracked));
-    assert_eq!(report.games, vec!["BLOX".to_string()]);
+    assert_eq!(save.copies("blox"), vec![GameCopy::Cracked]);
+    assert_eq!(report.games, vec!["BLOX [PHS]".to_string()]);
     // A board won't sell the crack again; the run's kit carries it from the save.
     let kit = save.kit(&d, &d.rig);
     assert_eq!(kit.games, vec!["blox".to_string()]);
     let mut g = run_on_board(&d, board, kit.games);
     let (area, file) = blox_file(&g);
-    assert_eq!(g.buy_blocker(area, file).unwrap(), "you already have BLOX.");
+    assert_eq!(
+        g.buy_blocker(area, file).unwrap(),
+        "you already have BLOX [PHS]."
+    );
     g.phase = Phase::JackedOut;
     let report = save.record(&g, &[], &d.rig).unwrap();
     assert!(report.games.is_empty(), "nothing new came home");
@@ -218,8 +226,8 @@ fn a_game_downloaded_at_home_is_cracked() {
     let call = s.home_call(&d, &d.rig, board);
     let (area, file) = blox_file(&call);
     let line = s.home_buy(&d, &d.rig, board, area, file).unwrap();
-    assert!(line.contains("BLOX"), "{line}");
-    assert_eq!(s.game_copy("blox"), Some(GameCopy::Cracked));
+    assert!(line.contains("BLOX [PHS]"), "{line}");
+    assert_eq!(s.copies("blox"), vec![GameCopy::Cracked]);
     let call = s.home_call(&d, &d.rig, board);
     let (area, file) = blox_file(&call);
     assert!(call.buy_blocker(area, file).is_some(), "once");
@@ -302,7 +310,7 @@ fn a_game_bought_by_mail_is_boxed() {
     let price = d.game("nibbler").unwrap().shop.as_ref().unwrap().price;
     assert!(s.order_blocker(&d, &item).is_none());
     s.buy_item(&d, &item).unwrap();
-    assert_eq!(s.game_copy("nibbler"), Some(GameCopy::Boxed));
+    assert_eq!(s.copies("nibbler"), vec![GameCopy::Boxed]);
     assert_eq!(s.bank, 200 - price);
     assert!(s.order_blocker(&d, &item).is_some(), "one box is enough");
     assert!(s.buy_item(&d, &item).is_err());
