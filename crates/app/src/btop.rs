@@ -873,7 +873,8 @@ pub fn sound_popup(
             if hit(ui, c.at(2, 2, 8, 1), "mute".into()) {
                 to.on = !to.on;
             }
-            let level = format!("- {}% +", now.volume);
+            // The number keeps its width, so `+` never moves under the mouse.
+            let level = format!("- {:>3}% +", now.volume);
             let used = c.title(&painter, 2, vol::ROWS - 1, &level, p.fg);
             if hit(ui, c.at(3, vol::ROWS - 1, 1, 1), "-".into()) {
                 to = now.nudged(-1, vol::NOTCHES);

@@ -357,6 +357,15 @@ pub mod tests {
         );
         assert_eq!(said(&s.press(c, "40%")), ["volume 40"]);
         assert_eq!(said(&s.press(c, "+")), ["volume 45"]);
+        // `+` stays put whatever the number: at 5%, 10% and 100%.
+        let plus = |s: &Screen| s.h.find("+").unwrap();
+        let at = plus(&s);
+        for v in [5, 10, 100] {
+            s.level.volume = v;
+            s.frame(c, Vec::new());
+            assert_eq!(plus(&s), at, "at {v}%");
+        }
+        s.level.volume = 45;
         assert_eq!(said(&s.frame(c, keys_of(egui::Key::M, "m"))), ["sound off"]);
         assert_eq!(s.typed, "", "the command line never heard a key");
         s.frame(c, Vec::new());
