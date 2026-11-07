@@ -187,6 +187,9 @@ pub struct Cx<'a> {
     pub offset: f32,
     /// Whether it takes input.
     pub live: bool,
+    /// Whether its tools may take the keyboard: false while a window over the desktop (a
+    /// board called from home) owns it, even though the desktop still takes clicks.
+    pub keys: bool,
 }
 
 /// Every desktop, by name. A new desktop is a `Desktop` variant in core, a type implementing
@@ -636,6 +639,7 @@ impl Home {
     }
 
     /// Draws home with the desktop `view`: runs the dial and scan clocks, then the desktop.
+    #[allow(clippy::too_many_arguments)]
     pub fn show(
         &mut self,
         view: &mut dyn DesktopView,
@@ -644,6 +648,7 @@ impl Home {
         save: &Save,
         offset: f32,
         live: bool,
+        keys: bool,
     ) -> Vec<WbOut> {
         self.sync_hex(save);
         self.step_probe(ui);
@@ -671,6 +676,7 @@ impl Home {
             save,
             offset,
             live,
+            keys: live && keys,
         };
         view.show(ui, self, &cx, &mut out);
         out

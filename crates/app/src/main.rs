@@ -1280,84 +1280,7 @@ impl eframe::App for App {
 
         // The desktop: on its own while home, dragging during the transitions.
         if !matches!(self.screen, Screen::Run | Screen::Crash) {
-            // One theme colours everything: load the desktop's palette from it.
-            if let Some(t) = self.data.theme(&self.run_theme) {
-                home::set_desk(home::Desk::from_def(t));
-            }
-            let offset = self.screen.drag() * ctx.content_rect().height();
-            let live = self.screen.hub_live();
-            // Dev key: free credits at home, for trying out RIG and the BBSes.
-            if live && ctx.input(|i| i.key_pressed(egui::Key::F8)) {
-                let msg = self.save.dev_credits();
-                self.save_dirty = true;
-                self.home.say(msg);
-            }
-            let mut outs = Vec::new();
-            egui::Area::new(egui::Id::new("workbench"))
-                .order(egui::Order::Foreground)
-                .movable(false)
-                .fixed_pos(egui::pos2(0.0, 0.0))
-                .show(&ctx, |ui| {
-                    ui.set_min_size(ctx.content_rect().size());
-                    let desk = self.save.firmware_def(&self.data).desktop;
-                    let view = self.desktops.get(desk);
-                    outs = self
-                        .home
-                        .show(view, ui, &self.data, &self.save, offset, live);
-                });
-            for o in outs {
-                // Settings go on the save first (tested in `settings`); then the repaint.
-                let before = (self.save.monitor.clone(), self.save.layout_key(&self.data));
-                let o = match settings::apply(&mut self.save, &self.data, o) {
-                    settings::Applied::Other(o) => o,
-                    applied => {
-                        self.settled(&ctx, applied, before);
-                        continue;
-                    }
-                };
-                match o {
-                    WbOut::Dial(entry, seed) if live => self.dial(entry, seed),
-                    WbOut::Dial(..) => {}
-                    WbOut::HelpSeen => {
-                        self.save.tiling_help_seen = true;
-                        self.save_dirty = true;
-                    }
-                    WbOut::Tiling(t) => {
-                        self.save.tiling = t;
-                        self.save_dirty = true;
-                    }
-                    WbOut::ShellHistory(h) => {
-                        if self.save.shell_history != h {
-                            self.save.shell_history = h;
-                            self.save_dirty = true;
-                        }
-                    }
-                    WbOut::Order(item) => self.order(&ctx, item),
-                    WbOut::GuideSeen => {
-                        self.save.guide_seen = true;
-                        self.save_dirty = true;
-                    }
-                    WbOut::GameStarted(id) => {
-                        self.save.start_game(&id);
-                        self.save_dirty = true;
-                    }
-                    WbOut::Crt => {
-                        self.toggle_crt();
-                        self.home
-                            .say(format!("crt {}", if self.crt { "on" } else { "off" }));
-                    }
-                    WbOut::Sound => {
-                        let state = self.toggle_sound();
-                        self.home.say(format!("sound {state}"));
-                    }
-                    WbOut::At(from, line) => self.modem(from, &line),
-                    other => self.home_action(other),
-                }
-            }
-            if live {
-                self.home_bbs_ui(&ctx, &pal);
-            }
-            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+            self.hub_ui(&ctx, &pal);
         }
 
         // Damage glitches go on top of the preset, for the shader only: the mouse keeps the
@@ -1502,6 +1425,92 @@ fn hotkeys(ctx: &egui::Context, game: &Game, modal: bool, focus_input: &mut bool
 
 impl App {
     /// The run's IDE: menu, status bar, dock panes and the run's modal windows.
+    /// The desktop and anything called up over it (a board dialled from home), with what they
+    /// send applied: on its own while home, dragging during the transitions.
+    fn hub_ui(&mut self, ctx: &egui::Context, pal: &theme::Palette) {
+        let (ctx, pal) = (ctx.clone(), *pal);
+        // One theme colours everything: load the desktop's palette from it.
+        if let Some(t) = self.data.theme(&self.run_theme) {
+            home::set_desk(home::Desk::from_def(t));
+        }
+        let offset = self.screen.drag() * ctx.content_rect().height();
+        let live = self.screen.hub_live();
+        // Dev key: free credits at home, for trying out RIG and the BBSes.
+        if live && ctx.input(|i| i.key_pressed(egui::Key::F8)) {
+            let msg = self.save.dev_credits();
+            self.save_dirty = true;
+            self.home.say(msg);
+        }
+        let mut outs = Vec::new();
+        egui::Area::new(egui::Id::new("workbench"))
+            .order(egui::Order::Foreground)
+            .movable(false)
+            .fixed_pos(egui::pos2(0.0, 0.0))
+            .show(&ctx, |ui| {
+                ui.set_min_size(ctx.content_rect().size());
+                let desk = self.save.firmware_def(&self.data).desktop;
+                let view = self.desktops.get(desk);
+                // A board called from home owns the keyboard while it's up.
+                let keys = self.home_bbs.is_none();
+                outs = self
+                    .home
+                    .show(view, ui, &self.data, &self.save, offset, live, keys);
+            });
+        for o in outs {
+            // Settings go on the save first (tested in `settings`); then the repaint.
+            let before = (self.save.monitor.clone(), self.save.layout_key(&self.data));
+            let o = match settings::apply(&mut self.save, &self.data, o) {
+                settings::Applied::Other(o) => o,
+                applied => {
+                    self.settled(&ctx, applied, before);
+                    continue;
+                }
+            };
+            match o {
+                WbOut::Dial(entry, seed) if live => self.dial(entry, seed),
+                WbOut::Dial(..) => {}
+                WbOut::HelpSeen => {
+                    self.save.tiling_help_seen = true;
+                    self.save_dirty = true;
+                }
+                WbOut::Tiling(t) => {
+                    self.save.tiling = t;
+                    self.save_dirty = true;
+                }
+                WbOut::ShellHistory(h) => {
+                    if self.save.shell_history != h {
+                        self.save.shell_history = h;
+                        self.save_dirty = true;
+                    }
+                }
+                WbOut::Order(item) => self.order(&ctx, item),
+                WbOut::GuideSeen => {
+                    self.save.guide_seen = true;
+                    self.save_dirty = true;
+                }
+                WbOut::GameStarted(id) => {
+                    self.save.start_game(&id);
+                    self.save_dirty = true;
+                }
+                WbOut::Crt => {
+                    self.toggle_crt();
+                    self.home
+                        .say(format!("crt {}", if self.crt { "on" } else { "off" }));
+                }
+                WbOut::Sound => {
+                    let state = self.toggle_sound();
+                    self.home.say(format!("sound {state}"));
+                }
+                WbOut::At(from, line) => self.modem(from, &line),
+                other => self.home_action(other),
+            }
+        }
+        if live {
+            self.home_bbs_ui(&ctx, &pal);
+        }
+        ctx.request_repaint_after(std::time::Duration::from_millis(250));
+    }
+
     fn run_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, pal: &theme::Palette) {
         let pal = *pal;
         let ctx = ctx.clone();
@@ -1702,6 +1711,43 @@ fn unpacked(r: &ninsei_core::hub::RunReport) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_board_called_from_home_takes_the_keyboard_from_a_game() {
+        use crate::uitest::{Harness, key};
+        use ninsei_core::hub::GameCopy;
+        let mut h = Harness::new(1280.0, 800.0);
+        let cc = eframe::CreationContext::_new_kittest(h.ctx.clone());
+        let mut app = App::new(&cc, Data::builtin().unwrap(), Some(7));
+        app.save.decks.push("onosendai".into());
+        app.save.deck = "onosendai".into();
+        app.save.firmware = app.save.deck_def(&app.data).firmware[0].id.clone();
+        app.save.tiling_help_seen = true;
+        app.save.intros = false;
+        app.save.learn_game("minefield", GameCopy::Cracked);
+        app.load_layout();
+        let mine = Tool::game("minefield", GameCopy::Cracked).unwrap();
+        app.home.open(mine);
+        let frame = |h: &mut Harness, app: &mut App, ev: Vec<egui::Event>| {
+            let pal = app.pal;
+            h.frame(ev, |ui| app.hub_ui(ui.ctx(), &pal));
+        };
+        for _ in 0..3 {
+            frame(&mut h, &mut app, Vec::new());
+        }
+        assert_eq!(app.save.tiling.focused(), Some(mine));
+        let at = app.home.game(mine).unwrap().cursor();
+        frame(&mut h, &mut app, key(egui::Key::ArrowRight));
+        let moved = app.home.game(mine).unwrap().cursor();
+        assert_ne!(moved, at, "the focused tile has the keys");
+        app.home_action(WbOut::Call("sensenet".into()));
+        assert!(app.home_bbs.is_some(), "the call is up");
+        frame(&mut h, &mut app, key(egui::Key::ArrowRight));
+        frame(&mut h, &mut app, key(egui::Key::Space));
+        let g = app.home.game(mine).unwrap();
+        assert_eq!(g.cursor(), moved, "the board has the keys, not the game");
+        assert!(g.paused(), "and the game waits behind it");
+    }
 
     #[test]
     fn games_downloaded_on_a_run_are_unpacked_with_the_tools() {

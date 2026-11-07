@@ -438,7 +438,7 @@ impl DesktopView for Liza {
                 home.tool_in(
                     &mut child,
                     tool,
-                    live && front && self.menu.is_none(),
+                    cx.keys && front && self.menu.is_none(),
                     data,
                     save,
                     out,
@@ -817,6 +817,7 @@ mod tests {
                 save,
                 offset: 0.0,
                 live: true,
+                keys: true,
             };
             liza.show(ui, home, &cx, &mut Vec::new());
         });
@@ -973,6 +974,7 @@ mod tests {
                     save: &save,
                     offset: 0.0,
                     live: true,
+                    keys: true,
                 };
                 liza.show(ui, home, &cx, &mut Vec::new());
             });
@@ -1115,6 +1117,7 @@ mod tests {
                         save: &save,
                         offset: 0.0,
                         live: true,
+                        keys: true,
                     };
                     liza.show(ui, &mut home, &cx, &mut Vec::new());
                 });

@@ -337,7 +337,7 @@ impl DesktopView for TilingDesk {
             home.tool_in(
                 &mut child,
                 tool,
-                typing,
+                typing && cx.keys,
                 data,
                 save,
                 out,
@@ -493,6 +493,7 @@ mod tests {
                     save: &save,
                     offset: 0.0,
                     live: true,
+                    keys: true,
                 };
                 let mut out = Vec::new();
                 desk.show(ui, &mut home, &cx, &mut out);
@@ -550,6 +551,7 @@ mod tests {
                     save: &save,
                     offset: 0.0,
                     live: true,
+                    keys: true,
                 };
                 desk.show(ui, home, &cx, &mut out);
             });
@@ -618,6 +620,7 @@ mod tests {
                     save,
                     offset: 0.0,
                     live: true,
+                    keys: true,
                 };
                 desk.show(ui, home, &cx, &mut out);
             });

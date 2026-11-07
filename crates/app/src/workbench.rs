@@ -408,7 +408,7 @@ impl DesktopView for Workbench {
                     home.tool_in(
                         &mut child,
                         tool,
-                        live && top,
+                        cx.keys && top,
                         data,
                         save,
                         out,
@@ -520,6 +520,7 @@ mod tests {
                 save,
                 offset: 0.0,
                 live: true,
+                keys: true,
             };
             let mut out = Vec::new();
             wb.show(ui, home, &cx, &mut out);
@@ -745,6 +746,7 @@ mod tests {
                         save: &save,
                         offset: 0.0,
                         live: true,
+                        keys: true,
                     };
                     wb.show(ui, &mut home, &cx, &mut Vec::new());
                 });
@@ -833,6 +835,7 @@ mod tests {
                         save: &save,
                         offset: 0.0,
                         live: true,
+                        keys: true,
                     };
                     wb.show(ui, &mut home, &cx, &mut Vec::new());
                 });
