@@ -77,7 +77,7 @@ A crack is signed. Each crew has a voice, a signature in its scroller, a style o
 
 Boxed software is legitimate, friendly and knows nothing about the scene.
 
-**Paper Tiger Software.** Boxed games by mail order (task 47.5), the home-software house in CPU Shopper's Games section. Warranty cards, a 1-800 line, "fun for the whole deck". Its splashes are a tagline and a logo: no crew, no greetz, no board.
+**Paper Tiger Software.** Boxed games by mail order, the home-software house in CPU Shopper's Games section (`papertiger` in `shopper.ron`; its ads come with task 47.5). Warranty cards, a 1-800 line (1-800-PAPER-TG), "fun for the whole deck". Its splashes are a tagline and a logo: no crew, no greetz, no board.
 
 The magazine's advertisers (`data/hub/shopper.ron`), each with a voice:
 
@@ -89,6 +89,7 @@ The magazine's advertisers (`data/hub/shopper.ron`), each with a voice:
 | Chiba Micro Supply | RAM, CPU, monitors, panes | fast delivery, prices climb as your rig grows, all sales final |
 | Desk Accessory Warehouse | desktop add-ons | only for the desktops you run |
 | Tiger Team Systems | Tiger Team Pro | "for authorized security testing only" |
+| Paper Tiger Software | boxed games | "fun for the whole deck"; warranty cards, never a crew or a board |
 | d1rge mail order | NiGHTCOMM, in a plain wrapper | "no questions"; the one advertiser who's also a sysop, and the magazine doesn't know |
 
 A magazine can name products, boards by reputation and 1-800 numbers; it never prints a 555 number, never names your settings app, and never tells you a key to press.
@@ -109,7 +110,7 @@ Decks are look only: no deck is faster than another, and no in-world text claims
 
 **The magazine.** `data/hub/shopper.ron` dresses it: a mail-order computer magazine after Computer Shopper (1986), VOL. 9 NO. 11, 2¢ at the newsstand, "over 880 pages, 412 advertisers, 1,900 products". RIG is one of its issues: you don't open a shop, you flip through a magazine and order from an ad.
 
-**Who writes it.** Editors who have never seen your deck. They test hardware ("our lab jacks in"), run shootouts, and write cover lines; the advertisers write the ads in their own voices (the vendor table above). Sections, each exactly once: Decks, Upgrades, Monitors, Desktop add-ons, Run panes, Mail-order software, and (task 47.5) Games.
+**Who writes it.** Editors who have never seen your deck. They test hardware ("our lab jacks in"), run shootouts, and write cover lines; the advertisers write the ads in their own voices (the vendor table above). Sections, each exactly once: Decks, Upgrades, Monitors, Desktop add-ons, Run panes, Mail-order software, and Games (Paper Tiger's price list; its ads come with task 47.5).
 
 **What it knows.** Products, prices, versions, 1-800 hotlines, which deck an add-on fits, what's a REVIEW COPY this issue. It prices nothing itself: every item is priced in its own data file and turns up in the next issue on its own, as a dot-leader line until somebody writes it an ad.
 
