@@ -161,3 +161,29 @@ fn a_crack_names_its_board_and_greets_and_a_splash_greets_nobody() {
     i.greetz = vec!["c4se".into()];
     assert!(i.validate(&d).unwrap_err().contains("greets nobody"));
 }
+
+#[test]
+fn a_crews_tag_fits_an_8_3_name_and_a_splash_has_none() {
+    let d = data();
+    let mut i = d.intro("blox-crack").unwrap().clone();
+    assert_eq!(i.tag.as_deref(), Some("PHS"));
+    for bad in ["", "PHOS", "ph", "P-S"] {
+        i.tag = Some(bad.into());
+        assert!(i.validate(&d).unwrap_err().contains("8.3"), "{bad:?}");
+    }
+    let mut s = d.intro("blox-splash").unwrap().clone();
+    s.tag = Some("PT".into());
+    assert!(s.validate(&d).unwrap_err().contains("no crew's tag"));
+}
+
+#[test]
+fn a_crew_signs_with_one_tag() {
+    let mut d = data();
+    let i = d
+        .intros
+        .iter()
+        .position(|i| i.id == "minefield-crack")
+        .unwrap();
+    d.intros[i].tag = Some("PH".into());
+    assert!(d.validate().unwrap_err().contains("signs as"));
+}

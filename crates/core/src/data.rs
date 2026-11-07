@@ -909,8 +909,22 @@ impl Data {
     pub fn validate(&self) -> Result<(), String> {
         self.welcome.validate(self)?;
         self.starts.validate(self)?;
-        for i in &self.intros {
+        for (n, i) in self.intros.iter().enumerate() {
             i.validate(self)?;
+            // A crew signs with one tag everywhere.
+            if let Some(t) = &i.tag
+                && let Some(o) = self.intros[..n]
+                    .iter()
+                    .find(|o| o.group == i.group && o.tag.as_ref().is_some_and(|ot| ot != t))
+            {
+                return Err(format!(
+                    "intro `{}`: {} signs as `{t}` here but `{}` on `{}`",
+                    i.id,
+                    i.group,
+                    o.tag.as_deref().unwrap_or(""),
+                    o.id
+                ));
+            }
         }
         for t in &self.tools {
             if let Some(id) = &t.intro
@@ -1304,6 +1318,9 @@ impl Data {
                 None => return err(format!("unknown crack intro `{}`", g.crack)),
                 Some(i) if i.is_splash() => {
                     return err(format!("crack intro `{}` is a splash", g.crack));
+                }
+                Some(i) if i.tag.is_none() => {
+                    return err(format!("crack intro `{}` has no crew tag", g.crack));
                 }
                 _ => {}
             }

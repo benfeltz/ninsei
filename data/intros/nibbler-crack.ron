@@ -3,6 +3,7 @@
 (
     board: Some("gutter"),
     group: "THE 2400 CLUB",
+    tag: Some("2K4"),
     secs: 4.0,
     frame_secs: 1.0,
     frames: [

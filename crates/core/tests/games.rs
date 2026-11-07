@@ -59,6 +59,8 @@ fn a_bad_game_is_rejected() {
     assert!(check(|g| g.crack = "nowhere".into()).contains("unknown crack intro"));
     assert!(check(|g| g.splash = "nowhere".into()).contains("unknown splash intro"));
     assert!(check(|g| g.crack = splash.clone()).contains("is a splash"));
+    // A tool's cracktro has no tag; a game's crack must carry one.
+    assert!(check(|g| g.crack = "hexed".into()).contains("has no crew tag"));
     assert!(check(|g| g.splash = crack.clone()).contains("is a crack"));
     assert!(check(|g| g.publisher = "kowloon".into()).contains("unknown publisher"));
     assert!(check(|g| g.version = "9.9".into()).contains("doesn't name `NIBBLER 9.9`"));

@@ -3,6 +3,7 @@
 (
     board: Some("gutter"),
     group: "PHOSPHOR",
+    tag: Some("PHS"),
     secs: 4.0,
     frame_secs: 1.0,
     frames: [

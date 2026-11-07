@@ -13,6 +13,9 @@ use crate::data::Data;
 /// Rows the art may use: the last two rows are the board's ad and the scroller.
 pub const ART_ROWS: usize = ROWS - 2;
 
+/// The longest crew tag: `NIBBL-NM.ZIP` leaves three characters of an 8.3 name for it.
+pub const TAG_MAX: usize = 3;
+
 /// Tunables for every intro.
 pub mod anim {
     /// Scroller speed in characters a second, and in calm mode (glitches reduced or off).
@@ -63,6 +66,11 @@ pub struct IntroDef {
     pub board: Option<String>,
     /// The crew that cracked it.
     pub group: String,
+    /// The crew's short tag (`NM`, `PHS`, `2K4`, `RZW`): what a cracked copy is labelled with,
+    /// on the desktop and in a board's 8.3 file names. Required on a game's crack, never on a
+    /// splash.
+    #[serde(default)]
+    pub tag: Option<String>,
     /// How long it plays before the program opens, in seconds.
     pub secs: f32,
     /// How long each frame shows.
@@ -470,6 +478,21 @@ impl IntroDef {
         }
         if self.is_splash() && !self.greetz.is_empty() {
             return err("a splash greets nobody".into());
+        }
+        if self.is_splash() && self.tag.is_some() {
+            return err("a splash carries no crew's tag".into());
+        }
+        let fits = |t: &str| {
+            (1..=TAG_MAX).contains(&t.len())
+                && t.chars()
+                    .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+        };
+        if let Some(t) = &self.tag
+            && !fits(t)
+        {
+            return err(format!(
+                "tag `{t}`: 1-{TAG_MAX} capital letters or digits, so it fits an 8.3 name"
+            ));
         }
         if !self.is_splash() && self.greetz.is_empty() {
             return err("no greetz (or a tagline)".into());
