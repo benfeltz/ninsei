@@ -258,4 +258,28 @@ mod tests {
                 .any(|s| matches!(s, egui::Shape::Text(t) if t.galley.text().contains('█')))
         );
     }
+
+    #[test]
+    fn nothing_past_the_80th_column_or_24th_row_in_either_mode() {
+        let data = ninsei_core::Data::builtin().unwrap();
+        let p = Palette::from_def(&data.themes[0]);
+        // A row 90 wide on a blue background with block art past the edge, and 26 rows.
+        let mut lines = vec![format!("|17|15{}{}", "x".repeat(78), "█".repeat(12))];
+        lines.extend((1..ROWS + 2).map(|_| "|20|14".to_string() + &"y".repeat(COLS)));
+        for color in [true, false] {
+            let mut h = Harness::new(1280.0, 800.0);
+            let mut screen = egui::Rect::NOTHING;
+            h.frame(Vec::new(), |ui| {
+                paint_screen(ui, &lines, color, &p);
+                screen = ui.min_rect();
+            });
+            for s in h.painted() {
+                let r = s.visual_bounding_rect();
+                assert!(
+                    screen.expand(1.0).contains_rect(r),
+                    "color {color}: {r:?} outside {screen:?}"
+                );
+            }
+        }
+    }
 }
