@@ -19,7 +19,7 @@ use ninsei_core::hub::Tool;
 use crate::home::{Cx, DesktopView, Home, WbOut, accent, backdrop, font, hint, ink, muted, shadow};
 
 /// Sizes, in one place.
-mod size {
+pub(crate) mod size {
     pub const BAR_H: f32 = 26.0;
     pub const GAP: f32 = 8.0;
     pub const TITLE_H: f32 = 18.0;
@@ -289,7 +289,7 @@ impl DesktopView for TilingDesk {
             .request_repaint_after(std::time::Duration::from_secs(1));
 
         // The tiles.
-        let area = Rect::from_min_max(pos2(screen.left(), bar.bottom()), screen.max);
+        let area = work_area(screen);
         let layout = t.layout(
             [area.left(), area.top(), area.width(), area.height()],
             size::GAP,
@@ -348,9 +348,7 @@ impl DesktopView for TilingDesk {
             if live && clicked.is_some_and(|p| r.contains(p)) {
                 focus_to = Some(i);
             }
-            let content = r
-                .shrink2(vec2(10.0, 8.0))
-                .with_min_y(r.top() + size::TITLE_H - 4.0);
+            let content = content_of(r);
             let typing = live && on && self.launcher.is_none() && !self.leader && !help_open;
             if tool == Tool::Shell {
                 home.shell(ui, content, data, save, typing, out);
@@ -370,9 +368,15 @@ impl DesktopView for TilingDesk {
             if tool == Tool::System {
                 home.system.keys = typing;
             }
-            crate::home::scrolled(&mut child, ("tile-scroll", tool), |ui| {
-                home.tool_body(ui, tool, data, save, out)
-            });
+            home.tool_in(
+                &mut child,
+                tool,
+                data,
+                save,
+                out,
+                Some("Esc f: full screen"),
+                ("tile-scroll", tool),
+            );
         }
         if let Some(i) = focus_to {
             t.focus = i;
@@ -526,6 +530,18 @@ impl TilingDesk {
     }
 }
 
+/// Where tiles go on `screen`: everything under the bar.
+pub(crate) fn work_area(screen: Rect) -> Rect {
+    Rect::from_min_max(pos2(screen.left(), screen.top() + size::BAR_H), screen.max)
+}
+
+/// Where a tool draws inside its tile `r`: under the label cut into the top border, inside
+/// the margins.
+pub(crate) fn content_of(r: Rect) -> Rect {
+    r.shrink2(vec2(10.0, 8.0))
+        .with_min_y(r.top() + size::TITLE_H - 4.0)
+}
+
 /// The key help: a key (after the leader) and what it does.
 const HELP: [(&str, &str); 14] = [
     ("AnarchyOS // ono-sendai cyberspace vii", ""),
@@ -659,6 +675,7 @@ mod tests {
             ninsei_core::hardware::Desktop::Tiling
         );
         let ctx = egui::Context::default();
+        crate::uitest::themed(&ctx, &data);
         let mut desk = TilingDesk::new();
         let mut home = Home::new(Vec::new());
         let key = |k| {
@@ -704,6 +721,16 @@ mod tests {
         frame(&mut desk, &mut home, Vec::new());
         frame(&mut desk, &mut home, Vec::new());
         assert!(home.system.keys, "the new System tile is focused");
+        // A stack tile is narrower than System's 80 columns: full screen gives it the room.
+        assert_eq!(
+            home.notices,
+            vec![Tool::System; 2],
+            "too small in the stack"
+        );
+        frame(&mut desk, &mut home, key(egui::Key::Escape));
+        frame(&mut desk, &mut home, key(egui::Key::F));
+        frame(&mut desk, &mut home, Vec::new());
+        home.notices.clear();
         frame(&mut desk, &mut home, key(egui::Key::Num2));
         frame(&mut desk, &mut home, Vec::new());
         assert_eq!(home.system.panel, ninsei_core::system::Panel::Monitor);
@@ -739,6 +766,7 @@ mod tests {
                 desk: TilingDesk::new(),
                 home: Home::new(Vec::new()),
             };
+            crate::uitest::themed(&r.h.ctx, &r.data);
             r.frame(Vec::new());
             r.frame(Vec::new());
             r

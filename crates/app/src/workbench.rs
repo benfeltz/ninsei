@@ -404,9 +404,7 @@ impl DesktopView for Workbench {
                         Kind::Guide => Tool::Guide,
                         _ => Tool::HexEd,
                     };
-                    crate::home::scrolled(&mut child, ("wb-scroll", tool), |ui| {
-                        home.tool_body(ui, tool, data, save, out)
-                    });
+                    home.tool_in(&mut child, tool, data, save, out, None, ("wb-scroll", tool));
                 }
                 Kind::Requester(tool) => {
                     if let Some(action) = requester(ui, &painter, content, tool, live, wid) {
@@ -721,5 +719,31 @@ mod tests {
             Tool::TigerTeam => Kind::TigerTeam,
             Tool::Guide => Kind::Guide,
         }
+    }
+
+    #[test]
+    fn every_tool_window_opens_big_enough_for_its_tool() {
+        let data = Data::builtin().unwrap();
+        let save = Save {
+            tools: ninsei_core::data::TOOLS
+                .iter()
+                .map(|t| t.to_string())
+                .collect(),
+            guide_seen: true,
+            intros: false,
+            ..Save::default()
+        };
+        let ctx = egui::Context::default();
+        crate::uitest::themed(&ctx, &data);
+        let (mut wb, mut home) = (Workbench::new(), Home::new(Vec::new()));
+        let mut t = 0.0;
+        for tool in Tool::ALL {
+            wb.open(tool);
+            for _ in 0..2 {
+                t += 0.1;
+                frame(&ctx, &mut wb, &mut home, &data, &save, Vec::new(), t);
+            }
+        }
+        assert!(home.notices.is_empty(), "too small: {:?}", home.notices);
     }
 }

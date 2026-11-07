@@ -106,9 +106,6 @@ pub fn show(
     let p = ui.painter_at(rect);
     // The desktop.
     p.rect_filled(rect, 0.0, fill());
-    if g.cols < 30 || g.rows < 10 {
-        return;
-    }
     // The menu bar: the sections, the current one in inverse.
     g.fill(&p, 0, 0, g.cols, 1, ink());
     let full: usize = Page::ALL

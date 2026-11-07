@@ -14,6 +14,7 @@ use ninsei_core::modem::Handshake;
 use std::cell::Cell;
 
 use crate::hubtools;
+use crate::kit::{Fit, fit};
 use crate::theme::Palette;
 
 /// The desktop's colours. Like the Amiga's palette registers: set once a frame from the desktop
@@ -233,6 +234,9 @@ pub struct Home {
     pub(crate) nightcomm: crate::nightcomm_view::NightComm,
     /// Tiger Team Pro's section, picks and its own terminal.
     pub(crate) tigerteam: crate::tigerteam_view::TigerTeam,
+    /// The tools a desktop drew the "too small" notice for instead (tests).
+    #[cfg(test)]
+    pub(crate) notices: Vec<Tool>,
     pub(crate) term_tab: TermTab,
     /// Range highlighted in WarDial.
     pub(crate) range_sel: Option<String>,
@@ -296,6 +300,8 @@ impl Home {
             term_sel: None,
             nightcomm: Default::default(),
             tigerteam: Default::default(),
+            #[cfg(test)]
+            notices: Vec::new(),
             term_tab: TermTab::Phonebook,
             range_sel: None,
             scan: None,
@@ -625,8 +631,61 @@ impl Home {
         out
     }
 
-    /// Draws a tool's contents (everything but the Shell) into `child`. Desktops call this
-    /// inside whatever frame they give a tool: a window, a tile.
+    #[cfg(test)]
+    /// The text-mode tools: the ones laid out in cells, which the fit test draws at every size
+    /// the tiler gives.
+    pub const TEXT_TOOLS: [Tool; 3] = [Tool::NightComm, Tool::TigerTeam, Tool::System];
+
+    /// The smallest grid of cells each tool works in: the one place a tool says so. A tool
+    /// that says nothing gets [`Fit::DEFAULT`].
+    pub fn fit(tool: Tool) -> Fit {
+        match tool {
+            // The list with its header and a few rows, and every page's columns.
+            Tool::NightComm | Tool::TigerTeam => Fit { cols: 56, rows: 12 },
+            // The text face's About panel (the logo beside the specs) is a whole 80x24
+            // terminal; every other panel fits inside it.
+            Tool::System => Fit { cols: 80, rows: 24 },
+            _ => Fit::DEFAULT,
+        }
+    }
+
+    /// Draws `tool` in `ui` (a desktop's window or tile, dressed by `hubtools::wb_visuals`) if
+    /// the room it has is at least the tool's [`Home::fit`]; below it, the one notice in its
+    /// place, with the desktop's `hint`. Returns whether the tool was drawn.
+    #[allow(clippy::too_many_arguments)]
+    pub fn tool_in(
+        &mut self,
+        ui: &mut Ui,
+        tool: Tool,
+        data: &Data,
+        save: &Save,
+        out: &mut Vec<WbOut>,
+        hint: Option<&str>,
+        salt: impl std::hash::Hash + std::fmt::Debug,
+    ) -> bool {
+        let rect = ui.max_rect();
+        let need = Self::fit(tool);
+        let (have, fits) = fit::check(ui, rect, need);
+        if !fits {
+            #[cfg(test)]
+            self.notices.push(tool);
+            fit::notice(
+                ui,
+                rect,
+                tool.volume(),
+                need,
+                have,
+                hint,
+                (backdrop(), ink(), muted()),
+            );
+            return false;
+        }
+        scrolled(ui, salt, |ui| self.tool_body(ui, tool, data, save, out));
+        true
+    }
+
+    /// Draws a tool's contents (everything but the Shell) into `child`. Desktops call it
+    /// through [`Home::tool_in`], inside whatever frame they give a tool: a window, a tile.
     pub fn tool_body(
         &mut self,
         child: &mut Ui,
@@ -997,6 +1056,160 @@ pub(crate) mod tests {
         let mut out = frame(h, home, data, save, tool, crate::uitest::click(at));
         out.extend(frame(h, home, data, save, tool, Vec::new()));
         out
+    }
+
+    impl Home {
+        /// How many pages `tool` has, for a test to draw each.
+        fn pages(tool: Tool) -> usize {
+            match tool {
+                Tool::NightComm => ninsei_core::nightcomm::Tab::ALL.len(),
+                Tool::TigerTeam => ninsei_core::tigerteam::Page::ALL.len(),
+                Tool::System => ninsei_core::system::Panel::ALL.len(),
+                _ => 1,
+            }
+        }
+
+        /// Turns `tool` to its `page`th page.
+        fn turn_to(&mut self, tool: Tool, page: usize) {
+            match tool {
+                Tool::NightComm => self.nightcomm.tab = ninsei_core::nightcomm::Tab::ALL[page],
+                Tool::TigerTeam => self.tigerteam.page = ninsei_core::tigerteam::Page::ALL[page],
+                Tool::System => self.system.panel = ninsei_core::system::Panel::ALL[page],
+                _ => {}
+            }
+        }
+    }
+
+    /// The rects a tile on AnarchyOS at 1280x800 gives a tool to draw in: alone, as the
+    /// master and the stack beside one to three others, with the master at its default,
+    /// narrowest and widest share. Each with what it is, for a failing test to say.
+    fn tile_sizes() -> Vec<(String, Rect)> {
+        use ninsei_core::desktop::Tiling;
+        let screen = Rect::from_min_size(Pos2::ZERO, vec2(1280.0, 800.0));
+        let area = crate::tiling::work_area(screen);
+        let others = [Tool::Terminal, Tool::Qwk, Tool::IceDb];
+        let mut out: Vec<(String, Rect)> = Vec::new();
+        for n in 0..=others.len() {
+            for steps in [0, -100, 100] {
+                let mut t = Tiling::default();
+                for o in &others[..n] {
+                    t.open(*o);
+                }
+                t.resize_master(steps);
+                let tiles = t.layout(
+                    [area.left(), area.top(), area.width(), area.height()],
+                    crate::tiling::size::GAP,
+                );
+                for (i, (_, [x, y, w, h])) in tiles.into_iter().enumerate() {
+                    let r = crate::tiling::content_of(Rect::from_min_size(pos2(x, y), vec2(w, h)));
+                    if !out.iter().any(|(_, o)| o.size() == r.size()) {
+                        let what = format!(
+                            "tile {i} of {} with the master at {}%",
+                            n + 1,
+                            t.shape().master
+                        );
+                        out.push((what, r));
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// A deck on AnarchyOS that owns every tool, so each draws its text-mode face.
+    fn anarchy_deck(data: &Data) -> Save {
+        let mut s = deck(data);
+        s.tools = ninsei_core::data::TOOLS
+            .iter()
+            .map(|t| t.to_string())
+            .collect();
+        s.decks = vec!["onosendai".into()];
+        s.deck = "onosendai".into();
+        s.ensure_hardware(data);
+        s
+    }
+
+    /// Draws `tool`, turned to its `page`th page, through the desktops' one door at `rect` on
+    /// a themed screen, a few frames so it settles. Returns the cells it had and whether the
+    /// tool (not the notice) was drawn.
+    fn draw_at(
+        data: &Data,
+        save: &Save,
+        tool: Tool,
+        rect: Rect,
+        page: usize,
+    ) -> ((usize, usize), bool, Harness) {
+        let mut h = Harness::new(1280.0, 800.0);
+        crate::uitest::themed(&h.ctx, data);
+        let mut home = Home::new(Vec::new());
+        home.turn_to(tool, page);
+        let (mut have, mut drawn) = ((0, 0), false);
+        for _ in 0..3 {
+            home.notices.clear();
+            h.frame(Vec::new(), |ui| {
+                let mut child = ui.new_child(UiBuilder::new().max_rect(rect));
+                have = crate::kit::cells::cells_in(&child, rect);
+                drawn = home.tool_in(&mut child, tool, data, save, &mut Vec::new(), None, "t");
+            });
+        }
+        assert_eq!(
+            home.notices.is_empty(),
+            drawn,
+            "a notice exactly when not drawn"
+        );
+        (have, drawn, h)
+    }
+
+    #[test]
+    fn every_text_tool_fits_its_tiles_or_says_so() {
+        let data = Data::builtin().unwrap();
+        let save = anarchy_deck(&data);
+        let sizes = tile_sizes();
+        assert!(sizes.len() > 8, "a spread of tiles: {sizes:?}");
+        for tool in Home::TEXT_TOOLS {
+            for page in 0..Home::pages(tool) {
+                for (what, rect) in &sizes {
+                    let (have, drawn, h) = draw_at(&data, &save, tool, *rect, page);
+                    assert_eq!(
+                        drawn,
+                        Home::fit(tool).fits(have),
+                        "{tool:?} page {page} as {what}: {have:?} cells, needs {:?}",
+                        Home::fit(tool)
+                    );
+                    if drawn {
+                        assert!(
+                            h.outside(*rect).is_empty(),
+                            "{tool:?} page {page} as {what} reaches outside: {:?}",
+                            h.outside(*rect)
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_notice_shows_exactly_below_each_tools_minimum() {
+        let data = Data::builtin().unwrap();
+        let save = anarchy_deck(&data);
+        let mut cell = vec2(0.0, 0.0);
+        let mut h = Harness::new(100.0, 100.0);
+        crate::uitest::themed(&h.ctx, &data);
+        h.frame(Vec::new(), |ui| cell = crate::kit::cells::cell_size(ui));
+        let at = |cols: usize, rows: usize| {
+            Rect::from_min_size(
+                pos2(10.0, 10.0),
+                vec2(cols as f32 * cell.x + 0.5, rows as f32 * cell.y + 0.5),
+            )
+        };
+        for tool in Home::TEXT_TOOLS {
+            let need = Home::fit(tool);
+            let (have, drawn, _) = draw_at(&data, &save, tool, at(need.cols, need.rows), 0);
+            assert_eq!(have, (need.cols, need.rows));
+            assert!(drawn, "{tool:?} at exactly its minimum is drawn");
+            assert!(!draw_at(&data, &save, tool, at(need.cols - 1, need.rows), 0).1);
+            assert!(!draw_at(&data, &save, tool, at(need.cols, need.rows - 1), 0).1);
+        }
     }
 
     #[test]

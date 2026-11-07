@@ -199,9 +199,6 @@ pub fn show(
     let g = Cells::fit(ui, rect, muted(), shadow(), muted());
     let p = ui.painter_at(rect);
     p.rect_filled(rect, 0.0, shadow());
-    if g.cols < 24 || g.rows < 8 {
-        return;
-    }
     // The program's box: page titles in the top border, the key legend in the bottom one.
     g.frame(&p, 0, 0, g.cols, g.rows);
     let mut c = 2;

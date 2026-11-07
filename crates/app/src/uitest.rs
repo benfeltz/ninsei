@@ -111,6 +111,12 @@ impl Harness {
     }
 }
 
+/// Puts the app's real type scale (and a theme's colours) on `ctx`, so a test counts the
+/// cells the player gets.
+pub fn themed(ctx: &egui::Context, data: &ninsei_core::Data) {
+    crate::theme::apply(ctx, &crate::theme::Palette::from_def(&data.themes[0]));
+}
+
 /// A key pressed and released.
 pub fn key(key: Key) -> Vec<Event> {
     [true, false]

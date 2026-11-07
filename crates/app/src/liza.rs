@@ -367,9 +367,15 @@ impl DesktopView for Liza {
                 if !live {
                     child.disable();
                 }
-                home::scrolled(&mut child, ("liza-scroll", tool), |ui| {
-                    home.tool_body(ui, tool, data, save, out)
-                });
+                home.tool_in(
+                    &mut child,
+                    tool,
+                    data,
+                    save,
+                    out,
+                    None,
+                    ("liza-scroll", tool),
+                );
             }
         }
         if raise.is_none()
@@ -1017,5 +1023,22 @@ mod tests {
             (before.ink, before.shadow),
             "lit ink on dark paper"
         );
+    }
+
+    #[test]
+    fn every_tool_window_opens_big_enough_for_its_tool() {
+        let data = Data::builtin().unwrap();
+        let ctx = egui::Context::default();
+        crate::uitest::themed(&ctx, &data);
+        let (mut liza, mut home) = booted(&ctx, &data);
+        let mut t = look::BOOT_SECS + 0.2;
+        for tool in Tool::ALL {
+            liza.open(tool);
+            for _ in 0..2 {
+                t += 0.1;
+                frame(&ctx, &mut liza, &mut home, &data, Vec::new(), t);
+            }
+        }
+        assert!(home.notices.is_empty(), "too small: {:?}", home.notices);
     }
 }

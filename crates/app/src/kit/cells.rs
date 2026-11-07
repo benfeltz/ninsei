@@ -47,6 +47,12 @@ fn grid(cw: f32, ch: f32, area: Rect) -> (usize, usize) {
     )
 }
 
+/// The size of one cell in `ui`'s monospace font.
+pub fn cell_size(ui: &Ui) -> egui::Vec2 {
+    let (_, cw, ch) = metrics(ui);
+    vec2(cw, ch)
+}
+
 /// How many whole cells of `ui`'s monospace font fit in `area`: columns, rows.
 pub fn cells_in(ui: &Ui, area: Rect) -> (usize, usize) {
     let (_, cw, ch) = metrics(ui);
