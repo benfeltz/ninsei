@@ -114,10 +114,12 @@ impl TilingDesk {
         }
     }
 
-    /// Reads this frame's keys for the desktop. Returns true if something changed.
-    /// `searching`: the Shell is in a `Ctrl+R` search, where Esc only ends the search.
+    /// Reads this frame's keys for the desktop. `searching`: the Shell is in a `Ctrl+R`
+    /// search, where Esc only ends the search. A key the leader acts on is consumed (its
+    /// press, release and the text it types), so no tile drawn later this frame sees it.
     fn keys(&mut self, ui: &Ui, t: &mut Tiling, searching: bool, help_open: bool) {
         let events = ui.input(|i| i.events.clone());
+        let mut used: Vec<Key> = Vec::new();
         for e in events {
             match e {
                 Event::Key {
@@ -168,10 +170,23 @@ impl TilingDesk {
                     }
                     if done {
                         self.leader = false;
+                        used.push(key);
                     }
                 }
                 _ => {}
             }
+        }
+        if !used.is_empty() {
+            ui.ctx().input_mut(|i| {
+                i.events.retain(|e| match e {
+                    Event::Key { key, .. } => !used.contains(key),
+                    Event::Text(_) => false,
+                    _ => true,
+                });
+                for k in &used {
+                    i.keys_down.remove(k);
+                }
+            });
         }
     }
 }
@@ -948,5 +963,37 @@ mod tests {
     fn the_help_names_full_screen_and_the_resize_keys() {
         assert!(HELP.contains(&("f", "full screen, and back")));
         assert!(HELP.contains(&("[ / ]", "shrink / grow the master")));
+    }
+
+    #[test]
+    fn the_leaders_keys_never_reach_a_focused_system_tile() {
+        let mut r = Rig::new(true);
+        r.save.tools = ninsei_core::data::TOOLS
+            .iter()
+            .map(|t| t.to_string())
+            .collect();
+        r.save.decks = vec!["onosendai".into()];
+        r.save.deck = "onosendai".into();
+        r.save.ensure_hardware(&r.data);
+        r.home.open(Tool::System);
+        r.frame(Vec::new());
+        r.frame(Vec::new());
+        assert!(r.home.system.keys, "the System tile has the keys");
+        let pct = ninsei_core::desktop::MASTER_PCT;
+        let step = ninsei_core::desktop::MASTER_STEP;
+        r.key(egui::Key::Escape);
+        r.key_text(egui::Key::CloseBracket, "]");
+        assert_eq!(r.save.tiling.shape().master, pct + step, "the master grew");
+        r.key(egui::Key::Escape);
+        r.key_text(egui::Key::OpenBracket, "[");
+        assert_eq!(r.save.tiling.shape().master, pct);
+        assert_eq!(
+            r.home.system.panel,
+            ninsei_core::system::Panel::Overview,
+            "and System didn't turn its panel"
+        );
+        // Without the leader, [ and ] are System's again.
+        r.key_text(egui::Key::CloseBracket, "]");
+        assert_eq!(r.home.system.panel, ninsei_core::system::Panel::Monitor);
     }
 }
