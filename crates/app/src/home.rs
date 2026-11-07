@@ -1178,45 +1178,71 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn carrierterm_in_a_narrow_tile_shows_whole_rows() {
+    fn carrierterm_in_a_narrow_tile_shows_whole_rows_wherever_it_scrolls() {
         let data = Data::builtin().unwrap();
         let mut save = anarchy_deck(&data);
         save.add_starters(&data);
+        let mut rng = ninsei_core::rng::Rng::new(7);
+        while save.phonebook.len() < 14 {
+            save.add_number(&data, &mut rng, 1)
+                .expect("a company to list");
+        }
         let mut h = Harness::new(1280.0, 800.0);
         crate::uitest::themed(&h.ctx, &data);
         let mut home = Home::new(Vec::new());
         // An AnarchyOS stack tile: the card goes under the list.
         let rect = Rect::from_min_size(pos2(10.0, 10.0), vec2(508.0, 700.0));
-        for _ in 0..3 {
-            frame_at(
-                &mut h,
-                &mut home,
-                &data,
-                &save,
-                Tool::Terminal,
-                rect,
-                Vec::new(),
-            );
+        let run = |h: &mut Harness, home: &mut Home, events| {
+            frame_at(h, home, &data, &save, Tool::Terminal, rect, events);
+            frame_at(h, home, &data, &save, Tool::Terminal, rect, Vec::new());
+        };
+        run(&mut h, &mut home, Vec::new());
+        let total = format!("{} of {} numbers", 15, 15);
+        let check = |h: &Harness, what: &str| {
+            let head = h.find("NUMBER").expect("the list's header").bottom();
+            let footer = h
+                .find(&total)
+                .unwrap_or_else(|| panic!("{what}: {:?}", h.texts()))
+                .top();
+            let rows: Vec<Rect> = h
+                .all("555-")
+                .into_iter()
+                .filter(|r| r.width() > 400.0)
+                .collect();
+            assert!(rows.len() >= 5, "{what}: a list: {:?}", h.texts());
+            assert!(rows.len() < 15, "{what}: a window on it");
+            for r in rows {
+                assert!(
+                    r.top() >= head && r.bottom() <= footer - 6.0,
+                    "{what}: a row cut by the box: {r:?}, box {head}..{}",
+                    footer - 6.0
+                );
+            }
+        };
+        check(&h, "at the top");
+        for _ in 0..9 {
+            run(&mut h, &mut home, crate::uitest::key(Key::ArrowDown));
         }
-        let footer = h
-            .find("7 of 7 numbers")
-            .unwrap_or_else(|| panic!("{:?}", h.texts()))
-            .top();
-        // The box ends above its footer: the item spacing, then the frame's margin.
-        let bottom = footer - 4.0 - 2.0;
-        let rows = h.all("555-");
-        let shown: Vec<_> = rows.iter().filter(|r| r.top() < bottom).collect();
-        assert!(shown.len() >= 5, "a list: {:?}", h.texts());
+        check(&h, "arrowed down");
         assert!(
-            rows.iter().any(|r| r.top() >= bottom),
-            "and more below it: {rows:?}"
+            h.find(&format!("{total}  ·  10/15")).is_some(),
+            "the footer says where: {:?}",
+            h.texts()
         );
-        for r in shown {
-            assert!(
-                r.bottom() <= bottom,
-                "a row cut by the box: {r:?}, box ends {bottom}"
-            );
-        }
+        let wheel = vec![
+            egui::Event::PointerMoved(pos2(200.0, 150.0)),
+            egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: vec2(0.0, 33.0),
+                modifiers: egui::Modifiers::NONE,
+                phase: egui::TouchPhase::Move,
+            },
+        ];
+        let before = home.directory.list.top;
+        assert!(before > 0, "scrolled to follow the pick");
+        run(&mut h, &mut home, wheel);
+        check(&h, "wheeled up");
+        assert!(home.directory.list.top < before, "the wheel scrolled it up");
     }
 
     /// Widgets that reach past `rect`'s sides: what it would cut. (Faces scroll, so below

@@ -281,6 +281,8 @@ pub struct Directory {
     drawn: Option<u64>,
     /// The search box should take the keys at the next chance (an enabled frame).
     want_focus: bool,
+    /// Where the list is scrolled to, in whole rows.
+    pub(crate) list: crate::kit::List,
 }
 
 /// Width of the directory card beside the list.
@@ -355,31 +357,69 @@ fn dir_row(ui: &mut Ui, line: String, on: bool, live: bool) -> egui::Response {
     })
 }
 
-/// The height of `n` whole rows of the list (a row is one `dir_row`), so the box never shows
-/// half of one.
-fn whole_rows(ui: &Ui, n: usize) -> f32 {
+/// One row of the list (a `dir_row`) and the gap after it: (pitch, gap).
+fn row_pitch(ui: &Ui) -> (f32, f32) {
     let s = ui.spacing();
     let row = s
         .interact_size
         .y
         .max(ui.text_style_height(&egui::TextStyle::Monospace) + 2.0 * s.button_padding.y);
-    n as f32 * (row + s.item_spacing.y) - s.item_spacing.y
+    (row + s.item_spacing.y, s.item_spacing.y)
 }
 
-/// The list's box: an outline the full height it's given, so a short list reads as a list.
-fn list_box<R>(ui: &mut Ui, height: f32, add: impl FnOnce(&mut Ui) -> R) -> R {
+/// The height of `n` whole rows of the list.
+fn whole_rows(ui: &Ui, n: usize) -> f32 {
+    let (pitch, gap) = row_pitch(ui);
+    n as f32 * pitch - gap
+}
+
+/// The list's box: an outline around as many whole rows as fit in `height`, so a short list
+/// still reads as a list. It scrolls a row at a time through `list` (the kit's window, by
+/// core's scroll rule), following `follow` when given; the wheel over it scrolls too. `row`
+/// draws item `i`. Returns the rows it shows.
+fn list_box(
+    ui: &mut Ui,
+    height: f32,
+    len: usize,
+    list: &mut crate::kit::List,
+    follow: Option<usize>,
+    mut row: impl FnMut(&mut Ui, usize),
+) -> usize {
+    let (pitch, gap) = row_pitch(ui);
+    let rows = (((height + gap) / pitch).floor() as usize).max(1);
     egui::Frame::new()
         .stroke(egui::Stroke::new(1.0, muted()))
         .inner_margin(2.0)
         .show(ui, |ui| {
-            egui::ScrollArea::vertical()
-                .id_salt("carrierterm-dir")
-                .auto_shrink([false, false])
-                .max_height(height)
-                .show(ui, add)
-                .inner
-        })
-        .inner
+            ui.set_min_height(whole_rows(ui, rows));
+            ui.set_width(ui.available_width());
+            // The wheel, in rows: a notch (a line) is a row, and pixels count by the row.
+            let wheel: f32 = ui.input(|i| {
+                i.events
+                    .iter()
+                    .map(|e| match e {
+                        egui::Event::MouseWheel { unit, delta, .. } => match unit {
+                            egui::MouseWheelUnit::Point => delta.y / pitch,
+                            egui::MouseWheelUnit::Line => delta.y,
+                            egui::MouseWheelUnit::Page => delta.y * rows as f32,
+                        },
+                        _ => 0.0,
+                    })
+                    .sum()
+            });
+            if wheel != 0.0 && ui.rect_contains_pointer(ui.max_rect()) {
+                let steps = wheel.round().abs().max(1.0) as usize;
+                list.top = if wheel > 0.0 {
+                    list.top.saturating_sub(steps)
+                } else {
+                    list.top + steps
+                };
+            }
+            for i in list.view(len, follow, rows) {
+                row(ui, i);
+            }
+        });
+    rows
 }
 
 /// CarrierTerm: a friendly dialing directory. Search the numbers you know, pick one, and dial
@@ -492,7 +532,8 @@ pub fn carrierterm(
             row
         }
     };
-    let mut list = |ui: &mut Ui, sel: &mut Option<Listed>| {
+    let at = |sel: Option<Listed>| sel.and_then(|s| shown.iter().position(|l| l.key == s));
+    let mut list = |ui: &mut Ui, sel: &mut Option<Listed>, view: &mut crate::kit::List| {
         ui.label(
             RichText::new(line("NUMBER", "NAME", "LISTED AS"))
                 .monospace()
@@ -503,23 +544,22 @@ pub fn carrierterm(
         } else {
             whole_rows(ui, NARROW_ROWS)
         };
-        list_box(ui, height, |ui| {
-            if shown.is_empty() {
+        // The window follows the pick when the arrows move it; otherwise it stays where the
+        // wheel left it.
+        let follow = if moved { at(*sel) } else { None };
+        let rows = list_box(ui, height, shown.len().max(1), view, follow, |ui, i| {
+            let Some(l) = shown.get(i) else {
                 ui.label(dim("Nothing matches."));
+                return;
+            };
+            let on = *sel == Some(l.key);
+            let r = dir_row(ui, line(&l.number, &l.name, &l.listed_as), on, true);
+            if r.clicked() {
+                *sel = Some(l.key);
+                refocus = true;
             }
-            for l in &shown {
-                let on = *sel == Some(l.key);
-                let r = dir_row(ui, line(&l.number, &l.name, &l.listed_as), on, true);
-                if on && moved {
-                    r.scroll_to_me(None);
-                }
-                if r.clicked() {
-                    *sel = Some(l.key);
-                    refocus = true;
-                }
-                if r.double_clicked() {
-                    go = Some(l.key);
-                }
+            if r.double_clicked() {
+                go = Some(l.key);
             }
         });
         let total = directory::listings(save, data).len();
@@ -528,10 +568,11 @@ pub fn carrierterm(
         } else {
             "/ to search"
         };
-        ui.label(dim(format!(
-            "{} of {total} numbers  ·  {keys}",
-            shown.len()
-        )));
+        let mut footer = format!("{} of {total} numbers", shown.len());
+        if let Some(p) = ninsei_core::scroll::position(shown.len(), at(*sel), view.top, rows) {
+            footer.push_str(&format!("  ·  {p}"));
+        }
+        ui.label(dim(format!("{footer}  ·  {keys}")));
     };
     // The card's button: the line it dials, if pressed.
     let show_card = |ui: &mut Ui, sel: Option<Listed>| {
@@ -543,14 +584,14 @@ pub fn carrierterm(
         ui.horizontal_top(|ui| {
             ui.vertical(|ui| {
                 ui.set_width(list_w);
-                list(ui, &mut sel);
+                list(ui, &mut sel, &mut dir.list);
             });
             ui.separator();
             ui.vertical(|ui| show_card(ui, sel)).inner
         })
         .inner
     } else {
-        list(ui, &mut sel);
+        list(ui, &mut sel, &mut dir.list);
         ui.separator();
         show_card(ui, sel)
     };
@@ -670,21 +711,20 @@ fn dialing_view(
                     shown = directory::listings(save, data);
                 }
                 let height = (ui.available_height() - 8.0).max(80.0);
-                list_box(ui, height, |ui| {
-                    for l in &shown {
-                        let name: String = l.name.chars().take(name_cols).collect();
-                        let g = " ".repeat(GUTTER);
-                        let on = l.key == Listed::Entry(d.entry);
-                        let r = dir_row(
-                            ui,
-                            format!("{:<NUMBER_COLS$}{g}{name}", l.number),
-                            on,
-                            false,
-                        );
-                        if on {
-                            r.scroll_to_me(None);
-                        }
-                    }
+                let dialed = shown.iter().position(|l| l.key == Listed::Entry(d.entry));
+                // Read-only: the window just keeps the dialed number in view.
+                let mut view = crate::kit::List::default();
+                list_box(ui, height, shown.len(), &mut view, dialed, |ui, i| {
+                    let l = &shown[i];
+                    let name: String = l.name.chars().take(name_cols).collect();
+                    let g = " ".repeat(GUTTER);
+                    let on = l.key == Listed::Entry(d.entry);
+                    dir_row(
+                        ui,
+                        format!("{:<NUMBER_COLS$}{g}{name}", l.number),
+                        on,
+                        false,
+                    );
                 });
             });
             ui.separator();
