@@ -712,6 +712,23 @@ impl Default for Loadout {
 }
 
 /// Everything the hub keeps between sessions. One RON document, versioned.
+/// Which copy of a game you own. It picks the intro the game opens with: a cracked copy
+/// plays its crew's cracktro, a boxed one its publisher's splash. Boxed outranks Cracked.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+pub enum GameCopy {
+    /// Downloaded from a board.
+    Cracked,
+    /// Bought by mail order.
+    Boxed,
+}
+
+/// A game on the save, and the copy you have of it.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct OwnedGame {
+    pub id: String,
+    pub copy: GameCopy,
+}
+
 /// Later features add fields with `#[serde(default)]` so older saves still load.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Save {
@@ -832,6 +849,9 @@ pub struct Save {
     /// tools had to be found has the wardialer and HexEd already.
     #[serde(default = "legacy_tools")]
     pub tools: Vec<String>,
+    /// Games you own (ids in `data/hub/games.ron`), each with the copy you have.
+    #[serde(default)]
+    pub games: Vec<OwnedGame>,
     /// Textfiles downloaded from boards, for the QWK reader.
     #[serde(default)]
     pub texts: Vec<KeptText>,
@@ -980,6 +1000,7 @@ impl Default for Save {
             term_history: Vec::new(),
             shell_history: Vec::new(),
             tools: Vec::new(),
+            games: Vec::new(),
             texts: Vec::new(),
             ice_seen: Vec::new(),
             intros: default_intros(),
@@ -1049,6 +1070,30 @@ impl Save {
             return false;
         }
         self.tools.push(id.into());
+        true
+    }
+
+    /// Whether you own a game, in either copy (an id in `hub/games.ron`).
+    pub fn has_game(&self, id: &str) -> bool {
+        self.game_copy(id).is_some()
+    }
+
+    /// Which copy of a game you own, if any.
+    pub fn game_copy(&self, id: &str) -> Option<GameCopy> {
+        self.games.iter().find(|g| g.id == id).map(|g| g.copy)
+    }
+
+    /// Adds a game you came by. A boxed copy replaces a cracked one, never the reverse. False
+    /// if nothing changed.
+    pub fn learn_game(&mut self, id: &str, copy: GameCopy) -> bool {
+        match self.games.iter_mut().find(|g| g.id == id) {
+            Some(g) if g.copy < copy => g.copy = copy,
+            Some(_) => return false,
+            None => self.games.push(OwnedGame {
+                id: id.into(),
+                copy,
+            }),
+        }
         true
     }
 

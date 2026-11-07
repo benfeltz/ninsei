@@ -1,5 +1,6 @@
 //! Games as data: `games.ron`, the copy you own, and the ways you come by one.
 
+use ninsei_core::hub::Save;
 use ninsei_core::*;
 
 fn data() -> Data {
@@ -61,4 +62,32 @@ fn a_bad_game_is_rejected() {
     let twice = d.games[0].clone();
     d.games.push(twice);
     assert!(d.validate().unwrap_err().contains("listed twice"));
+}
+
+#[test]
+fn a_boxed_copy_outranks_a_cracked_one() {
+    use hub::GameCopy::{Boxed, Cracked};
+    let mut s = Save::default();
+    assert!(!s.has_game("blox") && s.game_copy("blox").is_none());
+    assert!(s.learn_game("blox", Cracked));
+    assert!(!s.learn_game("blox", Cracked), "once");
+    assert!(s.learn_game("blox", Boxed), "the boxed copy replaces the crack");
+    assert_eq!(s.game_copy("blox"), Some(Boxed));
+    assert!(s.learn_game("nibbler", Boxed));
+    assert!(!s.learn_game("nibbler", Cracked), "never the reverse");
+    assert_eq!(s.game_copy("nibbler"), Some(Boxed));
+    assert!(s.has_game("nibbler") && s.games.len() == 2);
+}
+
+#[test]
+fn a_save_from_before_games_loads_with_none() {
+    let mut s = Save::default();
+    s.learn_game("blox", hub::GameCopy::Boxed);
+    let text = s.to_text();
+    assert!(text.contains("games"));
+    let old = text.replace("games:", "_gone:");
+    let back = Save::load(&old).expect("a save without games still loads");
+    assert!(back.games.is_empty());
+    let kept = Save::load(&text).unwrap();
+    assert_eq!(kept.game_copy("blox"), Some(hub::GameCopy::Boxed));
 }
