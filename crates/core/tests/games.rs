@@ -385,3 +385,20 @@ fn the_listing_marks_a_crack_you_have_as_yours() {
         "an owned crack drops out of the count"
     );
 }
+
+#[test]
+fn every_crack_is_signed_by_a_crew_that_cracks_games() {
+    // docs/world.md: PHOSPHOR and THE 2400 CLUB crack games; the NiGHTMOTHS crack tools and
+    // RAZORWIRE breakers. Games are the Gutter's, never Dead Sector's or CorpLink's.
+    let d = data();
+    for g in &d.games {
+        let crack = d.intro(&g.crack).unwrap();
+        assert!(
+            ["PHOSPHOR", "THE 2400 CLUB"].contains(&crack.group.as_str()),
+            "{}: cracked by {}",
+            g.id,
+            crack.group
+        );
+        assert_eq!(crack.board.as_deref(), Some("gutter"), "{}", g.id);
+    }
+}

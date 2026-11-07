@@ -2,22 +2,22 @@
 // enough for Data::validate. Task 47.5 gives it its art and its tune.
 (
     board: Some("gutter"),
-    group: "the NiGHTMOTHS",
+    group: "THE 2400 CLUB",
     secs: 4.0,
     frame_secs: 1.0,
     frames: [
         [
             "",
-            "|11                        N  I  B  B  L  E  R",
+            "|10                        N  I  B  B  L  E  R",
             "",
-            "|03                     cracked by the NiGHTMOTHS",
+            "|02                   krakked by THE 2400 CLUB!!!",
             "",
-            "|07                 eat the dots ▪ don't eat yourself",
+            "|07                 eat the dotz ▪ dont eat yourself",
         ],
     ],
-    greetz: ["c4se", "ratz", "zero_kool", "kr4ken (no hard feelings)"],
-    tune: Some((bpm: 132, tracks: [
-        (wave: Square, vol: 0.16, pattern: "C5 E5 G5 E5 C5 E5 G5 C6"),
-        (wave: Triangle, vol: 0.3, pattern: "C3 - - . G2 - - ."),
+    greetz: ["PHOSPHOR (call us!!)", "m0th", "c4se", "ratz", "zero_kool", "kr4ken", "the NiGHTMOTHS"],
+    tune: Some((bpm: 150, tracks: [
+        (wave: Square, vol: 0.16, pattern: "E5 E5 C5 E5 G5 . G4 ."),
+        (wave: Triangle, vol: 0.3, pattern: "C3 C3 G2 G2 C3 C3 G2 ."),
     ])),
 )
