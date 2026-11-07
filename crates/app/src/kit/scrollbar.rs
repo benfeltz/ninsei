@@ -113,7 +113,8 @@ pub fn view_rect(rect: Rect, bar_w: f32, pad: Pad) -> Rect {
 /// `body` in a view that scrolls, filling `ui`, with a bar `bar_w` wide flush on the right
 /// edge. The bar is the desktop's: `input` says what it does to the view this frame (given its
 /// rect, its id and where the view stood last frame) and `paint` draws it, only while there's
-/// more than shows. The view clips at its own edges. The wheel over the view scrolls it.
+/// more than shows. The view clips at its own edges. The wheel over the view scrolls it (the
+/// next frame), unless a window in front covers it.
 #[allow(clippy::too_many_arguments)]
 pub fn view(
     ui: &mut Ui,
@@ -130,9 +131,12 @@ pub fn view(
     let key = id.with("kit-scroll");
     // The bar acts on last frame's numbers, so this frame's view already shows the move.
     let last = ui.data(|d| d.get_temp::<Scroll>(key));
+    // Last frame's wheel over the view, then this frame's bar.
+    let wheeled = ui.data_mut(|d| d.remove_temp::<f32>(key.with("wheeled")));
     let set = last
         .filter(Scroll::active)
-        .and_then(|s| input(ui, bar, key, &s));
+        .and_then(|s| input(ui, bar, key, &s))
+        .or(wheeled);
     let view_rect = view_rect(rect, bar_w, pad);
     let mut view = ui.new_child(
         egui::UiBuilder::new()
@@ -144,7 +148,12 @@ pub fn view(
     let mut area = egui::ScrollArea::vertical()
         .id_salt(key)
         .auto_shrink([false, false])
-        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden);
+        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden)
+        // The wheel goes through take_wheel below, so a window in front keeps it.
+        .scroll_source(egui::scroll_area::ScrollSource {
+            mouse_wheel: false,
+            ..Default::default()
+        });
     if let Some(o) = set {
         area = area.vertical_scroll_offset(o);
     }
@@ -156,6 +165,14 @@ pub fn view(
         line,
     };
     ui.data_mut(|d| d.insert_temp(key, now));
+    // After the body, so a list inside it that scrolls takes its own wheel first.
+    if now.active()
+        && let Some(wheel) = take_wheel(ui, view_rect, key.with("view"))
+        && let Some(to) = now.settle(now.offset - wheel)
+    {
+        ui.data_mut(|d| d.insert_temp(key.with("wheeled"), to));
+        ui.ctx().request_repaint();
+    }
     if now.active() {
         paint(ui.painter(), bar, &now);
     }

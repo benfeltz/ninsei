@@ -1131,4 +1131,55 @@ mod tests {
         assert_eq!(at(&ctx).offset, 0.0, "the window in front had the wheel");
         assert_eq!(liza.wins.last().unwrap().tool, Tool::IceDb);
     }
+
+    #[test]
+    fn the_wheel_over_a_covered_view_doesnt_scroll_it() {
+        let data = Data::builtin().unwrap();
+        let ctx = egui::Context::default();
+        crate::uitest::themed(&ctx, &data);
+        let (mut liza, mut home) = booted(&ctx, &data);
+        liza.multifinder = true;
+        let mut t = look::BOOT_SECS + 0.2;
+        let mut run = |liza: &mut Liza, home: &mut Home, ev: Vec<egui::Event>| {
+            t += 0.1;
+            frame(&ctx, liza, home, &data, ev, t);
+        };
+        liza.open(Tool::System);
+        liza.wins.last_mut().unwrap().pos = pos2(100.0, 680.0);
+        liza.open(Tool::IceDb);
+        liza.wins.last_mut().unwrap().pos = pos2(700.0, 600.0);
+        for _ in 0..3 {
+            run(&mut liza, &mut home, Vec::new());
+        }
+        let key = Id::new(("liza-scroll", Tool::System)).with("kit-scroll");
+        let at = |ctx: &egui::Context| {
+            ctx.data(|d| d.get_temp::<crate::kit::scrollbar::Scroll>(key))
+                .unwrap()
+        };
+        let wheel = |p| {
+            vec![
+                egui::Event::PointerMoved(p),
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: vec2(0.0, -40.0),
+                    modifiers: egui::Modifiers::NONE,
+                    phase: egui::TouchPhase::Move,
+                },
+            ]
+        };
+        // Over System's view, under ICE DB.
+        run(&mut liza, &mut home, wheel(pos2(750.0, 760.0)));
+        for _ in 0..10 {
+            run(&mut liza, &mut home, Vec::new());
+        }
+        assert_eq!(at(&ctx).offset, 0.0, "ICE DB had the wheel");
+        run(&mut liza, &mut home, wheel(pos2(300.0, 760.0)));
+        for _ in 0..10 {
+            run(&mut liza, &mut home, Vec::new());
+        }
+        assert!(
+            at(&ctx).offset > 0.0,
+            "uncovered, the wheel scrolls the view"
+        );
+    }
 }

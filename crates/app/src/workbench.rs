@@ -851,4 +851,56 @@ mod tests {
         }
         assert!(short_seen, "the scan reached a short window");
     }
+
+    #[test]
+    fn the_wheel_over_a_covered_view_doesnt_scroll_it() {
+        let data = Data::builtin().unwrap();
+        let save = desk(&data);
+        let ctx = egui::Context::default();
+        crate::uitest::themed(&ctx, &data);
+        let (mut wb, mut home) = (Workbench::new(), Home::new(Vec::new()));
+        let mut t = 0.0;
+        let mut run = |wb: &mut Workbench, home: &mut Home, ev| {
+            t += 0.5;
+            frame(&ctx, wb, home, &data, &save, ev, t);
+        };
+        run(&mut wb, &mut home, Vec::new());
+        wb.open(Tool::System);
+        wb.wins.last_mut().unwrap().pos = pos2(100.0, 680.0);
+        wb.open(Tool::IceDb);
+        wb.wins.last_mut().unwrap().pos = pos2(700.0, 600.0);
+        for _ in 0..3 {
+            run(&mut wb, &mut home, Vec::new());
+        }
+        // Over System's view, under ICE DB.
+        let wheel = |at| {
+            vec![
+                Event::PointerMoved(at),
+                Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: vec2(0.0, -40.0),
+                    modifiers: egui::Modifiers::NONE,
+                    phase: egui::TouchPhase::Move,
+                },
+            ]
+        };
+        run(&mut wb, &mut home, wheel(pos2(750.0, 760.0)));
+        for _ in 0..10 {
+            run(&mut wb, &mut home, Vec::new());
+        }
+        assert_eq!(
+            scroll_of(&ctx, Tool::System).offset,
+            0.0,
+            "ICE DB had the wheel"
+        );
+        // Uncovered, the view takes it.
+        run(&mut wb, &mut home, wheel(pos2(300.0, 760.0)));
+        for _ in 0..10 {
+            run(&mut wb, &mut home, Vec::new());
+        }
+        assert!(
+            scroll_of(&ctx, Tool::System).offset > 0.0,
+            "the wheel scrolls the view"
+        );
+    }
 }
