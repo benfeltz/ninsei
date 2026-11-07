@@ -77,7 +77,7 @@ fn calm_holds_the_first_frame_still() {
 fn a_bad_intro_is_caught() {
     let d = data();
     let mut i = d.intro("hexed").unwrap().clone();
-    i.board = "nowhere".into();
+    i.board = Some("nowhere".into());
     assert!(i.validate(&d).unwrap_err().contains("unknown board"));
     let mut i = d.intro("hexed").unwrap().clone();
     i.frames[0].push("x".repeat(COLS + 1));
@@ -125,4 +125,32 @@ fn the_terminals_splashes_are_silent() {
     }
     let c = d.intro("carrierterm").unwrap();
     assert!(c.scroller(&d).contains("Sense/Net") && !c.scroller(&d).contains("CRACKED"));
+}
+
+#[test]
+fn a_splash_without_a_board_shows_no_ad() {
+    let d = data();
+    let mut i = d.intro("carrierterm").unwrap().clone();
+    i.board = None;
+    assert!(i.validate(&d).is_ok(), "a splash needn't name a board");
+    let lines = i.screen(&d, 0.0, false);
+    assert_eq!(lines.len(), ROWS, "the scroller stays on the bottom row");
+    assert!(ansi::plain(&lines[ROWS - 2]).trim().is_empty(), "no ad row");
+    let text = i.scroller(&d);
+    assert_eq!(text, format!("{} ▪ ", i.tagline.as_deref().unwrap()));
+    assert!(!text.contains("CALL") && !text.contains("555"));
+}
+
+#[test]
+fn a_crack_names_its_board_and_greets_and_a_splash_greets_nobody() {
+    let d = data();
+    let mut i = d.intro("hexed").unwrap().clone();
+    i.board = None;
+    assert!(i.validate(&d).unwrap_err().contains("names its board"));
+    let mut i = d.intro("hexed").unwrap().clone();
+    i.greetz.clear();
+    assert!(i.validate(&d).unwrap_err().contains("no greetz"));
+    let mut i = d.intro("carrierterm").unwrap().clone();
+    i.greetz = vec!["c4se".into()];
+    assert!(i.validate(&d).unwrap_err().contains("greets nobody"));
 }

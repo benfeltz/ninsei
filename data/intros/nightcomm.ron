@@ -1,6 +1,6 @@
 // NiGHTCOMM's splash (see crates/core/src/intro.rs): Dead Sector's house style, l33t, no tune.
 (
-    board: "deadsector",
+    board: Some("deadsector"),
     group: "d1rge & DEAD SECTOR",
     secs: 3.5,
     frame_secs: 0.5,

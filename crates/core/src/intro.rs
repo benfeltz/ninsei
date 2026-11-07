@@ -57,8 +57,10 @@ pub struct IntroDef {
     /// From the file name.
     #[serde(skip)]
     pub id: String,
-    /// The board it advertises (an id in `data/bbs/`).
-    pub board: String,
+    /// The board it advertises (an id in `data/bbs/`). A crack always names one; a splash
+    /// (`tagline` set) may leave it out, and then shows no ad.
+    #[serde(default)]
+    pub board: Option<String>,
     /// The crew that cracked it.
     pub group: String,
     /// How long it plays before the program opens, in seconds.
@@ -439,8 +441,10 @@ impl Synth {
 impl IntroDef {
     pub fn validate(&self, data: &Data) -> Result<(), String> {
         let err = |m: String| Err(format!("intro `{}`: {m}", self.id));
-        if data.board(&self.board).is_none() {
-            return err(format!("unknown board `{}`", self.board));
+        match &self.board {
+            Some(b) if data.board(b).is_none() => return err(format!("unknown board `{b}`")),
+            None if !self.is_splash() => return err("a crack names its board".into()),
+            _ => {}
         }
         if self.secs <= 0.0 || self.frame_secs <= 0.0 {
             return err("secs and frame_secs must be above 0".into());
@@ -464,7 +468,10 @@ impl IntroDef {
                 return err(format!("effect rows {}..{} out of range", e.from, e.to));
             }
         }
-        if self.greetz.is_empty() && self.tagline.is_none() {
+        if self.is_splash() && !self.greetz.is_empty() {
+            return err("a splash greets nobody".into());
+        }
+        if !self.is_splash() && self.greetz.is_empty() {
             return err("no greetz (or a tagline)".into());
         }
         if let Some(t) = &self.tune
@@ -473,6 +480,17 @@ impl IntroDef {
             return err(format!("tune: {e}"));
         }
         Ok(())
+    }
+
+    /// A publisher's splash (a tagline, no crew's greetz) rather than a crack.
+    pub fn is_splash(&self) -> bool {
+        self.tagline.is_some()
+    }
+
+    /// The board it advertises, if it names one.
+    fn ad_board<'a>(&self, data: &'a Data) -> Option<&'a crate::data::BbsDef> {
+        let id = self.board.as_deref()?;
+        data.board(id).map(|b| &data.boards[b])
     }
 
     /// Whether it has finished playing at time `t` (seconds since it started).
@@ -485,10 +503,7 @@ impl IntroDef {
         if let Some(t) = &self.tagline {
             return format!("{t} ▪ ");
         }
-        let board = data
-            .board(&self.board)
-            .map(|b| &data.boards[b])
-            .map_or(String::new(), |b| {
+        let board = self.ad_board(data).map_or(String::new(), |b| {
                 format!("CALL {} {} ▪ {} BAUD ▪ ", b.name, b.phone, b.baud)
             });
         format!(
@@ -515,13 +530,10 @@ impl IntroDef {
                 }
             }
         }
-        // The board's ad, centred above the scroller.
-        let ad = data
-            .board(&self.board)
-            .map(|b| &data.boards[b])
-            .map_or(String::new(), |b| {
-                format!("{} ▪ {} ▪ SYSOP {}", b.name, b.phone, b.sysop)
-            });
+        // The board's ad, centred above the scroller; a splash without a board leaves it blank.
+        let ad = self.ad_board(data).map_or(String::new(), |b| {
+            format!("{} ▪ {} ▪ SYSOP {}", b.name, b.phone, b.sysop)
+        });
         let pad = COLS.saturating_sub(ad.chars().count()) / 2;
         out.push(format!("|14{}{ad}", " ".repeat(pad)));
         out.push(format!("|11{}", window(&self.scroller(data), t, calm)));
