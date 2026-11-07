@@ -584,12 +584,7 @@ pub fn button(
         StrokeKind::Inside,
     );
     if default {
-        p.rect_stroke(
-            r.expand(size::RING_OUT),
-            size::BUTTON_R + size::RING_OUT,
-            Stroke::new(size::RING_W, look.ink),
-            StrokeKind::Inside,
-        );
+        default_ring(p, r, size::BUTTON_R, look.ink);
     }
     // A disabled button in a live Ui has its label at half strength (a disabled Ui already
     // paints everything so).
@@ -602,6 +597,17 @@ pub fn button(
         if dim { fg.gamma_multiply(0.5) } else { fg },
     );
     resp
+}
+
+/// The default button's heavy ring around a button `face` with corners `radius`: the spec's
+/// ring, 4px out and 3px thick. Every default button draws it here.
+pub fn default_ring(p: &Painter, face: Rect, radius: f32, ink: Color32) {
+    p.rect_stroke(
+        face.expand(size::RING_OUT),
+        radius + size::RING_OUT,
+        Stroke::new(size::RING_W, ink),
+        StrokeKind::Inside,
+    );
 }
 
 /// A push button laid out in `ui`: its width from its label, the room for the default ring
@@ -1341,5 +1347,21 @@ mod tests {
             assert_eq!(r.min, r.min.round(), "{r:?} is on a half pixel");
             assert_eq!(r.max, r.max.round(), "{r:?} is on a half pixel");
         }
+    }
+
+    #[test]
+    fn the_default_ring_is_the_specs() {
+        let mut h = Harness::new(200.0, 100.0);
+        let face = Rect::from_min_size(pos2(20.0, 20.0), vec2(80.0, size::BUTTON_H));
+        h.frame(vec![], |ui| {
+            default_ring(ui.painter(), face, 9.0, Color32::WHITE)
+        });
+        let ring = h.painted().iter().find_map(|s| match s {
+            egui::Shape::Rect(r) => Some(r.clone()),
+            _ => None,
+        });
+        let ring = ring.expect("a ring");
+        assert_eq!(ring.rect, face.expand(4.0));
+        assert_eq!(ring.stroke.width, 3.0);
     }
 }

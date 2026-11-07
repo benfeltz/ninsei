@@ -123,7 +123,7 @@ fn button(ui: &mut Ui, p: &Panes, id: Id, text: &str, sub: &str, on: bool, ring:
     let (r, _) = ui.allocate_exact_size(vec2(w, look::BUTTON_H + look::DROP), Sense::hover());
     let face = Rect::from_min_size(r.min, vec2(w - look::DROP, look::BUTTON_H));
     let resp = ui.interact(face, id, if on { Sense::click() } else { Sense::hover() });
-    let painter = ui.painter_at(r.expand(4.0));
+    let painter = ui.painter_at(r.expand(liza::size::RING_OUT));
     if let Some(pat) = p.game.data.pattern("diagonal") {
         let shadow = face.translate(vec2(look::DROP, look::DROP));
         patterns::fill(&painter, pat, shadow, ink, paper);
@@ -138,13 +138,8 @@ fn button(ui: &mut Ui, p: &Panes, id: Id, text: &str, sub: &str, on: bool, ring:
         StrokeKind::Inside,
     );
     if ring {
-        // The default button's heavy outline.
-        painter.rect_stroke(
-            face.expand(3.0),
-            look::BUTTON_R + 3.0,
-            Stroke::new(2.0, ink),
-            StrokeKind::Inside,
-        );
+        // The default button's heavy outline, the same as the alert's.
+        liza::default_ring(&painter, face, look::BUTTON_R, ink);
     }
     let font = egui::TextStyle::Monospace.resolve(ui.style());
     let col = if on { fg } else { fg.gamma_multiply(0.5) };
