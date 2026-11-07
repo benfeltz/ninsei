@@ -1,7 +1,9 @@
 //! The speaker: one small mixer for everything the game plays. The modem handshake
-//! (`ninsei_core::modem`) has its own channel, so hanging up can cut it; so does music (a
-//! cracktro's chiptune, `ninsei_core::intro`), so skipping the intro can cut it; sound cues
-//! (`ninsei_core::cue`) are short clips that layer over each other and play out.
+//! (`ninsei_core::modem`) has its own channel, so hanging up can cut it; so does music, which
+//! is either a cracktro's chiptune (`ninsei_core::intro`, played once, cut if the intro is
+//! skipped) or the run's tune (`ninsei_core::music`, looped until the run stops wanting it);
+//! sound cues (`ninsei_core::cue`) are short clips that layer over both and play out. The two
+//! kinds of music never overlap: cracktros only play at home.
 //! Native output goes through cpal; the browser uses Web Audio. If there's no audio device
 //! (or the browser refuses), it stays quiet and the game carries on.
 
@@ -9,11 +11,13 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use ninsei_core::cue::{Cue, SoundDef};
+use ninsei_core::intro::TuneDef;
 use ninsei_core::modem::Handshake;
+use ninsei_core::music::MusicKey;
 
 /// How loud cues play, under the modem.
 const CUE_GAIN: f32 = 0.8;
-/// How loud a cracktro's tune plays.
+/// How loud music plays (a cracktro's tune or the run's).
 const MUSIC_GAIN: f32 = 0.7;
 /// Most cue clips playing at once; more are dropped (a burst of cues is still one moment).
 pub const MAX_VOICES: usize = 8;
@@ -25,6 +29,8 @@ pub struct Speaker {
     dead: bool,
     /// Each cue rendered once per sound pack, at the device's rate.
     clips: HashMap<(String, Cue), Arc<Vec<f32>>>,
+    /// The run tune looping on the music channel, if that's what's on it.
+    playing: Option<MusicKey>,
 }
 
 impl Speaker {
@@ -34,6 +40,7 @@ impl Speaker {
             out: None,
             dead: false,
             clips: HashMap::new(),
+            playing: None,
         }
     }
 
@@ -41,6 +48,8 @@ impl Speaker {
         self.on = on;
         if !on {
             self.stop();
+            // Sound back on restarts the run's tune on the next frame.
+            self.playing = None;
             if let Some(out) = &mut self.out {
                 out.hush();
             }
@@ -67,21 +76,48 @@ impl Speaker {
     }
 
     /// Plays a cracktro's tune on the music channel, cutting off any tune still playing.
-    pub fn tune(&mut self, tune: &ninsei_core::intro::TuneDef, secs: f32) {
+    pub fn tune(&mut self, tune: &TuneDef, secs: f32) {
+        self.playing = None;
         if let Some(out) = self.out() {
             let samples = tune
                 .render(out.rate(), secs)
                 .iter()
                 .map(|s| s * MUSIC_GAIN)
                 .collect();
-            out.music(samples);
+            out.music(samples, false);
         }
     }
 
     /// Cuts the tune (the intro was skipped or closed).
     pub fn stop_tune(&mut self) {
+        self.playing = None;
         if let Some(out) = &mut self.out {
-            out.music(Vec::new());
+            out.music(Vec::new(), false);
+        }
+    }
+
+    /// Loops the run's tune, arranged as `key` says. Called every frame; it renders and
+    /// restarts the loop only when the key changes (a new run, tier or trace step).
+    pub fn run_music(&mut self, key: MusicKey, tune: &TuneDef) {
+        if self.playing.as_ref() == Some(&key) {
+            return;
+        }
+        let Some(out) = self.out() else { return };
+        let samples = tune
+            .render_loop(out.rate(), &key.2)
+            .iter()
+            .map(|s| s * MUSIC_GAIN)
+            .collect();
+        out.music(samples, true);
+        self.playing = Some(key);
+    }
+
+    /// Stops the run's tune (the run ended or you went home). Leaves a cracktro's tune alone.
+    pub fn stop_music(&mut self) {
+        if self.playing.take().is_some()
+            && let Some(out) = &mut self.out
+        {
+            out.music(Vec::new(), false);
         }
     }
 
@@ -122,11 +158,12 @@ mod backend {
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
     use cpal::{FromSample, SizedSample};
 
-    /// What's playing: the modem channel, and cue clips with how far in each is.
+    /// What's playing: the modem channel, the music channel (looping or not), and cue clips
+    /// with how far in each is.
     #[derive(Default)]
     struct Mix {
         dial: (Vec<f32>, usize),
-        music: (Vec<f32>, usize),
+        music: (Vec<f32>, usize, bool),
         voices: Vec<(Arc<Vec<f32>>, usize)>,
     }
 
@@ -135,7 +172,10 @@ mod backend {
             let (samples, pos) = &mut self.dial;
             let mut s = samples.get(*pos).copied().unwrap_or(0.0);
             *pos += 1;
-            let (tune, at) = &mut self.music;
+            let (tune, at, looping) = &mut self.music;
+            if *looping && *at >= tune.len() {
+                *at = 0;
+            }
             s += tune.get(*at).copied().unwrap_or(0.0);
             *at += 1;
             for (clip, at) in &mut self.voices {
@@ -183,9 +223,9 @@ mod backend {
             }
         }
 
-        pub fn music(&mut self, samples: Vec<f32>) {
+        pub fn music(&mut self, samples: Vec<f32>, looping: bool) {
             if let Ok(mut m) = self.mix.lock() {
-                m.music = (samples, 0);
+                m.music = (samples, 0, looping);
             }
         }
 
@@ -240,7 +280,7 @@ mod backend {
         ctx: AudioContext,
         /// The modem channel, so a hang-up can stop it.
         dialing: Option<AudioBufferSourceNode>,
-        /// The music channel, so skipping an intro can stop its tune.
+        /// The music channel, so skipping an intro or ending a run can stop its tune.
         playing: Option<AudioBufferSourceNode>,
         /// Cue clips still sounding (pruned as they end).
         voices: Vec<(AudioBufferSourceNode, f64)>,
@@ -260,8 +300,8 @@ mod backend {
             self.ctx.sample_rate() as u32
         }
 
-        /// Starts a clip; returns its node.
-        fn start(&self, samples: &[f32]) -> Option<AudioBufferSourceNode> {
+        /// Starts a clip, on repeat if `looping`; returns its node.
+        fn start(&self, samples: &[f32], looping: bool) -> Option<AudioBufferSourceNode> {
             // Browsers start audio suspended until the page has been clicked; every sound here
             // follows a click or a key.
             let _ = self.ctx.resume();
@@ -275,6 +315,7 @@ mod backend {
             buf.copy_to_channel(samples, 0).ok()?;
             let src = self.ctx.create_buffer_source().ok()?;
             src.set_buffer(Some(&buf));
+            src.set_loop(looping);
             src.connect_with_audio_node(&self.ctx.destination()).ok()?;
             src.start().ok()?;
             Some(src)
@@ -285,15 +326,15 @@ mod backend {
                 #[allow(deprecated)]
                 let _ = src.stop();
             }
-            self.dialing = self.start(&samples);
+            self.dialing = self.start(&samples, false);
         }
 
-        pub fn music(&mut self, samples: Vec<f32>) {
+        pub fn music(&mut self, samples: Vec<f32>, looping: bool) {
             if let Some(src) = self.playing.take() {
                 #[allow(deprecated)]
                 let _ = src.stop();
             }
-            self.playing = self.start(&samples);
+            self.playing = self.start(&samples, looping);
         }
 
         pub fn cue(&mut self, clip: Arc<Vec<f32>>) {
@@ -303,14 +344,14 @@ mod backend {
                 return;
             }
             let secs = clip.len() as f64 / f64::from(self.ctx.sample_rate());
-            if let Some(src) = self.start(&clip) {
+            if let Some(src) = self.start(&clip, false) {
                 self.voices.push((src, now + secs));
             }
         }
 
         pub fn hush(&mut self) {
             self.dial(Vec::new());
-            self.music(Vec::new());
+            self.music(Vec::new(), false);
             for (src, _) in self.voices.drain(..) {
                 #[allow(deprecated)]
                 let _ = src.stop();

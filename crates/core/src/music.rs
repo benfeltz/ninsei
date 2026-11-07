@@ -38,6 +38,10 @@ impl Arrangement {
     };
 }
 
+/// What should be on the music channel: the sound pack, the tier and the arrangement. The app
+/// re-renders the loop only when this changes.
+pub type MusicKey = (String, u32, Arrangement);
+
 /// The arrangement at `trace_pct` (0-100) for a tune whose drop track is `drop`. Coarse on
 /// purpose: two steps, so the music never argues with the trace number.
 pub fn arrangement(trace_pct: u32, drop: Option<usize>) -> Arrangement {
