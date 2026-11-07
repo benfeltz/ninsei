@@ -23,7 +23,6 @@ use crate::theme::Palette;
 pub mod size {
     pub const MONO: f32 = 12.0;
     pub const SMALL: f32 = 10.0;
-    pub const TITLE_H: f32 = 18.0;
     pub const ROW_H: f32 = 17.0;
     /// Report charts take this share of a window's height, within these bounds.
     pub const CHART_SHARE: f32 = 0.3;
@@ -1322,41 +1321,40 @@ impl ChromeView for Suite {
                         color: p.faint,
                     })
                     .show(ui, |ui| {
-                        ui.set_width(size::DIALOG_W);
-                        let (bar, _) = ui.allocate_exact_size(
-                            vec2(size::DIALOG_W, size::TITLE_H + 2.0),
-                            Sense::hover(),
-                        );
-                        ui.painter().rect_filled(bar, 0.0, p.panel);
-                        ui.painter().text(
-                            bar.center(),
-                            Align2::CENTER_CENTER,
-                            &n.title,
+                        // The body on the suite's cells: the title row, the lines, then the
+                        // count and the OK button.
+                        let cols = Cells::sized(
+                            ui,
+                            egui::Pos2::ZERO,
                             mono(size::MONO),
-                            p.bright,
+                            Some(size::ROW_H),
+                            (1, 1),
                         );
-                        egui::Frame::new()
-                            .inner_margin(egui::Margin::symmetric(14, 10))
-                            .show(ui, |ui| {
-                                for l in &n.lines {
-                                    ui.label(t(l, p.fg));
-                                }
-                                ui.add_space(8.0);
-                                ui.horizontal(|ui| {
-                                    if waiting > 1 {
-                                        ui.label(small(format!("1 of {waiting}"), p.dim));
-                                    }
-                                    ui.with_layout(
-                                        egui::Layout::right_to_left(egui::Align::Center),
-                                        |ui| {
-                                            if ui.button(t("[  OK  ]", p.bright)).clicked() {
-                                                ok = true;
-                                            }
-                                            ui.label(small("Enter", p.dim));
-                                        },
-                                    );
-                                });
-                            });
+                        let cols = (size::DIALOG_W / cols.cw) as usize;
+                        let mut body: Sheet<()> = Sheet::new(cols);
+                        body.inv(0, 0, &" ".repeat(cols), p.bright, p.panel);
+                        let title = cut(&n.title, cols.saturating_sub(2));
+                        let tn = title.chars().count();
+                        body.inv((cols - tn) / 2, 0, &title, p.bright, p.panel);
+                        for (i, l) in n.lines.iter().enumerate() {
+                            body.put(2, 2 + i, l, p.fg);
+                        }
+                        let foot = 3 + n.lines.len();
+                        if waiting > 1 {
+                            body.put(2, foot, &format!("1 of {waiting}"), p.dim);
+                        }
+                        let button = "[  OK  ]";
+                        let bx = cols - 2 - button.chars().count();
+                        body.put(bx - 6, foot, "Enter", p.dim);
+                        body.put(bx, foot, button, p.bright);
+                        body.hit(bx, foot, button.chars().count(), ());
+                        body.grow_to(foot + 2);
+                        if !body
+                            .paint(ui, mono(size::MONO), Some(size::ROW_H))
+                            .is_empty()
+                        {
+                            ok = true;
+                        }
                     });
             });
         if ok {
@@ -1534,5 +1532,49 @@ mod tests {
         for part in ["[■]", "WAREZ.WK1", "[3]"] {
             assert!(painted.contains(part), "{part} in the title row: {painted}");
         }
+    }
+
+    #[test]
+    fn a_dialog_says_its_piece_and_ok_dismisses_it() {
+        let d = Data::builtin().unwrap();
+        let mut s = Save::default();
+        s.ensure_hardware(&d);
+        let g = s.jack_in(&d, &d.rig, 1);
+        let mut st = State::default();
+        st.watch.step(&g);
+        st.dialogs.push(ninsei_core::suite::Notice {
+            title: "PAYMENT RECEIVED".into(),
+            lines: vec!["Ninsei Community College paid 120¢.".into()],
+        });
+        let mut h = Harness::new(900.0, 600.0);
+        let draw = |h: &mut Harness, st: &mut State, events| {
+            h.frame(events, |ui| {
+                let mut cx = FrameCx {
+                    game: &g,
+                    pal: Palette::from_def(&d.themes[0]),
+                    suite: st,
+                    keys_free: true,
+                };
+                Suite.overlay(ui.ctx(), &mut cx);
+            });
+        };
+        // An area sits out its first frame while it measures itself.
+        draw(&mut h, &mut st, Vec::new());
+        draw(&mut h, &mut st, Vec::new());
+        let painted: String = h
+            .painted()
+            .iter()
+            .filter_map(|s| match s {
+                egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+                _ => None,
+            })
+            .collect();
+        assert!(painted.contains("PAYMENTRECEIVED") || painted.contains("PAYMENT RECEIVED"));
+        assert!(painted.contains("120"), "its line: {painted}");
+        let ok = h
+            .find("[ OK ]")
+            .unwrap_or_else(|| panic!("{:?}", h.texts()));
+        draw(&mut h, &mut st, click(ok.center()));
+        assert!(st.dialogs.is_empty(), "OK dismissed it");
     }
 }
