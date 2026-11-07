@@ -805,7 +805,8 @@ mod tests {
     fn the_notice_shows_exactly_when_the_scrolled_view_is_short() {
         let data = Data::builtin().unwrap();
         let save = desk(&data);
-        let need = Home::fit(Tool::NightComm, Desktop::Workbench).expect("NiGHTCOMM needs cells");
+        let need =
+            Home::fit(Tool::NightComm, Desktop::Workbench, &data).expect("NiGHTCOMM needs cells");
         let mut h = crate::uitest::Harness::new(1280.0, 800.0);
         crate::uitest::themed(&h.ctx, &data);
         let (mut wb, mut home) = (Workbench::new(), Home::new(Vec::new()));
@@ -842,7 +843,7 @@ mod tests {
             );
             let mut fits = true;
             h.frame(Vec::new(), |ui| {
-                fits = crate::kit::fit::check(ui, view, need, 0.0).1;
+                fits = crate::kit::fit::check(ui, view, &need, 0.0).1;
             });
             short_seen |= !fits;
             assert_eq!(

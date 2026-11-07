@@ -8,6 +8,7 @@ mod crt;
 mod crt_gl;
 mod encounter_view;
 mod fightview;
+mod games_view;
 mod glitch;
 mod hexview;
 mod home;
@@ -768,6 +769,7 @@ impl App {
             | WbOut::Glitches(_)
             | WbOut::Intros(_)
             | WbOut::GuideSeen
+            | WbOut::GameStarted(_)
             | WbOut::HelpSeen
             | WbOut::Tiling(_)
             | WbOut::ShellHistory(_)
@@ -1333,6 +1335,10 @@ impl eframe::App for App {
                     WbOut::Order(item) => self.order(&ctx, item),
                     WbOut::GuideSeen => {
                         self.save.guide_seen = true;
+                        self.save_dirty = true;
+                    }
+                    WbOut::GameStarted(id) => {
+                        self.save.start_game(&id);
                         self.save_dirty = true;
                     }
                     WbOut::Crt => {

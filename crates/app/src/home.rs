@@ -133,6 +133,8 @@ pub enum WbOut {
     Intros(bool),
     /// The Welcome to the Net stack opened on first boot.
     GuideSeen,
+    /// A round of this game (its id) started: count it, so the next deals anew.
+    GameStarted(String),
     /// The Shell ran a command: keep its history in the save.
     ShellHistory(Vec<String>),
     /// The tiling desktop's first-boot key help was dismissed.
@@ -265,6 +267,12 @@ pub struct Home {
     pub(crate) guide_at: ninsei_core::cards::Place,
     /// System's open panel, and its Disk panel's pick.
     pub(crate) system: crate::system::SystemUi,
+    /// Whether the tool being drawn has the keyboard (the front window, the focused tile):
+    /// each desktop says so before it draws a tool.
+    pub(crate) focused: bool,
+    /// The games being played, by copy, with the pass each was last drawn on (a window that
+    /// wasn't drawn last pass closed, and opening it again starts a new round).
+    games: std::collections::HashMap<Tool, (crate::games_view::Session, u64)>,
 }
 
 /// What the speaker should do with the cracktro's tune this frame.
@@ -317,7 +325,41 @@ impl Home {
             tune: None,
             guide_at: ninsei_core::cards::Place::Home,
             system: crate::system::SystemUi::default(),
+            focused: false,
+            games: Default::default(),
         }
+    }
+
+    /// A copy of a game in its window: a new round when the window has just opened (or the
+    /// player asks for one), then the engine played and drawn.
+    fn play(&mut self, ui: &mut Ui, data: &Data, save: &Save, tool: Tool, out: &mut Vec<WbOut>) {
+        let Some((def, _)) = tool.game_def(data) else {
+            return;
+        };
+        let pass = ui.ctx().cumulative_pass_nr();
+        let start = |out: &mut Vec<WbOut>| {
+            out.push(WbOut::GameStarted(def.id.clone()));
+            crate::games_view::Session::new(def, save.key, save.game_round(&def.id))
+        };
+        let fresh = self
+            .games
+            .get(&tool)
+            .is_none_or(|(_, last)| last + 1 < pass);
+        if fresh {
+            self.games.insert(tool, (start(out), pass));
+        }
+        let keys = self.focused;
+        let (s, last) = self.games.get_mut(&tool).expect("started above");
+        *last = pass;
+        if crate::games_view::body(ui, data, def, s, keys).again {
+            *s = start(out);
+        }
+    }
+
+    /// The game being played in `tool`'s window (tests).
+    #[cfg(test)]
+    pub(crate) fn game(&self, tool: Tool) -> Option<&dyn ninsei_core::games::Arcade> {
+        self.games.get(&tool).map(|(s, _)| s.game.as_ref())
     }
 
     /// The QWK reader's window body: the screen, its hotkeys as buttons, and keys while the
@@ -638,8 +680,12 @@ impl Home {
 
     /// What each tool's face on `desktop` needs to be drawn at all: the one place a tool
     /// says so. Faces that scroll (the GUI ones) need nothing: a small window scrolls them.
-    pub fn fit(tool: Tool, desktop: Desktop) -> Option<fit::Need> {
+    pub fn fit(tool: Tool, desktop: Desktop, data: &Data) -> Option<fit::Need> {
         match (tool, desktop) {
+            // A game's field and its status line, in cells, on every desktop.
+            (Tool::Game(..), _) => tool
+                .game_def(data)
+                .map(|(g, _)| fit::Need::cells_owned(crate::games_view::grids(g))),
             // Laid out in cells on every desktop: the list's header and a few rows, and
             // every page's columns.
             (Tool::NightComm | Tool::TigerTeam, _) => {
@@ -677,9 +723,9 @@ impl Home {
             None => (ui.max_rect(), scroll_bar()),
         };
         let desktop = save.firmware_def(data).desktop;
-        let need = Self::fit(tool, desktop);
+        let need = Self::fit(tool, desktop, data);
         if let Some(need) = need
-            && let (have, false) = fit::check(ui, room, need, bar)
+            && let (have, false) = fit::check(ui, room, &need, bar)
         {
             #[cfg(test)]
             self.notices.push(tool);
@@ -687,7 +733,7 @@ impl Home {
                 ui,
                 room,
                 &tool.name(data),
-                need.grids,
+                &need.grids,
                 have,
                 hint,
                 (backdrop(), ink(), muted()),
@@ -817,8 +863,7 @@ impl Home {
             Tool::IceDb => hubtools::icedb(child, data, save, &mut self.icedb_sel),
             Tool::Guide => hubtools::guide(child, data, &mut self.guide_at),
             Tool::Shell => {}
-            // Games open on the desktops in the next step.
-            Tool::Game(..) => {}
+            Tool::Game(..) => self.play(child, data, save, tool, out),
         }
         if let Some(id) = dial {
             self.dial_from(tool, id, save);
@@ -1053,6 +1098,7 @@ pub(crate) mod tests {
     use crate::uitest::{Harness, key, text};
     use egui::{Key, Pos2, UiBuilder};
     use ninsei_core::directory::Listed;
+    use ninsei_core::hub::GameCopy;
 
     /// A started deck with a phonebook, no splashes to wait through.
     pub(crate) fn deck(data: &Data) -> Save {
@@ -1179,13 +1225,26 @@ pub(crate) mod tests {
         out
     }
 
-    /// A deck on AnarchyOS that owns every tool, so each draws its text-mode face.
+    /// The faces laid out in cells: the text-mode tools, and every copy of every game.
+    fn text_tools(data: &Data) -> Vec<Tool> {
+        let games = data.games.iter().flat_map(|g| {
+            [GameCopy::Cracked, GameCopy::Boxed].map(|c| Tool::game(&g.id, c).unwrap())
+        });
+        Home::TEXT_TOOLS.into_iter().chain(games).collect()
+    }
+
+    /// A deck on AnarchyOS that owns every tool and both copies of every game, so each draws
+    /// its text-mode face.
     fn anarchy_deck(data: &Data) -> Save {
         let mut s = deck(data);
         s.tools = ninsei_core::data::TOOLS
             .iter()
             .map(|t| t.to_string())
             .collect();
+        for g in &data.games {
+            s.learn_game(&g.id, GameCopy::Cracked);
+            s.learn_game(&g.id, GameCopy::Boxed);
+        }
         s.decks = vec!["onosendai".into()];
         s.deck = "onosendai".into();
         s.ensure_hardware(data);
@@ -1211,8 +1270,8 @@ pub(crate) mod tests {
             home.notices.clear();
             h.frame(Vec::new(), |ui| {
                 let mut child = ui.new_child(UiBuilder::new().max_rect(rect));
-                have = Home::fit(tool, Desktop::Tiling).map_or((0, 0), |need| {
-                    fit::check(&child, rect, need, scroll_bar()).0
+                have = Home::fit(tool, Desktop::Tiling, data).map_or((0, 0), |need| {
+                    fit::check(&child, rect, &need, scroll_bar()).0
                 });
                 drawn = home.tool_in(
                     &mut child,
@@ -1410,7 +1469,7 @@ pub(crate) mod tests {
 
     /// Widgets `rect` would cut: anything outside it for a face laid out to fill it, and
     /// anything past its sides for a face whose height scrolls.
-    fn cut(h: &Harness, rect: Rect, need: fit::Need) -> Vec<(String, Rect)> {
+    fn cut(h: &Harness, rect: Rect, need: &fit::Need) -> Vec<(String, Rect)> {
         h.outside(rect)
             .into_iter()
             .filter(|(_, r)| {
@@ -1446,22 +1505,23 @@ pub(crate) mod tests {
         let save = anarchy_deck(&data);
         let sizes = tile_sizes();
         assert!(sizes.len() > 8, "a spread of tiles: {sizes:?}");
-        for tool in Home::TEXT_TOOLS {
-            let need = Home::fit(tool, Desktop::Tiling).expect("a text face declares its need");
+        for tool in text_tools(&data) {
+            let need =
+                Home::fit(tool, Desktop::Tiling, &data).expect("a text face declares its need");
             for page in 0..Home::pages(tool) {
                 for (what, rect) in &sizes {
                     let (have, drawn, h) = draw_at(&data, &save, tool, *rect, page);
                     assert_eq!(
                         drawn,
-                        fit::fits(need.grids, have),
+                        fit::fits(&need.grids, have),
                         "{tool:?} page {page} as {what}: {have:?} cells, needs {:?}",
                         need.grids
                     );
                     if drawn {
                         assert!(
-                            cut(&h, *rect, need).is_empty(),
+                            cut(&h, *rect, &need).is_empty(),
                             "{tool:?} page {page} as {what} is cut: {:?}",
-                            cut(&h, *rect, need)
+                            cut(&h, *rect, &need)
                         );
                     }
                 }
@@ -1475,8 +1535,8 @@ pub(crate) mod tests {
         let save = anarchy_deck(&data);
         let mut h = Harness::new(100.0, 100.0);
         crate::uitest::themed(&h.ctx, &data);
-        for tool in Home::TEXT_TOOLS {
-            let need = Home::fit(tool, Desktop::Tiling).unwrap();
+        for tool in text_tools(&data) {
+            let need = Home::fit(tool, Desktop::Tiling, &data).unwrap();
             // The smallest rect holding `cols` x `rows` of the face's own cells, counted the
             // way the desktops count them (beside the scroll bar, for a face that scrolls).
             let mut at = |cols: usize, rows: usize| {
@@ -1486,7 +1546,7 @@ pub(crate) mod tests {
                         fit::check(
                             ui,
                             Rect::from_min_size(pos2(10.0, 10.0), s),
-                            need,
+                            &need,
                             scroll_bar(),
                         )
                         .0
@@ -1502,20 +1562,24 @@ pub(crate) mod tests {
                 Rect::from_min_size(pos2(10.0, 10.0), size)
             };
             for page in 0..Home::pages(tool) {
-                for grid in need.grids {
+                for grid in need.grids.iter() {
                     let exact = at(grid.cols, grid.rows);
                     let (have, drawn, h) = draw_at(&data, &save, tool, exact, page);
                     assert_eq!(have, (grid.cols, grid.rows));
                     assert!(drawn, "{tool:?} page {page} at exactly {grid:?} is drawn");
                     assert!(
-                        cut(&h, exact, need).is_empty(),
+                        cut(&h, exact, &need).is_empty(),
                         "{tool:?} page {page} at exactly {grid:?} is cut: {:?}",
-                        cut(&h, exact, need)
+                        cut(&h, exact, &need)
                     );
                     // A cell short either way: the notice, unless another grid it declared fits.
                     for short in [(grid.cols - 1, grid.rows), (grid.cols, grid.rows - 1)] {
                         let drawn = draw_at(&data, &save, tool, at(short.0, short.1), page).1;
-                        assert_eq!(drawn, fit::fits(need.grids, short), "{tool:?} at {short:?}");
+                        assert_eq!(
+                            drawn,
+                            fit::fits(&need.grids, short),
+                            "{tool:?} at {short:?}"
+                        );
                     }
                 }
             }
@@ -1524,11 +1588,12 @@ pub(crate) mod tests {
 
     #[test]
     fn gui_faces_declare_nothing_and_scroll() {
+        let data = Data::builtin().unwrap();
         for tool in Tool::ALL {
             for desktop in [Desktop::Liza, Desktop::Workbench] {
                 let text = matches!(tool, Tool::NightComm | Tool::TigerTeam);
                 assert_eq!(
-                    Home::fit(tool, desktop).is_some(),
+                    Home::fit(tool, desktop, &data).is_some(),
                     text,
                     "{tool:?} on {desktop:?}"
                 );
@@ -1543,7 +1608,7 @@ pub(crate) mod tests {
             Tool::Guide,
         ] {
             assert!(
-                Home::fit(tool, Desktop::Tiling).is_none(),
+                Home::fit(tool, Desktop::Tiling, &data).is_none(),
                 "{tool:?} scrolls in a tile"
             );
         }
