@@ -15,6 +15,9 @@ use crate::kit::{Cells, Fit};
 /// A game in its window: the engine, and the time it hasn't ticked yet.
 pub struct Session {
     pub game: Box<dyn Arcade>,
+    /// Which round of the game this is (`Save::game_rounds`); only the tests ask.
+    #[cfg_attr(not(test), allow(dead_code))]
+    pub round: u64,
     /// Milliseconds since the last tick.
     acc: f32,
     /// Paused because the window lost the keyboard (not by the player's `p`): it plays on
@@ -27,6 +30,7 @@ impl Session {
     pub fn new(def: &GameDef, seed: u64, round: u64) -> Session {
         Session {
             game: ninsei_core::games::new_game(def, seed, round),
+            round,
             acc: 0.0,
             auto_paused: false,
         }
@@ -823,5 +827,24 @@ mod tests {
             g.cells().iter().all(|c| *c == Cell::Covered),
             "nothing opened"
         );
+    }
+
+    #[test]
+    fn two_copies_opened_before_the_save_counts_deal_two_rounds() {
+        let (mut h, mut home, data, save, _) = open("minefield");
+        let boxed = Tool::game("minefield", GameCopy::Boxed).unwrap();
+        // The save still says round 0: the crack's start hasn't been counted on it yet.
+        assert_eq!(save.game_round("minefield"), 0);
+        frame(&mut h, &mut home, &data, &save, boxed, Vec::new());
+        assert_eq!(home.round(tool("minefield")), Some(0));
+        assert_eq!(home.round(boxed), Some(1), "a field of its own");
+        // Once the save has counted both, the next round is the third.
+        let mut counted = save.clone();
+        counted.start_game("minefield");
+        counted.start_game("minefield");
+        frame(&mut h, &mut home, &data, &counted, boxed, Vec::new());
+        home.keep_open([]);
+        frame(&mut h, &mut home, &data, &counted, boxed, Vec::new());
+        assert_eq!(home.round(boxed), Some(2));
     }
 }

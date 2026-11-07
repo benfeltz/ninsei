@@ -273,6 +273,9 @@ pub struct Home {
     /// The games whose windows are open, by copy (the desktops say which, [`Home::keep_open`]):
     /// its intro while it plays, then the round being played.
     games: std::collections::HashMap<Tool, GameWin>,
+    /// The last round dealt of each game (by id), so two rounds started before the save
+    /// counts the first (both copies opening in one frame) still deal two games.
+    dealt: std::collections::HashMap<String, u64>,
 }
 
 /// A game's open window: its intro (the time it started) until it ends, then the round.
@@ -340,6 +343,7 @@ impl Home {
             guide_at: ninsei_core::cards::Place::Home,
             system: crate::system::SystemUi::default(),
             games: Default::default(),
+            dealt: Default::default(),
         }
     }
 
@@ -406,14 +410,24 @@ impl Home {
                 }
             }
         }
-        let start = |out: &mut Vec<WbOut>| {
+        let dealt = &mut self.dealt;
+        let mut start = |out: &mut Vec<WbOut>| {
+            let next = dealt.get(&def.id).map_or(0, |r| r + 1);
+            let round = save.game_round(&def.id).max(next);
+            dealt.insert(def.id.clone(), round);
             out.push(WbOut::GameStarted(def.id.clone()));
-            crate::games_view::Session::new(def, save.key, save.game_round(&def.id))
+            crate::games_view::Session::new(def, save.key, round)
         };
         let s = w.session.get_or_insert_with(|| start(out));
         if crate::games_view::body(ui, data, def, s, keys).again {
             *s = start(out);
         }
+    }
+
+    /// The round being played in `tool`'s window (tests).
+    #[cfg(test)]
+    pub(crate) fn round(&self, tool: Tool) -> Option<u64> {
+        self.games.get(&tool)?.session.as_ref().map(|s| s.round)
     }
 
     /// The game being played in `tool`'s window (tests).
