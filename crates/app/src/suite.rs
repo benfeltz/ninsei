@@ -1383,10 +1383,12 @@ impl ChromeView for Suite {
                         let title = cut(&n.title, cols.saturating_sub(2));
                         let tn = title.chars().count();
                         body.inv((cols - tn) / 2, 0, &title, p.bright, p.panel);
-                        for (i, l) in n.lines.iter().enumerate() {
+                        // Lines wrapped to the dialog, two cells in from each side.
+                        let lines = crate::kit::fit::wrap(&n.lines, cols.saturating_sub(4));
+                        for (i, l) in lines.iter().enumerate() {
                             body.put(2, 2 + i, l, p.fg);
                         }
-                        let foot = 3 + n.lines.len();
+                        let foot = 3 + lines.len();
                         if waiting > 1 {
                             body.put(2, foot, &format!("1 of {waiting}"), p.dim);
                         }
@@ -1596,7 +1598,10 @@ mod tests {
         st.watch.step(&g);
         st.dialogs.push(ninsei_core::suite::Notice {
             title: "PAYMENT RECEIVED".into(),
-            lines: vec!["Ninsei Community College paid 120¢.".into()],
+            lines: vec![
+                "Ninsei Community College paid 120¢.".into(),
+                "You have been logged off. Thank you for using Hosaka. Have a pleasant day.".into(),
+            ],
         });
         let mut h = Harness::new(900.0, 600.0);
         let draw = |h: &mut Harness, st: &mut State, events| {
@@ -1623,6 +1628,9 @@ mod tests {
             .collect();
         assert!(painted.contains("PAYMENTRECEIVED") || painted.contains("PAYMENT RECEIVED"));
         assert!(painted.contains("120"), "its line: {painted}");
+        // The long line wraps whole onto the next row, never cut.
+        assert!(painted.contains("pleasantday."), "{painted}");
+        assert!(!painted.contains('…'), "nothing cut: {painted}");
         let ok = h
             .find("[ OK ]")
             .unwrap_or_else(|| panic!("{:?}", h.texts()));
