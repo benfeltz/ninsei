@@ -180,9 +180,11 @@ pub mod tests {
 
     #[test]
     fn it_reads_the_save_and_steps_by_notches() {
-        let mut s = Save::default();
-        s.volume = 70;
-        s.sound = false;
+        let s = Save {
+            volume: 70,
+            sound: false,
+            ..Save::default()
+        };
         let l = Level::of(&s);
         assert_eq!(
             l,
@@ -368,6 +370,126 @@ pub mod tests {
         assert!(s.popup.is_open());
         s.frame(c, Vec::new());
         s.press(c, "🔉 45%");
+        assert!(!s.popup.is_open());
+    }
+
+    /// The pop-out opened as its menu item does.
+    fn opened(c: Chrome, on: bool, volume: u32) -> Screen {
+        let mut s = Screen::new(on, volume);
+        s.popup.open(s.level);
+        // Two frames: an anchored window settles where it goes on its second.
+        s.frame(c, Vec::new());
+        s.frame(c, Vec::new());
+        assert!(
+            s.h.outside(s.screen()).is_empty(),
+            "{:?}",
+            s.h.outside(s.screen())
+        );
+        s
+    }
+
+    #[test]
+    fn every_chrome_has_a_way_in() {
+        for c in [Chrome::Classic, Chrome::Btop, Chrome::Suite, Chrome::Stack] {
+            let v = chrome::view(c);
+            let in_menus = v
+                .menus()
+                .iter()
+                .any(|(_, parts)| parts.contains(&chrome::MenuPart::Sound));
+            assert!(in_menus, "{c:?}");
+        }
+        assert_eq!(chrome::view(Chrome::Suite).sound_item(), "Sound...");
+        assert_eq!(chrome::view(Chrome::Stack).sound_item(), "Control Panel...");
+    }
+
+    #[test]
+    fn the_suite_s_sound_dialog_moves_mutes_and_cancels() {
+        let c = Chrome::Suite;
+        let mut s = opened(c, true, 50);
+        assert!(s.h.find("[  OK  ]").is_some() && s.h.find("[Cancel]").is_some());
+        assert_eq!(said(&s.frame(c, key(egui::Key::ArrowRight))), ["volume 60"]);
+        assert_eq!(
+            said(&s.frame(c, keys_of(egui::Key::Space, " "))),
+            ["sound off"]
+        );
+        assert_eq!(said(&s.press(c, "30%")), ["volume 30"]);
+        assert_eq!(said(&s.press(c, "Mute")), ["sound on"]);
+        assert_eq!(said(&s.press(c, "Mute")), ["sound off"]);
+        assert_eq!(s.typed, "", "the command line never heard a key");
+        // Cancel puts back what was set when it opened.
+        assert_eq!(said(&s.press(c, "[Cancel]")), ["volume 50", "sound on"]);
+        assert!(!s.popup.is_open());
+        assert_eq!(
+            s.level,
+            Level {
+                on: true,
+                volume: 50
+            }
+        );
+        // So does Esc; Enter and OK keep it.
+        let mut s = opened(c, true, 50);
+        s.frame(c, key(egui::Key::ArrowLeft));
+        assert_eq!(said(&s.frame(c, key(egui::Key::Escape))), ["volume 50"]);
+        let mut s = opened(c, true, 50);
+        s.frame(c, key(egui::Key::ArrowLeft));
+        assert!(said(&s.frame(c, key(egui::Key::Enter))).is_empty());
+        assert!(!s.popup.is_open());
+        assert_eq!(s.level.volume, 40);
+        let mut s = opened(c, true, 50);
+        s.press(c, "[  OK  ]");
+        assert!(!s.popup.is_open());
+    }
+
+    #[test]
+    fn liza_s_control_panel_slides_notch_by_notch_and_closes() {
+        let c = Chrome::Stack;
+        let mut s = opened(c, true, 100);
+        let track = s.h.find("Speaker Volume").expect("the slider");
+        // GUI screens sit on whole pixels.
+        for what in ["close", "Speaker Volume", "Sound"] {
+            let r = s.h.find(what).unwrap();
+            assert_eq!(
+                (r.min.x.fract(), r.min.y.fract()),
+                (0.0, 0.0),
+                "{what} {r:?}"
+            );
+        }
+        // A click on the track jumps the knob to the nearest notch: its left end is 0.
+        let left = egui::pos2(track.left() + 2.0, track.center().y);
+        assert_eq!(said(&s.frame(c, click(left))), ["volume 0"]);
+        assert_eq!(said(&s.frame(c, key(egui::Key::ArrowRight))), ["volume 14"]);
+        assert_eq!(said(&s.frame(c, key(egui::Key::ArrowRight))), ["volume 29"]);
+        assert_eq!(said(&s.press(c, "Sound")), ["sound off"]);
+        assert_eq!(
+            said(&s.frame(c, keys_of(egui::Key::Space, " "))),
+            ["sound on"]
+        );
+        assert_eq!(s.typed, "");
+        // The close box puts it away, keeping what's set; so do Esc and Enter.
+        s.press(c, "close");
+        assert!(!s.popup.is_open());
+        assert_eq!(
+            s.level,
+            Level {
+                on: true,
+                volume: 29
+            }
+        );
+        for k in [egui::Key::Escape, egui::Key::Enter] {
+            let mut s = opened(c, true, 100);
+            s.frame(c, key(k));
+            assert!(!s.popup.is_open(), "{k:?}");
+        }
+    }
+
+    #[test]
+    fn the_classic_window_has_a_slider_a_switch_and_close() {
+        let c = Chrome::Classic;
+        let mut s = opened(c, true, 50);
+        assert!(s.h.find("modem sounds").is_some(), "{:?}", s.h.texts());
+        assert_eq!(said(&s.frame(c, key(egui::Key::ArrowRight))), ["volume 55"]);
+        assert_eq!(said(&s.press(c, "modem sounds")), ["sound off"]);
+        s.press(c, "close");
         assert!(!s.popup.is_open());
     }
 }

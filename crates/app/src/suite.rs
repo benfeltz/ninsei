@@ -39,6 +39,8 @@ pub mod size {
     /// Narrowest a form shows its notes column at.
     pub const FORM_NOTES_W: f32 = 440.0;
     pub const DIALOG_W: f32 = 420.0;
+    /// The Sound dialog's width.
+    pub const SOUND_W: f32 = 300.0;
 }
 
 /// What the suite remembers between frames: the spreadsheet's cursor (by program uid, since the
@@ -1116,7 +1118,10 @@ fn fkey(k: Key, st: &State, g: &Game) -> Option<Request> {
 
 const SUITE_MENUS: Menus = &[
     ("File", &[MenuPart::Decks, MenuPart::Monitors]),
-    ("Edit", &[MenuPart::Glitches, MenuPart::Toggles]),
+    (
+        "Edit",
+        &[MenuPart::Glitches, MenuPart::Toggles, MenuPart::Sound],
+    ),
     ("View", &[MenuPart::Layout, MenuPart::Panes]),
     ("Run", &[MenuPart::Turn]),
     ("Window", &[MenuPart::Themes]),
@@ -1179,6 +1184,12 @@ impl ChromeView for Suite {
     }
     fn menus(&self) -> Menus {
         SUITE_MENUS
+    }
+    fn sound(&self, ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
+        sound_dialog(ctx, cx)
+    }
+    fn sound_item(&self) -> &'static str {
+        "Sound..."
     }
 
     fn status(&self, ui: &mut Ui, pal: &Palette, game: &Game) -> bool {
@@ -1373,4 +1384,100 @@ impl ChromeView for Suite {
         }
         Vec::new()
     }
+}
+
+/// The volume bar's cells in the Sound dialog: 10% apiece.
+const SOUND_NOTCHES: u32 = 10;
+
+/// The Sound dialog (Edit > Sound...): a Volume bar of [`SOUND_NOTCHES`] cells, a Mute check
+/// box, OK and Cancel. ←/→ move the bar, Space checks the box, Enter is OK and Esc is Cancel,
+/// which puts back what was set when it opened. Changes are heard as they're made.
+fn sound_dialog(ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
+    let (p, now) = (cx.pal, cx.level);
+    let k = crate::volume::keys(ctx, Key::Space);
+    let mut to = now.nudged(k.nudge, SOUND_NOTCHES);
+    if k.flip {
+        to.on = !to.on;
+    }
+    let (mut ok, mut cancel) = (k.ok, k.esc);
+    let click = |ui: &mut Ui, text: RichText, label: &str| {
+        let r = ui.add(egui::Label::new(text).sense(Sense::click()));
+        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+        r.clicked()
+    };
+    egui::Area::new(egui::Id::new("suite-sound"))
+        .order(egui::Order::Foreground)
+        .anchor(Align2::CENTER_CENTER, vec2(0.0, -40.0))
+        .show(ctx, |ui| {
+            egui::Frame::new()
+                .fill(p.bg)
+                .stroke(Stroke::new(2.0, p.fg))
+                .inner_margin(egui::Margin::same(3))
+                .shadow(egui::Shadow {
+                    offset: [8, 8],
+                    blur: 0,
+                    spread: 0,
+                    color: p.faint,
+                })
+                .show(ui, |ui| {
+                    let w = size::SOUND_W;
+                    ui.set_width(w);
+                    let (bar, _) =
+                        ui.allocate_exact_size(vec2(w, size::TITLE_H + 2.0), Sense::hover());
+                    ui.painter().rect_filled(bar, 0.0, p.panel);
+                    ui.painter().text(
+                        bar.center(),
+                        Align2::CENTER_CENTER,
+                        "Sound",
+                        mono(size::MONO),
+                        p.bright,
+                    );
+                    egui::Frame::new()
+                        .inner_margin(egui::Margin::symmetric(14, 10))
+                        .show(ui, |ui| {
+                            ui.spacing_mut().item_spacing.x = 0.0;
+                            ui.horizontal(|ui| {
+                                ui.label(t("Volume   ", p.fg));
+                                let lit = now.notch(SOUND_NOTCHES);
+                                for n in 1..=SOUND_NOTCHES {
+                                    let c = if n <= lit { p.bright } else { p.faint };
+                                    let pct = ninsei_core::hub::notch_volume(n, SOUND_NOTCHES);
+                                    if click(ui, t("■", c), &format!("{pct}%")) {
+                                        to.volume = pct;
+                                    }
+                                }
+                                ui.label(t(format!("  {:>3}%", now.volume), p.fg));
+                            });
+                            ui.add_space(6.0);
+                            let mark = if now.on { "[ ]" } else { "[X]" };
+                            if click(ui, t(format!("{mark} Mute"), p.fg), "Mute") {
+                                to.on = !to.on;
+                            }
+                            ui.add_space(10.0);
+                            ui.horizontal(|ui| {
+                                ui.spacing_mut().item_spacing.x = 6.0;
+                                ui.with_layout(
+                                    egui::Layout::right_to_left(egui::Align::Center),
+                                    |ui| {
+                                        if ui.button(t("[Cancel]", p.fg)).clicked() {
+                                            cancel = true;
+                                        }
+                                        ui.label(small("Esc", p.dim));
+                                        if ui.button(t("[  OK  ]", p.bright)).clicked() {
+                                            ok = true;
+                                        }
+                                        ui.label(small("Enter", p.dim));
+                                    },
+                                );
+                            });
+                        });
+                });
+        });
+    if cancel {
+        return cx.popup.cancel(now);
+    }
+    if ok {
+        cx.popup.close();
+    }
+    now.to(to)
 }

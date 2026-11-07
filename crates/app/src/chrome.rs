@@ -27,6 +27,8 @@ pub enum MenuPart {
     Glitches,
     /// CRT effects and sounds on or off.
     Toggles,
+    /// Opens the sound pop-out (the level and the switch).
+    Sound,
     /// Monitors you own.
     Monitors,
     /// Decks you own.
@@ -46,6 +48,7 @@ const CLASSIC_MENUS: Menus = &[
             MenuPart::Glitches,
             MenuPart::Panes,
             MenuPart::Toggles,
+            MenuPart::Sound,
             MenuPart::Monitors,
             MenuPart::Decks,
         ],

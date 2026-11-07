@@ -1119,6 +1119,12 @@ impl App {
                     out.push(Request::Cmd(Command::Sound));
                 }
             }
+            MenuPart::Sound => {
+                let v = chrome::view(self.save.firmware_def(&self.data).chrome);
+                if ui.button(v.sound_item()).clicked() {
+                    self.sound_popup.open(volume::Level::of(&self.save));
+                }
+            }
             MenuPart::Monitors => {
                 ui.label(RichText::new("monitor").color(pal.dim));
                 for id in self.save.monitors.clone() {
