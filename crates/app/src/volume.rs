@@ -492,4 +492,48 @@ pub mod tests {
         s.press(c, "close");
         assert!(!s.popup.is_open());
     }
+
+    #[test]
+    fn the_system_app_and_the_pop_out_are_one_switch() {
+        let d = Data::builtin().unwrap();
+        let mut save = Save::default();
+        save.ensure_hardware(&d);
+        let mut sys = crate::system::SystemUi::default();
+        let mut h = Harness::new(900.0, 700.0);
+        // What System's box says, and what clicking it asks for.
+        let mut system = |h: &mut Harness, save: &Save, events| {
+            let mut out = Vec::new();
+            h.frame(events, |ui| {
+                crate::system::show(ui, &d, save, &mut sys, &mut out)
+            });
+            out
+        };
+        for on in [true, false, true] {
+            save.sound = on;
+            system(&mut h, &save, Vec::new());
+            assert_eq!(h.ticked("Sound"), Some(on), "System");
+            let mut run = Screen::new(true, 100);
+            run.level = Level::of(&save);
+            run.frame(Chrome::Btop, Vec::new());
+            let speaker = if on { "🔊 100%" } else { "🔇 muted" };
+            assert!(run.h.find(speaker).is_some(), "{:?}", run.h.texts());
+        }
+        // System's box flips the switch the pop-out shows (the app toggles `Save::sound`)...
+        let at = h.find("Sound").unwrap().center();
+        let out = system(&mut h, &save, click(at));
+        assert!(matches!(out[..], [crate::home::WbOut::Sound]));
+        save.sound = !save.sound;
+        assert!(!Level::of(&save).on);
+        // ...and the pop-out's switch is the one System shows.
+        let mut run = Screen::new(true, 100);
+        run.level = Level::of(&save);
+        run.popup.open(run.level);
+        run.frame(Chrome::Btop, Vec::new());
+        run.frame(Chrome::Btop, Vec::new());
+        let reqs = run.press(Chrome::Btop, "mute");
+        assert_eq!(said(&reqs), ["sound on"]);
+        save.sound = run.level.on;
+        system(&mut h, &save, Vec::new());
+        assert_eq!(h.ticked("Sound"), Some(true));
+    }
 }
