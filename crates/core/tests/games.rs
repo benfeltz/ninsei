@@ -130,12 +130,16 @@ fn a_save_from_before_games_loads_with_none() {
     assert_eq!(kept.copies("blox"), vec![hub::GameCopy::Boxed]);
 }
 
-/// The builtin data with BLOX for free in the Gutter's first always-stocked area (no board
-/// sells a game yet).
+/// The builtin data with BLOX for free in one of the Gutter's always-stocked areas.
 fn gutter_stocks_blox() -> (Data, usize, usize) {
     let mut d = data();
     let b = d.board("gutter").unwrap();
-    let area = d.boards[b].areas.iter().position(|a| a.always).unwrap();
+    // An always-stocked area of its own, not the GAMES area that sells the real crack.
+    let area = d.boards[b]
+        .areas
+        .iter()
+        .position(|a| a.always && !a.files.iter().any(|f| matches!(f.item, Drop::Game(_))))
+        .unwrap();
     d.boards[b].areas[area].files.push(BbsFileDef {
         file: "BLOX.ZIP".into(),
         item: Drop::Game("blox".into()),
@@ -1194,4 +1198,22 @@ fn the_gutters_games_area_stocks_every_game_and_a_download_comes_home_cracked() 
         }
     }
     panic!("in 200 saves the Gutter only ever stocked {seen:?}");
+}
+
+#[test]
+fn a_game_in_a_rolled_area_is_rejected() {
+    let mut d = data();
+    let b = d.board("gutter").unwrap();
+    let a = d.boards[b]
+        .areas
+        .iter()
+        .position(|a| a.files.iter().any(|f| matches!(f.item, Drop::Game(_))))
+        .unwrap();
+    assert!(d.boards[b].areas[a].always, "the GAMES area takes no roll");
+    d.boards[b].areas[a].always = false;
+    assert!(
+        d.validate()
+            .unwrap_err()
+            .contains("never touches a run's dice")
+    );
 }

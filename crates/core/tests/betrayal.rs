@@ -143,19 +143,7 @@ fn tier_one_only_ever_shortchanges_you() {
 fn stiffed_pays_short() {
     let g = betrayed(&only("Stiffed(0)"), 3, 200);
     assert_eq!(g.contracts[0].paid, 0);
-    // What the ICE dropped when it fell is all there is: none of the job's pay.
-    let dropped: u32 = g
-        .log
-        .iter()
-        .filter_map(|l| {
-            l.text
-                .strip_prefix("+ ")?
-                .strip_suffix('¢')?
-                .parse::<u32>()
-                .ok()
-        })
-        .sum();
-    assert_eq!(g.deck.credits, dropped);
+    assert_eq!(g.deck.credits, 0);
     assert_eq!(g.betrayal_label(&g.contracts[0]), Some("X"));
     assert!(g.log.iter().any(|l| l.text.contains("Maas did it")));
 }

@@ -66,7 +66,8 @@
             (file: "SAITO.TXT",    item: Hint("saito"),            price: 35,  desc: "Saito Pharma line dump"),
         ]),
         // Cracked games, signed by their crews (docs/world.md): the file names carry the tag.
-        (name: "GAMES", stock: 2, files: [
+        // Always stocked, so games never touch a run's dice (validation insists).
+        (name: "GAMES", stock: 3, always: true, files: [
             (file: "NIBB-2K4.ZIP", item: Game("nibbler"),   price: 15,  desc: "Nibbler. 2400 CLUB krak, it runs"),
             (file: "BLOX-PHS.ZIP", item: Game("blox"),      price: 30,  desc: "Blox 2.0. PHOSPHOR, the real one"),
             (file: "MINE-PHS.ZIP", item: Game("minefield"), price: 20,  desc: "Minefield 1.1. PHOSPHOR crack"),
