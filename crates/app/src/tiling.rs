@@ -348,9 +348,9 @@ impl DesktopView for TilingDesk {
         }
 
         if live {
-            self.launcher_ui(ui, home, cx, &mut t, out);
+            self.launcher_ui(ui, home, cx, &mut t, out, &look);
             let first = !save.tiling_help_seen;
-            if (self.help || first) && help_ui(ui, screen) {
+            if (self.help || first) && anarchy::help(ui, screen, &HELP, &look) {
                 self.help = false;
                 if first {
                     out.push(WbOut::HelpSeen);
@@ -372,6 +372,7 @@ impl TilingDesk {
         cx: &Cx,
         t: &mut Tiling,
         out: &mut Vec<WbOut>,
+        look: &anarchy::Look,
     ) {
         let Some(l) = &mut self.launcher else { return };
         let fuzzy = cx
@@ -391,7 +392,7 @@ impl TilingDesk {
             &labels,
             |q| desktop::search(q, &labels, fuzzy),
             hint,
-            &look(ui),
+            look,
         );
         if let Some(i) = run {
             match &items[i] {
@@ -449,12 +450,6 @@ const HELP: [(&str, &str); 14] = [
     ("", ""),
     ("", "the mouse works too. click anywhere to start."),
 ];
-
-/// The key help. Returns true when it's dismissed (a click, or any key but `?` and `/`, which
-/// open it).
-fn help_ui(ui: &mut Ui, screen: Rect) -> bool {
-    anarchy::help(ui, screen, &HELP, &look(ui))
-}
 
 #[cfg(test)]
 mod tests {
