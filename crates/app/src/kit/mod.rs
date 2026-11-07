@@ -9,7 +9,9 @@
 pub mod cells;
 pub mod fit;
 pub mod list;
+pub mod sheet;
 
 pub use cells::Cells;
 pub use fit::Fit;
 pub use list::List;
+pub use sheet::Sheet;

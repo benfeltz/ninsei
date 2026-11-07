@@ -79,6 +79,83 @@ impl Cells {
         }
     }
 
+    /// A grid of `cols` × `rows` cells from `min`, in a face's own type: `font`, with rows
+    /// `ch` tall (the font's own line height when `None`). For a screen whose cells aren't
+    /// the app's monospace ones, like an 80x24 terminal at its own size.
+    #[allow(clippy::too_many_arguments)]
+    pub fn sized(
+        ui: &Ui,
+        min: Pos2,
+        font: FontId,
+        ch: Option<f32>,
+        (cols, rows): (usize, usize),
+        border: Color32,
+        paper: Color32,
+        empty: Color32,
+    ) -> Cells {
+        let cw = ui.fonts_mut(|f| f.glyph_width(&font, 'M')).max(1.0);
+        let ch = ch
+            .unwrap_or_else(|| ui.fonts_mut(|f| f.row_height(&font)))
+            .max(1.0);
+        Cells {
+            rect: Rect::from_min_size(min, vec2(cols as f32 * cw, rows as f32 * ch)),
+            cw,
+            ch,
+            cols,
+            rows,
+            font,
+            border,
+            paper,
+            empty,
+            vision: false,
+        }
+    }
+
+    /// The same grid moved so it starts at `min`.
+    pub fn at_pos(mut self, min: Pos2) -> Cells {
+        self.rect = Rect::from_min_size(min, self.rect.size());
+        self
+    }
+
+    /// A block element (`█▀▄▌▐▪░▒▓`) at (`c`, `r`), painted as a solid part of the cell so
+    /// block art joins up with no font gaps. Returns false (and paints nothing) for any other
+    /// character.
+    pub fn block(&self, p: &Painter, c: usize, r: usize, ch: char, color: Color32) -> bool {
+        let cell = self.at(c, r, 1, 1);
+        let part = |x0: f32, y0: f32, x1: f32, y1: f32| {
+            let r = Rect::from_min_max(
+                pos2(
+                    cell.left() + cell.width() * x0,
+                    cell.top() + cell.height() * y0,
+                ),
+                pos2(
+                    cell.left() + cell.width() * x1,
+                    cell.top() + cell.height() * y1,
+                ),
+            );
+            // Snapped outward a hair so neighbouring cells meet with no seam.
+            p.rect_filled(r.expand(0.25), 0.0, color);
+        };
+        match ch {
+            '█' => part(0.0, 0.0, 1.0, 1.0),
+            '▀' => part(0.0, 0.0, 1.0, 0.5),
+            '▄' => part(0.0, 0.5, 1.0, 1.0),
+            '▌' => part(0.0, 0.0, 0.5, 1.0),
+            '▐' => part(0.5, 0.0, 1.0, 1.0),
+            '▪' => part(0.25, 0.3, 0.75, 0.7),
+            '░' | '▒' | '▓' => {
+                let a = match ch {
+                    '░' => 0.25,
+                    '▒' => 0.5,
+                    _ => 0.75,
+                };
+                p.rect_filled(cell, 0.0, color.gamma_multiply(a));
+            }
+            _ => return false,
+        }
+        true
+    }
+
     /// The pixel rect of `w` × `h` cells from column `c`, row `r`.
     pub fn at(&self, c: usize, r: usize, w: usize, h: usize) -> Rect {
         Rect::from_min_size(
