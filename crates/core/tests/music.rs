@@ -207,13 +207,13 @@ mod in_a_run {
     fn the_sense_net_plays_its_own_tune() {
         let d = Data::builtin().unwrap();
         let (s, g) = dialed(&d, "sensenet");
-        let fw = s.firmware_def(&d);
-        assert_eq!(
-            (fw.label.as_str(), fw.sounds.as_str()),
-            ("Liza 1.0", "sensenet")
-        );
+        // The starter deck's firmware (Liza 1.0) names the Sense/Net pack.
+        assert_eq!(s.firmware_def(&d).sounds, "sensenet");
         let w = wanted(Screen::Run, false, &s, &g, &d).expect("music in a Liza run");
-        assert_eq!((w.pack, w.tier), ("sensenet", g.tier()));
+        assert_eq!(w.pack, "sensenet");
+        let own = d.run_tune("sensenet", g.tier()).unwrap();
+        assert!(std::ptr::eq(w.tune, own), "the tier's own tune");
+        assert_eq!(w.tune.tier, g.tier());
         assert_eq!(w.arrangement, Arrangement::PLAIN);
     }
 }
