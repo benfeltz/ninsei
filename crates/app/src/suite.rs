@@ -112,7 +112,13 @@ pub fn window(ui: &mut Ui, p: &Palette, num: usize, title: &str, body: impl FnOn
     let name = cut(title, room);
     let n = name.chars().count();
     g.text(&painter, 1 + (w - n) / 2, 1, &name, p.bright);
-    let inner = g.at(1, 2, g.cols - 2, g.rows - 3).shrink2(vec2(2.0, 2.0));
+    // The body: under the title row, inside the double line (it runs through the outer
+    // cells' centres).
+    let edge = g.at(0, g.rows - 1, g.cols, 1).center().y;
+    let inner = Rect::from_min_max(
+        g.at(1, 2, 1, 1).min + vec2(2.0, 2.0),
+        pos2(g.at(g.cols - 1, 0, 1, 1).center().x - 4.0, edge - 4.0),
+    );
     ui.scope_builder(
         UiBuilder::new()
             .max_rect(inner)
@@ -889,50 +895,67 @@ impl Panes<'_> {
         let p = self.pal;
         let mut pane = std::mem::take(&mut self.out);
         window(ui, &p, Tab::Terminal.number(), "ACTIVITY LOG", |ui| {
-            let cw = ui.fonts_mut(|f| f.glyph_width(&mono(size::MONO), 'M'));
-            let cols = [9.0 * cw, 5.0 * cw];
-            let header = |ui: &mut Ui, a: &str, b: &str, c: &str, col: Color32| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 0.0;
-                    ui.add_sized([cols[0], size::ROW_H - 3.0], egui::Label::new(t(a, col)));
-                    ui.add_sized([cols[1], size::ROW_H - 3.0], egui::Label::new(t(b, col)));
-                    ui.label(t(c, col));
-                });
-            };
-            header(ui, "TIME", "REF", "ENTRY", p.dim);
+            // The columns, in the suite's cells: time from 1, ref from 9, the entry from 14.
+            let (resp, cells) = Cells::allocate(
+                ui,
+                mono(size::MONO),
+                Some(size::ROW_H),
+                (cols_across(ui), 1),
+                vec2(0.0, 0.0),
+                Sense::hover(),
+            );
+            let painter = ui.painter_at(resp.rect);
+            for (c, head) in [(1, "TIME"), (9, "REF"), (14, "ENTRY")] {
+                cells.text(&painter, c, 0, head, p.dim);
+            }
             let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 2.0), Sense::hover());
             ui.painter()
                 .line_segment([r.left_center(), r.right_center()], Stroke::new(1.0, p.dim));
             let input_h = size::MONO + 16.0;
+            // Whole rows: the log sticks to its bottom, so a view a whole number of rows tall
+            // never shows part of its top line.
+            let rows = ((ui.available_height() - input_h) / size::ROW_H)
+                .floor()
+                .max(1.0);
             ScrollArea::vertical()
                 .id_salt("suite-log")
                 .stick_to_bottom(true)
                 .auto_shrink([false, false])
-                .max_height(ui.available_height() - input_h)
+                .max_height(rows * size::ROW_H)
                 .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
                 .show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 0.0;
+                    // Each entry one row of the suite's cells: the time, the ref, then the
+                    // entry, cut with … where the window ends.
+                    let across = cols_across(ui);
                     for l in &g.log {
                         let col = match l.kind {
                             LogKind::Sys => p.dim,
                             LogKind::Info | LogKind::Good => p.fg,
                             LogKind::Bad | LogKind::Loot => p.bright,
                         };
-                        let row = ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = 0.0;
-                            ui.add_sized(
-                                [cols[0], size::ROW_H],
-                                egui::Label::new(t(format!("{:03}.{:02}", l.hop, l.turn), p.dim)),
-                            );
-                            ui.add_sized(
-                                [cols[1], size::ROW_H],
-                                egui::Label::new(t(rules::log_ref(l.kind), col)),
-                            );
-                            ui.label(t(self.garble(&l.text), col));
-                        });
-                        let r = row.response.rect;
-                        ui.painter().line_segment(
-                            [r.left_bottom(), pos2(ui.max_rect().right(), r.bottom())],
+                        let (resp, cells) = Cells::allocate(
+                            ui,
+                            mono(size::MONO),
+                            Some(size::ROW_H),
+                            (across, 1),
+                            vec2(0.0, 0.0),
+                            Sense::hover(),
+                        );
+                        let painter = ui.painter_at(resp.rect);
+                        cells.text(
+                            &painter,
+                            1,
+                            0,
+                            &format!("{:03}.{:02}", l.hop, l.turn),
+                            p.dim,
+                        );
+                        cells.text(&painter, 9, 0, rules::log_ref(l.kind), col);
+                        let room = across.saturating_sub(14);
+                        cells.text_max(&painter, 14, 0, &self.garble(&l.text), room, col);
+                        let r = resp.rect;
+                        painter.line_segment(
+                            [r.left_bottom(), r.right_bottom()],
                             Stroke::new(1.0, p.faint),
                         );
                     }
@@ -1576,5 +1599,58 @@ mod tests {
             .unwrap_or_else(|| panic!("{:?}", h.texts()));
         draw(&mut h, &mut st, click(ok.center()));
         assert!(st.dialogs.is_empty(), "OK dismissed it");
+    }
+
+    #[test]
+    fn the_log_lays_its_entries_a_row_apart() {
+        let d = Data::builtin().unwrap();
+        let mut s = Save::default();
+        s.ensure_hardware(&d);
+        let g = s.jack_in(&d, &d.rig, 1);
+        assert!(g.log.len() >= 3);
+        let p = Palette::from_def(&d.themes[0]);
+        let mut st = State::default();
+        let mut h = Harness::new(900.0, 600.0);
+        let (mut term, mut focus, mut hex, mut keep) =
+            (ninsei_term::LineEditor::default(), false, None, Vec::new());
+        for _ in 0..2 {
+            h.frame(Vec::new(), |ui| {
+                let room = Rect::from_min_size(egui::pos2(0.0, 0.0), vec2(840.0, 400.0));
+                let mut child = ui.new_child(UiBuilder::new().max_rect(room));
+                let mut panes = Panes {
+                    game: &g,
+                    pal: p,
+                    map: ninsei_core::netview::MapView::Draft,
+                    deck: String::new(),
+                    chrome: Chrome::Suite,
+                    corrupt: (0.0, 0),
+                    term: &mut term,
+                    focus_input: &mut focus,
+                    bbs_open: false,
+                    hex: &mut hex,
+                    keep: &mut keep,
+                    keep_room: 0,
+                    suite: &mut st,
+                    out: Vec::new(),
+                };
+                panes.suite_terminal(&mut child);
+            });
+        }
+        // The rules under each entry, in the faint colour: a row apart, every one.
+        let mut ys: Vec<f32> = h
+            .painted()
+            .iter()
+            .filter_map(|s| match s {
+                egui::Shape::LineSegment { points, stroke } if stroke.color == p.faint => {
+                    Some(points[0].y)
+                }
+                _ => None,
+            })
+            .collect();
+        ys.sort_by(f32::total_cmp);
+        assert!(ys.len() >= g.log.len(), "a rule under each entry: {ys:?}");
+        for w in ys.windows(2) {
+            assert!((w[1] - w[0] - size::ROW_H).abs() < 0.01, "{ys:?}");
+        }
     }
 }
