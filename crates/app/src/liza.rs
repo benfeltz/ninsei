@@ -1078,4 +1078,46 @@ mod tests {
             assert!(!s.active(), "{tool:?}'s page fits its window: {s:?}");
         }
     }
+
+    #[test]
+    fn the_wheel_over_a_window_in_front_doesnt_scroll_the_one_behind() {
+        let data = Data::builtin().unwrap();
+        let ctx = egui::Context::default();
+        crate::uitest::themed(&ctx, &data);
+        let (mut liza, mut home) = booted(&ctx, &data);
+        liza.multifinder = true;
+        let mut t = look::BOOT_SECS + 0.2;
+        let mut run = |liza: &mut Liza, home: &mut Home, ev: Vec<egui::Event>| {
+            t += 0.1;
+            frame(&ctx, liza, home, &data, ev, t);
+        };
+        // System low on the screen, so it scrolls; ICE DB in front, over System's scroll bar.
+        liza.open(Tool::System);
+        liza.wins.last_mut().unwrap().pos = pos2(100.0, 680.0);
+        liza.open(Tool::IceDb);
+        liza.wins.last_mut().unwrap().pos = pos2(700.0, 600.0);
+        for _ in 0..3 {
+            run(&mut liza, &mut home, Vec::new());
+        }
+        let key = Id::new(("liza-scroll", Tool::System)).with("kit-scroll");
+        let at = |ctx: &egui::Context| ctx.data(|d| d.get_temp::<kit::Scroll>(key)).unwrap();
+        assert!(at(&ctx).active());
+        let sys = &liza.wins[liza.wins.len() - 2];
+        let over_bar = pos2(sys.pos.x + sys.size.x - 8.0, 760.0);
+        let wheel = vec![
+            egui::Event::PointerMoved(over_bar),
+            egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: vec2(0.0, -40.0),
+                modifiers: egui::Modifiers::NONE,
+                phase: egui::TouchPhase::Move,
+            },
+        ];
+        run(&mut liza, &mut home, wheel);
+        for _ in 0..10 {
+            run(&mut liza, &mut home, Vec::new());
+        }
+        assert_eq!(at(&ctx).offset, 0.0, "the window in front had the wheel");
+        assert_eq!(liza.wins.last().unwrap().tool, Tool::IceDb);
+    }
 }

@@ -269,10 +269,14 @@ fn bar_input(ui: &Ui, r: Rect, id: Id, s: &Scroll) -> Option<f32> {
     }
     let (up, down, track, thumb) = bar_parts(r, s);
     let mut to = s.offset;
-    if ui.interact(up, id.with("up"), Sense::click()).clicked() {
+    let (up_r, down_r) = (
+        ui.interact(up, id.with("up"), Sense::click()),
+        ui.interact(down, id.with("down"), Sense::click()),
+    );
+    if up_r.clicked() {
         to -= s.line;
     }
-    if ui.interact(down, id.with("down"), Sense::click()).clicked() {
+    if down_r.clicked() {
         to += s.line;
     }
     let t = ui.interact(track, id.with("track"), Sense::click_and_drag());
@@ -305,15 +309,26 @@ fn bar_input(ui: &Ui, r: Rect, id: Id, s: &Scroll) -> Option<f32> {
             to += page;
         }
     }
-    if ui.rect_contains_pointer(r) {
-        let wheel = ui.input(|i| i.smooth_scroll_delta.y);
-        if wheel != 0.0 {
-            to -= wheel;
-            ui.ctx().input_mut(|i| i.smooth_scroll_delta.y = 0.0);
-        }
+    if let Some(wheel) = take_wheel(ui, r, id) {
+        to -= wheel;
     }
     let to = to.clamp(0.0, s.max()).round();
     (to != s.offset).then_some(to)
+}
+
+/// The wheel's travel over `r` this frame, taken so nothing under it scrolls too: only while
+/// `ui` takes input, nothing is being dragged, and nothing drawn since (a window in front)
+/// covers `r` where the pointer is. Register it after the widgets inside `r`: egui hovers a
+/// hover-only widget only when no clickable or draggable one lies above it.
+fn take_wheel(ui: &Ui, r: Rect, id: Id) -> Option<f32> {
+    let over = ui.interact(r, id.with("wheel"), Sense::hover()).hovered();
+    let free = ui.is_enabled() && ui.ctx().dragged_id().is_none();
+    let wheel = ui.input(|i| i.smooth_scroll_delta.y);
+    if !(free && wheel != 0.0 && over) {
+        return None;
+    }
+    ui.ctx().input_mut(|i| i.smooth_scroll_delta.y = 0.0);
+    Some(wheel)
 }
 
 /// Paints the scroll bar in `r` for `s`: its frame, the arrow boxes, and the gray track with the
@@ -468,13 +483,6 @@ pub fn list_box(
         content: n as f32 * cell_h,
         line: cell_h,
     };
-    if ui.rect_contains_pointer(rect.with_max_x(bar.left())) {
-        let wheel = ui.input(|i| i.smooth_scroll_delta.y);
-        if wheel != 0.0 && s.active() {
-            list.wheel(wheel / cell_h);
-            ui.ctx().input_mut(|i| i.smooth_scroll_delta.y = 0.0);
-        }
-    }
     let p = ui.painter_at(rect);
     p.rect_filled(rect, 0.0, look.paper);
     if let Some(o) = scroll_bar(ui, &p, bar, id.with("bar"), s, look) {
@@ -497,6 +505,14 @@ pub fn list_box(
         hit.widget_info(|| {
             egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, i == at, &name)
         });
+    }
+    // The wheel over the cells, for the next frame (the cells are registered, so it's known
+    // whether anything covers them).
+    if s.active()
+        && let Some(wheel) = take_wheel(ui, rect.with_max_x(bar.left()), id)
+    {
+        list.wheel(wheel / cell_h);
+        ui.ctx().request_repaint();
     }
     ui.data_mut(|d| {
         d.insert_temp(key, list);
@@ -1004,10 +1020,17 @@ mod tests {
 
     /// A frame of a 200x300 view of a body `tall` high; returns where it stands after.
     fn view(h: &mut Harness, tall: f32, ev: Vec<egui::Event>) -> Scroll {
+        view_in(h, tall, true, ev)
+    }
+
+    fn view_in(h: &mut Harness, tall: f32, enabled: bool, ev: Vec<egui::Event>) -> Scroll {
         let id = Id::new("v");
         h.frame(ev, |ui| {
             let r = Rect::from_min_size(pos2(10.0, 10.0), vec2(200.0, 300.0));
             let mut child = ui.new_child(egui::UiBuilder::new().max_rect(r));
+            if !enabled {
+                child.disable();
+            }
             scrolled(&mut child, id, &look(), |ui| {
                 ui.allocate_exact_size(vec2(100.0, tall), Sense::hover());
             });
@@ -1208,5 +1231,51 @@ mod tests {
             None,
             "a repeat isn't a press"
         );
+    }
+
+    /// The wheel turned down by `dy` points with the pointer at `at`.
+    fn wheel_at(at: Pos2, dy: f32) -> Vec<egui::Event> {
+        vec![
+            egui::Event::PointerMoved(at),
+            egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: vec2(0.0, -dy),
+                modifiers: egui::Modifiers::NONE,
+                phase: egui::TouchPhase::Move,
+            },
+        ]
+    }
+
+    #[test]
+    fn a_disabled_view_doesnt_take_the_wheel() {
+        let mut h = Harness::new(400.0, 400.0);
+        view_in(&mut h, 1000.0, false, vec![]);
+        let s = view_in(&mut h, 1000.0, false, vec![]);
+        let th = parts(&s).3.unwrap();
+        view_in(&mut h, 1000.0, false, wheel_at(th.center(), 40.0));
+        let mut s = s;
+        for _ in 0..10 {
+            s = view_in(&mut h, 1000.0, false, vec![]);
+        }
+        assert_eq!(s.offset, 0.0);
+    }
+
+    #[test]
+    fn the_wheel_scrolls_a_long_list_box_in_whole_cells() {
+        let mut h = Harness::new(400.0, 400.0);
+        let mut sel = 0;
+        list(&mut h, 12, &mut sel, vec![]);
+        list(&mut h, 12, &mut sel, vec![]);
+        list(&mut h, 12, &mut sel, wheel_at(pos2(50.0, 50.0), 45.0));
+        for _ in 0..10 {
+            list(&mut h, 12, &mut sel, vec![]);
+        }
+        let first = (0..12)
+            .find(|i| h.find(&format!("cell {i}")).is_some())
+            .unwrap();
+        assert!(first > 0, "it scrolled");
+        let c = h.find(&format!("cell {first}")).unwrap();
+        assert_eq!(c.top(), 0.0, "a whole cell at the top");
+        assert_eq!(sel, 0, "the wheel doesn't move the pick");
     }
 }
