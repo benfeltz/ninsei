@@ -275,20 +275,22 @@ fn every_scored_pack_has_a_tune_per_tier_that_sits_under_a_cracktro() {
                     "{at} at {pct}% wraps with a {seam:.3} jump (inside: {inside:.3})"
                 );
             };
-            // 0% trace is the tune as written.
-            let plain = t.tune.render_loop(HI, &Arrangement::PLAIN);
+            // The tune as written (0% trace) at the speaker's rate; the arrangements at 8 kHz,
+            // where the levels come out the same and a loop renders six times faster.
+            check(0, &t.tune.render_loop(HI, &Arrangement::PLAIN));
+            let plain = t.tune.render_loop(RATE, &Arrangement::PLAIN);
             check(0, &plain);
             for pct in [MUSIC_DROP_AT, MUSIC_TEMPO_AT] {
                 let arr = arrangement(pct, t.drop);
-                let a = t.tune.render_loop(HI, &arr);
+                let a = t.tune.render_loop(RATE, &arr);
                 check(pct, &a);
                 // Against the whole tune at the same tempo, so only the drop can differ. Not
-                // assert_ne: a failure would print millions of samples.
+                // assert_ne: a failure would print the samples.
                 let whole = Arrangement { drop: None, ..arr };
                 let thins = if whole == Arrangement::PLAIN {
                     a != plain
                 } else {
-                    a != t.tune.render_loop(HI, &whole)
+                    a != t.tune.render_loop(RATE, &whole)
                 };
                 assert!(thins, "{at} at {pct}% thins out");
                 if pct >= MUSIC_TEMPO_AT {
