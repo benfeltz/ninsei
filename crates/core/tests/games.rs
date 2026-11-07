@@ -1083,6 +1083,21 @@ fn same_seed_same_game_for_every_engine() {
 /// The world guide: who exists on the Net (`docs/world.md`).
 const WORLD: &str = include_str!("../../../docs/world.md");
 
+/// Whether `name` is written in the guide as a whole name: not inside a longer word (`lag` in
+/// `lagspike` doesn't count).
+fn in_world(name: &str) -> bool {
+    let word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
+    WORLD.match_indices(name).any(|(i, _)| {
+        !word(WORLD[..i].chars().next_back()) && !word(WORLD[i + name.len()..].chars().next())
+    })
+}
+
+#[test]
+fn in_world_matches_whole_names_only() {
+    assert!(in_world("lag") && in_world("m0th") && in_world("THE NEON GUTTER"));
+    assert!(!in_world("ag") && !in_world("spike") && !in_world("m0t"));
+}
+
 #[test]
 fn every_game_crack_signs_its_crew_advertises_the_gutter_and_greets_only_the_world() {
     let d = data();
@@ -1096,7 +1111,7 @@ fn every_game_crack_signs_its_crew_advertises_the_gutter_and_greets_only_the_wor
         );
         assert!(i.tag.is_some(), "{}: the crew's tag", g.id);
         assert!(
-            WORLD.contains(&i.group),
+            in_world(&i.group),
             "{}: crew {} isn't in world.md",
             g.id,
             i.group
@@ -1105,7 +1120,7 @@ fn every_game_crack_signs_its_crew_advertises_the_gutter_and_greets_only_the_wor
             // A greet is a name from the guide, maybe with the crew's own aside after it.
             let name = greet.split(" (").next().unwrap();
             assert!(
-                WORLD.contains(name),
+                in_world(name),
                 "{}: greets {name:?}, who isn't in world.md",
                 g.id
             );
