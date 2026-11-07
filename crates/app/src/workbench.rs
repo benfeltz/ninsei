@@ -179,6 +179,10 @@ impl DesktopView for Workbench {
         for t in home.take_opens() {
             self.open(t);
         }
+        home.keep_open(self.wins.iter().filter_map(|w| match w.kind {
+            Kind::Tool(t) => Some(t),
+            _ => None,
+        }));
         // The Welcome stack is the Sense/Net's: this desktop reaches it with `help net`.
         let icons: Vec<_> = save
             .icons(data)

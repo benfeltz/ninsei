@@ -270,9 +270,23 @@ pub struct Home {
     pub(crate) guide_at: ninsei_core::cards::Place,
     /// System's open panel, and its Disk panel's pick.
     pub(crate) system: crate::system::SystemUi,
-    /// The games being played, by copy, with the pass each was last drawn on (a window that
-    /// wasn't drawn last pass closed, and opening it again starts a new round).
-    games: std::collections::HashMap<Tool, (crate::games_view::Session, u64)>,
+    /// The games whose windows are open, by copy (the desktops say which, [`Home::keep_open`]):
+    /// its intro while it plays, then the round being played.
+    games: std::collections::HashMap<Tool, GameWin>,
+}
+
+/// A game's open window: its intro (the time it started) until it ends, then the round.
+struct GameWin {
+    intro: Option<f64>,
+    session: Option<crate::games_view::Session>,
+}
+
+/// How an intro's frame went.
+enum IntroFrame {
+    /// Still on screen: draw nothing else.
+    Showing,
+    /// Over, run to its end or skipped this frame.
+    Ended { skipped: bool },
 }
 
 /// What the speaker should do with the cracktro's tune this frame.
@@ -329,34 +343,74 @@ impl Home {
         }
     }
 
-    /// A copy of a game in its window: a new round when the window has just opened (or the
-    /// player asks for one), then the engine played and drawn.
+    /// The tools whose windows (or tiles) the desktop has open, every frame before it draws:
+    /// a game whose window is no longer among them is over, its intro's tune cut. Hidden, too
+    /// small for a frame, on another workspace: still open, and it waits where it was.
+    pub fn keep_open(&mut self, open: impl IntoIterator<Item = Tool>) {
+        let open: Vec<Tool> = open.into_iter().collect();
+        let mut cut = false;
+        self.games.retain(|t, w| {
+            let keep = open.contains(t);
+            cut |= !keep && w.intro.is_some();
+            keep
+        });
+        if cut {
+            self.tune = Some(TuneCue::Stop);
+        }
+    }
+
+    /// A copy of a game in its window. Opened: its copy's intro (the crack's cracktro, the
+    /// box's splash), skippable, unless intros are off. Then a round, and another when the
+    /// player asks once it's over; the engine played and drawn.
+    #[allow(clippy::too_many_arguments)]
     fn play(
         &mut self,
         ui: &mut Ui,
         data: &Data,
         save: &Save,
         tool: Tool,
+        copy: GameCopy,
         keys: bool,
         out: &mut Vec<WbOut>,
     ) {
         let Some((def, _)) = tool.game_def(data) else {
             return;
         };
-        let pass = ui.ctx().cumulative_pass_nr();
+        let intro = data.intro(match copy {
+            GameCopy::Cracked => &def.crack,
+            GameCopy::Boxed => &def.splash,
+        });
+        if !self.games.contains_key(&tool) {
+            let now = ui.input(|i| i.time);
+            let intro = intro.filter(|_| save.intros);
+            if let Some(i) = intro {
+                self.tune = Some(TuneCue::Play(i.id.clone()));
+            }
+            let w = GameWin {
+                intro: intro.map(|_| now),
+                session: None,
+            };
+            self.games.insert(tool, w);
+        }
+        let w = self.games.get_mut(&tool).expect("opened above");
+        if let (Some(start), Some(i)) = (w.intro, intro) {
+            match intro_frame(ui, data, save, i, start, keys) {
+                IntroFrame::Showing => return,
+                // The game starts next frame: the key that skipped it isn't the game's.
+                IntroFrame::Ended { skipped } => {
+                    w.intro = None;
+                    if skipped {
+                        self.tune = Some(TuneCue::Stop);
+                    }
+                    return;
+                }
+            }
+        }
         let start = |out: &mut Vec<WbOut>| {
             out.push(WbOut::GameStarted(def.id.clone()));
             crate::games_view::Session::new(def, save.key, save.game_round(&def.id))
         };
-        let fresh = self
-            .games
-            .get(&tool)
-            .is_none_or(|(_, last)| last + 1 < pass);
-        if fresh {
-            self.games.insert(tool, (start(out), pass));
-        }
-        let (s, last) = self.games.get_mut(&tool).expect("started above");
-        *last = pass;
+        let s = w.session.get_or_insert_with(|| start(out));
         if crate::games_view::body(ui, data, def, s, keys).again {
             *s = start(out);
         }
@@ -365,7 +419,10 @@ impl Home {
     /// The game being played in `tool`'s window (tests).
     #[cfg(test)]
     pub(crate) fn game(&self, tool: Tool) -> Option<&dyn ninsei_core::games::Arcade> {
-        self.games.get(&tool).map(|(s, _)| s.game.as_ref())
+        self.games
+            .get(&tool)
+            .and_then(|w| w.session.as_ref())
+            .map(|s| s.game.as_ref())
     }
 
     /// The QWK reader's window body: the screen, its hotkeys as buttons, and keys while the
@@ -462,30 +519,16 @@ impl Home {
         let Some(&start) = self.intro_playing.get(id) else {
             return false;
         };
-        let over = |p: egui::Pos2| ui.clip_rect().contains(p);
-        let skip = ui.input(|i| {
-            i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(over)
-                || i.pointer.hover_pos().is_some_and(over)
-                    && i.events.iter().any(|e| {
-                        matches!(
-                            e,
-                            egui::Event::Key { pressed: true, .. } | egui::Event::Text(_)
-                        )
-                    })
-        });
-        let t = (now - start) as f32;
-        if skip || def.done(t) {
-            self.intro_playing.remove(id);
-            if skip {
-                self.tune = Some(TuneCue::Stop);
+        match intro_frame(ui, data, save, def, start, false) {
+            IntroFrame::Showing => true,
+            IntroFrame::Ended { skipped } => {
+                self.intro_playing.remove(id);
+                if skipped {
+                    self.tune = Some(TuneCue::Stop);
+                }
+                false
             }
-            return false;
         }
-        let calm = save.glitches != ninsei_core::glitch::Glitches::On;
-        let lines = def.screen(data, t, calm);
-        crate::bbs_view::paint_screen_fit(ui, &lines, false, &desk_palette());
-        ui.ctx().request_repaint();
-        true
     }
 
     /// Forgets intros whose windows closed while they played (not drawn since the last pass),
@@ -881,19 +924,7 @@ impl Home {
             Tool::IceDb => hubtools::icedb(child, data, save, &mut self.icedb_sel),
             Tool::Guide => hubtools::guide(child, data, &mut self.guide_at),
             Tool::Shell => {}
-            // A crack opens with its crew's cracktro, a box with its publisher's splash.
-            Tool::Game(_, copy)
-                if tool.game_def(data).is_some_and(|(g, _)| {
-                    let intro = match copy {
-                        GameCopy::Cracked => &g.crack,
-                        GameCopy::Boxed => &g.splash,
-                    };
-                    self.splash_gate(child, data, save, &format!("game:{tool:?}"), intro)
-                }) =>
-            {
-                return;
-            }
-            Tool::Game(..) => self.play(child, data, save, tool, keys, out),
+            Tool::Game(_, copy) => self.play(child, data, save, tool, copy, keys, out),
         }
         if let Some(id) = dial {
             self.dial_from(tool, id, save);
@@ -1071,6 +1102,39 @@ impl Home {
             }
         }
     }
+}
+
+/// One frame of intro `def`, started at `start`: painted in the desk's colours, until it runs
+/// to its end or a click (or a key, with the pointer over it or `keys`) skips it.
+fn intro_frame(
+    ui: &mut Ui,
+    data: &Data,
+    save: &Save,
+    def: &ninsei_core::intro::IntroDef,
+    start: f64,
+    keys: bool,
+) -> IntroFrame {
+    let now = ui.input(|i| i.time);
+    let over = |p: egui::Pos2| ui.clip_rect().contains(p);
+    let skip = ui.input(|i| {
+        let key = i.events.iter().any(|e| {
+            matches!(
+                e,
+                egui::Event::Key { pressed: true, .. } | egui::Event::Text(_)
+            )
+        });
+        i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(over)
+            || key && (keys || i.pointer.hover_pos().is_some_and(over))
+    });
+    let t = (now - start) as f32;
+    if skip || def.done(t) {
+        return IntroFrame::Ended { skipped: skip };
+    }
+    let calm = save.glitches != ninsei_core::glitch::Glitches::On;
+    let lines = def.screen(data, t, calm);
+    crate::bbs_view::paint_screen_fit(ui, &lines, false, &desk_palette());
+    ui.ctx().request_repaint();
+    IntroFrame::Showing
 }
 
 /// How big a window must open for a game: the room its first (square-ish) grid needs in the

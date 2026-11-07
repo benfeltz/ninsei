@@ -211,6 +211,8 @@ impl DesktopView for TilingDesk {
         for tool in home.take_opens() {
             t.open(tool);
         }
+        // Every tile on every workspace is open, shown or not.
+        home.keep_open(t.workspaces.iter().flatten().copied());
         if live {
             self.keys(
                 ui,

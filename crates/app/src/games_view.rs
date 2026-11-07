@@ -539,11 +539,45 @@ mod tests {
         let t = tool("minefield");
         frame(&mut h, &mut home, &data, &save, t, key(Key::ArrowRight));
         let moved = home.game(t).unwrap().cursor();
-        // Closed for a frame (drawn nothing), then opened again.
-        h.frame(Vec::new(), |_| {});
+        // The desktop closes its window, then it's opened again.
+        home.keep_open([]);
         let out = frame(&mut h, &mut home, &data, &save, t, Vec::new());
         assert!(out.contains(&WbOut::GameStarted("minefield".into())));
         assert_ne!(home.game(t).unwrap().cursor(), moved);
+    }
+
+    #[test]
+    fn a_window_hidden_or_too_small_for_a_while_keeps_its_game() {
+        let (mut h, mut home, data, save, _) = open("minefield");
+        let t = tool("minefield");
+        frame(&mut h, &mut home, &data, &save, t, key(Key::ArrowRight));
+        let moved = home.game(t).unwrap().cursor();
+        // Not drawn at all (another workspace, a full-screen tile), still open.
+        for _ in 0..3 {
+            home.keep_open([t]);
+            h.frame(Vec::new(), |_| {});
+        }
+        // Drawn too small: the notice instead of the game.
+        let tiny = Rect::from_min_size(Pos2::ZERO, vec2(60.0, 40.0));
+        h.frame(Vec::new(), |ui| {
+            let mut child = ui.new_child(egui::UiBuilder::new().max_rect(tiny));
+            let drawn = home.tool_in(
+                &mut child,
+                t,
+                true,
+                &data,
+                &save,
+                &mut Vec::new(),
+                None,
+                None,
+                "t",
+            );
+            assert!(!drawn, "the notice, not the game");
+        });
+        home.keep_open([t]);
+        let out = frame(&mut h, &mut home, &data, &save, t, Vec::new());
+        assert!(out.is_empty(), "no new round: {out:?}");
+        assert_eq!(home.game(t).unwrap().cursor(), moved, "the same game");
     }
 
     #[test]
@@ -676,8 +710,9 @@ mod tests {
             Vec::new(),
         );
         home.tune = None;
-        h.frame(Vec::new(), |_| {});
-        home.drop_closed_intros(h.ctx.cumulative_pass_nr() + 1);
+        home.keep_open([tool("minefield")]);
+        assert_eq!(home.tune, None, "still open, still playing");
+        home.keep_open([]);
         assert_eq!(home.tune, Some(TuneCue::Stop));
     }
 
