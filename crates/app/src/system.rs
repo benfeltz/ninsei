@@ -919,7 +919,8 @@ fn keys(
     shelf: &[Program],
     out: &mut Vec<WbOut>,
 ) {
-    if !ui.rect_contains_pointer(ui.max_rect()) || ui.ctx().text_edit_focused() {
+    // The keys belong to whatever has the focus (a text field, the panel list), not to Disk.
+    if !ui.rect_contains_pointer(ui.max_rect()) || ui.memory(|m| m.focused().is_some()) {
         return;
     }
     let all: Vec<&Disk> = on.iter().chain(shelf).map(|p| &p.at).collect();

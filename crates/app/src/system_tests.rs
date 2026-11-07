@@ -971,3 +971,25 @@ fn liza_draws_the_mac_controls_on_every_panel() {
     });
     assert!(rounded, "Install is a Mac push button");
 }
+
+#[test]
+fn disks_keys_stand_aside_while_the_panel_list_has_the_focus() {
+    let (d, s, mut h, mut st) = on_disk();
+    let file = file_of(&d, &s, &Disk::Stash(7));
+    let over = h.find(&file).unwrap().center();
+    // Click Theme in the list and walk back down to Disk with the arrows: the list has the keys.
+    let ev = press(&h, "Theme");
+    frame(&mut h, &d, &s, &mut st, ev);
+    frame(&mut h, &d, &s, &mut st, key(Key::ArrowDown));
+    assert_eq!(st.panel, Panel::Disk);
+    let over = h.find(&file).map_or(over, |r| r.center());
+    frame(&mut h, &d, &s, &mut st, key_at(Key::ArrowDown, over));
+    assert_eq!(st.picked, None, "the list had the arrow, not Disk");
+    // A click on the disk takes the focus from the list, and the arrows are Disk's again.
+    let ev = press(&h, &file);
+    frame(&mut h, &d, &s, &mut st, ev);
+    assert!(st.picked.is_some());
+    let first = st.picked.clone();
+    frame(&mut h, &d, &s, &mut st, key_at(Key::ArrowUp, over));
+    assert_ne!(st.picked, first, "the arrow moved Disk's pick");
+}
