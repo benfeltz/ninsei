@@ -77,6 +77,9 @@ pub struct Kit {
     pub trust: Vec<(String, u32)>,
     /// Desktop tools you own (ids in `hub/tools.ron`): HexEd lets you patch on a board.
     pub tools: Vec<String>,
+    /// Games you have a cracked copy of (ids in `hub/games.ron`): a board won't sell you one
+    /// twice. A boxed copy doesn't count: the crack is still for sale.
+    pub games: Vec<String>,
     /// Textfiles already on your disk, as (board id, text id).
     pub texts: Vec<(String, String)>,
     /// For each of `programs`, the stash id it came from (`None` for a free program). The run
@@ -337,6 +340,9 @@ pub struct Game {
     /// Desktop tools you own, the kit's plus any downloaded this run. They come home even on
     /// a flatline.
     pub tools: Vec<String>,
+    /// Games you own, the kit's plus any downloaded this run (cracked copies). They come home
+    /// even on a flatline.
+    pub games: Vec<String>,
     /// Textfiles on your disk, as (board id, text id): the kit's plus any downloaded this run.
     /// They come home even on a flatline, for the QWK reader.
     pub texts: Vec<(String, String)>,
@@ -408,6 +414,7 @@ impl Game {
             trust: kit.trust.clone(),
             sold_out: 0,
             tools: kit.tools.clone(),
+            games: kit.games.clone(),
             texts: kit.texts.clone(),
             from_stash: Vec::new(),
         };
@@ -1525,12 +1532,9 @@ impl Game {
         if matches!(def.item, Drop::Warez(_)) && self.hdd.len() as u32 >= self.deck.hdd_max {
             return Some("hdd full. free a slot before downloading warez.".into());
         }
-        if let Some(why) = tool_blocker(
-            &self.data.tools,
-            &def.item,
-            |t| self.has_tool(t),
-            |t| self.has_text(t),
-        ) {
+        if let Some(why) =
+            tool_blocker(&self.data.tools, &self.data.crack_labels(), &def.item, self)
+        {
             return Some(why);
         }
         None
@@ -1539,6 +1543,11 @@ impl Game {
     /// Whether you own a desktop tool (an id in `hub/tools.ron`).
     pub fn has_tool(&self, id: &str) -> bool {
         self.tools.iter().any(|t| t == id)
+    }
+
+    /// Whether you have a cracked copy of a game (an id in `hub/games.ron`).
+    pub fn has_crack(&self, id: &str) -> bool {
+        self.games.iter().any(|g| g == id)
     }
 
     /// Whether a textfile on this run's board is already on your disk.
@@ -1753,6 +1762,13 @@ impl Game {
                 }
                 self.say(LogKind::Loot, format!("+ tool: {name}"));
             }
+            Drop::Game(id) => {
+                let name = self.data.game_label(&id, crate::hub::GameCopy::Cracked);
+                if !self.has_crack(&id) {
+                    self.games.push(id);
+                }
+                self.say(LogKind::Loot, format!("+ game: {name}"));
+            }
             Drop::Text(id) => {
                 if !self.has_text(&id) {
                     let board = self.bbs().id.clone();
@@ -1765,24 +1781,24 @@ impl Game {
     }
 }
 
-/// Why a tool or textfile can't be downloaded, wherever you are: it's already yours.
+/// Why a tool, game or textfile can't be downloaded on `line`, wherever you are: it's
+/// already yours. `tools` and `cracks` (each game's id and crack label) name it.
 pub fn tool_blocker(
     tools: &[crate::data::ToolDef],
+    cracks: &[(String, String)],
     item: &Drop,
-    has: impl Fn(&str) -> bool,
-    has_text: impl Fn(&str) -> bool,
+    line: &dyn crate::bbs::Line,
 ) -> Option<String> {
-    match item {
-        Drop::Tool(id) if has(id) => Some(format!(
-            "you already have {}.",
-            tools
-                .iter()
-                .find(|t| t.id == *id)
-                .map_or(id.as_str(), |t| t.name.as_str())
-        )),
-        Drop::Text(id) if has_text(id) => Some("that textfile's already on your disk.".into()),
+    let name = match item {
+        Drop::Text(id) if line.has_text(id) => {
+            return Some("that textfile's already on your disk.".into());
+        }
+        _ if !line.owns(item) => return None,
+        Drop::Tool(id) => tools.iter().find(|t| t.id == *id).map(|t| &t.name),
+        Drop::Game(id) => cracks.iter().find(|(g, _)| g == id).map(|(_, l)| l),
         _ => None,
-    }
+    };
+    Some(format!("you already have {}.", name.map_or("that", |n| n)))
 }
 
 /// A board's listing for one visit: per area, `stock` files picked at random.

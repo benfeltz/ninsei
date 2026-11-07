@@ -212,9 +212,9 @@ impl Liza {
 /// Liza's two colours: ink lit on a dark paper (lit ink), from the theme's text and its deepest
 /// background.
 #[derive(Clone, Copy, Debug, PartialEq)]
-struct Two {
-    ink: Color32,
-    paper: Color32,
+pub(crate) struct Two {
+    pub ink: Color32,
+    pub paper: Color32,
 }
 
 fn colours(d: Desk) -> Two {
@@ -703,7 +703,7 @@ fn on_top(ui: &mut Ui, rect: Rect, order: egui::Order, name: &str) -> Ui {
 
 /// Window chrome: a 1-px frame with a drop shadow, a title bar striped when it's in front, the
 /// title on a solid backing, and a close box. Returns the close box.
-fn window_frame(
+pub(crate) fn window_frame(
     painter: &egui::Painter,
     data: &Data,
     rect: Rect,
