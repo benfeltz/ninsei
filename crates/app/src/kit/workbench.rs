@@ -1,7 +1,7 @@
 //! The Workbench kit: the widgets of a desktop after the Amiga's Workbench 1.3. The screen's
 //! title bar, windows with their close and depth gadgets, the proportional gadget a window
-//! scrolls with, the 1.3 bevel, push buttons and toggle gadgets, and the requester. It draws and reports clicks; what a window shows and what
-//! a gadget does are the caller's. The numbers are the spec sheet's (`docs/refs/workbench.md`).
+//! scrolls with, the 1.3 bevel, push buttons and toggle gadgets, and the requester. It draws
+//! and reports clicks; what a window shows and what a gadget does are the caller's. The numbers are the spec sheet's (`docs/refs/workbench.md`).
 //! Nothing here names a tool or a deck.
 
 use egui::{Align2, Color32, FontId, Id, Painter, Rect, Response, Sense, Stroke, StrokeKind, Ui};
@@ -30,6 +30,28 @@ pub mod size {
     /// The proportional gadget's width, and its knob's shortest.
     pub const PROP_W: f32 = 16.0;
     pub const KNOB_MIN: f32 = 12.0;
+    /// The screen bar's name, in from the left; what's on its right, in from the right edge.
+    pub const SCREEN_TEXT_IN: f32 = 8.0;
+    pub const SCREEN_RIGHT_IN: f32 = 36.0;
+    /// A depth gadget's size, and how far from the bar's right edge and top it sits (the
+    /// screen's, a window's).
+    pub const DEPTH: [f32; 2] = [22.0, 16.0];
+    pub const DEPTH_IN: f32 = 26.0;
+    pub const SCREEN_DEPTH_DOWN: f32 = 3.0;
+    pub const WINDOW_DEPTH_DOWN: f32 = 2.0;
+    /// A close gadget's size and place in the title bar, and its dot.
+    pub const CLOSE: [f32; 2] = [16.0, 14.0];
+    pub const CLOSE_AT: [f32; 2] = [4.0, 3.0];
+    pub const CLOSE_DOT: f32 = 4.0;
+    /// The title's backing, in from the bar's left, and its room either side of the text.
+    pub const TITLE_IN: f32 = 26.0;
+    pub const TITLE_PAD: f32 = 5.0;
+    /// The active title bar's pinstripes: in from the left and right, from the top, apart.
+    pub const STRIPES_IN: [f32; 2] = [24.0, 30.0];
+    pub const STRIPES_TOP: f32 = 4.0;
+    pub const STRIPES_STEP: f32 = 3.0;
+    /// A requester's margins: its first line down from the top, its buttons in from the sides.
+    pub const REQUESTER_PAD: f32 = 6.0;
 }
 
 /// The desktop's colours and type, from the theme: 1.3's white, blue, black and orange, and
@@ -54,7 +76,7 @@ pub fn screen_bar(p: &Painter, screen: Rect, title: &str, right: Option<&str>, l
         Stroke::new(1.0, look.shadow),
     );
     p.text(
-        bar.left_center() + vec2(8.0, 0.0),
+        bar.left_center() + vec2(size::SCREEN_TEXT_IN, 0.0),
         Align2::LEFT_CENTER,
         title,
         look.font.clone(),
@@ -62,18 +84,15 @@ pub fn screen_bar(p: &Painter, screen: Rect, title: &str, right: Option<&str>, l
     );
     if let Some(right) = right {
         p.text(
-            bar.right_center() - vec2(36.0, 0.0),
+            bar.right_center() - vec2(size::SCREEN_RIGHT_IN, 0.0),
             Align2::RIGHT_CENTER,
             right,
             look.font.clone(),
             look.backdrop,
         );
     }
-    depth_gadget(
-        p,
-        Rect::from_min_size(bar.right_top() + vec2(-26.0, 3.0), vec2(22.0, 16.0)),
-        look,
-    );
+    let depth = bar.right_top() + vec2(-size::DEPTH_IN, size::SCREEN_DEPTH_DOWN);
+    depth_gadget(p, Rect::from_min_size(depth, size::DEPTH.into()), look);
 }
 
 /// A window's gadgets: where its title bar, close gadget and depth gadget are, so the hit tests
@@ -96,8 +115,14 @@ pub fn gadgets(rect: Rect) -> Gadgets {
     let bar = Rect::from_min_size(rect.min, vec2(rect.width(), size::TITLE_H));
     Gadgets {
         bar,
-        close: Rect::from_min_size(bar.min + vec2(4.0, 3.0), vec2(16.0, 14.0)),
-        depth: Rect::from_min_size(bar.right_top() + vec2(-26.0, 2.0), vec2(22.0, 16.0)),
+        close: Rect::from_min_size(
+            bar.min + egui::Vec2::from(size::CLOSE_AT),
+            size::CLOSE.into(),
+        ),
+        depth: Rect::from_min_size(
+            bar.right_top() + vec2(-size::DEPTH_IN, size::WINDOW_DEPTH_DOWN),
+            size::DEPTH.into(),
+        ),
     }
 }
 
@@ -138,13 +163,14 @@ pub fn window_frame(p: &Painter, rect: Rect, title: &str, active: bool, look: &L
     p.rect_filled(bar, 0.0, if active { ink } else { backdrop });
     if active {
         // Horizontal pinstripes behind the title, the active-window tell.
-        let mut y = bar.top() + 4.0;
-        while y < bar.bottom() - 3.0 {
+        let [left, right] = size::STRIPES_IN;
+        let mut y = bar.top() + size::STRIPES_TOP;
+        while y < bar.bottom() - size::STRIPES_STEP {
             p.line_segment(
-                [pos2(bar.left() + 24.0, y), pos2(bar.right() - 30.0, y)],
+                [pos2(bar.left() + left, y), pos2(bar.right() - right, y)],
                 Stroke::new(1.0, backdrop),
             );
-            y += 3.0;
+            y += size::STRIPES_STEP;
         }
     }
     p.rect_stroke(bar, 0.0, Stroke::new(size::BORDER, ink), StrokeKind::Inside);
@@ -153,19 +179,19 @@ pub fn window_frame(p: &Painter, rect: Rect, title: &str, active: bool, look: &L
         look.font.clone(),
         if active { backdrop } else { ink },
     );
-    let tw = galley.size().x + 10.0;
+    let tw = galley.size().x + 2.0 * size::TITLE_PAD;
     let tbox = Rect::from_min_size(
-        bar.min + vec2(26.0, 2.0),
+        bar.min + vec2(size::TITLE_IN, 2.0),
         vec2(tw.ceil(), size::TITLE_H - 4.0),
     );
     p.rect_filled(tbox, 0.0, if active { ink } else { backdrop });
-    p.galley(tbox.min + vec2(5.0, 1.0), galley, ink);
+    p.galley(tbox.min + vec2(size::TITLE_PAD, 1.0), galley, ink);
     // Close gadget: a box with a dot.
     let c = g.close;
     p.rect_filled(c, 0.0, ink);
     p.rect_stroke(c, 0.0, Stroke::new(1.0, look.shadow), StrokeKind::Inside);
     p.rect_filled(
-        Rect::from_center_size(c.center(), vec2(4.0, 4.0)),
+        Rect::from_center_size(c.center(), egui::Vec2::splat(size::CLOSE_DOT)),
         0.0,
         look.shadow,
     );
@@ -250,7 +276,10 @@ pub fn requester(
 ) -> Option<usize> {
     for (k, (l, lit)) in lines.iter().enumerate() {
         p.text(
-            pos2(rect.center().x, rect.top() + 6.0 + k as f32 * size::LINE),
+            pos2(
+                rect.center().x,
+                rect.top() + size::REQUESTER_PAD + k as f32 * size::LINE,
+            ),
             Align2::CENTER_TOP,
             *l,
             look.font.clone(),
@@ -258,8 +287,9 @@ pub fn requester(
         );
     }
     let bw = vec2(size::BUTTON[0], size::BUTTON[1]);
-    let left = Rect::from_min_size(pos2(rect.left() + 6.0, rect.bottom() - bw.y), bw);
-    let right = Rect::from_min_size(pos2(rect.right() - 6.0 - bw.x, rect.bottom() - bw.y), bw);
+    let pad = size::REQUESTER_PAD;
+    let left = Rect::from_min_size(pos2(rect.left() + pad, rect.bottom() - bw.y), bw);
+    let right = Rect::from_min_size(pos2(rect.right() - pad - bw.x, rect.bottom() - bw.y), bw);
     let mut out = None;
     for (k, r) in [left, right].into_iter().enumerate() {
         if button(ui, p, r, id.with(buttons[k]), buttons[k], live, look).clicked() {
@@ -276,8 +306,8 @@ pub fn toggle_gadget(ui: &mut Ui, label: &str, on: bool, look: &Look) -> Respons
     let galley = ui
         .painter()
         .layout_no_wrap(label.to_string(), font, look.ink);
-    let size = galley.size() + vec2(size::GADGET_PAD[0], size::GADGET_PAD[1]);
-    let (r, resp) = ui.allocate_exact_size(size, Sense::click());
+    let want = galley.size() + vec2(size::GADGET_PAD[0], size::GADGET_PAD[1]);
+    let (r, resp) = ui.allocate_exact_size(want, Sense::click());
     resp.widget_info(|| {
         egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, label)
     });

@@ -482,12 +482,14 @@ fn draw_icon(painter: &egui::Painter, icon: &IconDef, at: Pos2, selected: bool) 
 }
 
 /// A window whose body holds one book (`pager::SIZE`): the body is the window less its title
-/// bar, border and margins (see `content` in the window loop), plus a pixel of slack.
+/// bar, border and margins (`kit::window_content`), plus a pixel of slack. The proportional
+/// gadget's room is added in `open`, as for every tool window.
 fn book_window() -> egui::Vec2 {
+    let side = kit::size::BORDER + kit::size::PAD;
     crate::pager::SIZE
         + vec2(
-            2.0 * (kit::size::BORDER + 4.0) + 2.0,
-            kit::size::TITLE_H + 4.0 + kit::size::BORDER + 4.0 + 2.0,
+            2.0 * side + 2.0,
+            kit::size::TITLE_H + kit::size::PAD_TOP + side + 2.0,
         )
 }
 
