@@ -52,6 +52,10 @@ pub mod size {
     pub const STRIPES_STEP: f32 = 3.0;
     /// A requester's margins: its first line down from the top, its buttons in from the sides.
     pub const REQUESTER_PAD: f32 = 6.0;
+    /// The dithered backdrop: a dot (one hires pixel, 1 across and 2 down), every `DITHER_STEP`
+    /// across and down, alternate rows offset by half a step.
+    pub const DITHER_DOT: [f32; 2] = [1.0, 2.0];
+    pub const DITHER_STEP: [f32; 2] = [6.0, 3.0];
 }
 
 /// The desktop's colours and type, from the theme: 1.3's white, blue, black and orange, and
@@ -69,6 +73,7 @@ pub struct Look {
 /// The screen's title bar across the top of `screen`: the screen's name at the left, `right`
 /// (if any) towards the right, and the screen's depth gadget at the right end.
 pub fn screen_bar(p: &Painter, screen: Rect, title: &str, right: Option<&str>, look: &Look) {
+    let screen = snap(screen);
     let bar = Rect::from_min_size(screen.min, vec2(screen.width(), size::SCREEN_BAR_H));
     p.rect_filled(bar, 0.0, look.ink);
     p.line_segment(
@@ -93,6 +98,25 @@ pub fn screen_bar(p: &Painter, screen: Rect, title: &str, right: Option<&str>, l
     }
     let depth = bar.right_top() + vec2(-size::DEPTH_IN, size::SCREEN_DEPTH_DOWN);
     depth_gadget(p, Rect::from_min_size(depth, size::DEPTH.into()), look);
+}
+
+/// The dithered backdrop over `screen` under its title bar, in the gadgets' face, on whole
+/// pixels.
+pub fn dither(p: &Painter, screen: Rect, look: &Look) {
+    let screen = snap(screen);
+    let [dx, dy] = size::DITHER_STEP;
+    let dot = egui::Vec2::from(size::DITHER_DOT);
+    let mut y = screen.top() + size::SCREEN_BAR_H;
+    let mut row = 0;
+    while y < screen.bottom() {
+        let mut x = screen.left() + if row % 2 == 0 { 0.0 } else { dx / 2.0 };
+        while x < screen.right() {
+            p.rect_filled(Rect::from_min_size(pos2(x, y), dot), 0.0, look.fill);
+            x += dx;
+        }
+        y += dy;
+        row += 1;
+    }
 }
 
 /// A window's gadgets: where its title bar, close gadget and depth gadget are, so the hit tests
@@ -525,6 +549,30 @@ mod tests {
         for (r, _, _) in h.rects() {
             assert_eq!(r.min, r.min.round(), "{r:?} is on a half pixel");
             assert_eq!(r.max, r.max.round(), "{r:?} is on a half pixel");
+        }
+    }
+
+    #[test]
+    fn the_screen_bar_and_the_dither_land_on_whole_pixels() {
+        let mut h = crate::uitest::Harness::new(640.0, 400.0);
+        // Dragged off a run by a fractional offset.
+        let screen = Rect::from_min_size(pos2(0.0, 30.4), vec2(640.0, 300.0));
+        h.frame(vec![], |ui| {
+            screen_bar(ui.painter(), screen, "Workbench", Some("12:00"), &look());
+            dither(ui.painter(), screen, &look());
+        });
+        for (r, _, _) in h.rects() {
+            assert_eq!(r.min, r.min.round(), "{r:?} is on a half pixel");
+            assert_eq!(r.max, r.max.round(), "{r:?} is on a half pixel");
+        }
+        for s in h.painted() {
+            if let egui::Shape::LineSegment { points, .. } = s {
+                assert_eq!(
+                    points[0].y,
+                    points[0].y.round(),
+                    "the rule is on a half pixel"
+                );
+            }
         }
     }
 }

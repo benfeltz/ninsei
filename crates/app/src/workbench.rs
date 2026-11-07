@@ -180,22 +180,7 @@ impl DesktopView for Workbench {
         painter.rect_filled(screen, 0.0, backdrop());
         let addon = |e| save.has_effect(data, Desktop::Workbench, e);
         if addon(AddonEffect::Pattern) {
-            // The classic dithered backdrop: every other pixel, every other row.
-            let mut y = screen.top() + kit::size::SCREEN_BAR_H;
-            let mut row = 0;
-            while y < screen.bottom() {
-                let mut x = screen.left() + if row % 2 == 0 { 0.0 } else { 3.0 };
-                while x < screen.right() {
-                    painter.rect_filled(
-                        Rect::from_min_size(pos2(x, y), vec2(1.5, 1.5)),
-                        0.0,
-                        fill(),
-                    );
-                    x += 6.0;
-                }
-                y += 3.0;
-                row += 1;
-            }
+            kit::dither(&painter, screen, &look);
         }
         let title = format!(
             "ninsei Desktop 1.3   runs {}  exits {}  flatlines {}   best {}¢",

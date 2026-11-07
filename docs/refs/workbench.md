@@ -20,7 +20,7 @@ These are the numbers the kit draws to. Change them here and in `kit::workbench:
 | | Workbench 1.3 | Desktop |
 |---|---|---|
 | Title bar | 10px, white, the screen's name in blue, the depth gadget at the right | 22px in `ink` with a 1px `shadow` rule under it; the name and the run counts in `backdrop` 8px in; the bank and clock (with the add-on) 36px from the right; the depth gadget 26px from the right edge, 3px down |
-| Backdrop | solid blue, or a pattern | `backdrop`, or (with the add-on) a dither of 1.5px dots in `fill`, every 6px across and 3px down, alternate rows offset |
+| Backdrop | solid blue, or a pattern | `backdrop`, or (with the add-on) a dither of one-hires-pixel dots (1×2) in `fill`, every 6px across and 3px down, alternate rows offset by 3px, on whole pixels |
 | Icons | down the left, disks at the right | down the left 18px in; once that column is full, down the right edge |
 
 ## Windows
