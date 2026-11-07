@@ -11,6 +11,19 @@ const LEADING: f32 = 0.18;
 /// Corner radius of a box, as a share of a cell's width (a modern TUI's rounded corners).
 const CORNER: f32 = 0.5;
 
+/// `s` in at most `n` cells: whole when it fits, otherwise cut with `…` in the last cell, the
+/// period's mark, never mid-word unmarked. For text going into a label or a column.
+pub fn cut(s: &str, n: usize) -> String {
+    if s.chars().count() <= n {
+        return s.to_string();
+    }
+    let mut out: String = s.chars().take(n.saturating_sub(1)).collect();
+    if n > 0 {
+        out.push('…');
+    }
+    out
+}
+
 /// How a meter draws a cell it hasn't reached.
 #[derive(Clone, Copy, Debug)]
 pub enum Unlit {
@@ -416,7 +429,7 @@ impl Cells {
             let fill = (on - i as f32).clamp(0.0, 1.0);
             if fill > 0.0 {
                 let part = Rect::from_min_size(cell.min, vec2(cell.width() * fill, cell.height()));
-                p.rect_filled(part, 1.0, color((i as f32 + 0.5) / w as f32));
+                p.rect_filled(part, 0.0, color((i as f32 + 0.5) / w as f32));
             }
             if fill < 1.0 {
                 match unlit {
@@ -444,22 +457,18 @@ impl Cells {
         ramp: &[Color32],
         empty: Color32,
     ) {
-        for i in 0..w {
-            let cell = self
-                .at(c + i, r, 1, 1)
-                .shrink2(vec2(self.cw * 0.12, self.ch * 0.22));
-            if i < on {
-                let k = if w <= 1 {
-                    ramp.len() - 1
-                } else {
-                    i * (ramp.len() - 1) / (w - 1)
-                };
-                p.rect_filled(cell, 0.0, ramp[k]);
+        // Cell `i` of `w` is at k = (i + 0.5) / w: back to `i`, then along the ramp.
+        let color = |k: f32| {
+            let i = ((k * w as f32) - 0.5).round().max(0.0) as usize;
+            let at = if w <= 1 {
+                ramp.len() - 1
             } else {
-                // Unlit: an outline, so it reads apart from a lit cell on any tube.
-                p.rect_stroke(cell, 0.0, Stroke::new(1.0, empty), egui::StrokeKind::Inside);
-            }
-        }
+                i * (ramp.len() - 1) / (w - 1)
+            };
+            ramp[at.min(ramp.len() - 1)]
+        };
+        let frac = if w == 0 { 0.0 } else { on as f32 / w as f32 };
+        self.gauge(p, c, r, w, frac, color, Unlit::Outline(empty));
     }
 }
 
@@ -540,5 +549,13 @@ mod tests {
                 "less than a cell left over"
             );
         });
+    }
+
+    #[test]
+    fn cut_marks_what_it_cuts() {
+        assert_eq!(cut("icepick.exe", 11), "icepick.exe");
+        assert_eq!(cut("icepick.exe", 10), "icepick.e…");
+        assert_eq!(cut("abc", 1), "…");
+        assert_eq!(cut("abc", 0), "");
     }
 }

@@ -5,12 +5,14 @@
 //! `ninsei_core::history::plot`.
 
 use egui::{
-    Align2, Color32, FontFamily, FontId, Painter, Pos2, Rect, RichText, ScrollArea, Sense, Stroke,
-    Ui, UiBuilder, pos2, vec2,
+    Align2, Color32, FontFamily, FontId, Painter, Rect, RichText, ScrollArea, Sense, Stroke, Ui,
+    UiBuilder, pos2, vec2,
 };
 use ninsei_core::history::plot;
 use ninsei_core::{Action, ContractStatus, Effect, LogKind, Phase, tuning};
 
+use crate::kit::Cells;
+use crate::kit::cells::{Unlit, cut};
 use crate::netmap::mix;
 use crate::panes::Panes;
 use crate::theme::Palette;
@@ -45,69 +47,58 @@ pub fn ramp(p: &Palette, k: f32) -> Color32 {
     }
 }
 
-/// A btop box filling the pane: rounded border, the title cut into the top edge and an
-/// optional note cut into the bottom edge. `body` draws inside.
-pub fn boxed(ui: &mut Ui, p: &Palette, title: &str, note: &str, body: impl FnOnce(&mut Ui)) {
-    let rect = ui.available_rect_before_wrap().shrink(3.0);
-    let painter = ui.painter().clone();
-    painter.rect_stroke(rect, 6.0, Stroke::new(1.0, p.dim), egui::StrokeKind::Middle);
-    let cut = |at: Pos2, text: &str, color: Color32, align: Align2| {
-        let galley = painter.layout_no_wrap(text.to_string(), mono(MONO), color);
-        let r = align.anchor_size(at, galley.size()).expand2(vec2(4.0, 0.0));
-        painter.rect_filled(r, 0.0, p.bg);
-        painter.galley(r.min + vec2(4.0, 0.0), galley, color);
-    };
-    cut(
-        rect.left_top() + vec2(14.0, 0.0),
-        title,
-        p.bright,
-        Align2::LEFT_CENTER,
-    );
-    if !note.is_empty() {
-        cut(
-            rect.right_bottom() - vec2(14.0, 0.0),
-            note,
-            p.dim,
-            Align2::RIGHT_CENTER,
-        );
-    }
-    let inner = rect.shrink2(vec2(10.0, 12.0));
-    ui.scope_builder(UiBuilder::new().max_rect(inner), body);
-    ui.allocate_rect(rect, Sense::hover());
+/// The chrome's cells: 12pt with rows a little taller than the glyphs.
+fn cells_in(ui: &Ui, area: Rect) -> Cells {
+    Cells::fit_font(ui, area, mono(MONO), Some(MONO + 2.0))
 }
 
-/// A gradient meter `cells` wide: filled cells take the ramp's colour at their position,
-/// empty cells are dim dots. The value eases toward its target.
+/// A btop box filling the pane, on the chrome's cells: rounded border through the outer
+/// cells' centres, the title turned into the top edge (`┐title┌`) and an optional note into
+/// the bottom one. `body` draws inside.
+pub fn boxed(ui: &mut Ui, p: &Palette, title: &str, note: &str, body: impl FnOnce(&mut Ui)) {
+    let room = ui.available_rect_before_wrap();
+    let mut g = cells_in(ui, room.shrink(3.0));
+    (g.border, g.paper) = (p.dim, p.bg);
+    let painter = ui.painter().clone();
+    g.frame(&painter, 0, 0, g.cols, g.rows);
+    g.title(&painter, 2, 0, title, p.bright);
+    let n = note.chars().count();
+    if n > 0 && n + 4 <= g.cols {
+        g.title(&painter, g.cols - n - 4, g.rows - 1, note, p.dim);
+    }
+    if g.cols > 2 && g.rows > 2 {
+        let inner = g.at(1, 1, g.cols - 2, g.rows - 2);
+        ui.scope_builder(UiBuilder::new().max_rect(inner), body);
+    }
+    ui.allocate_rect(room, Sense::hover());
+}
+
+/// A gradient meter `cells` wide on the chrome's cells: lit cells take the ramp's colour at
+/// their place, the rest are dim dots. The value eases toward its target.
 fn meter(ui: &mut Ui, p: &Palette, id: &str, value: u32, max: u32, cells: usize) {
     let shown = ui.ctx().animate_value_with_time(
         ui.id().with(("meter", id)),
         value as f32,
         anim::EASE_SECS,
     );
-    let cw = ui.fonts_mut(|f| f.glyph_width(&mono(MONO), 'M'));
-    let (rect, _) = ui.allocate_exact_size(vec2(cw * cells as f32, MONO + 2.0), Sense::hover());
-    let painter = ui.painter_at(rect);
-    let frac = if max == 0 {
-        0.0
-    } else {
-        (shown / max as f32).clamp(0.0, 1.0)
-    };
-    let on = frac * cells as f32;
-    for i in 0..cells {
-        let r = Rect::from_min_size(
-            pos2(rect.left() + i as f32 * cw, rect.top() + 2.0),
-            vec2(cw - 1.5, MONO - 2.0),
-        );
-        let k = (i as f32 + 0.5) / cells as f32;
-        let fill = (on - i as f32).clamp(0.0, 1.0);
-        if fill > 0.0 {
-            let part = Rect::from_min_size(r.min, vec2(r.width() * fill, r.height()));
-            painter.rect_filled(part, 1.0, ramp(p, k));
-        }
-        if fill < 1.0 {
-            painter.circle_filled(r.center(), 1.0, p.faint);
-        }
-    }
+    let (resp, g) = Cells::allocate(
+        ui,
+        mono(MONO),
+        Some(MONO + 2.0),
+        (cells, 1),
+        egui::Vec2::ZERO,
+        Sense::hover(),
+    );
+    let frac = if max == 0 { 0.0 } else { shown / max as f32 };
+    g.gauge(
+        &ui.painter_at(resp.rect),
+        0,
+        0,
+        cells,
+        frac,
+        |k| ramp(p, k),
+        Unlit::Dot(p.faint),
+    );
 }
 
 /// Paints a dot graph in `rect`: one dot column per value, `rows` cells (4 dots each) tall,
@@ -429,12 +420,11 @@ impl Panes<'_> {
                                     ui.with_layout(
                                         egui::Layout::left_to_right(egui::Align::Center),
                                         |ui| {
+                                            // Ten cells for the name, marked where it's cut.
                                             let name: String = if w.opt > 0 {
-                                                let base: String =
-                                                    w.file().chars().take(7).collect();
-                                                format!("{base}+O{}", w.opt)
+                                                format!("{}+O{}", cut(&w.file(), 7), w.opt)
                                             } else {
-                                                w.file().chars().take(10).collect()
+                                                cut(&w.file(), 10)
                                             };
                                             ui.add(
                                                 egui::Label::new(text(
@@ -741,4 +731,40 @@ pub fn status_sparks(ui: &mut Ui, p: &Palette, g: &ninsei_core::Game) {
     let tail = |v: &[u32]| v.iter().rev().take(16).rev().copied().collect::<Vec<u32>>();
     spark(ui, p, &tail(&trace), tuning::TRACE_MAX, 32.0);
     spark(ui, p, &tail(&cpu), g.deck.cpu_max.max(1), 32.0);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::uitest::Harness;
+
+    #[test]
+    fn a_box_sits_on_whole_cells_with_its_body_inside() {
+        let data = ninsei_core::Data::builtin().unwrap();
+        let p = Palette::from_def(&data.themes[0]);
+        let mut h = Harness::new(800.0, 600.0);
+        let room = Rect::from_min_size(pos2(10.0, 10.0), vec2(301.0, 177.0));
+        let mut inner = Rect::NOTHING;
+        h.frame(Vec::new(), |ui| {
+            let mut child = ui.new_child(UiBuilder::new().max_rect(room));
+            boxed(&mut child, &p, "deck.sys", "seed 01", |ui| {
+                inner = ui.max_rect()
+            });
+        });
+        for s in h.painted() {
+            let r = s.visual_bounding_rect();
+            assert!(room.contains_rect(r), "{r:?} outside the pane {room:?}");
+        }
+        assert!(room.shrink(3.0).contains_rect(inner) && inner.width() > 250.0);
+        // The title's glyphs sit in the top row of cells, over the border.
+        let d = h
+            .painted()
+            .iter()
+            .find_map(|s| match s {
+                egui::Shape::Text(t) if t.galley.text() == "d" => Some(t.visual_bounding_rect()),
+                _ => None,
+            })
+            .expect("the title");
+        assert!(d.top() < inner.top(), "on the top edge, above the body");
+    }
 }
