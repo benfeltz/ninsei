@@ -304,7 +304,9 @@ pub struct GameShop {
     pub price: u32,
 }
 
-/// Every game's id: each one has an engine in core, and `games.ron` has a row for each.
+/// The games core plays: `games.ron` must have a row for each, and a row for nothing else.
+/// A placeholder until the engines land (task 47.3), which build this list from their own
+/// registry so it can't drift from them.
 pub const GAMES: &[&str] = &["nibbler", "blox", "minefield"];
 
 /// Every tool's id: what `hub::Save::has_tool` and the desktops ask about.
@@ -1310,7 +1312,16 @@ impl Data {
                 Some(i) if !i.is_splash() => {
                     return err(format!("splash intro `{}` is a crack", g.splash));
                 }
-                _ => {}
+                // The publisher prints the product and its version: they must be this row's.
+                Some(i) => {
+                    let title = format!("{} {}", g.name, g.version);
+                    if !i.tagline.as_deref().unwrap_or("").contains(&title) {
+                        return err(format!(
+                            "splash `{}`'s tagline doesn't name `{title}`",
+                            g.splash
+                        ));
+                    }
+                }
             }
             if self.shopper.vendor(&g.publisher).is_none() {
                 return err(format!("unknown publisher `{}`", g.publisher));

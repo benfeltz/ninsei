@@ -61,6 +61,7 @@ fn a_bad_game_is_rejected() {
     assert!(check(|g| g.crack = splash.clone()).contains("is a splash"));
     assert!(check(|g| g.splash = crack.clone()).contains("is a crack"));
     assert!(check(|g| g.publisher = "kowloon".into()).contains("unknown publisher"));
+    assert!(check(|g| g.version = "9.9".into()).contains("doesn't name `NIBBLER 9.9`"));
     assert!(check(|g| g.cols = 0).contains("field"));
     assert!(check(|g| g.rows = 99).contains("field"));
     assert!(check(|g| g.id = "pong".into()).contains("no engine"));
