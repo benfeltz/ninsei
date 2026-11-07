@@ -1,6 +1,7 @@
-//! How much room a screen needs. A screen declares the smallest cell grid it works in (a
-//! [`Fit`]); the desktop checks the room it has against it before drawing the screen and,
-//! below it, draws the one notice instead, btop style:
+//! How much room a screen needs. A screen declares the smallest cell grids it works in (one
+//! [`Fit`], or a few when it lays out differently by shape: wide and short, or narrow and
+//! tall); the desktop checks the room it has against them before drawing the screen and,
+//! when none fits, draws the one notice instead, btop style:
 //!
 //! ```text
 //!   NiGHTCOMM needs 64x20 (has 41x12)
@@ -31,22 +32,31 @@ impl Fit {
     }
 }
 
+/// Whether a grid of `cols` × `rows` is enough for any of `need`.
+pub fn fits(need: &[Fit], have: (usize, usize)) -> bool {
+    need.iter().any(|f| f.fits(have))
+}
+
 /// The cells `rect` holds in `ui`'s monospace font, and whether that's enough for `need`.
-pub fn check(ui: &Ui, rect: Rect, need: Fit) -> ((usize, usize), bool) {
+pub fn check(ui: &Ui, rect: Rect, need: &[Fit]) -> ((usize, usize), bool) {
     let have = cells_in(ui, rect);
-    (have, need.fits(have))
+    (have, fits(need, have))
 }
 
 /// The notice's lines: what needs how much and has how much, then the desktop's hint.
 pub fn lines(
     name: &str,
-    need: Fit,
+    need: &[Fit],
     (cols, rows): (usize, usize),
     hint: Option<&str>,
 ) -> Vec<String> {
+    let grids: Vec<String> = need
+        .iter()
+        .map(|f| format!("{}x{}", f.cols, f.rows))
+        .collect();
     let mut out = vec![format!(
-        "{name} needs {}x{} (has {cols}x{rows})",
-        need.cols, need.rows
+        "{name} needs {} (has {cols}x{rows})",
+        grids.join(" or ")
     )];
     out.extend(hint.map(str::to_string));
     out
@@ -59,7 +69,7 @@ pub fn notice(
     ui: &Ui,
     rect: Rect,
     name: &str,
-    need: Fit,
+    need: &[Fit],
     have: (usize, usize),
     hint: Option<&str>,
     (paper, ink, dim): (Color32, Color32, Color32),
@@ -87,16 +97,25 @@ mod tests {
         assert!(need.fits((100, 40)));
         assert!(!need.fits((63, 40)));
         assert!(!need.fits((100, 19)));
+        // Either shape will do.
+        let tall = Fit { cols: 40, rows: 30 };
+        assert!(fits(&[need, tall], (40, 30)));
+        assert!(fits(&[need, tall], (64, 20)));
+        assert!(!fits(&[need, tall], (63, 29)));
     }
 
     #[test]
     fn the_notice_says_what_it_needs_and_has_then_the_hint() {
         let need = Fit { cols: 64, rows: 20 };
         assert_eq!(
-            lines("NiGHTCOMM", need, (41, 12), Some("Esc f: full screen")),
+            lines("NiGHTCOMM", &[need], (41, 12), Some("Esc f: full screen")),
             vec!["NiGHTCOMM needs 64x20 (has 41x12)", "Esc f: full screen"]
         );
-        assert_eq!(lines("System", need, (41, 12), None).len(), 1);
+        let tall = Fit { cols: 40, rows: 30 };
+        assert_eq!(
+            lines("System", &[need, tall], (41, 12), None),
+            vec!["System needs 64x20 or 40x30 (has 41x12)"]
+        );
     }
 
     #[test]
@@ -107,7 +126,7 @@ mod tests {
             let font = egui::TextStyle::Monospace.resolve(ui.style());
             let cw = ui.fonts_mut(|f| f.glyph_width(&font, 'M'));
             let rect = Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(cw * 40.5, 1000.0));
-            got = Some(check(ui, rect, Fit::DEFAULT));
+            got = Some(check(ui, rect, &[Fit::DEFAULT]));
         });
         let ((cols, rows), ok) = got.unwrap();
         assert_eq!(cols, 40, "half a cell doesn't count");

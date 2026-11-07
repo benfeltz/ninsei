@@ -636,16 +636,17 @@ impl Home {
     /// the tiler gives.
     pub const TEXT_TOOLS: [Tool; 3] = [Tool::NightComm, Tool::TigerTeam, Tool::System];
 
-    /// The smallest grid of cells each tool works in: the one place a tool says so. A tool
-    /// that says nothing gets [`Fit::DEFAULT`].
-    pub fn fit(tool: Tool) -> Fit {
+    /// The smallest grids of cells each tool works in (it fits if any one does): the one
+    /// place a tool says so. A tool that says nothing gets [`Fit::DEFAULT`].
+    pub fn fit(tool: Tool) -> &'static [Fit] {
         match tool {
             // The list with its header and a few rows, and every page's columns.
-            Tool::NightComm | Tool::TigerTeam => Fit { cols: 56, rows: 12 },
-            // The text face's About panel (the logo beside the specs) is a whole 80x24
-            // terminal; every other panel fits inside it.
-            Tool::System => Fit { cols: 80, rows: 24 },
-            _ => Fit::DEFAULT,
+            Tool::NightComm | Tool::TigerTeam => &[Fit { cols: 56, rows: 12 }],
+            // The text face's About panel: the logo beside the specs fills an 80x24 terminal;
+            // narrower, the logo goes above them and it needs the height. Every other panel
+            // fits inside either.
+            Tool::System => &[Fit { cols: 80, rows: 24 }, Fit { cols: 56, rows: 34 }],
+            _ => &[Fit::DEFAULT],
         }
     }
 
@@ -1226,7 +1227,7 @@ pub(crate) mod tests {
                     let (have, drawn, h) = draw_at(&data, &save, tool, *rect, page);
                     assert_eq!(
                         drawn,
-                        Home::fit(tool).fits(have),
+                        fit::fits(Home::fit(tool), have),
                         "{tool:?} page {page} as {what}: {have:?} cells, needs {:?}",
                         Home::fit(tool)
                     );
@@ -1257,12 +1258,19 @@ pub(crate) mod tests {
             )
         };
         for tool in Home::TEXT_TOOLS {
-            let need = Home::fit(tool);
-            let (have, drawn, _) = draw_at(&data, &save, tool, at(need.cols, need.rows), 0);
-            assert_eq!(have, (need.cols, need.rows));
-            assert!(drawn, "{tool:?} at exactly its minimum is drawn");
-            assert!(!draw_at(&data, &save, tool, at(need.cols - 1, need.rows), 0).1);
-            assert!(!draw_at(&data, &save, tool, at(need.cols, need.rows - 1), 0).1);
+            let needs = Home::fit(tool);
+            for (page, need) in
+                (0..Home::pages(tool)).flat_map(|p| needs.iter().map(move |n| (p, n)))
+            {
+                let (have, drawn, _) = draw_at(&data, &save, tool, at(need.cols, need.rows), page);
+                assert_eq!(have, (need.cols, need.rows));
+                assert!(drawn, "{tool:?} page {page} at exactly {need:?} is drawn");
+                // A cell short either way: the notice, unless another shape it declared fits.
+                for short in [(need.cols - 1, need.rows), (need.cols, need.rows - 1)] {
+                    let drawn = draw_at(&data, &save, tool, at(short.0, short.1), page).1;
+                    assert_eq!(drawn, fit::fits(needs, short), "{tool:?} at {short:?}");
+                }
+            }
         }
     }
 

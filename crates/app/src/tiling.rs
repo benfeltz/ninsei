@@ -721,16 +721,7 @@ mod tests {
         frame(&mut desk, &mut home, Vec::new());
         frame(&mut desk, &mut home, Vec::new());
         assert!(home.system.keys, "the new System tile is focused");
-        // A stack tile is narrower than System's 80 columns: full screen gives it the room.
-        assert_eq!(
-            home.notices,
-            vec![Tool::System; 2],
-            "too small in the stack"
-        );
-        frame(&mut desk, &mut home, key(egui::Key::Escape));
-        frame(&mut desk, &mut home, key(egui::Key::F));
-        frame(&mut desk, &mut home, Vec::new());
-        home.notices.clear();
+        assert!(home.notices.is_empty(), "System fits the stack tile");
         frame(&mut desk, &mut home, key(egui::Key::Num2));
         frame(&mut desk, &mut home, Vec::new());
         assert_eq!(home.system.panel, ninsei_core::system::Panel::Monitor);
