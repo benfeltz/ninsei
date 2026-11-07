@@ -323,11 +323,7 @@ pub fn scroll_bar(ui: &Ui, p: &Painter, r: Rect, id: Id, s: Scroll, look: &Look)
 /// beside it). The wheel over either scrolls it.
 pub fn scrolled(ui: &mut Ui, id: Id, look: &Look, body: impl FnOnce(&mut Ui)) {
     let line = ui.fonts_mut(|f| f.row_height(&look.font)).ceil();
-    let pad = scrollbar::Pad {
-        top: size::PAD_Y,
-        gap: size::PAD_X,
-        bottom: size::PAD_Y,
-    };
+    let pad = SCROLL_PAD;
     scrollbar::view(
         ui,
         id,
@@ -340,8 +336,12 @@ pub fn scrolled(ui: &mut Ui, id: Id, look: &Look, body: impl FnOnce(&mut Ui)) {
     );
 }
 
-/// The room [`scrolled`] keeps beside its view: the bar and the gap before it.
-pub const SCROLLED_W: f32 = size::SCROLL_W + size::PAD_X;
+/// The room [`scrolled`] keeps round its view: above and below it, and before the bar.
+pub const SCROLL_PAD: scrollbar::Pad = scrollbar::Pad {
+    top: size::PAD_Y,
+    gap: size::PAD_X,
+    bottom: size::PAD_Y,
+};
 
 /// A list box `size` big: a framed list of `n` cells `cell_h` tall from `top` down, the
 /// `sel`ected one drawn by `cell` as on (it returns the cell's name, for the accessibility tree), and the scroll bar down its right side (active once the

@@ -268,7 +268,8 @@ impl DesktopView for Workbench {
         let show =
             |ui: &mut Ui, id: Id, body: &mut dyn FnMut(&mut Ui)| kit::scrolled(ui, id, &look, body);
         let scroller = crate::home::Scroller {
-            width: kit::SCROLLED_W,
+            bar_w: kit::size::PROP_W,
+            pad: kit::SCROLL_PAD,
             show: &show,
         };
 
@@ -796,5 +797,58 @@ mod tests {
             run(&mut wb, &mut home, Vec::new());
         }
         assert_eq!(scroll_of(&ctx, Tool::System).offset, 0.0);
+    }
+
+    #[test]
+    fn the_notice_shows_exactly_when_the_scrolled_view_is_short() {
+        let data = Data::builtin().unwrap();
+        let save = desk(&data);
+        let need = Home::fit(Tool::NightComm, Desktop::Workbench).expect("NiGHTCOMM needs cells");
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        crate::uitest::themed(&h.ctx, &data);
+        let (mut wb, mut home) = (Workbench::new(), Home::new(Vec::new()));
+        wb.open(Tool::NightComm);
+        let mut short_seen = false;
+        for y in (520..=700).step_by(3) {
+            let nc = |wb: &Workbench| -> usize {
+                wb.wins
+                    .iter()
+                    .position(|w| w.kind == Kind::NightComm)
+                    .unwrap()
+            };
+            let i = nc(&wb);
+            wb.wins[i].pos.y = y as f32;
+            home.notices.clear();
+            for _ in 0..2 {
+                h.frame(Vec::new(), |ui| {
+                    let cx = Cx {
+                        data: &data,
+                        save: &save,
+                        offset: 0.0,
+                        live: true,
+                    };
+                    wb.show(ui, &mut home, &cx, &mut Vec::new());
+                });
+            }
+            let w = &wb.wins[nc(&wb)];
+            let room = (800.0 - w.pos.y - WIN_MARGIN).max(WIN_MIN_H);
+            let rect = Rect::from_min_size(w.pos, vec2(w.size.x, w.size.y.min(room)));
+            let view = crate::kit::scrollbar::view_rect(
+                kit::window_scrolled(rect),
+                kit::size::PROP_W,
+                kit::SCROLL_PAD,
+            );
+            let mut fits = true;
+            h.frame(Vec::new(), |ui| {
+                fits = crate::kit::fit::check(ui, view, need, 0.0).1;
+            });
+            short_seen |= !fits;
+            assert_eq!(
+                home.notices.contains(&Tool::NightComm),
+                !fits,
+                "at y {y}, the notice must show exactly when the view is short"
+            );
+        }
+        assert!(short_seen, "the scan reached a short window");
     }
 }

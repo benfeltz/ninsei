@@ -320,7 +320,8 @@ impl DesktopView for Liza {
         let show =
             |ui: &mut Ui, id: Id, body: &mut dyn FnMut(&mut Ui)| kit::scrolled(ui, id, &c, body);
         let scroller = home::Scroller {
-            width: kit::SCROLLED_W,
+            bar_w: kit::size::SCROLL_W,
+            pad: kit::SCROLL_PAD,
             show: &show,
         };
         let (mut raise, mut close) = (None, None);

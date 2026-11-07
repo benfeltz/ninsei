@@ -382,11 +382,7 @@ fn prop_paint(p: &Painter, r: Rect, s: &Scroll, look: &Look) {
 /// proportional gadget flush on the right while there's more than shows.
 pub fn scrolled(ui: &mut Ui, id: Id, look: &Look, body: impl FnOnce(&mut Ui)) {
     let line = ui.fonts_mut(|f| f.row_height(&look.font)).ceil();
-    let pad = scrollbar::Pad {
-        top: size::PAD_TOP,
-        gap: size::PAD,
-        bottom: size::PAD,
-    };
+    let pad = SCROLL_PAD;
     scrollbar::view(
         ui,
         id,
@@ -399,8 +395,12 @@ pub fn scrolled(ui: &mut Ui, id: Id, look: &Look, body: impl FnOnce(&mut Ui)) {
     );
 }
 
-/// The room [`scrolled`] keeps beside its view: the gadget and the gap before it.
-pub const SCROLLED_W: f32 = size::PROP_W + size::PAD;
+/// The room [`scrolled`] keeps round its view: above and below it, and before the bar.
+pub const SCROLL_PAD: scrollbar::Pad = scrollbar::Pad {
+    top: size::PAD_TOP,
+    gap: size::PAD,
+    bottom: size::PAD,
+};
 
 #[cfg(test)]
 mod tests {

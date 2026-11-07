@@ -667,22 +667,25 @@ impl Home {
         scroller: Option<&Scroller>,
         salt: impl std::hash::Hash + std::fmt::Debug,
     ) -> bool {
-        let rect = ui.max_rect();
+        // The room the face gets: the scroller's view (in from its pads, beside its bar), or the
+        // whole rect less egui's bar when the face scrolls.
+        let (room, bar) = match scroller {
+            Some(s) => (
+                crate::kit::scrollbar::view_rect(ui.max_rect(), s.bar_w, s.pad),
+                0.0,
+            ),
+            None => (ui.max_rect(), scroll_bar()),
+        };
         let desktop = save.firmware_def(data).desktop;
         let need = Self::fit(tool, desktop);
         if let Some(need) = need
-            && let (have, false) = fit::check(
-                ui,
-                rect,
-                need,
-                scroller.map_or_else(scroll_bar, |s| s.width),
-            )
+            && let (have, false) = fit::check(ui, room, need, bar)
         {
             #[cfg(test)]
             self.notices.push(tool);
             fit::notice(
                 ui,
-                rect,
+                room,
                 tool.volume(),
                 need.grids,
                 have,
@@ -1006,10 +1009,12 @@ pub(crate) fn scroll_bar() -> f32 {
     crate::theme::visible_scroll().allocated_width()
 }
 
-/// A desktop's own scroll bar for a tool taller than its window: the room the bar takes beside
-/// the tool, and the view that scrolls it (given an id and the body to draw).
+/// A desktop's own scroll bar for a tool taller than its window: the bar's width and the view's
+/// pads (so the fit check measures the room the face really gets,
+/// `kit::scrollbar::view_rect`), and the view that scrolls it (given an id and the body).
 pub(crate) struct Scroller<'a> {
-    pub width: f32,
+    pub bar_w: f32,
+    pub pad: crate::kit::scrollbar::Pad,
     pub show: &'a ScrollView<'a>,
 }
 

@@ -101,6 +101,15 @@ pub struct Pad {
     pub bottom: f32,
 }
 
+/// Where a scrolled view goes in `rect`: in from the top and bottom by `pad`, and from the
+/// right by a bar `bar_w` wide and the gap before it.
+pub fn view_rect(rect: Rect, bar_w: f32, pad: Pad) -> Rect {
+    Rect::from_min_max(
+        rect.min + vec2(0.0, pad.top),
+        pos2(rect.right() - bar_w - pad.gap, rect.bottom() - pad.bottom),
+    )
+}
+
 /// `body` in a view that scrolls, filling `ui`, with a bar `bar_w` wide flush on the right
 /// edge. The bar is the desktop's: `input` says what it does to the view this frame (given its
 /// rect, its id and where the view stood last frame) and `paint` draws it, only while there's
@@ -124,10 +133,7 @@ pub fn view(
     let set = last
         .filter(Scroll::active)
         .and_then(|s| input(ui, bar, key, &s));
-    let view_rect = Rect::from_min_max(
-        rect.min + vec2(0.0, pad.top),
-        pos2(bar.left() - pad.gap, rect.bottom() - pad.bottom),
-    );
+    let view_rect = view_rect(rect, bar_w, pad);
     let mut view = ui.new_child(
         egui::UiBuilder::new()
             .max_rect(view_rect)
