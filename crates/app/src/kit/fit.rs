@@ -78,8 +78,44 @@ pub fn lines(
     out
 }
 
-/// Draws the notice over `rect`, in whole cells, on `paper`: the first line in `ink`, the hint
-/// in `dim`, centred, each cut to the width it has.
+/// `lines` wrapped at spaces to `cols` cells, a parenthetical kept whole (a word longer than
+/// the width is cut, the only way it fits).
+pub fn wrap(lines: &[String], cols: usize) -> Vec<String> {
+    let cols = cols.max(1);
+    let mut out = Vec::new();
+    for l in lines {
+        let mut words: Vec<String> = Vec::new();
+        let mut open = false;
+        for w in l.split(' ') {
+            match words.last_mut() {
+                Some(last) if open => {
+                    last.push(' ');
+                    last.push_str(w);
+                }
+                _ => words.push(w.to_string()),
+            }
+            open = (open || w.starts_with('(')) && !w.ends_with(')');
+        }
+        let mut cur = String::new();
+        for w in &words {
+            let fits = cur.chars().count() + 1 + w.chars().count() <= cols;
+            if cur.is_empty() {
+                cur = w.chars().take(cols).collect();
+            } else if fits {
+                cur.push(' ');
+                cur.push_str(w);
+            } else {
+                out.push(std::mem::take(&mut cur));
+                cur = w.chars().take(cols).collect();
+            }
+        }
+        out.push(cur);
+    }
+    out
+}
+
+/// Draws the notice over `rect`, in whole cells, on `paper`: what it needs in `ink`, the hint
+/// in `dim`, centred, wrapped to the width it has.
 #[allow(clippy::too_many_arguments)]
 pub fn notice(
     ui: &Ui,
@@ -93,12 +129,14 @@ pub fn notice(
     let g = Cells::fit(ui, rect, dim, paper, dim);
     let p = ui.painter_at(rect);
     p.rect_filled(rect, 0.0, paper);
-    let lines = lines(name, need, have, hint);
+    let all = lines(name, need, have, hint);
+    let first = wrap(&all[..1], g.cols).len();
+    let lines = wrap(&all, g.cols);
     let top = g.rows.saturating_sub(lines.len()) / 2;
     for (i, l) in lines.iter().enumerate() {
         let n = l.chars().count().min(g.cols);
         let c = (g.cols - n) / 2;
-        g.text_max(&p, c, top + i, l, n, if i == 0 { ink } else { dim });
+        g.text_max(&p, c, top + i, l, n, if i < first { ink } else { dim });
     }
 }
 
@@ -147,5 +185,22 @@ mod tests {
         let ((cols, rows), ok) = got.unwrap();
         assert_eq!(cols, 40, "half a cell doesn't count");
         assert!(rows > 12 && ok);
+    }
+
+    #[test]
+    fn the_notice_wraps_to_a_narrow_tile_instead_of_cutting() {
+        let l = lines(
+            "System",
+            &[Fit { cols: 40, rows: 8 }],
+            (29, 13),
+            Some("Esc f: full screen"),
+        );
+        let w = wrap(&l, 27);
+        assert_eq!(
+            w,
+            vec!["System needs 40x8", "(has 29x13)", "Esc f: full screen"]
+        );
+        assert!(w.iter().all(|l| l.chars().count() <= 27));
+        assert_eq!(wrap(&l, 80), l, "a wide tile keeps the lines");
     }
 }
