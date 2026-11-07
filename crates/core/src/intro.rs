@@ -185,60 +185,7 @@ impl TuneDef {
         let step = (self.step_secs() * rate).max(1.0) as usize;
         let mut out = vec![0.0f32; len];
         for t in &self.tracks {
-            let Ok(pat) = steps(&t.pattern) else { continue };
-            let mut seed = 0x9E37_79B9_u32;
-            let (mut freq, mut start, mut sounding) = (0.0f32, 0usize, false);
-            let mut phase = 0.0f32;
-            let mut held = 0.0f32;
-            // How long each note runs, counting the holds after it.
-            let run = |at: usize| {
-                1 + (1..pat.len())
-                    .take_while(|k| pat[(at + k) % pat.len()] == Step::Hold)
-                    .count()
-            };
-            let mut length = step;
-            for (i, o) in out.iter_mut().enumerate() {
-                if i % step == 0 {
-                    let at = (i / step) % pat.len();
-                    match pat[at] {
-                        Step::Note(f) => {
-                            (freq, start, sounding, length) = (f, i, true, run(at) * step);
-                        }
-                        Step::Hit => {
-                            (freq, start, sounding, length) = (0.0, i, true, step);
-                        }
-                        Step::Rest => sounding = false,
-                        Step::Hold => {}
-                    }
-                }
-                if !sounding {
-                    continue;
-                }
-                let k = (i - start) as f32 / length.max(1) as f32;
-                if k >= 1.0 {
-                    sounding = false;
-                    continue;
-                }
-                let s = if freq == 0.0 {
-                    // A drum hit: noise, changing every few samples.
-                    if i % 3 == 0 {
-                        seed ^= seed << 13;
-                        seed ^= seed >> 17;
-                        seed ^= seed << 5;
-                        held = (seed % 2001) as f32 / 1000.0 - 1.0;
-                    }
-                    held * (1.0 - k).powi(4)
-                } else {
-                    phase = (phase + freq / rate).fract();
-                    let w = crate::cue::Wave::sample(t.wave, phase, &mut seed);
-                    // A pluck: a quick attack, then down to a sustain, released at the end.
-                    let attack = ((i - start) as f32 / (0.003 * rate)).min(1.0);
-                    let body = 0.55 + 0.45 * (1.0 - k).powi(3);
-                    let release = ((1.0 - k) / 0.15).min(1.0);
-                    w * attack * body * release
-                };
-                *o += s * t.vol;
-            }
+            render_track(t, &mut out, rate, step, len);
         }
         let fade = (0.25 * rate) as usize;
         for (i, o) in out.iter_mut().enumerate() {
@@ -251,6 +198,109 @@ impl TuneDef {
             *o = (*o * g).clamp(-1.0, 1.0);
         }
         out
+    }
+
+    /// Steps before every track lines up again: the least common multiple of their lengths.
+    pub fn loop_steps(&self) -> usize {
+        fn gcd(a: usize, b: usize) -> usize {
+            if b == 0 { a } else { gcd(b, a % b) }
+        }
+        self.tracks
+            .iter()
+            .filter_map(|t| steps(&t.pattern).ok())
+            .map(|p| p.len().max(1))
+            .fold(1, |l, n| l / gcd(l, n) * n)
+    }
+
+    /// Exactly one cycle of the tune ([`Self::loop_steps`] steps), played with `arr`'s track
+    /// left out and its extra bpm, with no fade: played on repeat, it never seams. A note still
+    /// ringing at the end of the cycle carries on into the start, as it would on the next pass.
+    pub fn render_loop(&self, rate: u32, arr: &crate::music::Arrangement) -> Vec<f32> {
+        let rate = rate.max(1) as f32;
+        let bpm = (self.bpm + arr.tempo).max(1) * self.steps.max(1);
+        let step = ((60.0 / bpm as f32) * rate).max(1.0) as usize;
+        let len = self.loop_steps() * step;
+        // Room for the last notes to ring out past the end, then fold that back to the start.
+        let longest = self
+            .tracks
+            .iter()
+            .filter_map(|t| steps(&t.pattern).ok())
+            .map(|p| p.len())
+            .max()
+            .unwrap_or(0);
+        let mut out = vec![0.0f32; len + longest * step];
+        for (n, t) in self.tracks.iter().enumerate() {
+            if arr.drop != Some(n) {
+                render_track(t, &mut out, rate, step, len);
+            }
+        }
+        let tail = out.split_off(len);
+        for (o, t) in out.iter_mut().zip(tail) {
+            *o += t;
+        }
+        for o in &mut out {
+            *o = o.clamp(-1.0, 1.0);
+        }
+        out
+    }
+}
+
+/// Mixes one track into `out`, looping its pattern from the first sample, `step` samples a
+/// step. No note starts from sample `until` on: what's ringing then plays out.
+fn render_track(t: &TrackDef, out: &mut [f32], rate: f32, step: usize, until: usize) {
+    let Ok(pat) = steps(&t.pattern) else { return };
+    let mut seed = 0x9E37_79B9_u32;
+    let (mut freq, mut start, mut sounding) = (0.0f32, 0usize, false);
+    let mut phase = 0.0f32;
+    let mut held = 0.0f32;
+    // How long each note runs, counting the holds after it.
+    let run = |at: usize| {
+        1 + (1..pat.len())
+            .take_while(|k| pat[(at + k) % pat.len()] == Step::Hold)
+            .count()
+    };
+    let mut length = step;
+    for (i, o) in out.iter_mut().enumerate() {
+        if i % step == 0 && i < until {
+            let at = (i / step) % pat.len();
+            match pat[at] {
+                Step::Note(f) => {
+                    (freq, start, sounding, length) = (f, i, true, run(at) * step);
+                }
+                Step::Hit => {
+                    (freq, start, sounding, length) = (0.0, i, true, step);
+                }
+                Step::Rest => sounding = false,
+                Step::Hold => {}
+            }
+        }
+        if !sounding {
+            continue;
+        }
+        let k = (i - start) as f32 / length.max(1) as f32;
+        if k >= 1.0 {
+            sounding = false;
+            continue;
+        }
+        let s = if freq == 0.0 {
+            // A drum hit: noise, changing every few samples.
+            if i % 3 == 0 {
+                seed ^= seed << 13;
+                seed ^= seed >> 17;
+                seed ^= seed << 5;
+                held = (seed % 2001) as f32 / 1000.0 - 1.0;
+            }
+            held * (1.0 - k).powi(4)
+        } else {
+            phase = (phase + freq / rate).fract();
+            let w = crate::cue::Wave::sample(t.wave, phase, &mut seed);
+            // A pluck: a quick attack, then down to a sustain, released at the end.
+            let attack = ((i - start) as f32 / (0.003 * rate)).min(1.0);
+            let body = 0.55 + 0.45 * (1.0 - k).powi(3);
+            let release = ((1.0 - k) / 0.15).min(1.0);
+            w * attack * body * release
+        };
+        *o += s * t.vol;
     }
 }
 
