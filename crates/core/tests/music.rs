@@ -186,37 +186,110 @@ mod in_a_run {
     }
 
     #[test]
-    fn a_deck_without_music_plays_nothing() {
-        let d = data();
-        let (s, g) = dialed(&d, "hosaka");
-        assert_eq!(s.firmware_def(&d).sounds, "hosaka");
-        assert_eq!(g.phase, Phase::Exploring);
-        assert!(wanted(Screen::Run, false, &s, &g, &d).is_none());
+    fn a_pack_without_music_is_valid_and_plays_nothing() {
+        // Every deck's pack, its music taken out: still a valid pack, and the run is silent.
+        let texts: Vec<String> = ninsei_core::data::BUILTIN_SOUNDS
+            .iter()
+            .map(|p| {
+                let cues = &p.sounds[..p.sounds.rfind("music: [").expect("a music section")];
+                format!("{cues}music: [],\n)")
+            })
+            .collect();
+        let packs: Vec<_> = ninsei_core::data::BUILTIN_SOUNDS
+            .iter()
+            .zip(&texts)
+            .map(|(p, t)| ninsei_core::data::PackSrc {
+                id: p.id,
+                sounds: t,
+            })
+            .collect();
+        let d = Data::parse(ninsei_core::data::Sources {
+            sounds: &packs,
+            ..ninsei_core::data::Sources::builtin()
+        })
+        .unwrap();
+        assert!(d.validate().is_ok());
+        for deck in ["sensenet", "onosendai", "hosaka"] {
+            let (s, g) = dialed(&d, deck);
+            assert_eq!(g.phase, Phase::Exploring);
+            assert!(wanted(Screen::Run, false, &s, &g, &d).is_none(), "{deck}");
+        }
+    }
+
+    #[test]
+    fn the_sense_net_plays_its_own_tune() {
+        let d = Data::builtin().unwrap();
+        let (s, g) = dialed(&d, "sensenet");
+        let fw = s.firmware_def(&d);
+        assert_eq!(
+            (fw.label.as_str(), fw.sounds.as_str()),
+            ("Liza 1.0", "sensenet")
+        );
+        let w = wanted(Screen::Run, false, &s, &g, &d).expect("music in a Liza run");
+        assert_eq!((w.pack, w.tier), ("sensenet", g.tier()));
+        assert_eq!(w.arrangement, Arrangement::PLAIN);
     }
 }
 
+/// A loop's loudest sample and its RMS.
+fn level(a: &[f32]) -> (f32, f32) {
+    let peak = a.iter().fold(0.0f32, |m, s| m.max(s.abs()));
+    let rms = (a.iter().map(|s| s * s).sum::<f32>() / a.len().max(1) as f32).sqrt();
+    (peak, rms)
+}
+
 #[test]
-fn the_ono_sendai_scores_every_tier_and_the_others_stay_silent() {
+fn every_scored_pack_has_a_tune_per_tier_that_sits_under_a_cracktro() {
+    const HI: u32 = 48_000;
     let d = ninsei_core::Data::builtin().unwrap();
-    for tier in 1..=3 {
-        let t = d.run_tune("ono", tier).expect("a tune for every tier");
-        let step = (t.tune.step_secs() * RATE as f32) as usize;
-        let secs = (t.tune.loop_steps() * step) as f32 / RATE as f32;
-        assert!(secs >= 24.0, "tier {tier} loops after {secs:.1}s");
-        let a = t.tune.render_loop(RATE, &Arrangement::PLAIN);
-        assert!(
-            a.iter().any(|s| s.abs() > 0.05),
-            "tier {tier} makes a sound"
-        );
-        assert!(
-            a[a.len() - 50..].iter().all(|s| s.abs() < 0.05),
-            "tier {tier} ends quiet"
-        );
-        let hot = t.tune.render_loop(RATE, &arrangement(100, t.drop));
-        assert!(hot.len() < a.len(), "tier {tier} speeds up");
+    let scored: Vec<&str> = d
+        .sounds
+        .iter()
+        .filter(|p| !p.music.is_empty())
+        .map(|p| p.id.as_str())
+        .collect();
+    for pack in ["ono", "sensenet"] {
+        assert!(scored.contains(&pack), "{pack} has music: {scored:?}");
     }
-    for pack in ["hosaka"] {
-        assert!((1..=3).all(|t| d.run_tune(pack, t).is_none()), "{pack}");
+    // The quietest cracktro tune: run music plays under every one of them.
+    let cracktro = d
+        .intros
+        .iter()
+        .filter_map(|i| Some(level(&i.tune.as_ref()?.render(HI, i.secs)).1))
+        .fold(f32::MAX, f32::min);
+    assert!(cracktro < 1.0, "a cracktro has a tune");
+    for pack in scored {
+        for tier in 1..=3 {
+            let at = format!("{pack} tier {tier}");
+            let t = d.run_tune(pack, tier).expect("a tune for every tier");
+            let secs = t.tune.loop_secs(0);
+            assert!((24.0..=64.0).contains(&secs), "{at} loops after {secs:.1}s");
+            assert!(t.drop.is_some(), "{at} has a track to drop");
+            let plain = t.tune.render_loop(HI, &Arrangement::PLAIN);
+            for pct in [0, MUSIC_DROP_AT, MUSIC_TEMPO_AT] {
+                let a = t.tune.render_loop(HI, &arrangement(pct, t.drop));
+                let (peak, rms) = level(&a);
+                assert!(peak < 0.5, "{at} at {pct}% peaks at {peak:.3}: no clipping");
+                assert!(
+                    (0.035..=0.08).contains(&rms) && rms < cracktro,
+                    "{at} at {pct}%: RMS {rms:.4} (a cracktro is {cracktro:.4})"
+                );
+                assert!(
+                    a[a.len() - 50..].iter().all(|s| s.abs() < 0.01),
+                    "{at} at {pct}% ends quiet"
+                );
+                assert!(
+                    (a[a.len() - 1] - a[0]).abs() < 0.05,
+                    "{at} at {pct}% wraps without a click"
+                );
+                if pct >= MUSIC_DROP_AT {
+                    assert_ne!(a, plain, "{at} at {pct}% thins out");
+                }
+                if pct >= MUSIC_TEMPO_AT {
+                    assert!(a.len() < plain.len(), "{at} speeds up");
+                }
+            }
+        }
     }
 }
 
