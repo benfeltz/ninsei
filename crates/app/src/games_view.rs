@@ -805,4 +805,23 @@ mod tests {
         // And the crack of the game you own is no more there than the others.
         assert!(!save.opens(Tool::game("blox", GameCopy::Cracked).unwrap()));
     }
+
+    #[test]
+    fn the_key_that_skips_the_intro_never_reaches_the_game() {
+        let data = Data::builtin().unwrap();
+        let save = with_intros(&data);
+        let t = tool("minefield");
+        let mut h = Harness::new(1280.0, 800.0);
+        let mut home = Home::new(Vec::new());
+        frame(&mut h, &mut home, &data, &save, t, Vec::new());
+        assert!(home.game(t).is_none(), "the cracktro is up");
+        // Space skips it (the window has the keys), and isn't Fire on the first square.
+        frame(&mut h, &mut home, &data, &save, t, key(Key::Space));
+        frame(&mut h, &mut home, &data, &save, t, Vec::new());
+        let g = home.game(t).expect("the game after the skip");
+        assert!(
+            g.cells().iter().all(|c| *c == Cell::Covered),
+            "nothing opened"
+        );
+    }
 }
