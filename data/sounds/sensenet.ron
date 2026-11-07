@@ -3,8 +3,9 @@
 // Same format as ono.ron (see there); every cue needs an entry.
 //
 // Music: a 1980s Mac adventure or learning game. Square tunes over triangle basses, in major
-// keys at a walking pace, with a countermelody that drops out when the trace runs high and only
-// a soft shaker for drums. Each tier keeps its chords on a 4- or 8-bar cycle, so tracks of
+// keys at a walking pace, and only a soft shaker for drums. When the trace runs high, a quiet
+// triangle part under the tune drops out (the countermelody, the offbeat chords, the held line)
+// and the tempo rises. Each tier keeps its chords on a 4- or 8-bar cycle, so tracks of
 // different lengths drift against each other without clashing.
 (
     cues: [
