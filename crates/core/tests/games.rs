@@ -1055,3 +1055,42 @@ fn same_seed_same_game_for_every_engine() {
         assert_eq!(play(3), play(3), "{}", g.id);
     }
 }
+
+/// The world guide: who exists on the Net (`docs/world.md`).
+const WORLD: &str = include_str!("../../../docs/world.md");
+
+#[test]
+fn every_game_crack_signs_its_crew_advertises_the_gutter_and_greets_only_the_world() {
+    let d = data();
+    for g in &d.games {
+        let i = d.intro(&g.crack).unwrap();
+        assert_eq!(
+            i.board.as_deref(),
+            Some("gutter"),
+            "{}: games are the Gutter's",
+            g.id
+        );
+        assert!(i.tag.is_some(), "{}: the crew's tag", g.id);
+        assert!(
+            WORLD.contains(&i.group),
+            "{}: crew {} isn't in world.md",
+            g.id,
+            i.group
+        );
+        for greet in &i.greetz {
+            // A greet is a name from the guide, maybe with the crew's own aside after it.
+            let name = greet.split(" (").next().unwrap();
+            assert!(
+                WORLD.contains(name),
+                "{}: greets {name:?}, who isn't in world.md",
+                g.id
+            );
+        }
+        let art: String = i.frames.concat().concat();
+        assert!(
+            art.contains(&format!("-{}", i.tag.as_deref().unwrap())),
+            "{}: the art names the 8.3 file with the crew's tag",
+            g.id
+        );
+    }
+}
