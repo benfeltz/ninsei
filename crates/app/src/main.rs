@@ -1121,7 +1121,11 @@ impl App {
             }
             MenuPart::Sound => {
                 let v = chrome::view(self.save.firmware_def(&self.data).chrome);
-                if ui.button(v.sound_item()).clicked() {
+                let free = !self.modal_up();
+                if ui
+                    .add_enabled(free, egui::Button::new(v.sound_item()))
+                    .clicked()
+                {
                     self.sound_popup.open(volume::Level::of(&self.save));
                 }
             }
@@ -1173,9 +1177,16 @@ impl App {
         }
     }
 
+    /// Whether something already has the keyboard (a BBS, a conversation), so the sound
+    /// pop-out can't open over it.
+    fn modal_up(&self) -> bool {
+        self.bbs.is_some() || self.game.encounter.is_some()
+    }
+
     fn status_bar(&mut self, ui: &mut egui::Ui, pal: &theme::Palette) -> Vec<Request> {
         let theme_label = self.run_theme_label();
         let level = volume::Level::of(&self.save);
+        let keys_free = !self.modal_up();
         let g = &self.game;
         let v = chrome::view(self.save.firmware_def(&self.data).chrome);
         let mut out = Vec::new();
@@ -1220,7 +1231,7 @@ impl App {
                 game: g,
                 pal: *pal,
                 suite: &mut self.suite,
-                keys_free: true,
+                keys_free,
                 level,
                 popup: &mut self.sound_popup,
             };
@@ -1479,6 +1490,11 @@ impl App {
     fn run_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, pal: &theme::Palette) {
         let pal = *pal;
         let ctx = ctx.clone();
+        // A BBS or a conversation has the keyboard: the sound pop-out gives way to it.
+        let sound_was_open = self.sound_popup.is_open();
+        if self.modal_up() {
+            self.sound_popup.close();
+        }
         // Keys only drive the run once it's fully on screen.
         let mut requests = if self.screen == Screen::Run {
             self.hotkeys(&ctx)
@@ -1622,13 +1638,14 @@ impl App {
         let mut over = view.overlay(&ctx, &mut cx);
         if cx.popup.is_open() {
             over.extend(view.sound(&ctx, &mut cx));
-            if !cx.popup.is_open() {
-                // Closed: the command line has the keys again.
-                self.focus_input = true;
-            }
         }
         for r in over {
             self.handle(&ctx, r);
+        }
+        // However it closed (its own keys, the speaker, a modal coming up), the command line
+        // has the keys again.
+        if sound_was_open && !self.sound_popup.is_open() {
+            self.focus_input = true;
         }
 
         // Bring the fight forward when ICE rezzes (the chrome says where), and the target pane
@@ -1657,6 +1674,108 @@ impl App {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    mod sound_pop_out {
+        use super::*;
+        use crate::uitest::{Harness, click, key, text};
+
+        /// The app in a run on `deck`, the command line focused, nothing playing (only
+        /// `run_ui` runs here, and it never opens the speaker).
+        fn running(deck: &str) -> (Harness, App) {
+            let h = Harness::new(1280.0, 800.0);
+            let cc = eframe::CreationContext::_new_kittest(h.ctx.clone());
+            let mut app = App::new(&cc, Data::builtin().unwrap(), Some(7));
+            if !app.save.decks.iter().any(|d| d == deck) {
+                app.save.decks.push(deck.into());
+            }
+            app.save.deck = deck.into();
+            app.save.firmware = app.save.deck_def(&app.data).firmware[0].id.clone();
+            app.load_layout();
+            let entry = app.save.phonebook[0].id;
+            app.dial(entry, Some(7));
+            app.screen = Screen::Run;
+            (h, app)
+        }
+
+        fn frame(h: &mut Harness, app: &mut App, events: Vec<egui::Event>) {
+            let pal = app.pal;
+            h.frame(events, |ui| {
+                let ctx = ui.ctx().clone();
+                app.run_ui(ui, &ctx, &pal);
+            });
+        }
+
+        fn typed(h: &mut Harness, app: &mut App, s: &str) {
+            frame(h, app, text(s));
+            frame(h, app, Vec::new());
+        }
+
+        fn press(h: &mut Harness, app: &mut App, what: &str) {
+            let at = h
+                .find(what)
+                .unwrap_or_else(|| panic!("no {what:?} in {:?}", h.texts()))
+                .center();
+            frame(h, app, click(at));
+            frame(h, app, Vec::new());
+        }
+
+        #[test]
+        fn it_takes_the_keys_from_the_command_line_and_gives_them_back() {
+            let (mut h, mut app) = running("onosendai");
+            for _ in 0..3 {
+                frame(&mut h, &mut app, Vec::new());
+            }
+            typed(&mut h, &mut app, "ab");
+            assert_eq!(app.term.text(), "ab", "the command line has the keys");
+            // Open it from the speaker: its keys are its own.
+            press(&mut h, &mut app, "🔊 100%");
+            assert!(app.sound_popup.is_open());
+            let mut ev = text("m");
+            ev.extend(key(egui::Key::M));
+            frame(&mut h, &mut app, ev);
+            frame(&mut h, &mut app, key(egui::Key::ArrowLeft));
+            frame(&mut h, &mut app, key(egui::Key::Num1));
+            assert!(!app.save.sound, "m muted");
+            assert_eq!(app.save.volume, 95);
+            assert_eq!(app.term.text(), "ab", "the command line heard none of it");
+            assert_eq!(app.game.hops, 0, "nor did the run's hotkeys");
+            // Esc closes it and the command line has the keys again.
+            frame(&mut h, &mut app, key(egui::Key::Escape));
+            assert!(!app.sound_popup.is_open());
+            typed(&mut h, &mut app, "c");
+            assert_eq!(app.term.text(), "abc");
+            // So does closing it from the speaker.
+            press(&mut h, &mut app, "🔇 muted");
+            assert!(app.sound_popup.is_open());
+            press(&mut h, &mut app, "🔇 muted");
+            assert!(!app.sound_popup.is_open());
+            typed(&mut h, &mut app, "d");
+            assert_eq!(app.term.text(), "abcd");
+        }
+
+        #[test]
+        fn it_never_opens_over_a_bbs_and_gives_way_to_one() {
+            let (mut h, mut app) = running("onosendai");
+            for _ in 0..3 {
+                frame(&mut h, &mut app, Vec::new());
+            }
+            let speaker = h.find("🔊 100%").unwrap().center();
+            // A board on the line (held there: off a BBS node the run hangs it up).
+            let on_the_line = |h: &mut Harness, app: &mut App, ev: Vec<egui::Event>| {
+                app.bbs.get_or_insert_with(BbsView::new);
+                frame(h, app, ev);
+            };
+            on_the_line(&mut h, &mut app, Vec::new());
+            on_the_line(&mut h, &mut app, click(speaker));
+            assert!(!app.sound_popup.is_open(), "the BBS has the keyboard");
+            // Open, then a board picks up: the pop-out closes.
+            app.bbs = None;
+            frame(&mut h, &mut app, click(speaker));
+            assert!(app.sound_popup.is_open());
+            on_the_line(&mut h, &mut app, Vec::new());
+            assert!(!app.sound_popup.is_open());
+        }
+    }
 
     #[test]
     fn default_layouts_round_trip() {

@@ -244,6 +244,8 @@ pub mod tests {
         pub popup: Popup,
         pub level: Level,
         pub typed: String,
+        /// Focus the command line on the next frame, as the run screen does on arrival.
+        focus: bool,
     }
 
     impl Screen {
@@ -258,6 +260,7 @@ pub mod tests {
                 popup: Popup::default(),
                 level: Level { on, volume },
                 typed: String::new(),
+                focus: true,
             }
         }
 
@@ -266,8 +269,13 @@ pub mod tests {
             let mut out = Vec::new();
             let (game, pal, level) = (&self.game, self.pal, self.level);
             let (suite, popup, typed) = (&mut self.suite, &mut self.popup, &mut self.typed);
+            let focus = std::mem::take(&mut self.focus);
             self.h.frame(events, |ui| {
-                ui.add(egui::TextEdit::singleline(typed).id(egui::Id::new("command-line")));
+                let line = egui::Id::new("command-line");
+                if focus {
+                    ui.memory_mut(|m| m.request_focus(line));
+                }
+                ui.add(egui::TextEdit::singleline(typed).id(line));
                 let mut cx = FrameCx {
                     game,
                     pal,

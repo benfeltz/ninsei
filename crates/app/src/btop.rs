@@ -780,7 +780,8 @@ pub fn speaker(ui: &mut Ui, cx: &mut crate::chrome::FrameCx) -> Vec<crate::panes
     };
     let r = ui.add(egui::Label::new(text(format!("{icon} {what}"), lit)).sense(Sense::click()));
     ui.ctx().data_mut(|d| d.insert_temp(speaker_at(), r.rect));
-    if r.clicked() {
+    // It closes whenever, but only opens when nothing else has the keyboard.
+    if r.clicked() && (cx.keys_free || cx.popup.is_open()) {
         cx.popup.toggle(l);
     }
     Vec::new()
