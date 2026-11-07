@@ -340,6 +340,8 @@ impl DesktopView for Workbench {
                 p.x = p.x.clamp(-size.x + 60.0, screen.width() - 60.0);
                 p.y =
                     p.y.clamp(size::SCREEN_BAR_H, screen.height() - size::TITLE_H);
+                // On whole pixels, where its frame is drawn.
+                *p = p.round();
             }
             if drag.drag_started() || drag.clicked() {
                 raise = Some(i);

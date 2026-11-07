@@ -85,8 +85,14 @@ pub struct Gadgets {
     pub depth: Rect,
 }
 
+/// `r` on whole pixels: thin lines on half pixels blur.
+fn snap(r: Rect) -> Rect {
+    Rect::from_min_size(r.min.round(), r.size().round())
+}
+
 /// Where a window's gadgets are in `rect`.
 pub fn gadgets(rect: Rect) -> Gadgets {
+    let rect = snap(rect);
     let bar = Rect::from_min_size(rect.min, vec2(rect.width(), size::TITLE_H));
     Gadgets {
         bar,
@@ -101,7 +107,7 @@ pub fn window_content(rect: Rect) -> Rect {
     let side = size::BORDER + size::PAD;
     Rect::from_min_max(
         g.bar.left_bottom() + vec2(side, size::PAD_TOP),
-        rect.max - vec2(side, side),
+        snap(rect).max - vec2(side, side),
     )
 }
 
@@ -111,13 +117,14 @@ pub fn window_scrolled(rect: Rect) -> Rect {
     let g = gadgets(rect);
     Rect::from_min_max(
         g.bar.left_bottom() + vec2(size::BORDER + size::PAD, 0.0),
-        rect.max - vec2(size::BORDER, size::BORDER),
+        snap(rect).max - vec2(size::BORDER, size::BORDER),
     )
 }
 
 /// A window's frame in `rect`: its border, a title bar (pinstriped when `active`), the title on
 /// a solid backing, and the close and depth gadgets. Returns where the gadgets are.
 pub fn window_frame(p: &Painter, rect: Rect, title: &str, active: bool, look: &Look) -> Gadgets {
+    let rect = snap(rect);
     let g = gadgets(rect);
     let (ink, backdrop) = (look.ink, look.backdrop);
     p.rect_filled(rect, 0.0, backdrop);
@@ -147,7 +154,10 @@ pub fn window_frame(p: &Painter, rect: Rect, title: &str, active: bool, look: &L
         if active { backdrop } else { ink },
     );
     let tw = galley.size().x + 10.0;
-    let tbox = Rect::from_min_size(bar.min + vec2(26.0, 2.0), vec2(tw, size::TITLE_H - 4.0));
+    let tbox = Rect::from_min_size(
+        bar.min + vec2(26.0, 2.0),
+        vec2(tw.ceil(), size::TITLE_H - 4.0),
+    );
     p.rect_filled(tbox, 0.0, if active { ink } else { backdrop });
     p.galley(tbox.min + vec2(5.0, 1.0), galley, ink);
     // Close gadget: a box with a dot.
@@ -473,5 +483,18 @@ mod tests {
             knob(r, &s(100.0, 90.0)).is_none(),
             "no knob when it all shows"
         );
+    }
+
+    #[test]
+    fn a_window_dragged_to_half_a_pixel_lands_on_whole_pixels() {
+        let mut h = crate::uitest::Harness::new(640.0, 400.0);
+        let win = Rect::from_min_size(pos2(40.4, 60.6), vec2(300.3, 200.0));
+        h.frame(vec![], |ui| {
+            window_frame(ui.painter(), win, "Untitled", true, &look());
+        });
+        for (r, _, _) in h.rects() {
+            assert_eq!(r.min, r.min.round(), "{r:?} is on a half pixel");
+            assert_eq!(r.max, r.max.round(), "{r:?} is on a half pixel");
+        }
     }
 }
