@@ -11,6 +11,15 @@ const LEADING: f32 = 0.18;
 /// Corner radius of a box, as a share of a cell's width (a modern TUI's rounded corners).
 const CORNER: f32 = 0.5;
 
+/// How a meter draws a cell it hasn't reached.
+#[derive(Clone, Copy, Debug)]
+pub enum Unlit {
+    /// An outline in this colour, so it reads apart from a lit cell on any tube.
+    Outline(Color32),
+    /// A dot in this colour, at the cell's centre.
+    Dot(Color32),
+}
+
 /// A grid of `cols` × `rows` cells laid over `rect`.
 #[derive(Clone, Debug)]
 pub struct Cells {
@@ -76,6 +85,25 @@ impl Cells {
             paper,
             empty,
             vision: false,
+        }
+    }
+
+    /// The biggest whole grid of `font`'s cells (rows `ch` tall, or the font's line height)
+    /// that fits in `area`, centred. Geometry only, like [`Cells::sized`].
+    pub fn fit_font(ui: &Ui, area: Rect, font: FontId, ch: Option<f32>) -> Cells {
+        let probe = Cells::sized(ui, area.min, font, ch, (1, 1));
+        let (cols, rows) = grid(probe.cw, probe.ch, area);
+        let (cols, rows) = (cols.max(1), rows.max(1));
+        let size = vec2(cols as f32 * probe.cw, rows as f32 * probe.ch);
+        let min = pos2(
+            (area.left() + (area.width() - size.x) / 2.0).round(),
+            (area.top() + (area.height() - size.y) / 2.0).round(),
+        );
+        Cells {
+            rect: Rect::from_min_size(min, size),
+            cols,
+            rows,
+            ..probe
         }
     }
 
@@ -366,6 +394,43 @@ impl Cells {
         self.meter_in(p, c, r, w, on, ramp, self.empty);
     }
 
+    /// A gauge: `w` cells from (`c`, `r`) lit to `frac` (0..1) of their length, the cell at
+    /// the edge lit in part; each lit cell takes `color(k)`, `k` its place along the gauge
+    /// (0..1), and the rest are drawn as `unlit`.
+    #[allow(clippy::too_many_arguments)]
+    pub fn gauge(
+        &self,
+        p: &Painter,
+        c: usize,
+        r: usize,
+        w: usize,
+        frac: f32,
+        color: impl Fn(f32) -> Color32,
+        unlit: Unlit,
+    ) {
+        let on = frac.clamp(0.0, 1.0) * w as f32;
+        for i in 0..w {
+            let cell = self
+                .at(c + i, r, 1, 1)
+                .shrink2(vec2(self.cw * 0.12, self.ch * 0.22));
+            let fill = (on - i as f32).clamp(0.0, 1.0);
+            if fill > 0.0 {
+                let part = Rect::from_min_size(cell.min, vec2(cell.width() * fill, cell.height()));
+                p.rect_filled(part, 1.0, color((i as f32 + 0.5) / w as f32));
+            }
+            if fill < 1.0 {
+                match unlit {
+                    Unlit::Outline(col) => {
+                        p.rect_stroke(cell, 0.0, Stroke::new(1.0, col), egui::StrokeKind::Inside);
+                    }
+                    Unlit::Dot(col) => {
+                        p.circle_filled(cell.center(), 1.0, col);
+                    }
+                }
+            }
+        }
+    }
+
     /// A meter whose unlit cells are outlined in `empty`: on an inverse row, lit and unlit
     /// cells are both drawn in the row's text colour so the meter stays readable.
     #[allow(clippy::too_many_arguments)]
@@ -420,6 +485,60 @@ mod tests {
             }
             assert_eq!(g.cell_at(pos2(5.0, 25.0)), None, "left of the grid");
             assert_eq!(g.cell_at(g.rect.right_bottom() + vec2(1.0, 1.0)), None);
+        });
+    }
+
+    #[test]
+    fn a_gauge_lights_its_cells_to_the_fraction_and_marks_the_rest() {
+        let mut h = crate::uitest::Harness::new(400.0, 100.0);
+        h.frame(Vec::new(), |ui| {
+            let g = Cells::sized(
+                ui,
+                pos2(0.0, 0.0),
+                FontId::monospace(12.0),
+                Some(14.0),
+                (10, 1),
+            );
+            g.gauge(
+                ui.painter(),
+                0,
+                0,
+                10,
+                0.35,
+                |k| Color32::from_gray((k * 255.0) as u8),
+                Unlit::Dot(Color32::RED),
+            );
+        });
+        let lit: Vec<f32> = h
+            .painted()
+            .iter()
+            .filter_map(|s| match s {
+                egui::Shape::Rect(r) if r.fill != Color32::TRANSPARENT => Some(r.rect.width()),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(lit.len(), 4, "three whole cells and half of the fourth");
+        assert!(lit[3] < lit[0] * 0.6 && lit[3] > lit[0] * 0.4);
+        let dots = h
+            .painted()
+            .iter()
+            .filter(|s| matches!(s, egui::Shape::Circle(_)))
+            .count();
+        assert_eq!(dots, 7, "the part-lit cell and the six after it");
+    }
+
+    #[test]
+    fn fit_font_takes_whole_cells_of_its_font() {
+        let mut h = crate::uitest::Harness::new(400.0, 300.0);
+        h.frame(Vec::new(), |ui| {
+            let area = Rect::from_min_size(pos2(5.0, 5.0), vec2(200.0, 100.0));
+            let g = Cells::fit_font(ui, area, FontId::monospace(12.0), Some(14.0));
+            assert_eq!(g.rows, 7, "100 / 14");
+            assert!(area.contains_rect(g.rect));
+            assert!(
+                area.width() - g.rect.width() < g.cw,
+                "less than a cell left over"
+            );
         });
     }
 }
