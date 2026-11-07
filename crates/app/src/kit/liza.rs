@@ -61,6 +61,11 @@ pub struct Look<'a> {
     pub gray: Option<&'a PatternDef>,
 }
 
+/// `r` on whole pixels: 1px ink lines on half pixels blur.
+fn snap(r: Rect) -> Rect {
+    Rect::from_min_size(r.min.round(), r.size().round())
+}
+
 /// A box with the 1-bit drop shadow: paper in an ink frame.
 pub fn shadowed(p: &Painter, r: Rect, look: &Look) {
     p.rect_filled(r.translate(Vec2::splat(size::SHADOW)), 0.0, look.ink);
@@ -72,6 +77,7 @@ pub fn shadowed(p: &Painter, r: Rect, look: &Look) {
 /// title on a solid backing, and a close box (drawn only in front). Returns the close box.
 pub fn window_frame(p: &Painter, rect: Rect, title: &str, front: bool, look: &Look) -> Rect {
     let (ink, paper) = (look.ink, look.paper);
+    let rect = snap(rect);
     shadowed(p, rect, look);
     let bar = title_bar(rect);
     p.line_segment(
@@ -90,7 +96,10 @@ pub fn window_frame(p: &Painter, rect: Rect, title: &str, front: bool, look: &Lo
         p.rect_stroke(close, 0.0, Stroke::new(1.0, ink), StrokeKind::Inside);
     }
     let galley = p.layout_no_wrap(title.to_string(), look.font.clone(), ink);
-    let tbox = Rect::from_center_size(bar.center(), galley.size() + vec2(16.0, 2.0));
+    let tbox = snap(Rect::from_center_size(
+        bar.center(),
+        galley.size() + vec2(16.0, 2.0),
+    ));
     p.rect_filled(tbox, 0.0, paper);
     p.galley(tbox.min + vec2(8.0, 1.0), galley, ink);
     close
@@ -98,6 +107,7 @@ pub fn window_frame(p: &Painter, rect: Rect, title: &str, front: bool, look: &Lo
 
 /// A window's title bar: where it's dragged from.
 pub fn title_bar(rect: Rect) -> Rect {
+    let rect = snap(rect);
     Rect::from_min_size(rect.min, vec2(rect.width(), size::TITLE_H))
 }
 
@@ -105,7 +115,7 @@ pub fn title_bar(rect: Rect) -> Rect {
 pub fn window_content(rect: Rect) -> Rect {
     Rect::from_min_max(
         title_bar(rect).left_bottom() + vec2(size::PAD_X, size::PAD_Y),
-        rect.max - vec2(size::PAD_X, size::PAD_Y),
+        snap(rect).max - vec2(size::PAD_X, size::PAD_Y),
     )
 }
 
@@ -114,7 +124,7 @@ pub fn window_content(rect: Rect) -> Rect {
 pub fn window_scrolled(rect: Rect) -> Rect {
     Rect::from_min_max(
         title_bar(rect).left_bottom() + vec2(size::PAD_X, 0.0),
-        rect.max,
+        snap(rect).max,
     )
 }
 
@@ -142,7 +152,7 @@ pub fn menu_bar(
 ) -> Option<(usize, usize)> {
     let (ink, paper) = (look.ink, look.paper);
     let sense = if live { Sense::click() } else { Sense::hover() };
-    let bar = menu_bar_rect(screen);
+    let bar = snap(menu_bar_rect(screen));
     p.rect_filled(bar, 0.0, paper);
     p.line_segment(
         [bar.left_bottom(), bar.right_bottom()],
@@ -155,6 +165,7 @@ pub fn menu_bar(
             .layout_no_wrap(menu.title.to_string(), look.font.clone(), ink)
             .size()
             .x
+            .ceil()
             + size::MENU_PAD;
         let r = Rect::from_min_size(pos2(x, bar.top()), vec2(w, size::MENU_H - 1.0));
         let is_open = *open == Some(m);
@@ -1277,5 +1288,40 @@ mod tests {
         let c = h.find(&format!("cell {first}")).unwrap();
         assert_eq!(c.top(), 0.0, "a whole cell at the top");
         assert_eq!(sel, 0, "the wheel doesn't move the pick");
+    }
+
+    #[test]
+    fn the_menus_and_a_window_dragged_to_half_a_pixel_land_on_whole_pixels() {
+        let mut h = Harness::new(640.0, 400.0);
+        let mut open = Some(1);
+        bar(&mut h, &mut open, true, vec![]);
+        let win = Rect::from_min_size(pos2(40.4, 60.6), vec2(300.3, 200.0));
+        h.frame(vec![], |ui| {
+            let menus = [
+                Menu {
+                    title: "File",
+                    items: vec!["Open"],
+                },
+                Menu {
+                    title: "Edit",
+                    items: vec!["Cut"],
+                },
+            ];
+            menu_bar(
+                ui,
+                ui.painter(),
+                ui.max_rect(),
+                &menus,
+                "",
+                &mut open,
+                &look(),
+                true,
+            );
+            window_frame(ui.painter(), win, "Untitled", true, &look());
+        });
+        for (r, _, _) in h.rects() {
+            assert_eq!(r.min, r.min.round(), "{r:?} is on a half pixel");
+            assert_eq!(r.max, r.max.round(), "{r:?} is on a half pixel");
+        }
     }
 }
