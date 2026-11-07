@@ -711,7 +711,6 @@ impl Default for Loadout {
     }
 }
 
-/// Everything the hub keeps between sessions. One RON document, versioned.
 /// Which copy of a game you own. It picks the intro the game opens with: a cracked copy
 /// plays its crew's cracktro, a boxed one its publisher's splash. Boxed outranks Cracked.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -729,6 +728,7 @@ pub struct OwnedGame {
     pub copy: GameCopy,
 }
 
+/// Everything the hub keeps between sessions. One RON document, versioned.
 /// Later features add fields with `#[serde(default)]` so older saves still load.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct Save {
