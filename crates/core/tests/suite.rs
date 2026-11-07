@@ -57,6 +57,44 @@ fn panes_come_with_firmware_or_are_bought() {
 }
 
 #[test]
+fn the_sound_scope_is_sold_never_bundled() {
+    let d = data();
+    let vis = d
+        .panes
+        .iter()
+        .find(|p| p.id == "vis")
+        .expect("in the catalog");
+    let net = d.panes.iter().find(|p| p.id == "net").unwrap();
+    assert!(
+        vis.price > 0 && vis.price <= net.price,
+        "priced like the net box"
+    );
+    assert!(
+        d.hardware
+            .decks
+            .iter()
+            .flat_map(|k| &k.firmware)
+            .all(|f| !f.panes.iter().any(|p| p == "vis")),
+        "no firmware ships it"
+    );
+    let mut s = Save::default();
+    s.ensure_hardware(&d);
+    assert!(!s.has_pane(&d, "vis"));
+    s.bank = vis.price;
+    s.buy_pane(&d, "vis").unwrap();
+    assert!(s.has_pane(&d, "vis"));
+    // CPU Shopper lists it on its own, priced from its own data.
+    let mut fresh = Save::default();
+    fresh.ensure_hardware(&d);
+    let line = fresh
+        .catalog(&d)
+        .into_iter()
+        .find(|l| l.item == ninsei_core::shopper::Item::Pane("vis".into()))
+        .expect("in the magazine");
+    assert_eq!(line.price(), Some(vis.price));
+}
+
+#[test]
 fn bad_panes_are_caught() {
     let pane = |id: &str, price| PaneDef {
         id: id.into(),

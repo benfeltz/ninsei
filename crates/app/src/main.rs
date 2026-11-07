@@ -35,6 +35,8 @@ mod tigerteam_view;
 mod tiling;
 #[cfg(test)]
 mod uitest;
+mod vispane;
+mod volume;
 mod workbench;
 
 use egui::{Key, RichText};
@@ -270,6 +272,8 @@ struct App {
     talk: EncounterView,
     /// The suite chrome's sheet cursor, sort and dialogs.
     suite: suite::State,
+    /// The run screen's sound pop-out.
+    sound_popup: volume::Popup,
 }
 
 impl App {
@@ -326,7 +330,11 @@ impl App {
         let game = Game::new(data.clone(), first_seed.unwrap_or(0));
         let mut me = Self {
             crt: save.crt,
-            speaker: sound::Speaker::new(save.sound),
+            speaker: {
+                let mut s = sound::Speaker::new(save.sound);
+                s.set_volume(save.volume_gain());
+                s
+            },
             bbs_heard: false,
             data,
             save,
@@ -345,6 +353,7 @@ impl App {
             hex_uid: 0,
             talk: EncounterView::default(),
             suite: suite::State::default(),
+            sound_popup: volume::Popup::default(),
             last_phase: game.phase,
             game,
             dock: default_layout(Chrome::Classic, &[]),
@@ -602,6 +611,7 @@ impl App {
         self.bbs = None;
         self.hex = None;
         self.talk = EncounterView::default();
+        self.sound_popup.close();
         self.term.clear();
         self.focus_input = true;
         self.booked = None;
@@ -808,6 +818,7 @@ impl App {
     fn go_home(&mut self) {
         self.book();
         self.bbs = None;
+        self.sound_popup.close();
         self.home.focus();
         self.screen = Screen::JackOut { t: 0.0 };
     }
@@ -838,6 +849,18 @@ impl App {
             }
             Request::Say(text) => {
                 self.game.say(LogKind::Sys, text);
+                return;
+            }
+            Request::Volume(pct) => {
+                self.save.set_volume(pct);
+                self.speaker.set_volume(self.save.volume_gain());
+                self.save_dirty = true;
+                return;
+            }
+            Request::SoundOn(on) => {
+                if self.save.sound != on {
+                    self.toggle_sound();
+                }
                 return;
             }
             Request::Type(text) => {
@@ -909,7 +932,7 @@ impl App {
             }
             Command::Sound => {
                 let state = self.toggle_sound();
-                self.game.say(LogKind::Sys, format!("modem sounds {state}"));
+                self.game.say(LogKind::Sys, format!("sound {state}"));
             }
             Command::Theme(name) => match self.set_run_theme(ctx, &name) {
                 Ok(label) => self.game.say(LogKind::Sys, format!("theme: {label}")),
@@ -1051,13 +1074,16 @@ impl App {
                 if ui.button(crt).clicked() {
                     out.push(Request::Cmd(Command::Crt));
                 }
-                let sound = if self.save.sound {
-                    "[x] modem sounds"
-                } else {
-                    "[ ] modem sounds"
-                };
-                if ui.button(sound).clicked() {
-                    out.push(Request::Cmd(Command::Sound));
+                // The sound switch lives in the sound pop-out (`MenuPart::Sound`).
+            }
+            MenuPart::Sound => {
+                let v = chrome::view(self.save.firmware_def(&self.data).chrome);
+                let free = !self.modal_up();
+                if ui
+                    .add_enabled(free, egui::Button::new(v.sound_item()))
+                    .clicked()
+                {
+                    self.sound_popup.open(volume::Level::of(&self.save));
                 }
             }
             MenuPart::Monitors => {
@@ -1108,11 +1134,21 @@ impl App {
         }
     }
 
-    fn status_bar(&self, ui: &mut egui::Ui, pal: &theme::Palette) {
+    /// Whether something already has the keyboard (a BBS, a conversation, a suite dialog
+    /// waiting to be dismissed), so the sound pop-out can't open over it.
+    fn modal_up(&self) -> bool {
+        self.bbs.is_some() || self.game.encounter.is_some() || !self.suite.dialogs.is_empty()
+    }
+
+    fn status_bar(&mut self, ui: &mut egui::Ui, pal: &theme::Palette) -> Vec<Request> {
+        let theme_label = self.run_theme_label();
+        let level = volume::Level::of(&self.save);
+        let keys_free = !self.modal_up();
         let g = &self.game;
         let v = chrome::view(self.save.firmware_def(&self.data).chrome);
+        let mut out = Vec::new();
         if v.status(ui, pal, g) {
-            return;
+            return out;
         }
         let node = &g.net.nodes[g.at];
         ui.horizontal(|ui| {
@@ -1148,12 +1184,21 @@ impl App {
                 .color(pal.dim),
             );
             ui.label(RichText::new(format!("trace {}%", g.deck.trace)).color(pal.dim));
-            v.status_extra(ui, pal, g);
+            let mut cx = FrameCx {
+                game: g,
+                pal: *pal,
+                suite: &mut self.suite,
+                keys_free,
+                level,
+                popup: &mut self.sound_popup,
+            };
+            out.extend(v.status_extra(ui, &mut cx));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(RichText::new("UTF-8  LF  RUST").color(pal.dim));
-                ui.label(RichText::new(self.run_theme_label()).color(pal.dim));
+                ui.label(RichText::new(theme_label).color(pal.dim));
             });
         });
+        out
     }
 }
 
@@ -1168,6 +1213,7 @@ impl eframe::App for App {
         let dt = ctx.input(|i| i.stable_dt).min(0.1);
         self.screen = self.screen.tick(dt);
         self.home.drop_closed_intros(ctx.cumulative_pass_nr());
+        self.speaker.tick(ctx.input(|i| i.time));
         self.sync_sound();
         // The run's sound cues: whatever happened since last frame, played together.
         // The deck's firmware picks the sound pack.
@@ -1178,6 +1224,22 @@ impl eframe::App for App {
             .unwrap_or(&self.data.sounds[0].sounds);
         for cue in std::mem::take(&mut self.game.cues) {
             self.speaker.cue(cue, &pack, sounds);
+        }
+        // The run's tune: core says what should be on; the speaker renders a new loop a slice a
+        // frame (keep frames coming until it's ready) and only rearranges on a trace step.
+        match ninsei_core::music::wanted(
+            self.screen,
+            self.crashed,
+            &self.save,
+            &self.game,
+            &self.data,
+        ) {
+            Some(w) => {
+                if self.speaker.run_music(&w) {
+                    ctx.request_repaint();
+                }
+            }
+            None => self.speaker.stop_music(),
         }
 
         let live = self.screen == Screen::Run && !self.crashed;
@@ -1280,7 +1342,7 @@ impl eframe::App for App {
                     }
                     WbOut::Sound => {
                         let state = self.toggle_sound();
-                        self.home.say(format!("modem sounds {state}"));
+                        self.home.say(format!("sound {state}"));
                     }
                     WbOut::At(from, line) => self.modem(from, &line),
                     other => self.home_action(other),
@@ -1387,25 +1449,20 @@ fn run_keys(
     view: &dyn chrome::ChromeView,
     ctx: &egui::Context,
     cx: &mut FrameCx,
-    bbs_open: bool,
+    modal: bool,
     focus_input: &mut bool,
 ) -> Vec<Request> {
     let mut out = view.keys(ctx, cx);
-    out.extend(hotkeys(ctx, cx.game, bbs_open, focus_input));
+    out.extend(hotkeys(ctx, cx.game, modal, focus_input));
     out
 }
 
 /// Hotkeys work whenever the terminal isn't taking typing: Space ends the turn, a digit runs
 /// that slot, and Enter or / go to the Message box.
-fn hotkeys(
-    ctx: &egui::Context,
-    game: &Game,
-    bbs_open: bool,
-    focus_input: &mut bool,
-) -> Vec<Request> {
+fn hotkeys(ctx: &egui::Context, game: &Game, modal: bool, focus_input: &mut bool) -> Vec<Request> {
     let hex_typing = ctx.memory(|m| m.has_focus(hexview::grid_id()));
     let talking = game.encounter.is_some();
-    if bbs_open || talking || hex_typing || ctx.egui_wants_keyboard_input() {
+    if modal || talking || hex_typing || ctx.egui_wants_keyboard_input() {
         return Vec::new();
     }
     let mut out = Vec::new();
@@ -1442,23 +1499,28 @@ impl App {
     fn run_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, pal: &theme::Palette) {
         let pal = *pal;
         let ctx = ctx.clone();
+        // A BBS or a conversation has the keyboard: the sound pop-out gives way to it.
+        let sound_was_open = self.sound_popup.is_open();
+        if self.modal_up() {
+            self.sound_popup.close();
+        }
         // Keys only drive the run once it's fully on screen.
         let view = chrome::view(self.save.firmware_def(&self.data).chrome);
-        let keys_free = self.bbs.is_none() && self.game.encounter.is_none();
+        let keys_free =
+            self.bbs.is_none() && self.game.encounter.is_none() && !self.sound_popup.is_open();
+        let level = volume::Level::of(&self.save);
+        // A BBS, a conversation or the sound pop-out has the keyboard: no hotkeys.
+        let modal = self.bbs.is_some() || self.sound_popup.is_open();
         let mut requests = if self.screen == Screen::Run {
             let mut cx = FrameCx {
                 game: &self.game,
                 pal,
                 suite: &mut self.suite,
                 keys_free,
+                level,
+                popup: &mut self.sound_popup,
             };
-            run_keys(
-                view,
-                &ctx,
-                &mut cx,
-                self.bbs.is_some(),
-                &mut self.focus_input,
-            )
+            run_keys(view, &ctx, &mut cx, modal, &mut self.focus_input)
         } else {
             Vec::new()
         };
@@ -1476,7 +1538,7 @@ impl App {
                     .fill(view.status_fill(&pal))
                     .inner_margin(egui::Margin::symmetric(6, 1)),
             )
-            .show(ui, |ui| self.status_bar(ui, &pal));
+            .show(ui, |ui| requests.extend(self.status_bar(ui, &pal)));
         if view.has_legend() {
             egui::Panel::bottom("legend")
                 .frame(
@@ -1490,12 +1552,19 @@ impl App {
                         pal,
                         suite: &mut self.suite,
                         keys_free,
+                        level,
+                        popup: &mut self.sound_popup,
                     };
                     requests.extend(view.legend(ui, &mut cx));
                 });
         }
 
         fit_tools(&mut self.dock, &self.game);
+        // The vis pane's samples: taken only by a vis pane that's drawn (a tab behind another
+        // isn't), which asks for frames only while it has something to show.
+        let speaker = &self.speaker;
+        let hear = || speaker.listen(vispane::WINDOW);
+        let scope_rate = self.speaker.rate().unwrap_or(0);
         let mut panes = Panes {
             game: &self.game,
             pal,
@@ -1505,13 +1574,17 @@ impl App {
             corrupt: self.glitch.corruption(),
             term: &mut self.term,
             focus_input: &mut self.focus_input,
-            // Any modal (BBS or talk) keeps the terminal from grabbing focus.
-            bbs_open: self.bbs.is_some() || self.game.encounter.is_some(),
+            // Any modal (BBS, talk, the sound pop-out) keeps the terminal from grabbing focus.
+            bbs_open: self.bbs.is_some()
+                || self.game.encounter.is_some()
+                || self.sound_popup.is_open(),
             hex: &mut self.hex,
             keep: &mut self.keep,
             keep_room: (self.save.stash_cap(&self.data.rig) as usize)
                 .saturating_sub(self.save.stash.len()),
             suite: &mut self.suite,
+            hear: &hear,
+            scope_rate,
             out: Vec::new(),
         };
         egui::CentralPanel::default()
@@ -1567,15 +1640,27 @@ impl App {
             }
         }
 
-        // The chrome's overlay (the suite's dialogs) sits over everything.
+        // The chrome's overlay (the suite's dialogs) sits over everything, and the sound
+        // pop-out over that.
         let mut cx = FrameCx {
             game: &self.game,
             pal,
             suite: &mut self.suite,
             keys_free,
+            level: volume::Level::of(&self.save),
+            popup: &mut self.sound_popup,
         };
-        for r in view.overlay(&ctx, &mut cx) {
+        let mut over = view.overlay(&ctx, &mut cx);
+        if cx.popup.is_open() {
+            over.extend(view.sound(&ctx, &mut cx));
+        }
+        for r in over {
             self.handle(&ctx, r);
+        }
+        // However it closed (its own keys, the speaker, a modal coming up), the command line
+        // has the keys again.
+        if sound_was_open && !self.sound_popup.is_open() {
+            self.focus_input = true;
         }
 
         // Bring the fight forward when ICE rezzes (the chrome says where), and the target pane
@@ -1605,10 +1690,163 @@ impl App {
 mod tests {
     use super::*;
 
+    mod sound_pop_out {
+        use super::*;
+        use crate::uitest::{Harness, click, key, text};
+
+        /// The app in a run on `deck`, the command line focused, nothing playing (only
+        /// `run_ui` runs here, and it never opens the speaker).
+        fn running(deck: &str) -> (Harness, App) {
+            let h = Harness::new(1280.0, 800.0);
+            let cc = eframe::CreationContext::_new_kittest(h.ctx.clone());
+            let mut app = App::new(&cc, Data::builtin().unwrap(), Some(7));
+            if !app.save.decks.iter().any(|d| d == deck) {
+                app.save.decks.push(deck.into());
+            }
+            app.save.deck = deck.into();
+            app.save.firmware = app.save.deck_def(&app.data).firmware[0].id.clone();
+            app.load_layout();
+            let entry = app.save.phonebook[0].id;
+            app.dial(entry, Some(7));
+            app.screen = Screen::Run;
+            (h, app)
+        }
+
+        fn frame(h: &mut Harness, app: &mut App, events: Vec<egui::Event>) {
+            let pal = app.pal;
+            h.frame(events, |ui| {
+                let ctx = ui.ctx().clone();
+                app.run_ui(ui, &ctx, &pal);
+            });
+        }
+
+        fn typed(h: &mut Harness, app: &mut App, s: &str) {
+            frame(h, app, text(s));
+            frame(h, app, Vec::new());
+        }
+
+        fn press(h: &mut Harness, app: &mut App, what: &str) {
+            let at = h
+                .find(what)
+                .unwrap_or_else(|| panic!("no {what:?} in {:?}", h.texts()))
+                .center();
+            frame(h, app, click(at));
+            frame(h, app, Vec::new());
+        }
+
+        #[test]
+        fn it_takes_the_keys_from_the_command_line_and_gives_them_back() {
+            let (mut h, mut app) = running("onosendai");
+            for _ in 0..3 {
+                frame(&mut h, &mut app, Vec::new());
+            }
+            typed(&mut h, &mut app, "ab");
+            assert_eq!(app.term.text(), "ab", "the command line has the keys");
+            // Open it from the speaker: its keys are its own.
+            press(&mut h, &mut app, "🔊 100%");
+            assert!(app.sound_popup.is_open());
+            let mut ev = text("m");
+            ev.extend(key(egui::Key::M));
+            frame(&mut h, &mut app, ev);
+            frame(&mut h, &mut app, key(egui::Key::ArrowLeft));
+            frame(&mut h, &mut app, key(egui::Key::Num1));
+            assert!(!app.save.sound, "m muted");
+            assert_eq!(app.save.volume, 95);
+            assert_eq!(app.term.text(), "ab", "the command line heard none of it");
+            assert_eq!(app.game.hops, 0, "nor did the run's hotkeys");
+            // Esc closes it and the command line has the keys again.
+            frame(&mut h, &mut app, key(egui::Key::Escape));
+            assert!(!app.sound_popup.is_open());
+            typed(&mut h, &mut app, "c");
+            assert_eq!(app.term.text(), "abc");
+            // So does closing it from the speaker.
+            press(&mut h, &mut app, "🔇 muted");
+            assert!(app.sound_popup.is_open());
+            press(&mut h, &mut app, "🔇 muted");
+            assert!(!app.sound_popup.is_open());
+            typed(&mut h, &mut app, "d");
+            assert_eq!(app.term.text(), "abcd");
+        }
+
+        #[test]
+        fn it_never_opens_over_a_bbs_and_gives_way_to_one() {
+            let (mut h, mut app) = running("onosendai");
+            for _ in 0..3 {
+                frame(&mut h, &mut app, Vec::new());
+            }
+            let speaker = h.find("🔊 100%").unwrap().center();
+            // A board on the line (held there: off a BBS node the run hangs it up).
+            let on_the_line = |h: &mut Harness, app: &mut App, ev: Vec<egui::Event>| {
+                app.bbs.get_or_insert_with(BbsView::new);
+                frame(h, app, ev);
+            };
+            on_the_line(&mut h, &mut app, Vec::new());
+            on_the_line(&mut h, &mut app, click(speaker));
+            assert!(!app.sound_popup.is_open(), "the BBS has the keyboard");
+            // Open, then a board picks up: the pop-out closes.
+            app.bbs = None;
+            frame(&mut h, &mut app, click(speaker));
+            assert!(app.sound_popup.is_open());
+            on_the_line(&mut h, &mut app, Vec::new());
+            assert!(!app.sound_popup.is_open());
+        }
+
+        #[test]
+        fn a_bought_sound_scope_is_on_the_run_screen() {
+            let (mut h, mut app) = running("onosendai");
+            app.save.bank = 1000;
+            assert!(app.dock.find_tab(&Tab::Vis).is_none(), "not owned yet");
+            let ctx = h.ctx.clone();
+            app.order(&ctx, ninsei_core::shopper::Item::Pane("vis".into()));
+            assert!(app.save.has_pane(&app.data, "vis"));
+            assert!(
+                app.dock.find_tab(&Tab::Vis).is_some(),
+                "on the run screen at once"
+            );
+            // Brought forward, the run screen draws it.
+            let path = app.dock.find_tab(&Tab::Vis).unwrap();
+            let _ = app.dock.set_active_tab(path);
+            frame(&mut h, &mut app, Vec::new());
+            frame(&mut h, &mut app, Vec::new());
+            assert!(app.dock.find_tab(&Tab::Vis).is_some());
+            // And this deck's layout keeps it.
+            assert!(app.extra_panes().contains(&Tab::Vis));
+        }
+
+        #[test]
+        fn the_suite_s_dialogs_come_one_at_a_time() {
+            let (mut h, mut app) = running("hosaka");
+            for _ in 0..3 {
+                frame(&mut h, &mut app, Vec::new());
+            }
+            let notice = || ninsei_core::suite::Notice {
+                title: "Notice".into(),
+                lines: vec!["Filed.".into()],
+            };
+            // A notice waiting: Sound... stands down.
+            app.suite.dialogs.push(notice());
+            assert!(app.modal_up());
+            // The pop-out open, then a notice arrives: the pop-out gives way to it.
+            app.suite.dialogs.clear();
+            assert!(!app.modal_up());
+            app.sound_popup.open(volume::Level::of(&app.save));
+            frame(&mut h, &mut app, Vec::new());
+            assert!(app.sound_popup.is_open());
+            app.suite.dialogs.push(notice());
+            frame(&mut h, &mut app, Vec::new());
+            assert!(!app.sound_popup.is_open());
+            assert_eq!(
+                app.suite.dialogs.len(),
+                1,
+                "the notice is the one dialog up"
+            );
+        }
+    }
+
     #[test]
     fn default_layouts_round_trip() {
         for chrome in Chrome::ALL {
-            for extra in [&[][..], &[Tab::Net][..]] {
+            for extra in [&[][..], &[Tab::Net][..], &[Tab::Net, Tab::Vis][..]] {
                 let dock = default_layout(chrome, extra);
                 let text = ron::to_string(&dock).unwrap();
                 let back = parse_layout(&text, |_| true).expect("a default layout reads back");
@@ -1616,6 +1854,11 @@ mod tests {
                     |d: &DockState<Tab>| d.iter_all_tabs().map(|(_, t)| *t).collect::<Vec<_>>();
                 assert_eq!(tabs(&back), tabs(&dock));
                 assert_eq!(dock.find_tab(&Tab::Net).is_some(), !extra.is_empty());
+                assert_eq!(
+                    dock.find_tab(&Tab::Vis).is_some(),
+                    extra.contains(&Tab::Vis),
+                    "{chrome:?}"
+                );
             }
         }
     }
@@ -1645,9 +1888,13 @@ mod tests {
 
     #[test]
     fn panes_you_lack_leave_a_saved_layout() {
-        let text = ron::to_string(&default_layout(Chrome::Btop, &[Tab::Net])).unwrap();
+        let text = ron::to_string(&default_layout(Chrome::Btop, &[Tab::Net, Tab::Vis])).unwrap();
         let back = parse_layout(&text, |_| false).expect("core panes are all there");
         assert!(back.find_tab(&Tab::Net).is_none());
+        assert!(back.find_tab(&Tab::Vis).is_none());
+        // Owning one keeps that one.
+        let back = parse_layout(&text, |t| t == Tab::Vis).unwrap();
+        assert!(back.find_tab(&Tab::Vis).is_some() && back.find_tab(&Tab::Net).is_none());
         assert!(Tab::CORE.iter().all(|t| back.find_tab(t).is_some()));
     }
 
@@ -1713,11 +1960,17 @@ mod tests {
         let mut suite = crate::suite::State::default();
         let (mut out, mut focus) = (Vec::new(), false);
         h.frame(ev, |ui| {
+            let mut popup = crate::volume::Popup::default();
             let mut cx = FrameCx {
                 game: g,
                 pal: theme::Palette::from_def(&g.data.themes[0]),
                 suite: &mut suite,
                 keys_free: true,
+                level: crate::volume::Level {
+                    on: true,
+                    volume: 100,
+                },
+                popup: &mut popup,
             };
             out = run_keys(&crate::stack::Stack, ui.ctx(), &mut cx, false, &mut focus);
         });

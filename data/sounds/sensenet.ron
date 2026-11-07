@@ -1,37 +1,178 @@
 // The Sense/Net deck's sound pack: a friendly consumer machine. Simple square beeps, a warm
 // chord for good news (the startup-chime family), and a gentle "boing" when something goes wrong.
 // Same format as ono.ron (see there); every cue needs an entry.
-[
-    (cue: Hop,      notes: [(wave: Square,   from: 1320, to: 1320, ms: 18,  vol: 0.10)]),
-    (cue: IceRez,   notes: [(wave: Square,   from: 880,  to: 880,  ms: 60,  vol: 0.16),
-                            (wave: Square,   from: 660,  to: 660,  ms: 90,  vol: 0.16)]),
-    (cue: Hit,      notes: [(wave: Square,   from: 990,  to: 990,  ms: 35,  vol: 0.16),
-                            (wave: Triangle, from: 660,  to: 600,  ms: 40,  vol: 0.18)]),
-    (cue: Shield,   notes: [(wave: Triangle, from: 523,  to: 523,  ms: 50,  vol: 0.20),
-                            (wave: Triangle, from: 784,  to: 784,  ms: 80,  vol: 0.20)]),
-    (cue: Heal,     notes: [(wave: Triangle, from: 659,  to: 988,  ms: 130, vol: 0.20)]),
-    (cue: Block,    notes: [(wave: Triangle, from: 330,  to: 220,  ms: 60,  vol: 0.24),
-                            (wave: Triangle, from: 220,  to: 300,  ms: 60,  vol: 0.22),
-                            (wave: Triangle, from: 300,  to: 240,  ms: 70,  vol: 0.18)]),
-    (cue: Damage,   notes: [(wave: Square,   from: 440,  to: 220,  ms: 90,  vol: 0.18),
-                            (wave: Triangle, from: 220,  to: 280,  ms: 80,  vol: 0.22),
-                            (wave: Triangle, from: 280,  to: 200,  ms: 110, vol: 0.20)]),
-    (cue: Derez,    notes: [(wave: Square,   from: 784,  to: 784,  ms: 50,  vol: 0.14),
-                            (wave: Square,   from: 1046, to: 1046, ms: 50,  vol: 0.14),
-                            (wave: Triangle, from: 1568, to: 1568, ms: 140, vol: 0.20)]),
-    (cue: Loot,     notes: [(wave: Square,   from: 1568, to: 1568, ms: 30,  vol: 0.12),
-                            (wave: Square,   from: 2093, to: 2093, ms: 70,  vol: 0.12)]),
-    (cue: Download, notes: [(wave: Square,   from: 600,  to: 1200, ms: 180, vol: 0.12)]),
-    (cue: TraceUp,  notes: [(wave: Square,   from: 1760, to: 1760, ms: 40,  vol: 0.14),
-                            (wave: Square,   from: 1760, to: 1760, ms: 40,  vol: 0.00),
-                            (wave: Square,   from: 1760, to: 1760, ms: 40,  vol: 0.14)]),
-    (cue: Encounter,notes: [(wave: Triangle, from: 880,  to: 880,  ms: 70,  vol: 0.20),
-                            (wave: Triangle, from: 1175, to: 1175, ms: 110, vol: 0.20)]),
-    (cue: Flatline, notes: [(wave: Triangle, from: 392,  to: 392,  ms: 140, vol: 0.24),
-                            (wave: Triangle, from: 311,  to: 311,  ms: 140, vol: 0.24),
-                            (wave: Triangle, from: 262,  to: 196,  ms: 300, vol: 0.24)]),
-    (cue: JackOut,  notes: [(wave: Triangle, from: 523,  to: 523,  ms: 90,  vol: 0.20),
-                            (wave: Triangle, from: 659,  to: 659,  ms: 90,  vol: 0.20),
-                            (wave: Triangle, from: 784,  to: 784,  ms: 90,  vol: 0.20),
-                            (wave: Triangle, from: 1046, to: 1046, ms: 260, vol: 0.22)]),
-]
+//
+// Music: a 1980s Mac adventure or learning game. Square tunes over triangle basses, in major
+// keys at a walking pace, and only a soft shaker for drums. When the trace runs high, a quiet
+// triangle part under the tune drops out (the countermelody, the offbeat chords, the held line)
+// and the tempo rises. Each tier keeps its chords on a 4- or 8-bar cycle, so tracks of
+// different lengths drift against each other without clashing.
+(
+    cues: [
+        (cue: Hop,      notes: [(wave: Square,   from: 1320, to: 1320, ms: 18,  vol: 0.10)]),
+        (cue: IceRez,   notes: [(wave: Square,   from: 880,  to: 880,  ms: 60,  vol: 0.16),
+                                (wave: Square,   from: 660,  to: 660,  ms: 90,  vol: 0.16)]),
+        (cue: Hit,      notes: [(wave: Square,   from: 990,  to: 990,  ms: 35,  vol: 0.16),
+                                (wave: Triangle, from: 660,  to: 600,  ms: 40,  vol: 0.18)]),
+        (cue: Shield,   notes: [(wave: Triangle, from: 523,  to: 523,  ms: 50,  vol: 0.20),
+                                (wave: Triangle, from: 784,  to: 784,  ms: 80,  vol: 0.20)]),
+        (cue: Heal,     notes: [(wave: Triangle, from: 659,  to: 988,  ms: 130, vol: 0.20)]),
+        (cue: Block,    notes: [(wave: Triangle, from: 330,  to: 220,  ms: 60,  vol: 0.24),
+                                (wave: Triangle, from: 220,  to: 300,  ms: 60,  vol: 0.22),
+                                (wave: Triangle, from: 300,  to: 240,  ms: 70,  vol: 0.18)]),
+        (cue: Damage,   notes: [(wave: Square,   from: 440,  to: 220,  ms: 90,  vol: 0.18),
+                                (wave: Triangle, from: 220,  to: 280,  ms: 80,  vol: 0.22),
+                                (wave: Triangle, from: 280,  to: 200,  ms: 110, vol: 0.20)]),
+        (cue: Derez,    notes: [(wave: Square,   from: 784,  to: 784,  ms: 50,  vol: 0.14),
+                                (wave: Square,   from: 1046, to: 1046, ms: 50,  vol: 0.14),
+                                (wave: Triangle, from: 1568, to: 1568, ms: 140, vol: 0.20)]),
+        (cue: Loot,     notes: [(wave: Square,   from: 1568, to: 1568, ms: 30,  vol: 0.12),
+                                (wave: Square,   from: 2093, to: 2093, ms: 70,  vol: 0.12)]),
+        (cue: Download, notes: [(wave: Square,   from: 600,  to: 1200, ms: 180, vol: 0.12)]),
+        (cue: TraceUp,  notes: [(wave: Square,   from: 1760, to: 1760, ms: 40,  vol: 0.14),
+                                (wave: Square,   from: 1760, to: 1760, ms: 40,  vol: 0.00),
+                                (wave: Square,   from: 1760, to: 1760, ms: 40,  vol: 0.14)]),
+        (cue: Encounter,notes: [(wave: Triangle, from: 880,  to: 880,  ms: 70,  vol: 0.20),
+                                (wave: Triangle, from: 1175, to: 1175, ms: 110, vol: 0.20)]),
+        (cue: Flatline, notes: [(wave: Triangle, from: 392,  to: 392,  ms: 140, vol: 0.24),
+                                (wave: Triangle, from: 311,  to: 311,  ms: 140, vol: 0.24),
+                                (wave: Triangle, from: 262,  to: 196,  ms: 300, vol: 0.24)]),
+        (cue: JackOut,  notes: [(wave: Triangle, from: 523,  to: 523,  ms: 90,  vol: 0.20),
+                                (wave: Triangle, from: 659,  to: 659,  ms: 90,  vol: 0.20),
+                                (wave: Triangle, from: 784,  to: 784,  ms: 90,  vol: 0.20),
+                                (wave: Triangle, from: 1046, to: 1046, ms: 260, vol: 0.22)]),
+    ],
+    music: [
+        // Tier 1: C major at 108 bpm, the home stack. A 16-bar square tune over a triangle bass, with
+        // a triangle countermelody under it. No drums. The countermelody drops out when the
+        // trace runs high.
+        (tier: 1, drop: Some(2), tune: (bpm: 108, tracks: [
+            (wave: Square, vol: 0.06, pattern: "
+                E5 - - . G5 - - . C6 - - - G5 - E5 -
+                A5 - - . G5 - E5 - C5 - - - - - . .
+                F5 - - . A5 - - . C6 - - . A5 - F5 -
+                G5 - - - - - . . D5 - E5 - F5 - D5 -
+                E5 - - . G5 - - . C6 - - - D6 - C6 -
+                B5 - - . A5 - - . E5 - - - C5 - E5 -
+                F5 - - . E5 - D5 - C5 - - . A4 - C5 -
+                D5 - - - G4 - - - B4 - D5 - G5 - - .
+                C6 - - - B5 - A5 - G5 - - - E5 - - .
+                A5 - - - G5 - E5 - C5 - - - E5 - - .
+                F5 - E5 - D5 - C5 - A4 - - - C5 - F5 -
+                D5 - - - G5 - - - B5 - - - D6 - - -
+                E6 - - - D6 - C6 - G5 - - - E5 - G5 -
+                A5 - - - C6 - - - E5 - - - - - . .
+                F5 - - . A5 - G5 - F5 - E5 - D5 - C5 -
+                D5 - - - - - . . G4 - - . B4 - D5 -
+            "),
+            (wave: Triangle, vol: 0.13, pattern: "
+                C3 - - . G3 - - . C3 - - . G3 - E3 .
+                A2 - - . E3 - - . A2 - - . E3 - C3 .
+                F2 - - . C3 - - . F2 - - . C3 - A2 .
+                G2 - - . D3 - - . G2 - - . B2 - D3 .
+            "),
+            (wave: Triangle, vol: 0.09, pattern: "
+                G4 - - - E4 - - - G4 - - - C5 - - -
+                C5 - - - A4 - - - E4 - - - A4 - - -
+                A4 - - - F4 - - - A4 - - - C5 - - -
+                B4 - - - G4 - - - D4 - - - G4 - - .
+                E4 . G4 . C5 . G4 . E4 . G4 . C5 . E5 .
+                E4 . A4 . C5 . A4 . E4 . A4 . C5 . E5 .
+                F4 . A4 . C5 . A4 . F4 . A4 . C5 . F5 .
+                D4 . G4 . B4 . G4 . D4 . G4 . B4 . D5 .
+            "),
+        ])),
+        // Tier 2: G major at 116 bpm, busier: eighth-note bass, runs in the tune, a flat
+        // seventh (F) for brightness, offbeat chords and a soft shaker. The offbeat chords drop
+        // out when the trace runs high.
+        (tier: 2, drop: Some(2), tune: (bpm: 116, tracks: [
+            (wave: Square, vol: 0.07, pattern: "
+                D5 . G5 . B5 - A5 - G5 . D5 . G5 - - .
+                E5 . G5 . B5 - - . A5 . G5 . E5 - - .
+                C5 . E5 . G5 - A5 - G5 . E5 . C5 . E5 .
+                F#5 - - . A5 - - . D5 - E5 - F#5 - - .
+                D5 . G5 . B5 - A5 - G5 . D5 . G5 - B5 -
+                C6 - - . A5 - F5 - C5 . F5 . A5 - - .
+                G5 . E5 . C5 . E5 . G5 . C6 . B5 . A5 .
+                A5 - - - F#5 - - - D5 - - - - - . .
+                G5 A5 B5 . D6 . B5 . G5 A5 B5 . G5 . D5 .
+                E5 F#5 G5 . B5 . G5 . E5 F#5 G5 . E5 . B4 .
+                C5 D5 E5 . G5 . E5 . C6 . B5 . A5 . G5 .
+                F#5 G5 A5 . D6 - - . C6 . A5 . F#5 . D5 .
+                G5 A5 B5 . D6 . B5 . G5 A5 B5 . G5 . D5 .
+                F5 G5 A5 . C6 . A5 . F5 G5 A5 . C6 - - .
+                E6 - D6 - C6 - G5 - E5 - G5 - C6 - - .
+                D6 - - - C6 - A5 - F#5 - - - D5 - - .
+            "),
+            (wave: Triangle, vol: 0.15, pattern: "
+                G2 - G3 . D3 - G3 . G2 - G3 . D3 . B2 .
+                E2 - E3 . B2 - E3 . E2 - E3 . B2 . G2 .
+                C3 - C4 . G3 - C4 . C3 - C4 . G3 . E3 .
+                D3 - D4 . A3 - D4 . D3 - D4 . A3 . F#3 .
+                G2 - G3 . D3 - G3 . G2 - G3 . D3 . B2 .
+                F2 - F3 . C3 - F3 . F2 - F3 . C3 . A2 .
+                C3 - C4 . G3 - C4 . C3 - C4 . G3 . E3 .
+                D3 - D4 . A3 - D4 . D3 . C3 . B2 . A2 .
+            "),
+            (wave: Triangle, vol: 0.1, pattern: "
+                . . B4 - . . D5 - . . B4 - . . G4 -
+                . . G4 - . . B4 - . . G4 - . . E4 -
+                . . E4 - . . G4 - . . E4 - . . C5 -
+                . . F#4 - . . A4 - . . F#4 - . . D5 -
+                . . B4 - . . D5 - . . G5 - . . D5 -
+                . . A4 - . . C5 - . . F5 - . . C5 -
+                . . G4 - . . C5 - . . E5 - . . C5 -
+                . . A4 - . . D5 - . . F#5 - . . A4 .
+            "),
+            (wave: Noise, vol: 0.025, pattern: "
+                . . . . x . . . . . . . x . . .
+            "),
+        ])),
+        // Tier 3: A minor at 120 bpm, uneasy. The bass steps down by semitones (A, G#, G, F#,
+        // F) and the tune leans on chromatic neighbours, but the D major chord keeps it bright.
+        // A held line in thirds sits under it and drops out when the trace runs high.
+        (tier: 3, drop: Some(2), tune: (bpm: 120, tracks: [
+            (wave: Square, vol: 0.068, pattern: "
+                E5 - - . A5 - - . C6 - B5 - A5 - - .
+                G#5 - - . B5 - - . E5 - - - - - . .
+                G5 - - . C6 - - . E6 - D6 - C6 - - .
+                A5 - - . F#5 - - . D5 - - - - - . .
+                F5 - - . A5 - - . C6 - - . A5 - F5 -
+                D5 - - . F5 - - . A5 - G5 - F5 - - .
+                E5 - - - G#5 - - - B5 - - - D6 - - -
+                C6 - - - B5 - - - G#5 - - - - - . .
+                A5 . C6 . E6 . C6 . A5 . G#5 . A5 . B5 .
+                G#5 . B5 . E6 . B5 . G#5 . F#5 . G#5 . E5 .
+                G5 . C6 . E6 . C6 . G5 . F#5 . G5 . A5 .
+                F#5 . A5 . D6 . A5 . F#5 . E5 . F#5 . D5 .
+                F5 - - . E5 - - . F5 - - . A5 - - .
+                F5 - - . E5 - - . D5 - - . F5 - - .
+                E5 - D#5 - E5 - F5 - E5 - D#5 - E5 - G#5 -
+                B5 - - - - - - - . . . . . . . .
+            "),
+            (wave: Triangle, vol: 0.15, pattern: "
+                A2 - A3 . A2 - A3 . A2 - A3 . E3 . A2 .
+                G#2 - G#3 . G#2 - G#3 . G#2 - B2 . E3 . G#2 .
+                G2 - G3 . G2 - G3 . G2 - C3 . E3 . G2 .
+                F#2 - F#3 . F#2 - F#3 . F#2 - A2 . D3 . F#2 .
+                F2 - F3 . F2 - F3 . F2 - A2 . C3 . F2 .
+                D2 - D3 . D2 - D3 . D2 - F2 . A2 . D2 .
+                E2 - E3 . E2 - E3 . E2 - G#2 . B2 . E2 .
+                E2 - E3 . D3 . B2 . G#2 - - . F#2 . G#2 .
+            "),
+            (wave: Triangle, vol: 0.1, pattern: "
+                C5 - - - - - - - B4 - - - - - - .
+                B4 - - - - - - - G#4 - - - - - - .
+                G4 - - - - - - - E4 - - - - - - .
+                A4 - - - - - - - F#4 - - - - - - .
+                A4 - - - - - - - C5 - - - - - - .
+                A4 - - - - - - - F4 - - - - - - .
+                G#4 - - - - - - - B4 - - - - - - .
+                D5 - - - - - - - B4 - - - G#4 - - .
+            "),
+            (wave: Noise, vol: 0.03, pattern: "
+                x . . . . . . . x . x . . . . .
+            "),
+        ])),
+    ],
+)

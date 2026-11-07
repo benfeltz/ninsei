@@ -117,6 +117,8 @@ pub enum Drop {
     Hint(String),
     /// A desktop tool (id in `hub/tools.ron`): yours for good once downloaded, even on a flatline.
     Tool(String),
+    /// A cracked copy of a game (id in `hub/games.ron`): yours for good, even on a flatline.
+    Game(String),
     /// A textfile on a board (id in the board's `texts`): you read it there, free.
     Text(String),
     Nothing,
@@ -271,6 +273,45 @@ pub struct ToolDef {
 fn first_version() -> String {
     "1.0".into()
 }
+
+/// A game you can own (`data/hub/games.ron`): a cracked copy from a board, a boxed one by mail
+/// order, or both side by side. Each copy opens with its own intro and has its own label
+/// ([`Data::game_label`]).
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct GameDef {
+    pub id: String,
+    /// The box's name, `Nibbler`; a crack is labelled from it ([`Data::game_label`]).
+    pub name: String,
+    pub blurb: String,
+    /// Who publishes the boxed copy (a vendor id in `hub/shopper.ron`).
+    pub publisher: String,
+    /// Its version string, as System's About This Deck lists it.
+    #[serde(default = "first_version")]
+    pub version: String,
+    /// The rules it runs.
+    pub engine: crate::games::Engine,
+    /// The play field, in cells: at least the engine's `min_size`.
+    pub cols: u32,
+    pub rows: u32,
+    /// How long one tick of the game's clock lasts: the app steps it once per tick.
+    pub tick_ms: u32,
+    /// The cracktro a board's copy opens with (a crack in `data/intros/`).
+    pub crack: String,
+    /// The splash the boxed copy opens with (a splash in `data/intros/`).
+    pub splash: String,
+    /// Sold boxed in CPU Shopper's Games section, if it is.
+    #[serde(default)]
+    pub shop: Option<GameShop>,
+}
+
+/// How a game is sold by mail order (the optional `shop` block in `games.ron`).
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct GameShop {
+    pub price: u32,
+}
+
+/// The shortest and longest tick a game may ask for.
+pub const GAME_TICK_MS: std::ops::RangeInclusive<u32> = 10..=1000;
 
 /// Every tool's id: what `hub::Save::has_tool` and the desktops ask about.
 pub const TOOLS: &[&str] = &[
@@ -673,6 +714,7 @@ pub struct Sources<'a> {
     pub netmap: &'a str,
     pub hardware: &'a str,
     pub tools: &'a str,
+    pub games: &'a str,
     pub addons: &'a str,
     pub panes: &'a str,
     pub shopper: &'a str,
@@ -707,6 +749,7 @@ impl Sources<'static> {
             netmap: include_str!("../../../data/netmap.ron"),
             hardware: include_str!("../../../data/hub/hardware.ron"),
             tools: include_str!("../../../data/hub/tools.ron"),
+            games: include_str!("../../../data/hub/games.ron"),
             addons: include_str!("../../../data/hub/desktops.ron"),
             panes: include_str!("../../../data/hub/panes.ron"),
             shopper: include_str!("../../../data/hub/shopper.ron"),
@@ -750,6 +793,8 @@ pub struct Data {
     pub hardware: crate::hardware::HardwareDef,
     /// Desktop tools you download from boards.
     pub tools: Vec<ToolDef>,
+    /// Games you can own: cracked from a board or boxed by mail.
+    pub games: Vec<GameDef>,
     /// Desktop add-ons you can buy.
     pub addons: Vec<crate::desktop::AddonDef>,
     /// Secondary panes you can buy for the run screen.
@@ -817,6 +862,7 @@ impl Data {
             netmap: ron::from_str(src.netmap).map_err(|e| format!("netmap.ron: {e}"))?,
             hardware: ron::from_str(src.hardware).map_err(|e| format!("hub/hardware.ron: {e}"))?,
             tools: ron::from_str(src.tools).map_err(|e| format!("hub/tools.ron: {e}"))?,
+            games: ron::from_str(src.games).map_err(|e| format!("hub/games.ron: {e}"))?,
             addons: ron::from_str(src.addons).map_err(|e| format!("hub/desktops.ron: {e}"))?,
             panes: ron::from_str(src.panes).map_err(|e| format!("hub/panes.ron: {e}"))?,
             shopper: ron::from_str(src.shopper).map_err(|e| format!("hub/shopper.ron: {e}"))?,
@@ -844,9 +890,10 @@ impl Data {
                 .iter()
                 .map(|p| {
                     ron::from_str(p.sounds)
-                        .map(|sounds| crate::cue::SoundPack {
+                        .map(|f: crate::cue::PackFile| crate::cue::SoundPack {
                             id: p.id.to_string(),
-                            sounds,
+                            sounds: f.cues,
+                            music: f.music,
                         })
                         .map_err(|e| format!("sounds/{}.ron: {e}", p.id))
                 })
@@ -866,8 +913,22 @@ impl Data {
     pub fn validate(&self) -> Result<(), String> {
         self.welcome.validate(self)?;
         self.starts.validate(self)?;
-        for i in &self.intros {
+        for (n, i) in self.intros.iter().enumerate() {
             i.validate(self)?;
+            // A crew signs with one tag everywhere.
+            if let Some(t) = &i.tag
+                && let Some(o) = self.intros[..n]
+                    .iter()
+                    .find(|o| o.group == i.group && o.tag.as_ref().is_some_and(|ot| ot != t))
+            {
+                return Err(format!(
+                    "intro `{}`: {} signs as `{t}` here but `{}` on `{}`",
+                    i.id,
+                    i.group,
+                    o.tag.as_deref().unwrap_or(""),
+                    o.id
+                ));
+            }
         }
         for t in &self.tools {
             if let Some(id) = &t.intro
@@ -876,6 +937,8 @@ impl Data {
                 return Err(format!("tool `{}` names unknown intro `{id}`", t.id));
             }
         }
+        self.validate_games()
+            .map_err(|e| format!("hub/games.ron: {e}"))?;
         for (i, w) in self.warez.iter().enumerate() {
             if self.warez[..i].iter().any(|o| o.id == w.id) {
                 return Err(format!("duplicate warez id `{}`", w.id));
@@ -989,11 +1052,13 @@ impl Data {
         }
         for p in &self.sounds {
             crate::cue::SoundDef::validate(&p.sounds)
+                .and_then(|()| crate::music::validate(&p.music, &self.networks))
                 .map_err(|e| format!("sounds/{}.ron: {e}", p.id))?;
         }
         crate::hub::RangeDef::validate(&self.exchanges, &self.networks)
             .map_err(|e| format!("hub/exchanges.ron: {e}"))?;
         // Every hint anywhere must name a range that exists.
+        // Drops that turn up on a run (loot and encounters), then the boards' files.
         let mut drops: Vec<(String, &Drop)> = Vec::new();
         for (name, t) in [
             ("ice", &self.loot.ice),
@@ -1006,15 +1071,6 @@ impl Data {
                     .map(|e| (format!("loot table `{name}`"), &e.drop)),
             );
         }
-        for b in &self.boards {
-            for a in &b.areas {
-                drops.extend(
-                    a.files
-                        .iter()
-                        .map(|f| (format!("bbs/{} file `{}`", b.id, f.file), &f.item)),
-                );
-            }
-        }
         for ev in &self.events {
             for c in &ev.choices {
                 match &c.effect {
@@ -1026,6 +1082,22 @@ impl Data {
                     }
                     _ => {}
                 }
+            }
+        }
+        // A game is a crew's crack posted on a board: it never drops from ICE, a vault or an
+        // encounter.
+        if let Some((place, _)) = drops.iter().find(|(_, d)| matches!(d, Drop::Game(_))) {
+            return Err(format!(
+                "{place} drops a game: games only come from a board's files"
+            ));
+        }
+        for b in &self.boards {
+            for a in &b.areas {
+                drops.extend(
+                    a.files
+                        .iter()
+                        .map(|f| (format!("bbs/{} file `{}`", b.id, f.file), &f.item)),
+                );
             }
         }
         for (place, d) in drops {
@@ -1196,6 +1268,11 @@ impl Data {
                     {
                         return Err(err(format!("file `{}` names unknown tool `{id}`", f.file)));
                     }
+                    if let Drop::Game(id) = &f.item
+                        && self.game(id).is_none()
+                    {
+                        return Err(err(format!("file `{}` names unknown game `{id}`", f.file)));
+                    }
                     if let Drop::Text(id) = &f.item {
                         if !b.texts.iter().any(|t| &t.id == id) {
                             return Err(err(format!(
@@ -1223,6 +1300,73 @@ impl Data {
         Ok(())
     }
 
+    /// Every engine has a game, every game's field fits its engine and a screen, its tick is
+    /// sane, its crack is a crack and
+    /// its splash a splash, and its publisher advertises in CPU Shopper.
+    fn validate_games(&self) -> Result<(), String> {
+        for (i, g) in self.games.iter().enumerate() {
+            let err = |m: String| Err(format!("game `{}`: {m}", g.id));
+            if self.games[..i].iter().any(|o| o.id == g.id) {
+                return err("listed twice".into());
+            }
+            let (cols, rows) = (crate::bbs::COLS as u32, crate::bbs::ROWS as u32);
+            let (min_c, min_r) = g.engine.min_size();
+            if !(min_c..=cols).contains(&g.cols) || !(min_r..=rows).contains(&g.rows) {
+                return err(format!(
+                    "a {}x{} field ({:?} plays on {min_c}-{cols} x {min_r}-{rows})",
+                    g.cols, g.rows, g.engine
+                ));
+            }
+            if !GAME_TICK_MS.contains(&g.tick_ms) {
+                return err(format!(
+                    "tick_ms {} ({}-{})",
+                    g.tick_ms,
+                    GAME_TICK_MS.start(),
+                    GAME_TICK_MS.end()
+                ));
+            }
+            match self.intro(&g.crack) {
+                None => return err(format!("unknown crack intro `{}`", g.crack)),
+                Some(i) if i.is_splash() => {
+                    return err(format!("crack intro `{}` is a splash", g.crack));
+                }
+                Some(i) if i.tag.is_none() => {
+                    return err(format!("crack intro `{}` has no crew tag", g.crack));
+                }
+                _ => {}
+            }
+            match self.intro(&g.splash) {
+                None => return err(format!("unknown splash intro `{}`", g.splash)),
+                Some(i) if !i.is_splash() => {
+                    return err(format!("splash intro `{}` is a crack", g.splash));
+                }
+                // The publisher prints the product and its version: they must be this row's.
+                Some(i) => {
+                    let title = format!("{} {}", g.name, g.version);
+                    if !i.tagline.as_deref().unwrap_or("").contains(&title) {
+                        return err(format!(
+                            "splash `{}`'s tagline doesn't name `{title}`",
+                            g.splash
+                        ));
+                    }
+                }
+            }
+            if self.shopper.vendor(&g.publisher).is_none() {
+                return err(format!("unknown publisher `{}`", g.publisher));
+            }
+            if g.shop.as_ref().is_some_and(|s| s.price == 0) {
+                return err("sold for nothing".into());
+            }
+        }
+        if let Some(e) = crate::games::Engine::ALL
+            .iter()
+            .find(|e| !self.games.iter().any(|g| g.engine == **e))
+        {
+            return Err(format!("no game runs the {e:?} engine"));
+        }
+        Ok(())
+    }
+
     /// A picture from `data/art/` by id.
     pub fn art(&self, id: &str) -> Option<&ArtDef> {
         self.art.iter().find(|a| a.id == id)
@@ -1234,6 +1378,16 @@ impl Data {
             .iter()
             .find(|p| p.id == id)
             .map(|p| p.sounds.as_slice())
+    }
+
+    /// The run tune sound pack `pack` plays on a tier-`tier` network, if it has one.
+    pub fn run_tune(&self, pack: &str, tier: u32) -> Option<&crate::music::RunTune> {
+        self.sounds
+            .iter()
+            .find(|p| p.id == pack)?
+            .music
+            .iter()
+            .find(|m| m.tier == tier)
     }
 
     pub fn theme(&self, id: &str) -> Option<&ThemeDef> {
@@ -1271,6 +1425,41 @@ impl Data {
 
     pub fn tool(&self, id: &str) -> Option<&ToolDef> {
         self.tools.iter().find(|t| t.id == id)
+    }
+
+    pub fn game(&self, id: &str) -> Option<&GameDef> {
+        self.games.iter().find(|g| g.id == id)
+    }
+
+    /// Every game's id with its crack's label.
+    pub fn crack_labels(&self) -> Vec<(String, String)> {
+        self.games
+            .iter()
+            .map(|g| {
+                (
+                    g.id.clone(),
+                    self.game_label(&g.id, crate::hub::GameCopy::Cracked),
+                )
+            })
+            .collect()
+    }
+
+    /// What a copy of a game is called: a box is the plain name (`Nibbler`), a crack the name
+    /// in capitals with its crew's tag (`NIBBLER [2K4]`), as it came off the board.
+    pub fn game_label(&self, id: &str, copy: crate::hub::GameCopy) -> String {
+        let Some(g) = self.game(id) else {
+            return id.to_string();
+        };
+        match copy {
+            crate::hub::GameCopy::Boxed => g.name.clone(),
+            crate::hub::GameCopy::Cracked => {
+                let name = g.name.to_uppercase();
+                match self.intro(&g.crack).and_then(|i| i.tag.as_deref()) {
+                    Some(tag) => format!("{name} [{tag}]"),
+                    None => name,
+                }
+            }
+        }
     }
 
     pub fn warez_ix(&self, id: &str) -> Option<usize> {

@@ -1,7 +1,7 @@
 // Tiger Team Pro's splash (see crates/core/src/intro.rs): a licensed corporate product, calm,
 // no tune: the logo, the licence and a loading bar, like the corpo tools' splashes.
 (
-    board: "corplink",
+    board: Some("corplink"),
     group: "Tiger Team Systems",
     secs: 3.2,
     frame_secs: 0.8,
