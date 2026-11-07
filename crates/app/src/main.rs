@@ -1215,6 +1215,22 @@ impl eframe::App for App {
         for cue in std::mem::take(&mut self.game.cues) {
             self.speaker.cue(cue, &pack, sounds);
         }
+        // The run's tune: core says what should be on; the speaker renders a new loop a slice a
+        // frame (keep frames coming until it's ready) and only rearranges on a trace step.
+        match ninsei_core::music::wanted(
+            self.screen,
+            self.crashed,
+            &self.save,
+            &self.game,
+            &self.data,
+        ) {
+            Some(w) => {
+                if self.speaker.run_music(&w) {
+                    ctx.request_repaint();
+                }
+            }
+            None => self.speaker.stop_music(),
+        }
 
         let live = self.screen == Screen::Run && !self.crashed;
         self.glitch = glitch::Glitch::frame(&ctx, &self.game, self.save.glitches, live);

@@ -1,7 +1,13 @@
 //! The speaker: one small mixer for everything the game plays. The modem handshake
-//! (`ninsei_core::modem`) has its own channel, so hanging up can cut it; so does music (a
-//! cracktro's chiptune, `ninsei_core::intro`), so skipping the intro can cut it; sound cues
-//! (`ninsei_core::cue`) are short clips that layer over each other and play out.
+//! (`ninsei_core::modem`) has its own channel, so hanging up can cut it. The music channel
+//! holds one thing at a time: a cracktro's chiptune (`ninsei_core::intro`, played once, cut if
+//! the intro is skipped) or the run's tune (`ninsei_core::music`, looped until the run stops
+//! wanting it). The run's tune plays as a bed and a stem (its drop track) side by side, so the
+//! trace can mute the stem without the loop losing its place; a tempo step renders the new
+//! loop in the background and swaps it in at the same point in the music. Loops render a
+//! slice a frame, never all at once. The speaker knows which kind of music is on, so a
+//! cracktro closing as you jack in can't cut the run's tune. Sound cues (`ninsei_core::cue`)
+//! are short clips that layer over everything and play out.
 //! Native output goes through cpal; the browser uses Web Audio. If there's no audio device
 //! (or the browser refuses), it stays quiet and the game carries on.
 
@@ -9,31 +15,81 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use ninsei_core::cue::{Cue, SoundDef};
+use ninsei_core::intro::{LoopRender, TuneDef};
 use ninsei_core::modem::Handshake;
+use ninsei_core::music::Wanted;
 
 /// How loud cues play, under the modem.
 const CUE_GAIN: f32 = 0.8;
-/// How loud a cracktro's tune plays.
+/// How loud music plays (a cracktro's tune or the run's).
 const MUSIC_GAIN: f32 = 0.7;
 /// Most cue clips playing at once; more are dropped (a burst of cues is still one moment).
 pub const MAX_VOICES: usize = 8;
+/// Samples of a run loop rendered per frame (all tracks counted): a few milliseconds' work.
+const LOOP_SLICE: usize = 250_000;
 
-pub struct Speaker {
+/// What the speaker plays through: cpal, Web Audio, or a test's stand-in.
+pub trait Output: Sized {
+    fn open() -> Option<Self>;
+    fn rate(&self) -> u32;
+    /// The modem channel; empty stops it.
+    fn dial(&mut self, samples: Vec<f32>);
+    /// Plays a tune once on the music channel, cutting what's there; empty stops it.
+    fn music(&mut self, samples: Vec<f32>);
+    /// Loops `bed` and `stem` (empty, or as long as the bed) together on the music channel,
+    /// starting `from` (0-1) of the way through, the stem silent if `muted`. False if it
+    /// couldn't start.
+    fn music_loop(&mut self, bed: Vec<f32>, stem: Vec<f32>, from: f32, muted: bool) -> bool;
+    /// How far through the loop it is, 0-1.
+    fn music_place(&self) -> f32;
+    /// Fades the loop's stem out or back in.
+    fn mute_stem(&mut self, muted: bool);
+    fn cue(&mut self, clip: Arc<Vec<f32>>);
+    /// Silences everything at once (sound turned off).
+    fn hush(&mut self);
+}
+
+/// What's on the music channel.
+#[derive(Clone, Debug, PartialEq)]
+enum Music {
+    Quiet,
+    Intro,
+    Run {
+        pack: String,
+        tier: u32,
+        tempo: u32,
+        muted: bool,
+    },
+}
+
+/// A run loop being rendered, a slice a frame.
+struct Job {
+    pack: String,
+    tier: u32,
+    tempo: u32,
+    render: LoopRender,
+}
+
+pub struct Speaker<O: Output = backend::Out> {
     on: bool,
-    out: Option<backend::Out>,
+    out: Option<O>,
     /// Opening the device failed once; don't keep trying.
     dead: bool,
     /// Each cue rendered once per sound pack, at the device's rate.
     clips: HashMap<(String, Cue), Arc<Vec<f32>>>,
+    music: Music,
+    job: Option<Job>,
 }
 
-impl Speaker {
+impl<O: Output> Speaker<O> {
     pub fn new(on: bool) -> Self {
         Self {
             on,
             out: None,
             dead: false,
             clips: HashMap::new(),
+            music: Music::Quiet,
+            job: None,
         }
     }
 
@@ -41,18 +97,21 @@ impl Speaker {
         self.on = on;
         if !on {
             self.stop();
+            // Sound back on starts the run's tune again on the next frame.
+            self.music = Music::Quiet;
+            self.job = None;
             if let Some(out) = &mut self.out {
                 out.hush();
             }
         }
     }
 
-    fn out(&mut self) -> Option<&mut backend::Out> {
+    fn out(&mut self) -> Option<&mut O> {
         if !self.on || self.dead {
             return None;
         }
         if self.out.is_none() {
-            self.out = backend::Out::open();
+            self.out = O::open();
             self.dead = self.out.is_none();
         }
         self.out.as_mut()
@@ -66,22 +125,99 @@ impl Speaker {
         }
     }
 
-    /// Plays a cracktro's tune on the music channel, cutting off any tune still playing.
-    pub fn tune(&mut self, tune: &ninsei_core::intro::TuneDef, secs: f32) {
+    /// Plays a cracktro's tune on the music channel, cutting off whatever music is playing.
+    pub fn tune(&mut self, tune: &TuneDef, secs: f32) {
+        self.job = None;
         if let Some(out) = self.out() {
-            let samples = tune
-                .render(out.rate(), secs)
-                .iter()
-                .map(|s| s * MUSIC_GAIN)
-                .collect();
+            let mut samples = tune.render(out.rate(), secs);
+            samples.iter_mut().for_each(|s| *s *= MUSIC_GAIN);
             out.music(samples);
+            self.music = Music::Intro;
         }
     }
 
-    /// Cuts the tune (the intro was skipped or closed).
+    /// Cuts a cracktro's tune (the intro was skipped or closed). The run's tune plays on.
     pub fn stop_tune(&mut self) {
-        if let Some(out) = &mut self.out {
-            out.music(Vec::new());
+        if self.music == Music::Intro {
+            self.music = Music::Quiet;
+            if let Some(out) = &mut self.out {
+                out.music(Vec::new());
+            }
+        }
+    }
+
+    /// Keeps the run's tune playing as `w` says; called every frame. A new tune renders a
+    /// slice a frame and starts when it's ready; the same tune at a new tempo swaps in at the
+    /// same place; a drop step only mutes or unmutes the stem. True while it's still rendering,
+    /// so the caller keeps frames coming.
+    pub fn run_music(&mut self, w: &Wanted) -> bool {
+        let tempo = w.arrangement.tempo;
+        let muted = w.arrangement.drop.is_some();
+        if self.out().is_none() {
+            return false;
+        }
+        let Some(out) = self.out.as_mut() else {
+            return false;
+        };
+        if let Music::Run {
+            pack,
+            tier,
+            tempo: playing,
+            muted: was,
+        } = &mut self.music
+            && w.same_tune(pack, *tier)
+        {
+            // A drop step lands on the loop that's playing, even while a new tempo renders.
+            if *was != muted {
+                out.mute_stem(muted);
+                *was = muted;
+            }
+            if *playing == tempo {
+                self.job = None;
+                return false;
+            }
+        }
+        let fits = |j: &Job| w.same_tune(&j.pack, j.tier) && j.tempo == tempo;
+        if !self.job.as_ref().is_some_and(fits) {
+            self.job = Some(Job {
+                pack: w.pack.to_string(),
+                tier: w.tier,
+                tempo,
+                render: w.tune.tune.loop_render(out.rate(), tempo, w.tune.drop),
+            });
+        }
+        let Some(job) = self.job.take_if(|j| j.render.work(LOOP_SLICE)) else {
+            return true;
+        };
+        let (mut bed, mut stem) = job.render.finish();
+        bed.iter_mut()
+            .chain(stem.iter_mut())
+            .for_each(|s| *s *= MUSIC_GAIN);
+        // The same tune at a new tempo picks up where the old one was.
+        let from = match &self.music {
+            Music::Run { pack, tier, .. } if w.same_tune(pack, *tier) => out.music_place(),
+            _ => 0.0,
+        };
+        // If it couldn't start, the next frame tries again.
+        if out.music_loop(bed, stem, from, muted) {
+            self.music = Music::Run {
+                pack: job.pack,
+                tier: job.tier,
+                tempo,
+                muted,
+            };
+        }
+        false
+    }
+
+    /// Stops the run's tune (the run ended or you went home). A cracktro's tune plays on.
+    pub fn stop_music(&mut self) {
+        self.job = None;
+        if matches!(self.music, Music::Run { .. }) {
+            self.music = Music::Quiet;
+            if let Some(out) = &mut self.out {
+                out.music(Vec::new());
+            }
         }
     }
 
@@ -122,11 +258,19 @@ mod backend {
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
     use cpal::{FromSample, SizedSample};
 
-    /// What's playing: the modem channel, and cue clips with how far in each is.
+    /// What's playing: the modem channel, the music channel (a bed, maybe a stem beside it,
+    /// looping or not), and cue clips with how far in each is.
     #[derive(Default)]
     struct Mix {
         dial: (Vec<f32>, usize),
-        music: (Vec<f32>, usize),
+        music: Vec<f32>,
+        stem: Vec<f32>,
+        at: usize,
+        looping: bool,
+        /// The stem's loudness now and where it's heading, and how fast it gets there.
+        stem_gain: f32,
+        stem_to: f32,
+        ramp: f32,
         voices: Vec<(Arc<Vec<f32>>, usize)>,
     }
 
@@ -135,9 +279,13 @@ mod backend {
             let (samples, pos) = &mut self.dial;
             let mut s = samples.get(*pos).copied().unwrap_or(0.0);
             *pos += 1;
-            let (tune, at) = &mut self.music;
-            s += tune.get(*at).copied().unwrap_or(0.0);
-            *at += 1;
+            if self.looping && self.at >= self.music.len() {
+                self.at = 0;
+            }
+            s += self.music.get(self.at).copied().unwrap_or(0.0);
+            s += self.stem.get(self.at).copied().unwrap_or(0.0) * self.stem_gain;
+            self.stem_gain += (self.stem_to - self.stem_gain) * self.ramp;
+            self.at += 1;
             for (clip, at) in &mut self.voices {
                 s += clip.get(*at).copied().unwrap_or(0.0);
                 *at += 1;
@@ -154,11 +302,21 @@ mod backend {
     }
 
     impl Out {
-        pub fn open() -> Option<Self> {
+        fn with<R>(&self, f: impl FnOnce(&mut Mix) -> R) -> Option<R> {
+            self.mix.lock().ok().map(|mut m| f(&mut m))
+        }
+    }
+
+    impl super::Output for Out {
+        fn open() -> Option<Self> {
             let device = cpal::default_host().default_output_device()?;
             let config = device.default_output_config().ok()?;
             let rate = config.sample_rate().0;
-            let mix = Arc::new(Mutex::new(Mix::default()));
+            let mix = Arc::new(Mutex::new(Mix {
+                // About 10 ms to fade the stem, so muting it never clicks.
+                ramp: 1.0 / (0.01 * rate as f32).max(1.0),
+                ..Mix::default()
+            }));
             let stream = match config.sample_format() {
                 cpal::SampleFormat::F32 => stream::<f32>(&device, &config.into(), mix.clone()),
                 cpal::SampleFormat::I16 => stream::<i16>(&device, &config.into(), mix.clone()),
@@ -173,35 +331,54 @@ mod backend {
             })
         }
 
-        pub fn rate(&self) -> u32 {
+        fn rate(&self) -> u32 {
             self.rate
         }
 
-        pub fn dial(&mut self, samples: Vec<f32>) {
-            if let Ok(mut m) = self.mix.lock() {
-                m.dial = (samples, 0);
-            }
+        fn dial(&mut self, samples: Vec<f32>) {
+            self.with(|m| m.dial = (samples, 0));
         }
 
-        pub fn music(&mut self, samples: Vec<f32>) {
-            if let Ok(mut m) = self.mix.lock() {
-                m.music = (samples, 0);
-            }
+        fn music(&mut self, samples: Vec<f32>) {
+            self.with(|m| {
+                (m.music, m.stem, m.at, m.looping) = (samples, Vec::new(), 0, false);
+            });
         }
 
-        pub fn cue(&mut self, clip: Arc<Vec<f32>>) {
-            if let Ok(mut m) = self.mix.lock()
-                && m.voices.len() < super::MAX_VOICES
-            {
-                m.voices.push((clip, 0));
-            }
+        fn music_loop(&mut self, bed: Vec<f32>, stem: Vec<f32>, from: f32, muted: bool) -> bool {
+            let at = (from.clamp(0.0, 1.0) * bed.len() as f32) as usize;
+            let gain = if muted { 0.0 } else { 1.0 };
+            self.with(|m| {
+                (m.music, m.stem, m.at, m.looping) = (bed, stem, at, true);
+                (m.stem_gain, m.stem_to) = (gain, gain);
+            })
+            .is_some()
         }
 
-        /// Silences everything at once (sound turned off).
-        pub fn hush(&mut self) {
-            if let Ok(mut m) = self.mix.lock() {
-                *m = Mix::default();
-            }
+        fn music_place(&self) -> f32 {
+            self.with(|m| m.at as f32 / m.music.len().max(1) as f32)
+                .unwrap_or(0.0)
+        }
+
+        fn mute_stem(&mut self, muted: bool) {
+            self.with(|m| m.stem_to = if muted { 0.0 } else { 1.0 });
+        }
+
+        fn cue(&mut self, clip: Arc<Vec<f32>>) {
+            self.with(|m| {
+                if m.voices.len() < super::MAX_VOICES {
+                    m.voices.push((clip, 0));
+                }
+            });
+        }
+
+        fn hush(&mut self) {
+            self.with(|m| {
+                *m = Mix {
+                    ramp: m.ramp,
+                    ..Mix::default()
+                }
+            });
         }
     }
 
@@ -234,40 +411,26 @@ mod backend {
 mod backend {
     use std::sync::Arc;
 
-    use web_sys::{AudioBufferSourceNode, AudioContext};
+    use web_sys::{AudioBufferSourceNode, AudioContext, GainNode};
 
     pub struct Out {
         ctx: AudioContext,
         /// The modem channel, so a hang-up can stop it.
         dialing: Option<AudioBufferSourceNode>,
-        /// The music channel, so skipping an intro can stop its tune.
-        playing: Option<AudioBufferSourceNode>,
+        /// The music channel's sources (a tune, or a loop's bed and stem), so they can stop.
+        playing: Vec<AudioBufferSourceNode>,
+        /// The loop's stem goes through this, so it can be muted.
+        stem_gain: Option<GainNode>,
+        /// When (context time) the loop was at its start, and how long it lasts; 0 if none.
+        loop_from: f64,
+        loop_secs: f64,
         /// Cue clips still sounding (pruned as they end).
         voices: Vec<(AudioBufferSourceNode, f64)>,
     }
 
     impl Out {
-        pub fn open() -> Option<Self> {
-            Some(Self {
-                ctx: AudioContext::new().ok()?,
-                dialing: None,
-                playing: None,
-                voices: Vec::new(),
-            })
-        }
-
-        pub fn rate(&self) -> u32 {
-            self.ctx.sample_rate() as u32
-        }
-
-        /// Starts a clip; returns its node.
-        fn start(&self, samples: &[f32]) -> Option<AudioBufferSourceNode> {
-            // Browsers start audio suspended until the page has been clicked; every sound here
-            // follows a click or a key.
-            let _ = self.ctx.resume();
-            if samples.is_empty() {
-                return None;
-            }
+        /// A source for `samples`, on repeat if `looping`, not yet connected or started.
+        fn source(&self, samples: &[f32], looping: bool) -> Option<AudioBufferSourceNode> {
             let buf = self
                 .ctx
                 .create_buffer(1, samples.len() as u32, self.ctx.sample_rate())
@@ -275,12 +438,88 @@ mod backend {
             buf.copy_to_channel(samples, 0).ok()?;
             let src = self.ctx.create_buffer_source().ok()?;
             src.set_buffer(Some(&buf));
+            src.set_loop(looping);
+            Some(src)
+        }
+
+        /// Plays a clip once, straight out; returns its node.
+        fn start(&self, samples: &[f32]) -> Option<AudioBufferSourceNode> {
+            // Browsers start audio suspended until the page has been clicked; every sound here
+            // follows a click or a key.
+            let _ = self.ctx.resume();
+            if samples.is_empty() {
+                return None;
+            }
+            let src = self.source(samples, false)?;
             src.connect_with_audio_node(&self.ctx.destination()).ok()?;
             src.start().ok()?;
             Some(src)
         }
 
-        pub fn dial(&mut self, samples: Vec<f32>) {
+        fn stop_music(&mut self) {
+            for src in self.playing.drain(..) {
+                #[allow(deprecated)]
+                let _ = src.stop();
+            }
+            self.stem_gain = None;
+            self.loop_secs = 0.0;
+        }
+
+        /// Starts a loop's bed and stem together; their nodes, or `None` if any part failed.
+        fn start_loop(
+            &self,
+            bed: &[f32],
+            stem: &[f32],
+            offset: f64,
+            muted: bool,
+        ) -> Option<(Vec<AudioBufferSourceNode>, Option<GainNode>)> {
+            let _ = self.ctx.resume();
+            let out = self.ctx.destination();
+            let mut nodes = vec![self.source(bed, true)?];
+            nodes[0].connect_with_audio_node(&out).ok()?;
+            let mut gain = None;
+            if !stem.is_empty() {
+                let g = self.ctx.create_gain().ok()?;
+                g.gain().set_value(if muted { 0.0 } else { 1.0 });
+                g.connect_with_audio_node(&out).ok()?;
+                let src = self.source(stem, true)?;
+                src.connect_with_audio_node(&g).ok()?;
+                nodes.push(src);
+                gain = Some(g);
+            }
+            let now = self.ctx.current_time();
+            for (i, n) in nodes.iter().enumerate() {
+                if n.start_with_when_and_grain_offset(now, offset).is_err() {
+                    // Don't leave a bed looping with nothing holding it.
+                    for started in &nodes[..i] {
+                        #[allow(deprecated)]
+                        let _ = started.stop();
+                    }
+                    return None;
+                }
+            }
+            Some((nodes, gain))
+        }
+    }
+
+    impl super::Output for Out {
+        fn open() -> Option<Self> {
+            Some(Self {
+                ctx: AudioContext::new().ok()?,
+                dialing: None,
+                playing: Vec::new(),
+                stem_gain: None,
+                loop_from: 0.0,
+                loop_secs: 0.0,
+                voices: Vec::new(),
+            })
+        }
+
+        fn rate(&self) -> u32 {
+            self.ctx.sample_rate() as u32
+        }
+
+        fn dial(&mut self, samples: Vec<f32>) {
             if let Some(src) = self.dialing.take() {
                 #[allow(deprecated)]
                 let _ = src.stop();
@@ -288,15 +527,47 @@ mod backend {
             self.dialing = self.start(&samples);
         }
 
-        pub fn music(&mut self, samples: Vec<f32>) {
-            if let Some(src) = self.playing.take() {
-                #[allow(deprecated)]
-                let _ = src.stop();
-            }
-            self.playing = self.start(&samples);
+        fn music(&mut self, samples: Vec<f32>) {
+            self.stop_music();
+            self.playing.extend(self.start(&samples));
         }
 
-        pub fn cue(&mut self, clip: Arc<Vec<f32>>) {
+        fn music_loop(&mut self, bed: Vec<f32>, stem: Vec<f32>, from: f32, muted: bool) -> bool {
+            self.stop_music();
+            if bed.is_empty() {
+                return false;
+            }
+            let secs = bed.len() as f64 / f64::from(self.ctx.sample_rate());
+            let offset = f64::from(from.clamp(0.0, 1.0)) * secs;
+            let Some((nodes, gain)) = self.start_loop(&bed, &stem, offset, muted) else {
+                return false;
+            };
+            self.playing = nodes;
+            self.stem_gain = gain;
+            self.loop_from = self.ctx.current_time() - offset;
+            self.loop_secs = secs;
+            true
+        }
+
+        fn music_place(&self) -> f32 {
+            if self.loop_secs <= 0.0 {
+                return 0.0;
+            }
+            let t = (self.ctx.current_time() - self.loop_from) / self.loop_secs;
+            t.rem_euclid(1.0) as f32
+        }
+
+        fn mute_stem(&mut self, muted: bool) {
+            if let Some(g) = &self.stem_gain {
+                // About 10 ms to fade, so muting never clicks.
+                let to = if muted { 0.0 } else { 1.0 };
+                let _ = g
+                    .gain()
+                    .set_target_at_time(to, self.ctx.current_time(), 0.01);
+            }
+        }
+
+        fn cue(&mut self, clip: Arc<Vec<f32>>) {
             let now = self.ctx.current_time();
             self.voices.retain(|(_, ends)| *ends > now);
             if self.voices.len() >= super::MAX_VOICES {
@@ -308,13 +579,196 @@ mod backend {
             }
         }
 
-        pub fn hush(&mut self) {
+        fn hush(&mut self) {
             self.dial(Vec::new());
-            self.music(Vec::new());
+            self.stop_music();
             for (src, _) in self.voices.drain(..) {
                 #[allow(deprecated)]
                 let _ = src.stop();
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ninsei_core::music::{Arrangement, RunTune};
+
+    /// An output that writes down what it was asked to do.
+    #[derive(Default)]
+    struct Log {
+        said: Vec<String>,
+        place: f32,
+        /// Loops refuse to start while this is above zero, counting down.
+        refuse: u32,
+    }
+
+    impl Output for Log {
+        fn open() -> Option<Self> {
+            Some(Log::default())
+        }
+        fn rate(&self) -> u32 {
+            8000
+        }
+        fn dial(&mut self, _: Vec<f32>) {}
+        fn music(&mut self, s: Vec<f32>) {
+            self.said
+                .push(if s.is_empty() { "stop" } else { "tune" }.into());
+        }
+        fn music_loop(&mut self, bed: Vec<f32>, stem: Vec<f32>, from: f32, muted: bool) -> bool {
+            assert_eq!(bed.len(), stem.len(), "the stem keeps step with the bed");
+            if self.refuse > 0 {
+                self.refuse -= 1;
+                self.said.push("refused".into());
+                return false;
+            }
+            self.said.push(format!("loop from {from} muted {muted}"));
+            true
+        }
+        fn music_place(&self) -> f32 {
+            self.place
+        }
+        fn mute_stem(&mut self, muted: bool) {
+            self.said.push(format!("mute {muted}"));
+        }
+        fn cue(&mut self, _: Arc<Vec<f32>>) {}
+        fn hush(&mut self) {
+            self.said.push("hush".into());
+        }
+    }
+
+    fn tune() -> RunTune {
+        RunTune {
+            tier: 1,
+            drop: Some(1),
+            tune: ron::from_str(
+                "(bpm: 120, tracks: [(wave: Square, vol: 0.2, pattern: \"C4 E4 G4 .\"), \
+                 (wave: Noise, vol: 0.1, pattern: \"x . x\")])",
+            )
+            .unwrap(),
+        }
+    }
+
+    fn at<'a>(t: &'a RunTune, drop: bool, tempo: u32) -> Wanted<'a> {
+        Wanted {
+            pack: "ono",
+            tier: 1,
+            arrangement: Arrangement {
+                drop: drop.then_some(1),
+                tempo,
+            },
+            tune: t,
+        }
+    }
+
+    /// Frames of `run_music` until the loop is ready; how many it took.
+    fn settle(s: &mut Speaker<Log>, w: &Wanted) -> usize {
+        (1..1000).find(|_| !s.run_music(w)).unwrap()
+    }
+
+    fn said(s: &mut Speaker<Log>) -> Vec<String> {
+        std::mem::take(&mut s.out.as_mut().unwrap().said)
+    }
+
+    #[test]
+    fn the_loop_starts_once_and_trace_steps_keep_its_place() {
+        let t = tune();
+        let mut s = Speaker::<Log>::new(true);
+        settle(&mut s, &at(&t, false, 0));
+        assert_eq!(said(&mut s), ["loop from 0 muted false"]);
+        for _ in 0..5 {
+            assert!(!s.run_music(&at(&t, false, 0)));
+        }
+        assert!(said(&mut s).is_empty(), "the same key never re-renders");
+        // The drop step mutes the stem, back and forth, and never restarts the loop.
+        s.run_music(&at(&t, true, 0));
+        s.run_music(&at(&t, true, 0));
+        s.run_music(&at(&t, false, 0));
+        assert_eq!(said(&mut s), ["mute true", "mute false"]);
+        // The tempo step swaps in a new loop where the old one had got to; the drop step that
+        // came with it lands on the old loop first.
+        s.out.as_mut().unwrap().place = 0.25;
+        settle(&mut s, &at(&t, true, 12));
+        assert_eq!(said(&mut s), ["mute true", "loop from 0.25 muted true"]);
+    }
+
+    #[test]
+    fn a_drop_step_lands_while_the_new_tempo_renders() {
+        let d = ninsei_core::Data::builtin().unwrap();
+        let t = d.run_tune("ono", 2).unwrap();
+        let mut s = Speaker::<Log>::new(true);
+        settle(&mut s, &at(t, false, 0));
+        said(&mut s);
+        // Trace jumps past both steps at once: the stem mutes now, the faster loop follows
+        // once it's rendered, and the mute isn't asked for twice.
+        assert!(s.run_music(&at(t, true, 12)), "still rendering");
+        assert!(s.run_music(&at(t, true, 12)), "still rendering");
+        assert_eq!(said(&mut s), ["mute true"]);
+        settle(&mut s, &at(t, true, 12));
+        assert_eq!(said(&mut s), ["loop from 0 muted true"]);
+    }
+
+    #[test]
+    fn a_long_loop_renders_over_several_frames() {
+        let d = ninsei_core::Data::builtin().unwrap();
+        let t = d.run_tune("ono", 2).unwrap();
+        let mut s = Speaker::<Log>::new(true);
+        let frames = settle(&mut s, &at(t, false, 0));
+        assert!(frames > 3, "{frames} frames");
+        assert_eq!(said(&mut s).len(), 1);
+    }
+
+    #[test]
+    fn a_cracktro_and_the_run_tune_never_cut_each_other() {
+        let t = tune();
+        let mut s = Speaker::<Log>::new(true);
+        s.tune(&t.tune, 1.0);
+        s.stop_music();
+        assert_eq!(
+            said(&mut s),
+            ["tune"],
+            "the run's stop leaves a cracktro alone"
+        );
+        // Jacking in while the intro plays: the run takes the channel, then the intro's
+        // window closing doesn't stop it.
+        settle(&mut s, &at(&t, false, 0));
+        s.stop_tune();
+        assert!(!s.run_music(&at(&t, false, 0)));
+        assert_eq!(said(&mut s), ["loop from 0 muted false"]);
+        s.stop_music();
+        s.stop_music();
+        assert_eq!(said(&mut s), ["stop"]);
+    }
+
+    #[test]
+    fn sound_off_and_on_brings_the_tune_back() {
+        let t = tune();
+        let mut s = Speaker::<Log>::new(true);
+        settle(&mut s, &at(&t, false, 0));
+        s.set_on(false);
+        assert!(
+            !s.run_music(&at(&t, false, 0)),
+            "nothing renders while it's off"
+        );
+        s.set_on(true);
+        settle(&mut s, &at(&t, false, 0));
+        assert_eq!(
+            said(&mut s),
+            ["loop from 0 muted false", "hush", "loop from 0 muted false"]
+        );
+    }
+
+    #[test]
+    fn a_loop_that_fails_to_start_tries_again() {
+        let t = tune();
+        let mut s = Speaker::<Log>::new(true);
+        s.out = Some(Log {
+            refuse: 1,
+            ..Log::default()
+        });
+        settle(&mut s, &at(&t, false, 0));
+        settle(&mut s, &at(&t, false, 0));
+        assert_eq!(said(&mut s), ["refused", "loop from 0 muted false"]);
     }
 }

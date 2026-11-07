@@ -844,9 +844,10 @@ impl Data {
                 .iter()
                 .map(|p| {
                     ron::from_str(p.sounds)
-                        .map(|sounds| crate::cue::SoundPack {
+                        .map(|f: crate::cue::PackFile| crate::cue::SoundPack {
                             id: p.id.to_string(),
-                            sounds,
+                            sounds: f.cues,
+                            music: f.music,
                         })
                         .map_err(|e| format!("sounds/{}.ron: {e}", p.id))
                 })
@@ -989,6 +990,7 @@ impl Data {
         }
         for p in &self.sounds {
             crate::cue::SoundDef::validate(&p.sounds)
+                .and_then(|()| crate::music::validate(&p.music, &self.networks))
                 .map_err(|e| format!("sounds/{}.ron: {e}", p.id))?;
         }
         crate::hub::RangeDef::validate(&self.exchanges, &self.networks)
@@ -1234,6 +1236,16 @@ impl Data {
             .iter()
             .find(|p| p.id == id)
             .map(|p| p.sounds.as_slice())
+    }
+
+    /// The run tune sound pack `pack` plays on a tier-`tier` network, if it has one.
+    pub fn run_tune(&self, pack: &str, tier: u32) -> Option<&crate::music::RunTune> {
+        self.sounds
+            .iter()
+            .find(|p| p.id == pack)?
+            .music
+            .iter()
+            .find(|m| m.tier == tier)
     }
 
     pub fn theme(&self, id: &str) -> Option<&ThemeDef> {

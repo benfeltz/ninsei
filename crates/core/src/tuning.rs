@@ -74,6 +74,12 @@ pub const MODEM_BAUD: f32 = 600.0;
 pub const MODEM_RAMP_SECS: f32 = 0.004;
 /// Peak loudness, 0-1.
 pub const MODEM_VOLUME: f32 = 0.25;
+/// The run's music reads the trace in two coarse steps (`music::arrangement`): from
+/// `MUSIC_DROP_AT` percent the tune's drop track falls silent, and from `MUSIC_TEMPO_AT` it
+/// plays `MUSIC_TEMPO_BPM` faster. Look only: no play depends on it.
+pub const MUSIC_DROP_AT: u32 = 50;
+pub const MUSIC_TEMPO_AT: u32 = 75;
+pub const MUSIC_TEMPO_BPM: u32 = 12;
 /// Simulated Zmodem throughput, bytes per second of game time.
 pub const BBS_CPS: f32 = 42_000.0;
 
