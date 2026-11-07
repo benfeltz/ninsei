@@ -681,20 +681,20 @@ mod minefield {
     #[test]
     fn the_first_square_is_never_a_mine() {
         for seed in 0..200 {
-            let mut m = Minefield::new(seed, 16, 16);
+            let mut m = Minefield::new(seed, 16, 16, 100);
             let (x, y) = ((seed % 16) as usize, (seed / 16 % 16) as usize);
             m.step(Input::Click { col: x, row: y }, 0);
             assert!(!m.is_mine(x, y) && !m.over(), "seed {seed}");
         }
         // Even a field that's nearly all mines.
-        let mut m = Minefield::new(3, 4, 4);
+        let mut m = Minefield::new(3, 4, 4, 100);
         m.step(Input::Click { col: 0, row: 0 }, 0);
         assert!(!m.is_mine(0, 0));
     }
 
     #[test]
     fn an_empty_square_opens_its_region() {
-        let mut m = Minefield::new(1, 16, 16);
+        let mut m = Minefield::new(1, 16, 16, 100);
         m.step(Input::Click { col: 8, row: 8 }, 0);
         // The first square has no mine next to it, so it opened its neighbours too.
         let opened = (0..16)
@@ -722,7 +722,7 @@ mod minefield {
 
     #[test]
     fn opening_every_safe_square_wins() {
-        let mut m = Minefield::new(4, 16, 16);
+        let mut m = Minefield::new(4, 16, 16, 100);
         m.step(Input::Click { col: 0, row: 0 }, 0);
         for y in 0..16 {
             for x in 0..16 {
@@ -738,7 +738,7 @@ mod minefield {
 
     #[test]
     fn a_mine_ends_it_and_shows_them_all() {
-        let mut m = Minefield::new(4, 16, 16);
+        let mut m = Minefield::new(4, 16, 16, 100);
         m.step(Input::Click { col: 0, row: 0 }, 0);
         let (x, y) = (0..256)
             .map(|i| (i % 16, i / 16))
@@ -752,7 +752,7 @@ mod minefield {
 
     #[test]
     fn flags_guard_a_square_and_count_down() {
-        let mut m = Minefield::new(2, 16, 16);
+        let mut m = Minefield::new(2, 16, 16, 100);
         let all = m.mines();
         m.step(Input::Flag { col: 3, row: 3 }, 0);
         assert_eq!(m.mines_left(), all - 1);
@@ -765,7 +765,7 @@ mod minefield {
 
     #[test]
     fn the_keyboard_moves_a_cursor_that_stays_on_the_field() {
-        let mut m = Minefield::new(2, 16, 16);
+        let mut m = Minefield::new(2, 16, 16, 100);
         for _ in 0..40 {
             m.step(Input::Left, 0);
             m.step(Input::Up, 0);
@@ -779,9 +779,25 @@ mod minefield {
     }
 
     #[test]
+    fn the_clock_runs_from_the_first_open_and_holds_on_pause() {
+        let mut m = Minefield::new(2, 16, 16, 100);
+        m.step(Input::None, 50);
+        assert_eq!(m.seconds(), 0, "not before the first square");
+        m.step(Input::Click { col: 8, row: 8 }, 30);
+        assert_eq!(m.seconds(), 3);
+        m.step(Input::Pause, 0);
+        m.step(Input::None, 100);
+        assert_eq!(m.seconds(), 3, "paused");
+        assert!(m.status().contains("TIME 3") && m.status().contains("PAUSED"));
+        m.step(Input::Pause, 0);
+        m.step(Input::None, 10);
+        assert_eq!(m.seconds(), 4);
+    }
+
+    #[test]
     fn same_seed_same_field() {
         let field = |seed| {
-            let mut m = Minefield::new(seed, 16, 16);
+            let mut m = Minefield::new(seed, 16, 16, 100);
             m.step(Input::Click { col: 5, row: 5 }, 0);
             (0..256)
                 .map(|i| m.is_mine(i % 16, i / 16))

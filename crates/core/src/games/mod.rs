@@ -127,7 +127,7 @@ pub fn new_game(def: &crate::data::GameDef, seed: u64) -> Box<dyn Arcade> {
     match def.engine {
         Engine::Nibbler => Box::new(nibbler::Nibbler::new(seed, cols, rows)),
         Engine::Blox => Box::new(blox::Blox::new(seed, cols, rows)),
-        Engine::Minefield => Box::new(minefield::Minefield::new(seed, cols, rows)),
+        Engine::Minefield => Box::new(minefield::Minefield::new(seed, cols, rows, def.tick_ms)),
     }
 }
 

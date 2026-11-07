@@ -18,13 +18,17 @@ pub struct Minefield {
     flag: Vec<bool>,
     laid: bool,
     cursor: (usize, usize),
+    /// The clock: ticks played since the first open, and how long a tick is.
+    ticks: u64,
+    tick_ms: u32,
     over: bool,
     won: bool,
     paused: bool,
 }
 
 impl Minefield {
-    pub fn new(seed: u64, cols: usize, rows: usize) -> Self {
+    /// A field of `cols` x `rows` whose clock ticks every `tick_ms`.
+    pub fn new(seed: u64, cols: usize, rows: usize, tick_ms: u32) -> Self {
         let (cols, rows) = super::Engine::Minefield.field(cols, rows);
         let n = cols * rows;
         Self {
@@ -37,10 +41,18 @@ impl Minefield {
             flag: vec![false; n],
             laid: false,
             cursor: (cols / 2, rows / 2),
+            ticks: 0,
+            tick_ms,
             over: false,
             won: false,
             paused: false,
         }
+    }
+
+    /// Seconds on the clock: it starts on the first open, holds while paused, and stops when
+    /// the game ends (at most 999, like the counter it's drawn on).
+    pub fn seconds(&self) -> u64 {
+        (self.ticks * u64::from(self.tick_ms) / 1000).min(999)
     }
 
     pub fn mines(&self) -> usize {
@@ -140,7 +152,7 @@ impl Minefield {
 }
 
 impl Arcade for Minefield {
-    fn step(&mut self, input: Input, _ticks: u32) {
+    fn step(&mut self, input: Input, ticks: u32) {
         if !unpaused(&mut self.paused, self.over, input) {
             return;
         }
@@ -160,6 +172,9 @@ impl Arcade for Minefield {
             }
             Input::Flag { col, row } => self.toggle_flag(col, row),
             _ => {}
+        }
+        if self.laid && !self.over {
+            self.ticks += u64::from(ticks);
         }
     }
 
@@ -222,6 +237,10 @@ impl Arcade for Minefield {
         } else {
             ""
         };
-        format!("MINES {}{state}", self.mines_left())
+        format!(
+            "MINES {}  TIME {}{state}",
+            self.mines_left(),
+            self.seconds()
+        )
     }
 }
