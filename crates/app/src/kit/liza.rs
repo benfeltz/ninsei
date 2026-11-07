@@ -719,8 +719,19 @@ pub fn alert_keys(ctx: &egui::Context, id: Id, a: &Alert) -> Option<usize> {
     if !(a.keys && before) {
         return None;
     }
+    // Only a fresh press: a held key repeats, and a Mac alert's button goes once. A repeat is
+    // still taken, so it doesn't reach anything after.
     let take = |key, button: Option<usize>| {
-        button.filter(|_| ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, key)))
+        button.filter(|_| {
+            let fresh = ctx.input(|i| {
+                i.events.iter().any(|e| {
+                    matches!(e, egui::Event::Key { key: k, pressed: true, repeat: false, modifiers, .. }
+                        if *k == key && modifiers.is_none())
+                })
+            });
+            let taken = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, key));
+            fresh && taken
+        })
     };
     take(Key::Enter, a.default).or_else(|| take(Key::Escape, a.cancel))
 }
@@ -1143,6 +1154,32 @@ mod tests {
         assert_eq!(
             ask(&mut h, true, Some(1), crate::uitest::key(Key::Escape)),
             Some(0)
+        );
+    }
+
+    #[test]
+    fn a_held_enter_presses_the_default_once() {
+        let mut h = Harness::new(800.0, 600.0);
+        ask(&mut h, true, Some(1), vec![]);
+        // Held down: the press, then the key's repeats.
+        let down = |repeat| {
+            vec![egui::Event::Key {
+                key: Key::Enter,
+                physical_key: None,
+                pressed: true,
+                repeat,
+                modifiers: egui::Modifiers::NONE,
+            }]
+        };
+        assert_eq!(
+            ask(&mut h, true, Some(1), down(false)),
+            Some(1),
+            "the press"
+        );
+        assert_eq!(
+            ask(&mut h, true, Some(1), down(true)),
+            None,
+            "a repeat isn't a press"
         );
     }
 }
