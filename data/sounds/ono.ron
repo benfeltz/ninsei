@@ -9,35 +9,162 @@
 //   ms     length in milliseconds
 //   vol    0.0-1.0 (all cues are mixed quietly under the modem)
 // Every cue needs an entry; `Data::validate` checks. Keep them short: under half a second.
-[
-    (cue: Hop,      notes: [(wave: Square,   from: 660,  to: 880,  ms: 30,  vol: 0.18)]),
-    (cue: IceRez,   notes: [(wave: Saw,      from: 120,  to: 240,  ms: 120, vol: 0.30),
-                            (wave: Square,   from: 240,  to: 240,  ms: 60,  vol: 0.22)]),
-    (cue: Hit,      notes: [(wave: Square,   from: 1200, to: 300,  ms: 70,  vol: 0.30)]),
-    (cue: Shield,   notes: [(wave: Triangle, from: 400,  to: 800,  ms: 90,  vol: 0.30)]),
-    (cue: Heal,     notes: [(wave: Sine,     from: 520,  to: 520,  ms: 60,  vol: 0.30),
-                            (wave: Sine,     from: 780,  to: 780,  ms: 90,  vol: 0.30)]),
-    (cue: Block,    notes: [(wave: Square,   from: 220,  to: 180,  ms: 50,  vol: 0.22),
-                            (wave: Noise,    from: 2500, to: 2500, ms: 40,  vol: 0.10)]),
-    (cue: Damage,   notes: [(wave: Noise,    from: 1800, to: 1800, ms: 120, vol: 0.35),
-                            (wave: Saw,      from: 160,  to: 70,   ms: 140, vol: 0.30)]),
-    (cue: Derez,    notes: [(wave: Square,   from: 880,  to: 880,  ms: 50,  vol: 0.26),
-                            (wave: Square,   from: 660,  to: 660,  ms: 50,  vol: 0.26),
-                            (wave: Square,   from: 440,  to: 110,  ms: 160, vol: 0.30),
-                            (wave: Noise,    from: 4000, to: 4000, ms: 90,  vol: 0.15)]),
-    (cue: Loot,     notes: [(wave: Square,   from: 988,  to: 988,  ms: 45,  vol: 0.22),
-                            (wave: Square,   from: 1319, to: 1319, ms: 90,  vol: 0.22)]),
-    (cue: Download, notes: [(wave: Triangle, from: 600,  to: 1200, ms: 160, vol: 0.22),
-                            (wave: Square,   from: 1200, to: 1200, ms: 40,  vol: 0.18)]),
-    (cue: TraceUp,  notes: [(wave: Square,   from: 1500, to: 1500, ms: 60,  vol: 0.20),
-                            (wave: Sine,     from: 0,    to: 0,    ms: 40,  vol: 0.0),
-                            (wave: Square,   from: 1500, to: 1500, ms: 60,  vol: 0.20)]),
-    (cue: Encounter,notes: [(wave: Sine,     from: 880,  to: 880,  ms: 80,  vol: 0.25),
-                            (wave: Sine,     from: 1175, to: 1175, ms: 120, vol: 0.25)]),
-    (cue: Flatline, notes: [(wave: Saw,      from: 440,  to: 55,   ms: 420, vol: 0.32),
-                            (wave: Sine,     from: 1000, to: 1000, ms: 350, vol: 0.20)]),
-    (cue: JackOut,  notes: [(wave: Square,   from: 523,  to: 523,  ms: 70,  vol: 0.22),
-                            (wave: Square,   from: 659,  to: 659,  ms: 70,  vol: 0.22),
-                            (wave: Square,   from: 784,  to: 784,  ms: 70,  vol: 0.22),
-                            (wave: Square,   from: 1047, to: 1047, ms: 160, vol: 0.22)]),
-]
+//
+// Music: what loops while a run is on, one tune per network tier (1-3); a tier with no tune
+// is silent, and so is a pack with no music at all.
+//   tier   the network tier it plays on
+//   drop   the track (counting from 0) that falls silent when the trace runs high
+//   tune   a chiptune in the cracktro format (see data/intros/): bpm, steps per beat (4),
+//          and up to 4 tracks of wave, vol and pattern. A pattern step is a note (C4, F#3,
+//          Bb2), x (a noise hit), - (hold the last note) or . (rest); one bar per line here.
+//          Tracks of different lengths loop against each other: the whole tune repeats when
+//          they all line up again.
+(
+    cues: [
+        (cue: Hop,      notes: [(wave: Square,   from: 660,  to: 880,  ms: 30,  vol: 0.18)]),
+        (cue: IceRez,   notes: [(wave: Saw,      from: 120,  to: 240,  ms: 120, vol: 0.30),
+                                (wave: Square,   from: 240,  to: 240,  ms: 60,  vol: 0.22)]),
+        (cue: Hit,      notes: [(wave: Square,   from: 1200, to: 300,  ms: 70,  vol: 0.30)]),
+        (cue: Shield,   notes: [(wave: Triangle, from: 400,  to: 800,  ms: 90,  vol: 0.30)]),
+        (cue: Heal,     notes: [(wave: Sine,     from: 520,  to: 520,  ms: 60,  vol: 0.30),
+                                (wave: Sine,     from: 780,  to: 780,  ms: 90,  vol: 0.30)]),
+        (cue: Block,    notes: [(wave: Square,   from: 220,  to: 180,  ms: 50,  vol: 0.22),
+                                (wave: Noise,    from: 2500, to: 2500, ms: 40,  vol: 0.10)]),
+        (cue: Damage,   notes: [(wave: Noise,    from: 1800, to: 1800, ms: 120, vol: 0.35),
+                                (wave: Saw,      from: 160,  to: 70,   ms: 140, vol: 0.30)]),
+        (cue: Derez,    notes: [(wave: Square,   from: 880,  to: 880,  ms: 50,  vol: 0.26),
+                                (wave: Square,   from: 660,  to: 660,  ms: 50,  vol: 0.26),
+                                (wave: Square,   from: 440,  to: 110,  ms: 160, vol: 0.30),
+                                (wave: Noise,    from: 4000, to: 4000, ms: 90,  vol: 0.15)]),
+        (cue: Loot,     notes: [(wave: Square,   from: 988,  to: 988,  ms: 45,  vol: 0.22),
+                                (wave: Square,   from: 1319, to: 1319, ms: 90,  vol: 0.22)]),
+        (cue: Download, notes: [(wave: Triangle, from: 600,  to: 1200, ms: 160, vol: 0.22),
+                                (wave: Square,   from: 1200, to: 1200, ms: 40,  vol: 0.18)]),
+        (cue: TraceUp,  notes: [(wave: Square,   from: 1500, to: 1500, ms: 60,  vol: 0.20),
+                                (wave: Sine,     from: 0,    to: 0,    ms: 40,  vol: 0.0),
+                                (wave: Square,   from: 1500, to: 1500, ms: 60,  vol: 0.20)]),
+        (cue: Encounter,notes: [(wave: Sine,     from: 880,  to: 880,  ms: 80,  vol: 0.25),
+                                (wave: Sine,     from: 1175, to: 1175, ms: 120, vol: 0.25)]),
+        (cue: Flatline, notes: [(wave: Saw,      from: 440,  to: 55,   ms: 420, vol: 0.32),
+                                (wave: Sine,     from: 1000, to: 1000, ms: 350, vol: 0.20)]),
+        (cue: JackOut,  notes: [(wave: Square,   from: 523,  to: 523,  ms: 70,  vol: 0.22),
+                                (wave: Square,   from: 659,  to: 659,  ms: 70,  vol: 0.22),
+                                (wave: Square,   from: 784,  to: 784,  ms: 70,  vol: 0.22),
+                                (wave: Square,   from: 1047, to: 1047, ms: 160, vol: 0.22)]),
+    ],
+    music: [
+        // Tier 1: A minor, light on its feet. The drums drop out when the trace runs high.
+        (tier: 1, drop: Some(3), tune: (bpm: 132, tracks: [
+            (wave: Square, vol: 0.1, pattern: "
+                A4 . C5 . E5 . C5 . A4 . E5 - D5 . C5 .
+                F4 . A4 . C5 . A4 . C5 - D5 . C5 . A4 .
+                G4 . C5 . E5 . G5 . E5 . C5 . E5 - - .
+                D5 . B4 . G4 . B4 . D5 - - . . . . .
+                A4 . C5 . E5 . C5 . A4 . E5 - D5 . C5 .
+                F4 . A4 . C5 . A4 . C5 - D5 . C5 . A4 .
+                G4 . C5 . E5 . G5 . E5 . C5 . E5 - - .
+                D5 . E5 . G5 - - . F#5 . G5 . A5 - - .
+                E5 - - . A5 - - . G5 . E5 . C5 . D5 .
+                C5 - - . F5 - - . E5 . C5 . A4 . C5 .
+                E5 - - . G5 - - . C6 . B5 . G5 . E5 .
+                D5 - B4 - G4 - B4 - D5 - - - - - . .
+            "),
+            (wave: Saw, vol: 0.1, pattern: "
+                A2 . A3 . A2 . A3 . A2 . A3 . G2 . A2 .
+                F2 . F3 . F2 . F3 . F2 . F3 . E2 . F2 .
+                C3 . C4 . C3 . C4 . C3 . C4 . B2 . C3 .
+                G2 . G3 . G2 . G3 . G2 . G3 . F#2 . G2 .
+                A2 . . A2 C3 . E3 . A2 . . A2 G2 . E2 .
+                F2 . . F2 A2 . C3 . F2 . . F2 E2 . C2 .
+                C3 . . C3 E3 . G3 . C3 . . C3 B2 . G2 .
+                G2 . . G2 B2 . D3 . G2 . . G2 A2 . B2 .
+            "),
+            (wave: Square, vol: 0.035, pattern: "
+                A3 C4 E4 A4 E4 C4 A3 C4 E4 A4 E4 C4 A3 C4 E4 C4
+                F3 A3 C4 F4 C4 A3 F3 A3 C4 F4 C4 A3 F3 A3 C4 A3
+                C4 E4 G4 C5 G4 E4 C4 E4 G4 C5 G4 E4 C4 E4 G4 E4
+                G3 B3 D4 G4 D4 B3 G3 B3 D4 G4 D4 B3 G3 B3 D4 B3
+            "),
+            (wave: Noise, vol: 0.06, pattern: "
+                x . . . x . x . x . . . x . x .
+                x . . . x . x . x . . x x . x .
+                x . . . x . x . x . x x x x x x
+            "),
+        ])),
+        // Tier 2: D minor, slower, a long bass line. The lead drops out when the trace runs high.
+        (tier: 2, drop: Some(0), tune: (bpm: 112, tracks: [
+            (wave: Square, vol: 0.09, pattern: "
+                D5 - - - - - . . F5 - E5 - D5 - . .
+                F5 - - - - - . . D5 - - - Bb4 - . .
+                G4 - - - Bb4 - - - D5 - - - C5 - Bb4 -
+                A4 - - - - - - - C#5 - - - E5 - - .
+                A5 - - - - - G5 - F5 - - - E5 - D5 -
+                D5 - - - F5 - - - Bb5 - - - A5 - G5 -
+                G5 - - - F5 - - - D5 - - - Bb4 - - -
+                A4 - - - C#5 - E5 - A5 - - - - - . .
+            "),
+            (wave: Saw, vol: 0.12, pattern: "
+                D2 . D2 . D3 . D2 . A2 . D2 . C3 . D2 .
+                Bb1 . Bb1 . Bb2 . Bb1 . F2 . Bb1 . A2 . Bb1 .
+                G1 . G1 . G2 . G1 . D2 . G1 . F2 . G1 .
+                A1 . A1 . A2 . A1 . E2 . A1 . G2 . C#2 .
+                D2 - - - D3 . C3 . A2 - - - F2 . E2 .
+                Bb1 - - - Bb2 . A2 . F2 - - - D2 . C2 .
+                G1 - - - G2 . F2 . D2 - - - Bb1 . A1 .
+                A1 - - - A2 . G2 . E2 - - - C#2 . E2 .
+                D2 . . D2 F2 . A2 . D3 . C3 . A2 . F2 .
+                Bb1 . . Bb1 D2 . F2 . Bb2 . A2 . F2 . D2 .
+                G1 . . G1 Bb1 . D2 . G2 . F2 . D2 . Bb1 .
+                A1 . . A1 C#2 . E2 . A2 . G2 . E2 . C#2 .
+            "),
+            (wave: Triangle, vol: 0.1, pattern: "
+                D4 - - - F4 - - - A4 - - - F4 - - -
+                D4 - - - F4 - - - Bb4 - - - F4 - - -
+                D4 - - - G4 - - - Bb4 - - - G4 - - -
+                C#4 - - - E4 - - - A4 - - - E4 - - -
+            "),
+            (wave: Noise, vol: 0.05, pattern: "
+                x . . . . . . . x . . x . . . .
+                x . . . . . . . x . . . x . x .
+            "),
+        ])),
+        // Tier 3: E phrygian, fast and tense. The lead drops out when the trace runs high.
+        (tier: 3, drop: Some(0), tune: (bpm: 156, tracks: [
+            (wave: Square, vol: 0.09, pattern: "
+                E5 . E5 B4 . E5 . F5 E5 . D5 . B4 . D5 .
+                F5 . F5 C5 . F5 . G5 F5 . E5 . C5 . E5 .
+                E5 . E5 B4 . E5 . F5 E5 . D5 . B4 . D5 .
+                D5 . D5 A4 . D5 . E5 F5 . E5 . D5 . A4 .
+                B5 - - . G5 - - . E5 - - . F5 . G5 .
+                A5 - - . F5 - - . C5 - - . E5 . F5 .
+                G5 - - . E5 - - . B4 - - . D5 . E5 .
+                F#5 - - - - - . . A5 - - - - - . .
+                . . . . . . . . E5 . F5 . G5 . A5 .
+                B5 . A5 . G5 . F5 . E5 . F5 . G5 . A5 .
+                B5 - - - - - - - - - - - . . . .
+                D5 . E5 . F5 . E5 . D5 . C5 . B4 . A4 .
+            "),
+            (wave: Saw, vol: 0.11, pattern: "
+                E2 . E2 . E3 . E2 . E2 . E2 . E3 . F2 .
+                F2 . F2 . F3 . F2 . F2 . F2 . F3 . E2 .
+                E2 . E2 . E3 . E2 . E2 . E2 . E3 . E2 .
+                D2 . D2 . D3 . D2 . D2 . D2 . D3 . D#2 .
+                E2 E2 . E2 E2 . E2 E2 . E2 E2 . E3 . D3 .
+                F2 F2 . F2 F2 . F2 F2 . F2 F2 . F3 . E3 .
+                E2 E2 . E2 E2 . E2 E2 . E2 E2 . E3 . B2 .
+                D2 D2 . D2 D2 . D2 D2 . D3 . C3 . B2 D#2 .
+            "),
+            (wave: Square, vol: 0.03, pattern: "
+                B4 G4 E4 B4 G4 E4 B4 G4 E4 B4 G4 E4 B4 G4 E4 G4
+                C5 A4 F4 C5 A4 F4 C5 A4 F4 C5 A4 F4 C5 A4 F4 A4
+                B4 G4 E4 B4 G4 E4 B4 G4 E4 B4 G4 E4 B4 G4 E4 G4
+                A4 F#4 D4 A4 F#4 D4 A4 F#4 D4 A4 F#4 D4 A4 F#4 D4 F#4
+            "),
+            (wave: Noise, vol: 0.07, pattern: "
+                x . x . x . x . x . x . x . x x
+                x . x . x . x . x . x . x x x x
+                x x x x x . x . x x x x x x x x
+            "),
+        ])),
+    ],
+)

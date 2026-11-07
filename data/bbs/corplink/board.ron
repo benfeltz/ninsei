@@ -1,6 +1,6 @@
-// CORPLINK EMPLOYEE SERVICES: the staff board on megacorp backbones (tier 3). The best stock
-// and the CPU mod, the deepest ranges. Clean blue screens, no l33t, everything priced like an
-// expense report. You're a guest login.
+// CORPLINK EMPLOYEE SERVICES: the staff board on megacorp backbones (tier 3). The office (see
+// docs/world.md): the best stock and the CPU mod, the deepest ranges. Clean blue screens, no
+// l33t, everything priced like an expense report. You're a guest login.
 (
     name: "CORPLINK EMPLOYEE SERVICES",
     sysop: "IT Help Desk",
