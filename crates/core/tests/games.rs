@@ -572,9 +572,8 @@ mod blox {
 
     #[test]
     fn a_filled_row_clears() {
-        let mut b = Blox::new(5, 10, 20);
         // Where the first piece lands on an empty board, dropped straight down.
-        let mut probe = b.clone();
+        let mut probe = Blox::new(5, 10, 20);
         probe.step(Input::Fire, 0);
         let bottom = 19 * 10;
         let landed: Vec<usize> = (0..10)
@@ -582,13 +581,34 @@ mod blox {
             .collect();
         assert!(!landed.is_empty());
         // Fill the rest of the bottom row, then drop it in the gap.
-        for x in (0..10).filter(|x| !landed.contains(x)) {
-            b.lay(x, 19);
-        }
+        let rest: Vec<(usize, usize)> = (0..10)
+            .filter(|x| !landed.contains(x))
+            .map(|x| (x, 19))
+            .collect();
+        let mut b = Blox::with_board(5, 10, 20, &rest).unwrap();
         b.step(Input::Fire, 0);
         assert_eq!(b.lines(), 1, "the full row cleared");
         assert!(b.score() >= tuning::BLOX_LINE_POINTS[1]);
         assert!(b.status().contains("LINES 1"));
+    }
+
+    #[test]
+    fn a_starting_board_must_be_one_a_game_could_reach() {
+        assert!(Blox::with_board(5, 10, 20, &[(0, 19), (9, 19)]).is_some());
+        assert!(
+            Blox::with_board(5, 10, 20, &[(10, 19)]).is_none(),
+            "off the field"
+        );
+        let full: Vec<(usize, usize)> = (0..10).map(|x| (x, 19)).collect();
+        assert!(
+            Blox::with_board(5, 10, 20, &full).is_none(),
+            "a full row never clears"
+        );
+        let under = Blox::new(5, 10, 20).piece()[0];
+        assert!(
+            Blox::with_board(5, 10, 20, &[under]).is_none(),
+            "under the piece"
+        );
     }
 
     #[test]

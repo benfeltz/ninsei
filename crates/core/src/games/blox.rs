@@ -99,12 +99,26 @@ impl Blox {
             .collect()
     }
 
-    /// Lays a settled square at (col, row), as if a piece had left it there. For setting up a
-    /// board: a demo, or a test.
-    pub fn lay(&mut self, col: usize, row: usize) {
-        if col < self.cols && row < self.rows {
-            self.board[row * self.cols + col] = 1;
+    /// A game that starts on a board already holding `settled` squares, (col, row), as if
+    /// pieces had left them there: a demo, or a test. `None` if a square is off the field,
+    /// a row would start full (it could never clear), or the first piece has no room.
+    pub fn with_board(
+        seed: u64,
+        cols: usize,
+        rows: usize,
+        settled: &[(usize, usize)],
+    ) -> Option<Self> {
+        let mut b = Self::new(seed, cols, rows);
+        for &(x, y) in settled {
+            if x >= b.cols || y >= b.rows || b.piece().contains(&(x, y)) {
+                return None;
+            }
+            b.board[y * b.cols + x] = 1;
         }
+        if b.board.chunks(b.cols).any(|row| !row.contains(&0)) {
+            return None;
+        }
+        Some(b)
     }
 
     fn deal(&mut self) -> u8 {
