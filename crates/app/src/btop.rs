@@ -825,7 +825,7 @@ pub fn sound_popup(
         .fixed_pos(rect.min)
         .show(ctx, |ui| {
             let (_, painter) = ui.allocate_painter(size, Sense::hover());
-            let c = Cells::fit(ui, rect, p.dim, p.bg, p.faint);
+            let c = Cells::grid(ui, rect.min, (vol::COLS, vol::ROWS), p.dim, p.bg, p.faint);
             painter.rect_filled(c.rect, 0.0, p.bg);
             c.frame(&painter, 0, 0, vol::COLS, vol::ROWS);
             c.title(&painter, 2, 0, "volume", p.bright);

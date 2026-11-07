@@ -345,7 +345,11 @@ pub mod tests {
         );
         let meter = s.h.find("5%").unwrap();
         assert!(s.h.find("mute").is_some() && s.h.find("+").is_some());
-        // It's laid out in whole cells: each meter cell is one cell.
+        // It's laid out in whole cells: each meter cell is one cell, the meter starting two
+        // cells in from the box, which starts on the speaker's left edge.
+        let speaker = s.h.find("🔊 70%").unwrap();
+        let cell0 = crate::cells::Cells::cell_size(&s.h.ctx);
+        assert!((meter.left() - (speaker.left().round() + 2.0 * cell0.x)).abs() < 0.01);
         let cell = crate::cells::Cells::cell_size(&s.h.ctx);
         assert!((meter.width() - cell.x).abs() < 0.01, "{meter:?} {cell:?}");
         assert!((meter.height() - cell.y).abs() < 0.01, "{meter:?} {cell:?}");

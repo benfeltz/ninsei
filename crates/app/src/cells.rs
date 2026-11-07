@@ -58,6 +58,31 @@ impl Cells {
         }
     }
 
+    /// A grid of exactly `cols` × `rows` cells from `min` (a box sized in cells, rather than
+    /// cells fitted to an area).
+    pub fn grid(
+        ui: &Ui,
+        min: Pos2,
+        (cols, rows): (usize, usize),
+        border: Color32,
+        paper: Color32,
+        empty: Color32,
+    ) -> Cells {
+        let egui::Vec2 { x: cw, y: ch } = Cells::cell_size(ui.ctx());
+        Cells {
+            rect: Rect::from_min_size(min, vec2(cols as f32 * cw, rows as f32 * ch)),
+            cw,
+            ch,
+            cols,
+            rows,
+            font: egui::TextStyle::Monospace.resolve(ui.style()),
+            border,
+            paper,
+            empty,
+            vision: false,
+        }
+    }
+
     /// One cell's size in the monospace font: a grid of `cols` × `rows` of these fits
     /// exactly.
     pub fn cell_size(ctx: &egui::Context) -> egui::Vec2 {
