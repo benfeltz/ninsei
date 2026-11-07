@@ -939,49 +939,52 @@ impl Panes<'_> {
             let rows = ((ui.available_height() - input_h) / size::ROW_H)
                 .floor()
                 .max(1.0);
-            ScrollArea::vertical()
-                .id_salt("suite-log")
-                .stick_to_bottom(true)
-                .auto_shrink([false, false])
-                .max_height(rows * size::ROW_H)
-                .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
-                .show(ui, |ui| {
-                    ui.spacing_mut().item_spacing.y = 0.0;
-                    // Each entry one row of the suite's cells: the time, the ref, then the
-                    // entry, cut with … where the window ends.
-                    let across = cols_across(ui);
-                    for l in &g.log {
-                        let col = match l.kind {
-                            LogKind::Sys => p.dim,
-                            LogKind::Info | LogKind::Good => p.fg,
-                            LogKind::Bad | LogKind::Loot => p.bright,
-                        };
-                        let (resp, cells) = Cells::allocate(
-                            ui,
-                            mono(size::MONO),
-                            Some(size::ROW_H),
-                            (across, 1),
-                            vec2(0.0, 0.0),
-                            Sense::hover(),
-                        );
-                        let painter = ui.painter_at(resp.rect);
-                        cells.text(
-                            &painter,
-                            1,
-                            0,
-                            &format!("{:03}.{:02}", l.hop, l.turn),
-                            p.dim,
-                        );
-                        cells.text(&painter, 9, 0, rules::log_ref(l.kind), col);
-                        let room = across.saturating_sub(14);
-                        cells.text_max(&painter, 14, 0, &self.garble(&l.text), room, col);
-                        let r = resp.rect;
-                        painter.line_segment(
-                            [r.left_bottom(), r.right_bottom()],
-                            Stroke::new(1.0, p.faint),
-                        );
-                    }
-                });
+            // The log's cells, measured once: every entry is one row of them.
+            let across = cols_across(ui);
+            let probe = Cells::sized(
+                ui,
+                egui::Pos2::ZERO,
+                mono(size::MONO),
+                Some(size::ROW_H),
+                (across, 1),
+            );
+            ui.scope(|ui| {
+                // Rows touch: `show_rows` lays them a row apart, and only paints those in view.
+                ui.spacing_mut().item_spacing.y = 0.0;
+                ScrollArea::vertical()
+                    .id_salt("suite-log")
+                    .stick_to_bottom(true)
+                    .auto_shrink([false, false])
+                    .max_height(rows * size::ROW_H)
+                    .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
+                    .show_rows(ui, size::ROW_H, g.log.len(), |ui, shown| {
+                        for l in &g.log[shown] {
+                            let col = match l.kind {
+                                LogKind::Sys => p.dim,
+                                LogKind::Info | LogKind::Good => p.fg,
+                                LogKind::Bad | LogKind::Loot => p.bright,
+                            };
+                            let (r, _) = ui.allocate_exact_size(probe.rect.size(), Sense::hover());
+                            let cells = probe.clone().at_pos(r.min);
+                            let painter = ui.painter_at(r);
+                            // The time, the ref, then the entry, cut with … where the window
+                            // ends; plain text goes out a run at a time.
+                            let time = format!("{:03}.{:02}", l.hop, l.turn);
+                            cells.run(&painter, 1, 0, &time, p.dim);
+                            cells.run(&painter, 9, 0, rules::log_ref(l.kind), col);
+                            let entry = cut(&self.garble(&l.text), across.saturating_sub(14));
+                            if entry.is_ascii() {
+                                cells.run(&painter, 14, 0, &entry, col);
+                            } else {
+                                cells.text(&painter, 14, 0, &entry, col);
+                            }
+                            painter.line_segment(
+                                [r.left_bottom(), r.right_bottom()],
+                                Stroke::new(1.0, p.faint),
+                            );
+                        }
+                    });
+            });
             ui.add_space(3.0);
             self.prompt_as(ui, "Command:", true);
         });
@@ -1722,5 +1725,49 @@ mod tests {
             });
             assert!(ran, "the body (and its command line) at {size:?}");
         }
+    }
+
+    #[test]
+    fn a_long_log_paints_only_what_shows() {
+        let d = Data::builtin().unwrap();
+        let mut s = Save::default();
+        s.ensure_hardware(&d);
+        let mut g = s.jack_in(&d, &d.rig, 1);
+        let line = g.log[0].clone();
+        g.log = vec![line; 400];
+        let mut st = State::default();
+        let mut h = Harness::new(900.0, 600.0);
+        let (mut term, mut focus, mut hex, mut keep) =
+            (ninsei_term::LineEditor::default(), false, None, Vec::new());
+        for _ in 0..2 {
+            h.frame(Vec::new(), |ui| {
+                let room = Rect::from_min_size(egui::pos2(0.0, 0.0), vec2(840.0, 400.0));
+                let mut child = ui.new_child(UiBuilder::new().max_rect(room));
+                let mut panes = Panes {
+                    game: &g,
+                    pal: Palette::from_def(&d.themes[0]),
+                    map: ninsei_core::netview::MapView::Draft,
+                    deck: String::new(),
+                    chrome: Chrome::Suite,
+                    corrupt: (0.0, 0),
+                    term: &mut term,
+                    focus_input: &mut focus,
+                    bbs_open: false,
+                    hex: &mut hex,
+                    keep: &mut keep,
+                    keep_room: 0,
+                    suite: &mut st,
+                    out: Vec::new(),
+                };
+                panes.suite_terminal(&mut child);
+            });
+        }
+        let texts = h
+            .painted()
+            .iter()
+            .filter(|s| matches!(s, egui::Shape::Text(_)))
+            .count();
+        // A screenful of rows, three pieces each, and the window's own furniture.
+        assert!(texts < 150, "{texts} pieces of text for a 400-entry log");
     }
 }
