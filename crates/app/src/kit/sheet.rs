@@ -162,7 +162,8 @@ impl<C: Clone> Sheet<C> {
         let mut given = Vec::new();
         for (i, (hc, hr, len, give, name)) in self.hits.iter().enumerate() {
             let r = g.at(*hc, *hr, (*len).max(1), 1);
-            let hit = ui.interact(r, ui.id().with(("sheet-hit", i)), Sense::CLICK);
+            // Salted with this sheet's own room, so two sheets in one Ui never share an id.
+            let hit = ui.interact(r, resp.id.with(("sheet-hit", i)), Sense::CLICK);
             let label = name.clone().unwrap_or_else(|| self.text(*hc, *hr, *len));
             hit.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &label));
             if hit.hovered() {
@@ -233,5 +234,28 @@ mod tests {
         );
         draw(&mut h, click(scrap.center()));
         assert_eq!(got, vec![7]);
+    }
+
+    #[test]
+    fn two_sheets_in_one_ui_keep_their_clicks_apart() {
+        let (mut a, mut b): (Sheet<char>, Sheet<char>) = (Sheet::new(10), Sheet::new(10));
+        a.put(0, 0, "alpha", Color32::WHITE);
+        a.hit(0, 0, 5, 'a');
+        b.put(0, 0, "beta", Color32::WHITE);
+        b.hit(0, 0, 4, 'b');
+        let mut h = Harness::new(400.0, 200.0);
+        let mut got = (Vec::new(), Vec::new());
+        let mut draw = |h: &mut Harness, events| {
+            h.frame(events, |ui| {
+                got = (
+                    a.paint(ui, FontId::monospace(13.0), None),
+                    b.paint(ui, FontId::monospace(13.0), None),
+                );
+            });
+        };
+        draw(&mut h, Vec::new());
+        let beta = h.find("beta").expect("the second sheet's run");
+        draw(&mut h, click(beta.center()));
+        assert_eq!(got, (vec![], vec!['b']), "only the second sheet heard it");
     }
 }
