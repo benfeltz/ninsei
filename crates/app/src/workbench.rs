@@ -3,20 +3,19 @@
 //! which holds the Shell and the tools' state. All drawn by hand into one area so the whole
 //! screen can be dragged off a run.
 
-use egui::{Align2, Id, Pos2, Rect, Sense, Stroke, StrokeKind, Ui, Vec2, pos2, vec2};
+use egui::{Align2, Id, Pos2, Rect, Sense, Stroke, Ui, Vec2, pos2, vec2};
 use ninsei_core::desktop::AddonEffect;
 use ninsei_core::hardware::Desktop;
 use ninsei_core::hub::{IconDef, Tool};
 
 use crate::home::{Cx, DesktopView, Home, WbOut, accent, backdrop, fill, font, ink, shadow};
 use crate::hubtools;
+use crate::kit::workbench::{self as kit, Look, size};
 
-const TITLE_H: f32 = 20.0;
 /// Gap kept between a window's bottom and the screen's.
 const WIN_MARGIN: f32 = 8.0;
 /// Shortest a window gets when the screen is small.
 const WIN_MIN_H: f32 = 120.0;
-const SCREEN_BAR_H: f32 = 22.0;
 /// Screen pixels per icon pixel.
 const ICON_SCALE: f32 = 3.0;
 const ICON_PITCH: f32 = 84.0;
@@ -26,7 +25,7 @@ const ICON_COL_W: f32 = 92.0;
 /// Where the `n`th icon sits on a screen `size`: down the left; once that column is full, the
 /// rest go down the right edge, where Workbench keeps its disks, clear of the windows.
 fn icon_pos(n: usize, size: Vec2) -> Pos2 {
-    let top = SCREEN_BAR_H + 16.0;
+    let top = size::SCREEN_BAR_H + 16.0;
     let per_col = (((size.y - top) / ICON_PITCH).floor() as usize).max(1);
     let (col, row) = (n / per_col, n % per_col);
     let x = if col == 0 {
@@ -36,7 +35,6 @@ fn icon_pos(n: usize, size: Vec2) -> Pos2 {
     };
     pos2(x, top + row as f32 * ICON_PITCH)
 }
-const BORDER: f32 = 2.0;
 /// Seconds between clicks that still count as a double-click.
 const DOUBLE_CLICK_SECS: f64 = 0.45;
 
@@ -79,6 +77,17 @@ impl Win {
             Kind::Guide => "Welcome to the Net".into(),
             Kind::Requester(_) => "System Request".into(),
         }
+    }
+}
+
+/// Desktop's look, from the theme.
+fn look() -> Look {
+    Look {
+        ink: ink(),
+        backdrop: backdrop(),
+        shadow: shadow(),
+        accent: accent(),
+        font: font(),
     }
 }
 
@@ -156,6 +165,7 @@ impl DesktopView for Workbench {
             .collect();
         let screen = ui.ctx().content_rect().translate(vec2(0.0, offset));
         let painter = ui.painter_at(screen);
+        let look = look();
         let at = |p: Pos2| screen.min + p.to_vec2();
 
         // Screen and its title bar.
@@ -163,7 +173,7 @@ impl DesktopView for Workbench {
         let addon = |e| save.has_effect(data, Desktop::Workbench, e);
         if addon(AddonEffect::Pattern) {
             // The classic dithered backdrop: every other pixel, every other row.
-            let mut y = screen.top() + SCREEN_BAR_H;
+            let mut y = screen.top() + size::SCREEN_BAR_H;
             let mut row = 0;
             while y < screen.bottom() {
                 let mut x = screen.left() + if row % 2 == 0 { 0.0 } else { 3.0 };
@@ -179,45 +189,23 @@ impl DesktopView for Workbench {
                 row += 1;
             }
         }
-        let bar = Rect::from_min_size(screen.min, vec2(screen.width(), SCREEN_BAR_H));
-        painter.rect_filled(bar, 0.0, ink());
-        painter.line_segment(
-            [bar.left_bottom(), bar.right_bottom()],
-            Stroke::new(1.0, shadow()),
-        );
         let title = format!(
             "ninsei Desktop 1.3   runs {}  exits {}  flatlines {}   best {}¢",
             save.runs, save.exits, save.flatlines, save.best_haul
         );
-        painter.text(
-            bar.left_center() + vec2(8.0, 0.0),
-            Align2::LEFT_CENTER,
-            title,
-            font(),
-            backdrop(),
-        );
-        if addon(AddonEffect::Clock) {
+        let clock = addon(AddonEffect::Clock).then(|| {
             let up = ui.input(|i| i.time) as u64;
-            painter.text(
-                bar.right_center() - vec2(36.0, 0.0),
-                Align2::RIGHT_CENTER,
-                format!(
-                    "bank {}¢   {:02}:{:02}:{:02}",
-                    save.bank,
-                    up / 3600,
-                    up / 60 % 60,
-                    up % 60
-                ),
-                font(),
-                backdrop(),
-            );
             ui.ctx()
                 .request_repaint_after(std::time::Duration::from_secs(1));
-        }
-        depth_gadget(
-            &painter,
-            Rect::from_min_size(bar.right_top() + vec2(-26.0, 3.0), vec2(22.0, 16.0)),
-        );
+            format!(
+                "bank {}¢   {:02}:{:02}:{:02}",
+                save.bank,
+                up / 3600,
+                up / 60 % 60,
+                up % 60
+            )
+        });
+        kit::screen_bar(&painter, screen, &title, clock.as_deref(), &look);
 
         // Background click deselects icons.
         let bg = ui.interact(
@@ -322,10 +310,8 @@ impl DesktopView for Workbench {
                 raise = Some(i);
             }
             rects.push(rect);
-            window_frame(&painter, rect, &title, top);
-            let bar = Rect::from_min_size(rect.min, vec2(rect.width(), TITLE_H));
-            let close_r = Rect::from_min_size(bar.min + vec2(4.0, 3.0), vec2(16.0, 14.0));
-            let depth_r = Rect::from_min_size(bar.right_top() + vec2(-26.0, 2.0), vec2(22.0, 16.0));
+            let g = kit::window_frame(&painter, rect, &title, top, &look);
+            let (bar, close_r, depth_r) = (g.bar, g.close, g.depth);
             let sense = if live {
                 Sense::click_and_drag()
             } else {
@@ -337,7 +323,8 @@ impl DesktopView for Workbench {
                 let p = &mut self.wins[i].pos;
                 *p += d;
                 p.x = p.x.clamp(-size.x + 60.0, screen.width() - 60.0);
-                p.y = p.y.clamp(SCREEN_BAR_H, screen.height() - TITLE_H);
+                p.y =
+                    p.y.clamp(size::SCREEN_BAR_H, screen.height() - size::TITLE_H);
             }
             if drag.drag_started() || drag.clicked() {
                 raise = Some(i);
@@ -368,10 +355,7 @@ impl DesktopView for Workbench {
                     break;
                 }
             }
-            let content = Rect::from_min_max(
-                bar.left_bottom() + vec2(BORDER + 4.0, 4.0),
-                rect.max - vec2(BORDER + 4.0, BORDER + 4.0),
-            );
+            let content = kit::window_content(rect);
             match kind {
                 Kind::Shell => home.shell(ui, content, data, save, live && top, out),
                 Kind::Rig
@@ -404,7 +388,7 @@ impl DesktopView for Workbench {
                         Kind::Guide => Tool::Guide,
                         _ => Tool::HexEd,
                     };
-                    let hint = crate::home::drag_hint(pos.y, SCREEN_BAR_H);
+                    let hint = crate::home::drag_hint(pos.y, size::SCREEN_BAR_H);
                     home.tool_in(
                         &mut child,
                         tool,
@@ -526,58 +510,6 @@ fn button(painter: &egui::Painter, r: Rect, label: &str, pressed: bool) {
     painter.text(r.center(), Align2::CENTER_CENTER, label, font(), text);
 }
 
-/// Window chrome: white border, a title bar (striped when active), close and depth gadgets.
-fn window_frame(painter: &egui::Painter, rect: Rect, title: &str, active: bool) {
-    painter.rect_filled(rect, 0.0, backdrop());
-    painter.rect_stroke(rect, 0.0, Stroke::new(BORDER, ink()), StrokeKind::Inside);
-    let bar = Rect::from_min_size(rect.min, vec2(rect.width(), TITLE_H));
-    painter.rect_filled(bar, 0.0, if active { ink() } else { backdrop() });
-    if active {
-        // Horizontal pinstripes behind the title, the active-window tell.
-        let mut y = bar.top() + 4.0;
-        while y < bar.bottom() - 3.0 {
-            painter.line_segment(
-                [pos2(bar.left() + 24.0, y), pos2(bar.right() - 30.0, y)],
-                Stroke::new(1.0, backdrop()),
-            );
-            y += 3.0;
-        }
-    }
-    painter.rect_stroke(bar, 0.0, Stroke::new(BORDER, ink()), StrokeKind::Inside);
-    let galley = painter.layout_no_wrap(
-        title.to_string(),
-        font(),
-        if active { backdrop() } else { ink() },
-    );
-    let tw = galley.size().x + 10.0;
-    let tbox = Rect::from_min_size(bar.min + vec2(26.0, 2.0), vec2(tw, TITLE_H - 4.0));
-    painter.rect_filled(tbox, 0.0, if active { ink() } else { backdrop() });
-    painter.galley(tbox.min + vec2(5.0, 1.0), galley, ink());
-    // Close gadget: a box with a dot.
-    let c = Rect::from_min_size(bar.min + vec2(4.0, 3.0), vec2(16.0, 14.0));
-    painter.rect_filled(c, 0.0, ink());
-    painter.rect_stroke(c, 0.0, Stroke::new(1.0, shadow()), StrokeKind::Inside);
-    painter.rect_filled(
-        Rect::from_center_size(c.center(), vec2(4.0, 4.0)),
-        0.0,
-        shadow(),
-    );
-    depth_gadget(
-        painter,
-        Rect::from_min_size(bar.right_top() + vec2(-26.0, 2.0), vec2(22.0, 16.0)),
-    );
-}
-
-/// Two overlapping squares: back one outlined, front one filled.
-fn depth_gadget(painter: &egui::Painter, r: Rect) {
-    painter.rect_filled(r, 0.0, ink());
-    let back = Rect::from_min_size(r.min + vec2(3.0, 2.0), vec2(11.0, 8.0));
-    let front = Rect::from_min_size(r.min + vec2(8.0, 6.0), vec2(11.0, 8.0));
-    painter.rect_stroke(back, 0.0, Stroke::new(1.0, shadow()), StrokeKind::Inside);
-    painter.rect_filled(front, 0.0, accent());
-    painter.rect_stroke(front, 0.0, Stroke::new(1.0, shadow()), StrokeKind::Inside);
-}
-
 /// Paints an icon's pixels. Selected icons draw in complement colours, as on the real thing.
 fn draw_icon(painter: &egui::Painter, icon: &IconDef, at: Pos2, selected: bool) {
     for (y, row) in icon.pixels.iter().enumerate() {
@@ -600,8 +532,8 @@ fn draw_icon(painter: &egui::Painter, icon: &IconDef, at: Pos2, selected: bool) 
 fn book_window() -> egui::Vec2 {
     crate::pager::SIZE
         + vec2(
-            2.0 * (BORDER + 4.0) + 2.0,
-            TITLE_H + 4.0 + BORDER + 4.0 + 2.0,
+            2.0 * (size::BORDER + 4.0) + 2.0,
+            size::TITLE_H + 4.0 + size::BORDER + 4.0 + 2.0,
         )
 }
 
@@ -755,5 +687,38 @@ mod tests {
             }
         }
         assert!(home.notices.is_empty(), "too small: {:?}", home.notices);
+    }
+
+    #[test]
+    fn the_close_and_depth_gadgets_work_where_the_frame_draws_them() {
+        let data = Data::builtin().unwrap();
+        let save = Save::default();
+        let ctx = egui::Context::default();
+        let (mut wb, mut home) = (Workbench::new(), Home::new(Vec::new()));
+        wb.open(Tool::Shell);
+        wb.open(Tool::System);
+        let mut t = 0.0;
+        let mut run = |wb: &mut Workbench, home: &mut Home, ev| {
+            t += 0.5;
+            frame(&ctx, wb, home, &data, &save, ev, t);
+        };
+        run(&mut wb, &mut home, Vec::new());
+        let at = |wb: &Workbench, k| {
+            let w = wb.wins.iter().find(|w| w.kind == k).unwrap();
+            kit::gadgets(Rect::from_min_size(w.pos, w.size))
+        };
+        // The front window's depth gadget sends it to the back.
+        let front = wb.wins.last().unwrap().kind;
+        let back = wb.wins[0].kind;
+        let depth = at(&wb, front).depth.center();
+        run(&mut wb, &mut home, click(depth));
+        run(&mut wb, &mut home, Vec::new());
+        assert_eq!(wb.wins.last().map(|w| w.kind), Some(back));
+        assert_eq!(wb.wins[0].kind, front);
+        // Its close gadget closes it.
+        let close = at(&wb, back).close.center();
+        run(&mut wb, &mut home, click(close));
+        run(&mut wb, &mut home, Vec::new());
+        assert!(wb.wins.iter().all(|w| w.kind != back));
     }
 }
