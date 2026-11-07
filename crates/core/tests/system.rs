@@ -86,6 +86,31 @@ fn installed_software_is_only_what_you_own_with_versions() {
 }
 
 #[test]
+fn about_this_deck_lists_the_games_you_own_after_the_tools() {
+    let d = data();
+    let mut s = fresh(0);
+    s.tools = vec!["hexed".into()];
+    s.learn_game("minefield", hub::GameCopy::Cracked);
+    s.learn_game("blox", hub::GameCopy::Boxed);
+    let o = system::overview(&s, &d);
+    let name = |id: &str| {
+        let g = d.game(id).unwrap();
+        (g.name.clone(), g.version.clone())
+    };
+    let hexed = d.tools.iter().find(|t| t.id == "hexed").unwrap();
+    assert_eq!(
+        o.software,
+        vec![
+            (hexed.name.clone(), hexed.version.clone()),
+            name("blox"),
+            name("minefield"),
+        ],
+        "either copy counts; games in games.ron's order, after the tools"
+    );
+    assert!(!o.software.contains(&name("nibbler")), "only what you own");
+}
+
+#[test]
 fn system_opens_by_its_name_and_by_prefs() {
     let d = data();
     let s = fresh(0);
