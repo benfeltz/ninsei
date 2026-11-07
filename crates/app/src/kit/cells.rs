@@ -81,17 +81,14 @@ impl Cells {
 
     /// A grid of `cols` × `rows` cells from `min`, in a face's own type: `font`, with rows
     /// `ch` tall (the font's own line height when `None`). For a screen whose cells aren't
-    /// the app's monospace ones, like an 80x24 terminal at its own size.
-    #[allow(clippy::too_many_arguments)]
+    /// the app's monospace ones, like an 80x24 terminal at its own size. Geometry only: a face
+    /// that draws boxes or meters sets `border`, `paper` and `empty` (transparent until then).
     pub fn sized(
         ui: &Ui,
         min: Pos2,
         font: FontId,
         ch: Option<f32>,
         (cols, rows): (usize, usize),
-        border: Color32,
-        paper: Color32,
-        empty: Color32,
     ) -> Cells {
         let cw = ui.fonts_mut(|f| f.glyph_width(&font, 'M')).max(1.0);
         let ch = ch
@@ -104,9 +101,9 @@ impl Cells {
             cols,
             rows,
             font,
-            border,
-            paper,
-            empty,
+            border: Color32::TRANSPARENT,
+            paper: Color32::TRANSPARENT,
+            empty: Color32::TRANSPARENT,
             vision: false,
         }
     }

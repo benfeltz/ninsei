@@ -90,9 +90,8 @@ impl<C: Clone> Sheet<C> {
         self.hits.push((col, row, len, give, Some(label)));
     }
 
-    /// A key hint: the key in `key`, what it does in `what`, clickable when `give` is given.
-    /// Returns where the next hint starts.
-    #[allow(clippy::too_many_arguments)]
+    /// A key hint: key `k` in the first colour, what it `does` in the second, clickable when
+    /// `give` is given. Returns where the next hint starts.
     pub fn key(
         &mut self,
         col: usize,
@@ -137,9 +136,6 @@ impl<C: Clone> Sheet<C> {
             font.clone(),
             ch,
             (self.cols, self.rows),
-            Color32::TRANSPARENT,
-            Color32::TRANSPARENT,
-            Color32::TRANSPARENT,
         );
         let (rect, _) = ui.allocate_exact_size(probe.rect.size(), Sense::hover());
         let g = probe.at_pos(rect.min);

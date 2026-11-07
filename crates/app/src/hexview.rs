@@ -188,9 +188,6 @@ fn grid(ui: &mut Ui, h: &mut HexBuffer, p: &Palette) {
         font,
         Some(CELL_H),
         (ascii_c + ROW + 1, rows + 1),
-        p.faint,
-        p.bg,
-        p.faint,
     );
     let (rect, resp) = ui.allocate_exact_size(probe.rect.size() + vec2(0.0, 4.0), Sense::click());
     let g = probe.at_pos(rect.min + vec2(0.0, 2.0));

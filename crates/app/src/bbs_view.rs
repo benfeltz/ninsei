@@ -177,9 +177,6 @@ pub fn paint_screen(ui: &mut egui::Ui, lines: &[String], color: bool, p: &Palett
         font,
         Some(ROW_HEIGHT),
         (COLS, ROWS),
-        Color32::TRANSPARENT,
-        bg,
-        Color32::TRANSPARENT,
     );
     let (mut fg_c, mut bg_c) = (ansi::DEFAULT_FG, ansi::DEFAULT_BG);
     for (row, line) in lines.iter().enumerate().take(ROWS) {
