@@ -333,14 +333,11 @@ impl DesktopView for TilingDesk {
             if !live {
                 child.disable();
             }
-            if tool == Tool::System {
-                home.system.keys = typing;
-            }
             // The focused tile has the keyboard while nothing's over it.
-            home.focused = typing;
             home.tool_in(
                 &mut child,
                 tool,
+                typing,
                 data,
                 save,
                 out,

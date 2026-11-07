@@ -435,10 +435,10 @@ impl DesktopView for Liza {
                     child.disable();
                 }
                 // The front window has the keyboard, unless a menu is down.
-                home.focused = live && front && self.menu.is_none();
                 home.tool_in(
                     &mut child,
                     tool,
+                    live && front && self.menu.is_none(),
                     data,
                     save,
                     out,

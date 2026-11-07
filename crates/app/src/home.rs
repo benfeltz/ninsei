@@ -267,9 +267,6 @@ pub struct Home {
     pub(crate) guide_at: ninsei_core::cards::Place,
     /// System's open panel, and its Disk panel's pick.
     pub(crate) system: crate::system::SystemUi,
-    /// Whether the tool being drawn has the keyboard (the front window, the focused tile):
-    /// each desktop says so before it draws a tool.
-    pub(crate) focused: bool,
     /// The games being played, by copy, with the pass each was last drawn on (a window that
     /// wasn't drawn last pass closed, and opening it again starts a new round).
     games: std::collections::HashMap<Tool, (crate::games_view::Session, u64)>,
@@ -325,14 +322,21 @@ impl Home {
             tune: None,
             guide_at: ninsei_core::cards::Place::Home,
             system: crate::system::SystemUi::default(),
-            focused: false,
             games: Default::default(),
         }
     }
 
     /// A copy of a game in its window: a new round when the window has just opened (or the
     /// player asks for one), then the engine played and drawn.
-    fn play(&mut self, ui: &mut Ui, data: &Data, save: &Save, tool: Tool, out: &mut Vec<WbOut>) {
+    fn play(
+        &mut self,
+        ui: &mut Ui,
+        data: &Data,
+        save: &Save,
+        tool: Tool,
+        keys: bool,
+        out: &mut Vec<WbOut>,
+    ) {
         let Some((def, _)) = tool.game_def(data) else {
             return;
         };
@@ -348,7 +352,6 @@ impl Home {
         if fresh {
             self.games.insert(tool, (start(out), pass));
         }
-        let keys = self.focused;
         let (s, last) = self.games.get_mut(&tool).expect("started above");
         *last = pass;
         if crate::games_view::body(ui, data, def, s, keys).again {
@@ -700,12 +703,15 @@ impl Home {
     /// Draws `tool` in `ui` (a desktop's window or tile, dressed by `hubtools::wb_visuals`)
     /// unless its face needs more room than `ui` has ([`Home::fit`]); then the one notice in
     /// its place, with the desktop's `hint`. A tool taller than `ui` scrolls with the desktop's
-    /// `scroller`, or egui's bar in the theme's colours. Returns whether the tool was drawn.
+    /// `scroller`, or egui's bar in the theme's colours. `keys`: the tool has the keyboard
+    /// (the front window, the focused tile, and nothing over the desktop owns it). Returns
+    /// whether the tool was drawn.
     #[allow(clippy::too_many_arguments)]
     pub fn tool_in(
         &mut self,
         ui: &mut Ui,
         tool: Tool,
+        keys: bool,
         data: &Data,
         save: &Save,
         out: &mut Vec<WbOut>,
@@ -722,6 +728,9 @@ impl Home {
             ),
             None => (ui.max_rect(), scroll_bar()),
         };
+        if tool == Tool::System {
+            self.system.keys = keys;
+        }
         let desktop = save.firmware_def(data).desktop;
         let need = Self::fit(tool, desktop, data);
         if let Some(need) = need
@@ -742,9 +751,11 @@ impl Home {
         }
         match scroller {
             Some(s) => (s.show)(ui, Id::new(salt), &mut |ui| {
-                self.tool_body(ui, tool, data, save, out)
+                self.tool_body(ui, tool, keys, data, save, out)
             }),
-            None => scrolled(ui, salt, |ui| self.tool_body(ui, tool, data, save, out)),
+            None => scrolled(ui, salt, |ui| {
+                self.tool_body(ui, tool, keys, data, save, out)
+            }),
         }
         true
     }
@@ -755,6 +766,7 @@ impl Home {
         &mut self,
         child: &mut Ui,
         tool: Tool,
+        keys: bool,
         data: &Data,
         save: &Save,
         out: &mut Vec<WbOut>,
@@ -875,7 +887,7 @@ impl Home {
             {
                 return;
             }
-            Tool::Game(..) => self.play(child, data, save, tool, out),
+            Tool::Game(..) => self.play(child, data, save, tool, keys, out),
         }
         if let Some(id) = dial {
             self.dial_from(tool, id, save);
@@ -1170,10 +1182,27 @@ pub(crate) mod tests {
         rect: Rect,
         events: Vec<egui::Event>,
     ) -> Vec<WbOut> {
+        frame_keys(h, home, data, save, tool, rect, false, events)
+    }
+
+    /// [`frame_at`], saying whether the tool has the keyboard.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn frame_keys(
+        h: &mut Harness,
+        home: &mut Home,
+        data: &Data,
+        save: &Save,
+        tool: Tool,
+        rect: Rect,
+        keys: bool,
+        events: Vec<egui::Event>,
+    ) -> Vec<WbOut> {
         let mut out = Vec::new();
         h.frame(events, |ui| {
             let mut child = ui.new_child(UiBuilder::new().max_rect(rect));
-            let drawn = home.tool_in(&mut child, tool, data, save, &mut out, None, None, "test");
+            let drawn = home.tool_in(
+                &mut child, tool, keys, data, save, &mut out, None, None, "test",
+            );
             assert!(drawn, "{tool:?} drawn at {rect:?}, which it can't take");
         });
         out
@@ -1309,6 +1338,7 @@ pub(crate) mod tests {
                 drawn = home.tool_in(
                     &mut child,
                     tool,
+                    false,
                     data,
                     save,
                     &mut Vec::new(),

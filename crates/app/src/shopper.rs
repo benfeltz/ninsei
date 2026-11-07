@@ -645,7 +645,9 @@ mod tests {
                 _ => ui.max_rect(),
             };
             let mut child = ui.new_child(UiBuilder::new().max_rect(r));
-            home.tool_in(&mut child, tool, data, save, &mut out, None, None, "test");
+            home.tool_in(
+                &mut child, tool, false, data, save, &mut out, None, None, "test",
+            );
         });
         out
     }

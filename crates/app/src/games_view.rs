@@ -348,7 +348,7 @@ fn pennant(p: &egui::Painter, rect: Rect, color: Color32) {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::home::tests::{deck, frame};
+    use crate::home::tests::{deck, frame_keys};
     use crate::home::{Home, WbOut};
     use crate::uitest::{Harness, key};
     use egui::Id;
@@ -364,6 +364,32 @@ mod tests {
         s
     }
 
+    /// One frame of `tool`'s window, 880 x 500, with the keyboard or without.
+    fn frame_with(
+        h: &mut Harness,
+        home: &mut Home,
+        data: &Data,
+        save: &Save,
+        tool: Tool,
+        keys: bool,
+        events: Vec<egui::Event>,
+    ) -> Vec<WbOut> {
+        let rect = Rect::from_min_size(Pos2::ZERO, vec2(880.0, 500.0));
+        frame_keys(h, home, data, save, tool, rect, keys, events)
+    }
+
+    /// One frame of `tool`'s window with the keyboard.
+    fn frame(
+        h: &mut Harness,
+        home: &mut Home,
+        data: &Data,
+        save: &Save,
+        tool: Tool,
+        events: Vec<egui::Event>,
+    ) -> Vec<WbOut> {
+        frame_with(h, home, data, save, tool, true, events)
+    }
+
     fn tool(id: &str) -> Tool {
         Tool::game(id, GameCopy::Cracked).unwrap()
     }
@@ -374,7 +400,6 @@ mod tests {
         let save = gamer(&data);
         let mut h = Harness::new(1280.0, 800.0);
         let mut home = Home::new(Vec::new());
-        home.focused = true;
         let out = frame(&mut h, &mut home, &data, &save, tool(id), Vec::new());
         (h, home, data, save, out)
     }
@@ -405,12 +430,18 @@ mod tests {
         let (mut h, mut home, data, save, _) = open("minefield");
         let t = tool("minefield");
         let at = home.game(t).unwrap().cursor();
-        home.focused = false;
-        frame(&mut h, &mut home, &data, &save, t, key(Key::ArrowRight));
+        frame_with(
+            &mut h,
+            &mut home,
+            &data,
+            &save,
+            t,
+            false,
+            key(Key::ArrowRight),
+        );
         let g = home.game(t).unwrap();
         assert!(g.paused(), "it pauses when the keys go elsewhere");
         assert_eq!(g.cursor(), at, "and no key reaches it");
-        home.focused = true;
         frame(&mut h, &mut home, &data, &save, t, Vec::new());
         assert!(
             !home.game(t).unwrap().paused(),
@@ -418,9 +449,7 @@ mod tests {
         );
         // Paused by the player, it stays paused when the keys come back.
         frame(&mut h, &mut home, &data, &save, t, key(Key::P));
-        home.focused = false;
-        frame(&mut h, &mut home, &data, &save, t, Vec::new());
-        home.focused = true;
+        frame_with(&mut h, &mut home, &data, &save, t, false, Vec::new());
         frame(&mut h, &mut home, &data, &save, t, Vec::new());
         assert!(home.game(t).unwrap().paused());
     }
@@ -596,7 +625,6 @@ mod tests {
             let t = Tool::game("nibbler", copy).unwrap();
             let mut h = Harness::new(1280.0, 800.0);
             let mut home = Home::new(Vec::new());
-            home.focused = true;
             frame(&mut h, &mut home, &data, &save, t, Vec::new());
             assert_eq!(home.tune, Some(TuneCue::Play(intro.clone())), "{copy:?}");
             assert!(
@@ -620,7 +648,6 @@ mod tests {
         let t = tool("blox");
         let mut h = Harness::new(1280.0, 800.0);
         let mut home = Home::new(Vec::new());
-        home.focused = true;
         frame(&mut h, &mut home, &data, &save, t, Vec::new());
         let mut skip = vec![egui::Event::PointerMoved(pos2(400.0, 200.0))];
         skip.extend(key(Key::Space));

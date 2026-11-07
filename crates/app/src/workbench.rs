@@ -403,12 +403,12 @@ impl DesktopView for Workbench {
                     if !live {
                         child.disable();
                     }
-                    // The window on top has the keyboard.
-                    home.focused = live && top;
                     let hint = crate::home::drag_hint(pos.y, kit::size::SCREEN_BAR_H);
+                    // The window on top has the keyboard.
                     home.tool_in(
                         &mut child,
                         tool,
+                        live && top,
                         data,
                         save,
                         out,
