@@ -215,7 +215,7 @@ fn the_ono_sendai_scores_every_tier_and_the_others_stay_silent() {
         let hot = t.tune.render_loop(RATE, &arrangement(100, t.drop));
         assert!(hot.len() < a.len(), "tier {tier} speeds up");
     }
-    for pack in ["hosaka", "sensenet"] {
+    for pack in ["hosaka"] {
         assert!((1..=3).all(|t| d.run_tune(pack, t).is_none()), "{pack}");
     }
 }

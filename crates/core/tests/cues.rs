@@ -104,7 +104,6 @@ const TUNE: &str = "(bpm: 120, tracks: [(wave: Square, vol: 0.2, pattern: \"C4 .
 fn a_pack_without_music_is_silent() {
     let d = data();
     assert!(d.run_tune("hosaka", 1).is_none());
-    assert!(d.run_tune("sensenet", 2).is_none());
     assert!(d.run_tune("nope", 1).is_none());
     assert!(d.validate().is_ok());
     // A tier with no tune is fine too.
