@@ -1177,10 +1177,10 @@ impl App {
         }
     }
 
-    /// Whether something already has the keyboard (a BBS, a conversation), so the sound
-    /// pop-out can't open over it.
+    /// Whether something already has the keyboard (a BBS, a conversation, a suite dialog
+    /// waiting to be dismissed), so the sound pop-out can't open over it.
     fn modal_up(&self) -> bool {
-        self.bbs.is_some() || self.game.encounter.is_some()
+        self.bbs.is_some() || self.game.encounter.is_some() || !self.suite.dialogs.is_empty()
     }
 
     fn status_bar(&mut self, ui: &mut egui::Ui, pal: &theme::Palette) -> Vec<Request> {
@@ -1774,6 +1774,35 @@ mod tests {
             assert!(app.sound_popup.is_open());
             on_the_line(&mut h, &mut app, Vec::new());
             assert!(!app.sound_popup.is_open());
+        }
+
+        #[test]
+        fn the_suite_s_dialogs_come_one_at_a_time() {
+            let (mut h, mut app) = running("hosaka");
+            for _ in 0..3 {
+                frame(&mut h, &mut app, Vec::new());
+            }
+            let notice = || ninsei_core::suite::Notice {
+                title: "Notice".into(),
+                lines: vec!["Filed.".into()],
+            };
+            // A notice waiting: Sound... stands down.
+            app.suite.dialogs.push(notice());
+            assert!(app.modal_up());
+            // The pop-out open, then a notice arrives: the pop-out gives way to it.
+            app.suite.dialogs.clear();
+            assert!(!app.modal_up());
+            app.sound_popup.open(volume::Level::of(&app.save));
+            frame(&mut h, &mut app, Vec::new());
+            assert!(app.sound_popup.is_open());
+            app.suite.dialogs.push(notice());
+            frame(&mut h, &mut app, Vec::new());
+            assert!(!app.sound_popup.is_open());
+            assert_eq!(
+                app.suite.dialogs.len(),
+                1,
+                "the notice is the one dialog up"
+            );
         }
     }
 
