@@ -29,8 +29,6 @@ pub struct NightComm {
     pub(crate) intel_list: List,
     pub(crate) wardial_list: List,
     pub(crate) ranges_list: List,
-    /// iNTEL has no box under its list: its mark goes on the legend's border.
-    mark_on_legend: bool,
     /// TERM's command line.
     pub term: ninsei_term::LineEditor,
     /// What TERM has printed, oldest first.
@@ -56,7 +54,6 @@ impl Default for NightComm {
             intel_list: List::default(),
             wardial_list: List::default(),
             ranges_list: List::default(),
-            mark_on_legend: false,
             term: ninsei_term::LineEditor::new(TERM_HISTORY),
             term_lines: vec![
                 "NiGHTCOMM 3.1 TERM".to_string(),
@@ -232,8 +229,10 @@ pub fn show(
         tool: ninsei_core::hub::Tool::NightComm,
     };
     let mut legend: Vec<String> = Vec::new();
+    // Drawn this frame: iNTEL has no box under its list, so its mark goes on the legend's.
+    let mut mark_on_legend = false;
     match nc.tab {
-        Tab::Intel => intel(&ctx, save, nc, &keys, inner, dial, &mut legend),
+        Tab::Intel => mark_on_legend = intel(&ctx, save, nc, &keys, inner, dial, &mut legend),
         Tab::Wardial => wardial(&ctx, data, save, nc, &keys, scan, inner, out, &mut legend),
         Tab::Ranges => ranges(&ctx, data, save, nc, &keys, inner, &mut legend),
         Tab::Term => term(
@@ -295,7 +294,7 @@ pub fn show(
     }
     // iNTEL's place in its list, on the legend's border when there's no box under the list:
     // after the legend, in the room it leaves.
-    if nc.tab == Tab::Intel && nc.mark_on_legend {
+    if mark_on_legend {
         nc.intel_list
             .mark(&g, &p, 1, g.rows - 1, g.cols - 2, c, ink());
     }
@@ -373,6 +372,8 @@ fn result_glyph(e: RunEnd) -> char {
     }
 }
 
+/// iNTEL: the numbers you know, their heat and their runs. Returns whether its mark goes on
+/// the legend's border (no box under the list), for `show` to draw after the legend.
 #[allow(clippy::too_many_arguments)]
 fn intel(
     cx: &Ctx,
@@ -382,7 +383,7 @@ fn intel(
     (c0, r0, w, h): (usize, usize, usize, usize),
     dial: &mut Option<u32>,
     legend: &mut Vec<String>,
-) {
+) -> bool {
     let (g, p) = (cx.g, cx.p);
     for c in &keys.text {
         if *c == 's' {
@@ -513,9 +514,8 @@ fn intel(
     }
     // Where you are goes in the border under the list, once what shares that border is
     // drawn: the boxes below, or (with none) the legend, which `show` draws last.
-    nc.mark_on_legend = !detail;
     if !detail {
-        return;
+        return true;
     }
     // The picked number, and the watched lines beside it.
     let top = r0 + list_h;
@@ -524,7 +524,7 @@ fn intel(
     let Some(e) = nc.sel.and_then(|id| save.entry(id)) else {
         cx.boxed(c0, top, dw, DETAIL_ROWS, "");
         nc.intel_list.mark(g, p, c0, top, w, c0, ink());
-        return;
+        return false;
     };
     cx.boxed(
         c0,
@@ -584,6 +584,7 @@ fn intel(
         }
     }
     nc.intel_list.mark(g, p, c0, top, w, c0, ink());
+    false
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -1518,6 +1519,11 @@ mod tests {
                 Vec::new(),
             );
         }
+        painted_rows(&h)
+    }
+
+    /// Each row of glyphs the last frame painted, joined left to right.
+    fn painted_rows(h: &Harness) -> Vec<String> {
         let mut glyphs: Vec<(i32, f32, String)> = h
             .painted()
             .iter()
@@ -1555,6 +1561,41 @@ mod tests {
         assert!(
             tall.iter().any(|r| r.contains("last2:EF")),
             "in the box: {tall:?}"
+        );
+    }
+
+    #[test]
+    fn a_page_key_from_term_paints_no_stale_intel_mark() {
+        let data = Data::builtin().unwrap();
+        let save = big_book(&data);
+        let mut h = Harness::new(1280.0, 800.0);
+        crate::uitest::themed(&h.ctx, &data);
+        let mut home = Home::new(Vec::new());
+        // NiGHTCOMM's smallest tile: iNTEL's mark goes on the legend's border.
+        let rect =
+            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(56.0 * 8.5, 12.0 * 17.0 + 1.0));
+        let draw = |h: &mut Harness, home: &mut Home, events| {
+            crate::home::tests::frame_at(h, home, &data, &save, Tool::NightComm, rect, events);
+        };
+        draw(&mut h, &mut home, Vec::new());
+        draw(&mut h, &mut home, Vec::new());
+        let len = save.phonebook.len();
+        let mark = format!("/{len}");
+        assert!(
+            painted_rows(&h).iter().any(|r| r.contains(&mark)),
+            "iNTEL's mark is there"
+        );
+        // To TERM, then back with 1 from its empty line: the page turns after TERM drew.
+        for events in [text("4"), Vec::new(), Vec::new()] {
+            draw(&mut h, &mut home, events);
+        }
+        assert_eq!(home.nightcomm.tab, Tab::Term);
+        draw(&mut h, &mut home, text("1"));
+        assert_eq!(home.nightcomm.tab, Tab::Intel, "the page key turned it");
+        assert!(
+            !painted_rows(&h).iter().any(|r| r.contains(&mark)),
+            "TERM's frame carries no iNTEL mark: {:?}",
+            painted_rows(&h)
         );
     }
 }
