@@ -63,7 +63,7 @@ These are the numbers the kit draws to. Change them here and in `kit::liza::size
 | Push button | 20px, round-rect, 1px frame, text centred; inverted while pressed | 22px, 8px corners, at least 60px wide, 12px either side of the text |
 | Default button | a 3px ring 4px outside the button | the same; Enter presses it |
 | Cancel | Esc or ⌘. | Esc (no ⌘: keys are browser-safe) |
-| Check box | 12×12, an X corner to corner when on, label 5px after | the same |
+| Check box | 12×12, an X corner to corner when on, label 5px after | the same; radio buttons a 12px circle with a dot; disabled, drawn at half strength |
 | Disabled | gray text | the text at half strength |
 
 ## Alert
@@ -74,4 +74,4 @@ These are the numbers the kit draws to. Change them here and in `kit::liza::size
 | Icon | 32×32 (note, caution, stop), top left | the glyph at 28px, top left |
 | Text | the message beside the icon, wrapped | the title in bold, then the message, wrapped to the box |
 | Buttons | along the bottom, the action at the right, Cancel left of it | the same, 10px apart, right-aligned under the text |
-| Keys | Enter for the default, Esc to cancel | the same, while no text field holds the keyboard (the run's Message box keeps its Enter) |
+| Keys | Enter for the default, Esc to cancel | the same, on a fresh press (a held key goes once), while no text field held the keyboard last frame either (the run's Message box keeps its Enter, and the Esc that leaves it doesn't cancel); the alert takes the key, so nothing after it sees it |
