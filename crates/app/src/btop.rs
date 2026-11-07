@@ -70,13 +70,13 @@ pub fn boxed(ui: &mut Ui, p: &Palette, title: &str, note: &str, body: impl FnOnc
     if n > 0 {
         g.note(&painter, g.cols - n - 4, g.rows - 1, &note, p.dim);
     }
-    if g.cols > 2 && g.rows > 2 {
-        // The body sits where it always did: 10px and 12px inside the border line.
-        let line = g.at(0, 0, 1, 1).center();
-        let end = g.at(g.cols - 1, g.rows - 1, 1, 1).center();
-        let inner = Rect::from_min_max(line, end).shrink2(vec2(10.0, 12.0));
-        ui.scope_builder(UiBuilder::new().max_rect(inner), body);
-    }
+    // The body sits where it always did: 10px and 12px inside the border line; in a box too
+    // small for that, it still gets the room (it may hold the only command line on screen).
+    let line = g.at(0, 0, 1, 1).center();
+    let end = g.at(g.cols - 1, g.rows - 1, 1, 1).center();
+    let inner = Rect::from_min_max(line, end).shrink2(vec2(10.0, 12.0));
+    let inner = if inner.is_positive() { inner } else { room };
+    ui.scope_builder(UiBuilder::new().max_rect(inner), body);
     ui.allocate_rect(room, Sense::hover());
 }
 
@@ -826,5 +826,19 @@ mod tests {
         let wide = painted(330.0);
         assert!(wide.contains("NINSEICOMMUNITYCOLLEGE"), "{wide}");
         assert!(wide.ends_with('…'), "the note, cut: {wide}");
+    }
+
+    #[test]
+    fn a_box_too_small_for_its_frame_still_draws_its_body() {
+        let data = ninsei_core::Data::builtin().unwrap();
+        let p = Palette::from_def(&data.themes[0]);
+        let mut h = Harness::new(800.0, 600.0);
+        let mut ran = false;
+        h.frame(Vec::new(), |ui| {
+            let room = Rect::from_min_size(pos2(10.0, 10.0), vec2(40.0, 24.0));
+            let mut child = ui.new_child(UiBuilder::new().max_rect(room));
+            boxed(&mut child, &p, "terminal", "help", |_| ran = true);
+        });
+        assert!(ran);
     }
 }

@@ -105,40 +105,42 @@ pub fn window(ui: &mut Ui, p: &Palette, num: usize, heading: &str, body: impl Fn
     );
     painter.rect_filled(g.rect, 0.0, p.bg);
     g.frame_double(&painter, 0, 0, g.cols, g.rows);
-    if g.cols < 10 || g.rows < 5 {
-        ui.allocate_rect(full, Sense::hover());
-        return;
-    }
-    // [■] and [n] in the top edge, the border broken around them.
-    g.paper = p.bg;
-    g.vision = true;
-    g.title(&painter, 1, 0, "[■]", p.dim);
-    let number = format!("[{num}]");
-    g.title(
-        &painter,
-        g.cols - number.chars().count() - 3,
-        0,
-        &number,
-        p.dim,
-    );
-    // The document's heading, if it has one of its own, on the first row.
-    let top = if heading.is_empty() {
-        1
+    // Too small for the frame's furniture, the body still gets the window's room: it may hold
+    // the only command line on screen.
+    let inner = if g.cols < 10 || g.rows < 4 {
+        area
     } else {
-        let w = g.cols - 2;
-        let name = cut(heading, w.saturating_sub(2));
-        let n = name.chars().count();
-        g.fill(&painter, 1, 1, w, 1, p.panel);
-        g.text(&painter, 1 + (w - n) / 2, 1, &name, p.bright);
-        2
+        // [■] and [n] in the top edge, the border broken around them.
+        g.paper = p.bg;
+        g.vision = true;
+        g.title(&painter, 1, 0, "[■]", p.dim);
+        let number = format!("[{num}]");
+        g.title(
+            &painter,
+            g.cols - number.chars().count() - 3,
+            0,
+            &number,
+            p.dim,
+        );
+        // The document's heading, if it has one of its own, on the first row.
+        let top = if heading.is_empty() || g.rows < 5 {
+            1
+        } else {
+            let w = g.cols - 2;
+            let name = cut(heading, w.saturating_sub(2));
+            let n = name.chars().count();
+            g.fill(&painter, 1, 1, w, 1, p.panel);
+            g.text(&painter, 1 + (w - n) / 2, 1, &name, p.bright);
+            2
+        };
+        // The body: under the heading (or the top edge), inside the double line (it runs
+        // through the outer cells' centres).
+        let edge = g.at(0, g.rows - 1, g.cols, 1).center().y;
+        Rect::from_min_max(
+            g.at(1, top, 1, 1).min + vec2(2.0, 2.0),
+            pos2(g.at(g.cols - 1, 0, 1, 1).center().x - 4.0, edge - 4.0),
+        )
     };
-    // The body: under the heading (or the top edge), inside the double line (it runs through
-    // the outer cells' centres).
-    let edge = g.at(0, g.rows - 1, g.cols, 1).center().y;
-    let inner = Rect::from_min_max(
-        g.at(1, top, 1, 1).min + vec2(2.0, 2.0),
-        pos2(g.at(g.cols - 1, 0, 1, 1).center().x - 4.0, edge - 4.0),
-    );
     ui.scope_builder(
         UiBuilder::new()
             .max_rect(inner)
@@ -1704,5 +1706,21 @@ mod tests {
             (headed - bare - size::ROW_H).abs() < 0.5,
             "a heading takes one row"
         );
+    }
+
+    #[test]
+    fn a_window_too_small_for_its_frame_still_draws_its_body() {
+        let d = Data::builtin().unwrap();
+        let p = Palette::from_def(&d.themes[0]);
+        let mut h = Harness::new(900.0, 600.0);
+        for size in [vec2(400.0, 60.0), vec2(60.0, 300.0), vec2(30.0, 30.0)] {
+            let mut ran = false;
+            h.frame(Vec::new(), |ui| {
+                let pane = Rect::from_min_size(egui::pos2(20.0, 30.0), size);
+                let mut child = ui.new_child(UiBuilder::new().max_rect(pane));
+                window(&mut child, &p, 6, "ACTIVITY LOG", |_| ran = true);
+            });
+            assert!(ran, "the body (and its command line) at {size:?}");
+        }
     }
 }
