@@ -1401,13 +1401,14 @@ mod tests {
     #[test]
     fn a_short_tile_scrolls_intel_to_the_picked_number_and_says_where() {
         let data = Data::builtin().unwrap();
-        let save = nightcomm_deck(&data);
+        let save = big_book(&data);
         let mut h = Harness::new(1280.0, 800.0);
         crate::uitest::themed(&h.ctx, &data);
         let mut home = Home::new(Vec::new());
-        // Eight rows of 17 points: the list shows five numbers of the seven, and no box
-        // under it.
-        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(560.0, 8.0 * 17.0));
+        // NiGHTCOMM's smallest tile, 56x12: the list shows nine of the sixteen numbers, and
+        // no box under it.
+        let rect =
+            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(56.0 * 8.5, 12.0 * 17.0 + 1.0));
         let draw = |h: &mut Harness, home: &mut Home, events| {
             crate::home::tests::frame_at(h, home, &data, &save, Tool::NightComm, rect, events);
         };

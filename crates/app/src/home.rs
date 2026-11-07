@@ -688,9 +688,9 @@ impl Home {
         true
     }
 
-    /// Draws a tool's contents (everything but the Shell) into `child`. Desktops call it
-    /// through [`Home::tool_in`], inside whatever frame they give a tool: a window, a tile.
-    pub fn tool_body(
+    /// Draws a tool's contents (everything but the Shell) into `child`. Only through
+    /// [`Home::tool_in`], which knows the room is enough.
+    fn tool_body(
         &mut self,
         child: &mut Ui,
         tool: Tool,
@@ -1038,7 +1038,9 @@ pub(crate) mod tests {
         frame_at(h, home, data, save, tool, rect, events)
     }
 
-    /// One frame of `tool` drawn in `rect`, with these events. Returns what it sent.
+    /// One frame of `tool` drawn in `rect` through the desktops' one door (so never at a size
+    /// its face can't take: a test that tries fails here), with these events. Returns what
+    /// it sent.
     pub(crate) fn frame_at(
         h: &mut Harness,
         home: &mut Home,
@@ -1051,7 +1053,8 @@ pub(crate) mod tests {
         let mut out = Vec::new();
         h.frame(events, |ui| {
             let mut child = ui.new_child(UiBuilder::new().max_rect(rect));
-            home.tool_body(&mut child, tool, data, save, &mut out);
+            let drawn = home.tool_in(&mut child, tool, data, save, &mut out, None, "test");
+            assert!(drawn, "{tool:?} drawn at {rect:?}, which it can't take");
         });
         out
     }
