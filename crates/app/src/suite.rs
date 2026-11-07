@@ -1049,7 +1049,9 @@ impl Panes<'_> {
     fn suite_vis(&mut self, ui: &mut Ui) {
         use ninsei_core::scope;
         let p = self.pal;
-        let (samples, rate) = (self.scope, self.scope_rate);
+        let (samples, rate) = ((self.hear)(), self.scope_rate);
+        crate::vispane::alive(ui, &samples);
+        let samples = &samples[..];
         // A report's figures are read, not watched: the bands take a new reading a few times a
         // second, like the level.
         let bands: Vec<f32> = crate::vispane::bars(ui, "suite-vis", samples, rate, SUITE_BANDS)

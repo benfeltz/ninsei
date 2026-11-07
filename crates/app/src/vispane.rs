@@ -59,6 +59,15 @@ pub const WINDOW: usize = 2048;
 /// How often it redraws while it's on screen.
 pub const FRAME_MS: u64 = 33;
 
+/// Keeps the pane moving while it has something to show: asks for the next frame while any of
+/// `samples` is sounding, and nothing in silence.
+pub fn alive(ui: &Ui, samples: &[f32]) {
+    if samples.iter().any(|s| *s != 0.0) {
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_millis(FRAME_MS));
+    }
+}
+
 /// `n` spectrum bars of `samples` as a meter shows them: jumping up at once and falling slowly
 /// (`scope::ballistics`), remembered under `id` between frames. While a bar is still falling
 /// it asks for the next frame; once everything is still, it stops asking.
@@ -161,7 +170,7 @@ mod tests {
                     keep: &mut keep,
                     keep_room: 0,
                     suite: &mut suite,
-                    scope: samples,
+                    hear: &|| samples.to_vec(),
                     scope_rate: 48_000,
                     out: Vec::new(),
                 };
@@ -187,5 +196,70 @@ mod tests {
         assert!(quiet.find("[   --- dB ]").is_some(), "{:?}", quiet.texts());
         let loud = pane(Chrome::Suite, &tone);
         assert!(loud.find("[ -13.5 dB ]").is_some(), "{:?}", loud.texts());
+    }
+
+    /// The run screen's dock with `extra` panes beside the terminal, drawn on chrome `c`, the
+    /// vis pane's `hear` counting how often it's asked; `front` picks the tab shown.
+    fn docked(front: crate::panes::Tab, samples: &[f32]) -> (usize, bool) {
+        use crate::panes::Tab;
+        use ninsei_core::hardware::Chrome;
+        let d = ninsei_core::Data::builtin().unwrap();
+        let g = ninsei_core::Game::new(d.clone(), 3);
+        // The two secondary panes as one leaf, as the default layouts put them.
+        let mut dock = egui_dock::DockState::new(vec![Tab::Net, Tab::Vis]);
+        if let Some(path) = dock.find_tab(&front) {
+            let _ = dock.set_active_tab(path);
+        }
+        let mut h = crate::uitest::Harness::new(1000.0, 700.0);
+        let (mut term, mut focus, mut hex, mut keep) =
+            (ninsei_term::LineEditor::new(10), false, None, Vec::new());
+        let mut suite = crate::suite::State::default();
+        let asked = std::cell::Cell::new(0);
+        let hear = || {
+            asked.set(asked.get() + 1);
+            samples.to_vec()
+        };
+        let mut repaint = false;
+        for _ in 0..40 {
+            h.frame(Vec::new(), |ui| {
+                let mut panes = crate::panes::Panes {
+                    game: &g,
+                    pal: Palette::from_def(&d.themes[0]),
+                    map: ninsei_core::netview::MapView::Iso,
+                    deck: String::new(),
+                    chrome: Chrome::Btop,
+                    corrupt: (0.0, 0),
+                    term: &mut term,
+                    focus_input: &mut focus,
+                    bbs_open: false,
+                    hex: &mut hex,
+                    keep: &mut keep,
+                    keep_room: 0,
+                    suite: &mut suite,
+                    hear: &hear,
+                    scope_rate: 48_000,
+                    out: Vec::new(),
+                };
+                egui_dock::DockArea::new(&mut dock).show_inside(ui, &mut panes);
+            });
+            repaint = h.ctx.has_requested_repaint();
+        }
+        (asked.get(), repaint)
+    }
+
+    #[test]
+    fn a_hidden_vis_pane_costs_nothing_and_silence_asks_for_no_frames() {
+        use crate::panes::Tab;
+        let tone: Vec<f32> = (0..WINDOW).map(|i| 0.3 * (i as f32 * 0.2).sin()).collect();
+        // Behind the net pane: never asked for samples.
+        let (asked, _) = docked(Tab::Net, &tone);
+        assert_eq!(asked, 0, "a hidden tab takes no samples");
+        // In front: asked every frame, and it keeps moving while something plays...
+        let (asked, repaint) = docked(Tab::Vis, &tone);
+        assert!(asked >= 40, "{asked}");
+        assert!(repaint, "playing: it wants the next frame");
+        // ...and in silence it settles and asks for nothing.
+        let (_, repaint) = docked(Tab::Vis, &[0.0; WINDOW]);
+        assert!(!repaint, "silence is still");
     }
 }

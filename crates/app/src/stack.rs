@@ -469,6 +469,8 @@ impl ChromeView for Stack {
     /// The Scope card: a 1-bit oscilloscope in a field, ink on paper.
     fn vis(&self, p: &mut Panes, ui: &mut Ui) {
         let ink = p.pal.fg;
+        let samples = (p.hear)();
+        crate::vispane::alive(ui, &samples);
         ui.label(RichText::new("Speaker").strong().color(ink));
         ui.add_space(4.0);
         egui::Frame::new()
@@ -477,7 +479,7 @@ impl ChromeView for Stack {
             .show(ui, |ui| {
                 // Ink only: a dotted graticule, not a grey line.
                 let centre = crate::vispane::Centre::Dots(ink);
-                crate::vispane::trace(ui, &p.pal, p.scope, centre)
+                crate::vispane::trace(ui, &p.pal, &samples, centre)
             });
     }
 

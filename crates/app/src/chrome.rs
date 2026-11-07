@@ -97,8 +97,10 @@ pub trait ChromeView {
     }
     /// The vis pane (secondary): what the speaker is playing.
     fn vis(&self, p: &mut Panes, ui: &mut Ui) {
+        let samples = (p.hear)();
+        crate::vispane::alive(ui, &samples);
         let centre = crate::vispane::Centre::Line(p.pal.faint);
-        crate::vispane::trace(ui, &p.pal, p.scope, centre);
+        crate::vispane::trace(ui, &p.pal, &samples, centre);
     }
 
     /// The tab brought forward when ICE rezzes or the run ends.
@@ -239,7 +241,9 @@ impl ChromeView for Btop {
         crate::btop::sound_popup(ctx, cx)
     }
     fn vis(&self, p: &mut Panes, ui: &mut Ui) {
-        crate::btop::vis_box(ui, &p.pal, p.scope, p.scope_rate);
+        let samples = (p.hear)();
+        crate::vispane::alive(ui, &samples);
+        crate::btop::vis_box(ui, &p.pal, &samples, p.scope_rate);
     }
 }
 

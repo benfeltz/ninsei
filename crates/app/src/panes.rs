@@ -121,9 +121,9 @@ pub struct Panes<'a> {
     pub keep_room: usize,
     /// The suite chrome's state: the sheet's cursor and sort, and its dialogs.
     pub suite: &'a mut crate::suite::State,
-    /// What the speaker is playing right now (the vis pane's samples, oldest first), and at
-    /// what rate.
-    pub scope: &'a [f32],
+    /// What the speaker is playing right now (the vis pane's samples, oldest first), asked
+    /// for only by a vis pane that's drawn, and the rate they're at.
+    pub hear: &'a dyn Fn() -> Vec<f32>,
     pub scope_rate: u32,
     pub out: Vec<Request>,
 }
@@ -911,7 +911,7 @@ mod tests {
                     keep: &mut *keep,
                     keep_room: room,
                     suite: &mut suite,
-                    scope: &[],
+                    hear: &Vec::new,
                     scope_rate: 0,
                     out: Vec::new(),
                 };

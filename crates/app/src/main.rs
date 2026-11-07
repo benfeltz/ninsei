@@ -1547,14 +1547,10 @@ impl App {
         }
 
         fit_tools(&mut self.dock, &self.game);
-        // The vis pane's samples: only taken while it's in the layout, and it keeps moving
-        // while it's on screen.
-        let scope = if self.dock.find_tab(&Tab::Vis).is_some() {
-            ctx.request_repaint_after(std::time::Duration::from_millis(vispane::FRAME_MS));
-            self.speaker.listen(vispane::WINDOW)
-        } else {
-            Vec::new()
-        };
+        // The vis pane's samples: taken only by a vis pane that's drawn (a tab behind another
+        // isn't), which asks for frames only while it has something to show.
+        let speaker = &self.speaker;
+        let hear = || speaker.listen(vispane::WINDOW);
         let scope_rate = self.speaker.rate().unwrap_or(0);
         let mut panes = Panes {
             game: &self.game,
@@ -1574,7 +1570,7 @@ impl App {
             keep_room: (self.save.stash_cap(&self.data.rig) as usize)
                 .saturating_sub(self.save.stash.len()),
             suite: &mut self.suite,
-            scope: &scope,
+            hear: &hear,
             scope_rate,
             out: Vec::new(),
         };
@@ -1783,6 +1779,28 @@ mod tests {
         }
 
         #[test]
+        fn a_bought_sound_scope_is_on_the_run_screen() {
+            let (mut h, mut app) = running("onosendai");
+            app.save.bank = 1000;
+            assert!(app.dock.find_tab(&Tab::Vis).is_none(), "not owned yet");
+            let ctx = h.ctx.clone();
+            app.order(&ctx, ninsei_core::shopper::Item::Pane("vis".into()));
+            assert!(app.save.has_pane(&app.data, "vis"));
+            assert!(
+                app.dock.find_tab(&Tab::Vis).is_some(),
+                "on the run screen at once"
+            );
+            // Brought forward, the run screen draws it.
+            let path = app.dock.find_tab(&Tab::Vis).unwrap();
+            let _ = app.dock.set_active_tab(path);
+            frame(&mut h, &mut app, Vec::new());
+            frame(&mut h, &mut app, Vec::new());
+            assert!(app.dock.find_tab(&Tab::Vis).is_some());
+            // And this deck's layout keeps it.
+            assert!(app.extra_panes().contains(&Tab::Vis));
+        }
+
+        #[test]
         fn the_suite_s_dialogs_come_one_at_a_time() {
             let (mut h, mut app) = running("hosaka");
             for _ in 0..3 {
@@ -1823,6 +1841,11 @@ mod tests {
                     |d: &DockState<Tab>| d.iter_all_tabs().map(|(_, t)| *t).collect::<Vec<_>>();
                 assert_eq!(tabs(&back), tabs(&dock));
                 assert_eq!(dock.find_tab(&Tab::Net).is_some(), !extra.is_empty());
+                assert_eq!(
+                    dock.find_tab(&Tab::Vis).is_some(),
+                    extra.contains(&Tab::Vis),
+                    "{chrome:?}"
+                );
             }
         }
     }
