@@ -236,7 +236,7 @@ fn every_scored_pack_has_a_tune_per_tier_that_sits_under_a_cracktro() {
         .filter(|p| !p.music.is_empty())
         .map(|p| p.id.as_str())
         .collect();
-    for pack in ["ono", "sensenet"] {
+    for pack in ["ono", "sensenet", "hosaka"] {
         assert!(scored.contains(&pack), "{pack} has music: {scored:?}");
     }
     // The quietest cracktro tune: run music plays under every one of them.
