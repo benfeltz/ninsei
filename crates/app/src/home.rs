@@ -825,6 +825,12 @@ impl Home {
         }
     }
 
+    /// Whether the Shell's output shows a line containing `needle` (tests).
+    #[cfg(test)]
+    pub(crate) fn shell_has(&self, needle: &str) -> bool {
+        self.shell_lines.iter().any(|l| l.contains(needle))
+    }
+
     /// What's typed in the Shell's command line.
     #[cfg(test)]
     pub fn shell_text(&self) -> String {
