@@ -10,8 +10,12 @@ use crate::hub::{Save, Tool};
 
 /// Workspaces the tiling desktop starts with.
 pub const BASE_WORKSPACES: usize = 3;
-/// Share of the width the master tile gets once there's a stack beside it.
-pub const MASTER_FRAC: f32 = 0.58;
+/// Share of the width the master tile gets once there's a stack beside it, in percent.
+pub const MASTER_PCT: u8 = 58;
+/// How far the master's share can shrink and grow (percent), and one step of it.
+pub const MASTER_MIN: u8 = 30;
+pub const MASTER_MAX: u8 = 80;
+pub const MASTER_STEP: u8 = 5;
 
 /// What an add-on does.
 #[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -113,6 +117,28 @@ pub struct Tiling {
     pub workspaces: Vec<Vec<Tool>>,
     pub current: usize,
     pub focus: usize,
+    /// Each workspace's shape (full screen, the master's share), by index. Missing entries
+    /// (an older save, a workspace never reshaped) are the default shape.
+    #[serde(default)]
+    pub shape: Vec<Shape>,
+}
+
+/// How a workspace lays out its tiles. It knows nothing about what's in them.
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Shape {
+    /// The focused tile covers the whole workspace; the others wait underneath.
+    pub full: bool,
+    /// The master's share of the width, in percent (`MASTER_MIN..=MASTER_MAX`).
+    pub master: u8,
+}
+
+impl Default for Shape {
+    fn default() -> Self {
+        Self {
+            full: false,
+            master: MASTER_PCT,
+        }
+    }
 }
 
 impl Default for Tiling {
@@ -121,6 +147,7 @@ impl Default for Tiling {
             workspaces: vec![vec![Tool::Shell]],
             current: 0,
             focus: 0,
+            shape: Vec::new(),
         }
     }
 }
@@ -145,8 +172,34 @@ impl Tiling {
                 }
             }
         }
+        self.shape.truncate(n);
         self.current = self.current.min(n - 1);
         self.clamp_focus();
+    }
+
+    /// The shown workspace's shape.
+    pub fn shape(&self) -> Shape {
+        self.shape.get(self.current).copied().unwrap_or_default()
+    }
+
+    fn shape_mut(&mut self) -> &mut Shape {
+        if self.shape.len() <= self.current {
+            self.shape.resize(self.current + 1, Shape::default());
+        }
+        &mut self.shape[self.current]
+    }
+
+    /// Full screen on the shown workspace, or back.
+    pub fn toggle_full(&mut self) {
+        let s = self.shape_mut();
+        s.full = !s.full;
+    }
+
+    /// Grows (positive `steps`) or shrinks the master's share by `MASTER_STEP`s, clamped.
+    pub fn resize_master(&mut self, steps: i32) {
+        let s = self.shape_mut();
+        let to = s.master as i32 + steps * MASTER_STEP as i32;
+        s.master = to.clamp(MASTER_MIN as i32, MASTER_MAX as i32) as u8;
     }
 
     fn clamp_focus(&mut self) {
@@ -224,7 +277,8 @@ impl Tiling {
     }
 
     /// Where each tile goes in `area`: one tile fills it; with more, the master takes the left
-    /// `MASTER_FRAC` and the rest stack down the right. `gap` pixels between and around tiles.
+    /// share the workspace's `Shape` says and the rest stack down the right. Full screen, only
+    /// the focused tile is laid out, over all of it. `gap` pixels between and around tiles.
     pub fn layout(&self, area: Area, gap: f32) -> Vec<(Tool, Area)> {
         let [x, y, w, h] = area;
         let (x, y, w, h) = (
@@ -234,11 +288,17 @@ impl Tiling {
             (h - 2.0 * gap).max(0.0),
         );
         let tiles = self.tiles();
+        let shape = self.shape();
+        if shape.full
+            && let Some(t) = self.focused()
+        {
+            return vec![(t, [x, y, w, h])];
+        }
         match tiles.len() {
             0 => Vec::new(),
             1 => vec![(tiles[0], [x, y, w, h])],
             n => {
-                let mw = ((w - gap) * MASTER_FRAC).floor();
+                let mw = ((w - gap) * shape.master as f32 / 100.0).floor();
                 let sx = x + mw + gap;
                 let sw = w - mw - gap;
                 let rows = (n - 1) as f32;
