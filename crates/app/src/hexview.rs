@@ -558,4 +558,59 @@ mod tests {
         draw(&mut h, &mut hb, click(five.center()));
         assert_eq!((hb.cursor, hb.ascii), (18, false), "the hex column");
     }
+
+    #[test]
+    fn the_cursor_and_the_marks_sit_on_their_bytes_cells() {
+        let data = ninsei_core::Data::builtin().unwrap();
+        let p = Palette::from_def(&data.themes[0]);
+        let mut bin = [0u8; LEN];
+        bin[18] = b'Z';
+        let mut hb = HexBuffer::open(0, bin);
+        hb.buf[20] = 0x7E; // changed since it was opened
+        hb.set_cursor(18);
+        hb.low_nibble = true;
+        let mut h = Harness::new(1000.0, 400.0);
+        h.frame(Vec::new(), |ui| grid(ui, &mut hb, &p));
+        let (five, a, z) = (glyph(&h, "5"), glyph(&h, "A"), glyph(&h, "Z"));
+        let (seven, e) = (glyph(&h, "7"), glyph(&h, "E"));
+        let rects = h.rects();
+        // The solid cursor holds both digits; the outline sits on the ASCII cell.
+        assert!(rects.iter().any(|(r, fill, _)| *fill == p.dim
+            && r.contains(five.center())
+            && r.contains(a.center())));
+        assert!(
+            rects
+                .iter()
+                .any(|(r, fill, stroke)| *fill == Color32::TRANSPARENT
+                    && *stroke == p.dim
+                    && r.contains(z.center()))
+        );
+        let lines: Vec<([egui::Pos2; 2], Stroke)> = h
+            .painted()
+            .iter()
+            .filter_map(|s| match s {
+                egui::Shape::LineSegment { points, stroke } => Some((*points, *stroke)),
+                _ => None,
+            })
+            .collect();
+        let under = |pts: &[egui::Pos2; 2], g: Rect| {
+            let (x0, x1) = (pts[0].x.min(pts[1].x), pts[0].x.max(pts[1].x));
+            (x0..=x1).contains(&g.center().x)
+                && pts[0].y >= g.bottom() - 1.0
+                && pts[0].y <= g.bottom() + 6.0
+        };
+        // The change mark runs under both digits of the changed byte.
+        assert!(
+            lines
+                .iter()
+                .any(|(pts, st)| st.color == p.bright && under(pts, seven) && under(pts, e)),
+            "the change mark under 7E: {lines:?}"
+        );
+        // The nibble mark is under the low digit only.
+        let nibble = lines
+            .iter()
+            .find(|(_, st)| st.color == p.bg && st.width == 2.0)
+            .expect("the nibble mark");
+        assert!(under(&nibble.0, a) && !under(&nibble.0, five), "{nibble:?}");
+    }
 }
