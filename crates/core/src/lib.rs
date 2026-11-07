@@ -26,6 +26,7 @@ pub mod icedb;
 pub mod intro;
 pub mod leet;
 pub mod modem;
+pub mod music;
 pub mod netview;
 pub mod network;
 pub mod nightcomm;

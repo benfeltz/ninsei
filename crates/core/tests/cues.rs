@@ -75,6 +75,72 @@ fn bad_sounds_are_caught() {
     }
 }
 
+/// The Ono-Sendai pack with `music` in place of its music section, parsed beside the others.
+fn with_music(music: &str) -> Result<Data, String> {
+    let src = include_str!("../../../data/sounds/ono.ron");
+    let at = src
+        .find("    music: [")
+        .expect("ono.ron has a music section");
+    let text = format!("{}    music: [{music}],\n)\n", &src[..at]);
+    let mut packs = vec![data::PackSrc {
+        id: "ono",
+        sounds: &text,
+    }];
+    packs.extend(
+        data::BUILTIN_SOUNDS
+            .iter()
+            .filter(|p| p.id != "ono")
+            .copied(),
+    );
+    Data::parse(Sources {
+        sounds: &packs,
+        ..Sources::builtin()
+    })
+}
+
+const TUNE: &str = "(bpm: 120, tracks: [(wave: Square, vol: 0.2, pattern: \"C4 . E4 G4\"), (wave: Noise, vol: 0.1, pattern: \"x . x .\")])";
+
+#[test]
+fn a_pack_without_music_is_silent() {
+    let d = data();
+    assert!(d.run_tune("hosaka", 1).is_none());
+    assert!(d.run_tune("sensenet", 2).is_none());
+    assert!(d.run_tune("nope", 1).is_none());
+    assert!(d.validate().is_ok());
+    // A tier with no tune is fine too.
+    let d = with_music(&format!("(tier: 2, tune: {TUNE})")).unwrap();
+    assert!(d.run_tune("ono", 2).is_some());
+    assert!(d.run_tune("ono", 1).is_none());
+}
+
+#[test]
+fn bad_music_is_caught() {
+    let bad = |music: String, says: &str| {
+        let err = with_music(&music).unwrap_err();
+        assert!(err.starts_with("sounds/ono.ron: "), "{err}");
+        assert!(err.contains(says), "{music}: {err}");
+    };
+    bad(format!("(tier: 4, tune: {TUNE})"), "tier 4");
+    bad(format!("(tier: 0, tune: {TUNE})"), "tier 0");
+    bad(
+        format!("(tier: 1, tune: {TUNE}), (tier: 1, tune: {TUNE})"),
+        "two tunes",
+    );
+    bad(
+        format!("(tier: 1, drop: Some(9), tune: {TUNE})"),
+        "drops track 9",
+    );
+    bad(
+        format!("(tier: 1, tune: {})", TUNE.replace("E4", "H4")),
+        "bad step `H4`",
+    );
+    bad(
+        format!("(tier: 1, tune: {})", TUNE.replace("bpm: 120", "bpm: 9")),
+        "bpm",
+    );
+    assert!(with_music(&format!("(tier: 1, drop: Some(1), tune: {TUNE})")).is_ok());
+}
+
 #[test]
 fn a_hop_beeps_and_a_refused_move_is_silent() {
     let mut g = Game::new(data(), 1);
