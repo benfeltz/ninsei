@@ -27,6 +27,17 @@ mod look {
     pub const ALERT_TOP: f32 = 300.0;
     /// How round the small buttons are.
     pub const SMALL_R: u8 = 6;
+    /// The Control Panel window, and where its slider and check box sit inside it.
+    pub const PANEL_W: f32 = 280.0;
+    pub const PANEL_H: f32 = 136.0;
+    pub const PANEL_PAD: f32 = 20.0;
+    pub const PANEL_TOP: f32 = 32.0;
+    pub const TRACK_DOWN: f32 = 32.0;
+    pub const NOTCH_GAP: f32 = 30.0;
+    pub const KNOB_W: f32 = 10.0;
+    pub const KNOB_H: f32 = 16.0;
+    pub const BOX_DOWN: f32 = 76.0;
+    pub const BOX: f32 = 12.0;
 }
 
 /// HyperCard's buttons are rounded, whatever pane draws them.
@@ -47,6 +58,7 @@ const MENUS: Menus = &[
             MenuPart::Glitches,
             MenuPart::Panes,
             MenuPart::Toggles,
+            MenuPart::Sound,
             MenuPart::Monitors,
             MenuPart::Decks,
         ],
@@ -309,6 +321,7 @@ impl ChromeView for Stack {
             Tab::Target => "ICE",
             Tab::Todo => "To Do",
             Tab::Hex => "Hex",
+            Tab::Vis => "Scope",
             _ => return None,
         })
     }
@@ -319,6 +332,14 @@ impl ChromeView for Stack {
 
     fn menus(&self) -> Menus {
         MENUS
+    }
+
+    fn sound(&self, ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
+        control_panel(ctx, cx)
+    }
+
+    fn sound_item(&self) -> &'static str {
+        "Control Panel..."
     }
 
     fn one_bit(&self) -> bool {
@@ -439,6 +460,23 @@ impl ChromeView for Stack {
     fn todo(&self, p: &mut Panes, ui: &mut Ui) {
         round(ui);
         p.todo(ui);
+    }
+
+    /// The Scope card: a 1-bit oscilloscope in a field, ink on paper.
+    fn vis(&self, p: &mut Panes, ui: &mut Ui) {
+        let ink = p.pal.fg;
+        let samples = (p.hear)();
+        crate::vispane::alive(ui, &samples);
+        ui.label(RichText::new("Speaker").strong().color(ink));
+        ui.add_space(4.0);
+        egui::Frame::new()
+            .stroke(Stroke::new(1.0, ink))
+            .inner_margin(egui::Margin::same(4))
+            .show(ui, |ui| {
+                // Ink only: a dotted graticule, not a grey line.
+                let centre = crate::vispane::Centre::Dots(ink);
+                crate::vispane::trace(ui, &p.pal, &samples, centre)
+            });
     }
 
     /// A fight brings up a Mac alert over the card. It's small and off to the side of the
@@ -573,6 +611,111 @@ fn alert_up(ctx: &egui::Context, g: &Game) -> bool {
         && alert_key(g).is_some_and(|k| !ctx.data(|d| d.get_temp::<bool>(k)).unwrap_or(false))
 }
 
+/// The Speaker Volume slider's notches: 0-7, as the Mac's Control Panel had.
+const SPEAKER_NOTCHES: u32 = 7;
+
+/// Liza's Control Panel (View > Control Panel...): the Speaker Volume slider, 0 to 7, and a
+/// Sound check box, in a window with a close box. ←/→ move the slider, Space checks the box,
+/// and Enter, Esc or the close box put it away.
+fn control_panel(ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
+    use egui::pos2;
+    let (ink, paper) = (cx.pal.fg, cx.pal.bg);
+    let now = cx.level;
+    let (mut to, k) = crate::volume::start(ctx, now, egui::Key::Space, SPEAKER_NOTCHES);
+    let mut done = k.ok || k.esc;
+    let size = vec2(look::PANEL_W, look::PANEL_H);
+    let screen = ctx.content_rect();
+    let min = (screen.center() - size / 2.0).round();
+    let data = &cx.game.data;
+    egui::Area::new(Id::new("stack-control-panel"))
+        .order(egui::Order::Foreground)
+        .fixed_pos(min)
+        .show(ctx, |ui| {
+            let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+            let painter = ui.painter().clone();
+            let look = liza::Look {
+                ink,
+                paper,
+                font: crate::home::font(),
+                stripes: data.pattern("pinstripes"),
+                gray: None,
+            };
+            let close = liza::window_frame(&painter, rect, "Control Panel", true, &look);
+            let hit = |ui: &mut Ui, r: Rect, label: &str, sense: Sense| {
+                crate::volume::hit(ui, r, "stack-control-panel", label, sense)
+            };
+            if hit(ui, close, "close", Sense::click()).clicked() {
+                done = true;
+            }
+            let font = crate::home::font();
+            let left = rect.left() + look::PANEL_PAD;
+            let top = rect.top() + look::PANEL_TOP;
+            painter.text(
+                pos2(left, top),
+                Align2::LEFT_TOP,
+                "Speaker Volume",
+                font.clone(),
+                ink,
+            );
+            // The slider: a track with a tick and a number at each notch, and a knob.
+            let x0 = left + look::KNOB_W;
+            let y = top + look::TRACK_DOWN;
+            let at = |n: u32| x0 + n as f32 * look::NOTCH_GAP;
+            let thin = Stroke::new(1.0, ink);
+            painter.line_segment([pos2(x0, y), pos2(at(SPEAKER_NOTCHES), y)], thin);
+            for n in 0..=SPEAKER_NOTCHES {
+                let x = at(n);
+                painter.line_segment([pos2(x, y + 3.0), pos2(x, y + 7.0)], thin);
+                painter.text(
+                    pos2(x, y + 9.0),
+                    Align2::CENTER_TOP,
+                    n.to_string(),
+                    font.clone(),
+                    ink,
+                );
+            }
+            let knob = Rect::from_center_size(
+                pos2(at(now.notch(SPEAKER_NOTCHES)), y),
+                vec2(look::KNOB_W, look::KNOB_H),
+            );
+            painter.rect_filled(knob, 0.0, paper);
+            painter.rect_stroke(knob, 0.0, thin, StrokeKind::Inside);
+            let track = Rect::from_min_max(
+                pos2(x0 - look::KNOB_W, y - look::KNOB_H / 2.0),
+                pos2(at(SPEAKER_NOTCHES) + look::KNOB_W, y + look::KNOB_H / 2.0),
+            );
+            let slide = hit(ui, track, "Speaker Volume", Sense::click_and_drag());
+            if (slide.clicked() || slide.dragged())
+                && let Some(p) = slide.interact_pointer_pos().or(slide.hover_pos())
+            {
+                let n = ((p.x - x0) / look::NOTCH_GAP).round().clamp(0.0, 7.0) as u32;
+                to.volume = ninsei_core::hub::notch_volume(n, SPEAKER_NOTCHES);
+            }
+            // The check box.
+            let bx =
+                Rect::from_min_size(pos2(left, top + look::BOX_DOWN), vec2(look::BOX, look::BOX));
+            painter.rect_stroke(bx, 0.0, thin, StrokeKind::Inside);
+            if now.on {
+                painter.line_segment([bx.left_top(), bx.right_bottom()], thin);
+                painter.line_segment([bx.right_top(), bx.left_bottom()], thin);
+            }
+            let words = painter.text(
+                pos2(bx.right() + 6.0, bx.center().y),
+                Align2::LEFT_CENTER,
+                "Sound",
+                font,
+                ink,
+            );
+            if hit(ui, bx.union(words), "Sound", Sense::click()).clicked() {
+                to.on = !to.on;
+            }
+        });
+    if done {
+        cx.popup.close();
+    }
+    now.to(to)
+}
+
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
@@ -620,11 +763,17 @@ pub(crate) mod tests {
         let mut suite = crate::suite::State::default();
         let mut out = Vec::new();
         h.frame(ev, |ui| {
+            let mut popup = crate::volume::Popup::default();
             let mut cx = FrameCx {
                 game: g,
                 pal: crate::theme::Palette::from_def(&g.data.themes[0]),
                 suite: &mut suite,
                 keys_free,
+                level: crate::volume::Level {
+                    on: true,
+                    volume: 100,
+                },
+                popup: &mut popup,
             };
             // As the run does: the chrome's keys first, then the overlay.
             out = Stack.keys(ui.ctx(), &mut cx);
@@ -707,11 +856,17 @@ pub(crate) mod tests {
         let mut suite = crate::suite::State::default();
         let mut frame = |h: &mut crate::uitest::Harness, ev, focus: bool| {
             h.frame(ev, |ui| {
+                let mut popup = crate::volume::Popup::default();
                 let mut cx = FrameCx {
                     game: &g,
                     pal: crate::theme::Palette::from_def(&d.themes[0]),
                     suite: &mut suite,
                     keys_free: true,
+                    level: crate::volume::Level {
+                        on: true,
+                        volume: 100,
+                    },
+                    popup: &mut popup,
                 };
                 Stack.keys(ui.ctx(), &mut cx);
                 // The Message box: a text field with the keyboard.

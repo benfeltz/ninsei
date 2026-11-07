@@ -1,4 +1,5 @@
-// THE NEON GUTTER: the default board, the LAN hangout (tier 1). The basics: class breakers,
+// THE NEON GUTTER: the default board, the LAN hangout (tier 1). The scene board: games, cracks,
+// the starter tools and the first breakers (see docs/world.md). The basics: class breakers,
 // small mods, the corp switchboard ranges. Dead Sector and CorpLink sell the step up.
 // Every board is a folder under data/bbs/ with a board.ron and a splash.txt; see README "The BBS".
 // Each run stocks `stock` random files per area.

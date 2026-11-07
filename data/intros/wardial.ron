@@ -2,7 +2,7 @@
 // effects run on art rows from..to (Sine, Cycle, Bounce); the board's ad and a greetz scroller
 // are added below. The colours fold to the theme when the app draws it.
 (
-    board: "gutter",
+    board: Some("gutter"),
     group: "m0th & the NiGHTMOTHS",
     secs: 5.0,
     frame_secs: 0.35,

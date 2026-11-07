@@ -401,6 +401,8 @@ fn worth(g: &Game, d: &Drop, known: &[String]) -> i64 {
         Drop::Fragment(n) => 10 * i64::from(*n),
         // A tool is for good: the wardialer is how a career finds its next tier.
         Drop::Tool(id) if !g.has_tool(id) => 500,
+        // A game is never progression: the bots never buy one.
+        Drop::Game(_) => 0,
         Drop::Hint(id) if !known.contains(id) && !g.hints.contains(id) => g
             .data
             .exchanges
@@ -419,6 +421,7 @@ fn kind(d: &Drop) -> &'static str {
         Drop::Repair(_) | Drop::Scrub(_) => "repair/scrub",
         Drop::Fragment(_) => "fragment",
         Drop::Tool(_) => "tool",
+        Drop::Game(_) => "game",
         Drop::Credits(..) | Drop::Text(_) | Drop::Nothing => "other",
     }
 }

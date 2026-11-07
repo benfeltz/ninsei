@@ -25,9 +25,13 @@ pub struct HomeCall {
     bank: u32,
     stash_free: u32,
     tools: Vec<String>,
+    /// Games you have a cracked copy of (ids in `hub/games.ron`).
+    games: Vec<String>,
     /// Textfiles from this board already on your disk (text ids).
     texts: Vec<String>,
-    defs: Vec<crate::data::ToolDef>,
+    tool_defs: Vec<crate::data::ToolDef>,
+    /// Each game's id and its crack's label, for "you already have".
+    cracks: Vec<(String, String)>,
 }
 
 impl Line for HomeCall {
@@ -59,6 +63,10 @@ impl Line for HomeCall {
         self.texts.iter().any(|t| t == id)
     }
 
+    fn has_crack(&self, id: &str) -> bool {
+        self.games.iter().any(|g| g == id)
+    }
+
     fn buy_blocker(&self, area: usize, file: usize) -> Option<String> {
         let s = self.stock.get(area).and_then(|a| a.get(file))?;
         let f = &self.def.areas[area].files[s.def];
@@ -74,12 +82,7 @@ impl Line for HomeCall {
         if matches!(f.item, Drop::Warez(_)) && self.stash_free == 0 {
             return Some("your stash is full.".into());
         }
-        if let Some(why) = crate::game::tool_blocker(
-            &self.defs,
-            &f.item,
-            |t| self.has_tool(t),
-            |t| self.has_text(t),
-        ) {
+        if let Some(why) = crate::game::tool_blocker(&self.tool_defs, &self.cracks, &f.item, self) {
             return Some(why);
         }
         if self.bank < f.price {
@@ -183,13 +186,15 @@ impl Save {
             bank: self.bank,
             stash_free,
             tools: self.tools.clone(),
+            games: self.cracks(),
             texts: self
                 .texts
                 .iter()
                 .filter(|k| k.board == data.boards[board].id)
                 .map(|k| k.id.clone())
                 .collect(),
-            defs: data.tools.clone(),
+            tool_defs: data.tools.clone(),
+            cracks: data.crack_labels(),
         }
     }
 
@@ -283,6 +288,11 @@ impl Save {
                 self.learn_tool(id);
                 let name = data.tool(id).map_or(id.as_str(), |t| t.name.as_str());
                 format!("{name} is on your desktop")
+            }
+            Drop::Game(id) => {
+                self.learn_game(id, crate::hub::GameCopy::Cracked);
+                let name = data.game_label(id, crate::hub::GameCopy::Cracked);
+                format!("{name} is on your disk")
             }
             _ => return Err("deck mods go on a live deck. download it in a run.".into()),
         };
