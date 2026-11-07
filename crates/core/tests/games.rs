@@ -780,3 +780,89 @@ fn every_game_starts_a_playing_engine_on_its_own_field() {
         assert!(!a.status().is_empty());
     }
 }
+
+/// Any input at all, clicks off the field included.
+fn random_input(rng: &mut Rng, cols: usize, rows: usize) -> games::Input {
+    use games::Input::*;
+    let (col, row) = (rng.below(cols + 4), rng.below(rows + 4));
+    match rng.below(10) {
+        0 => None,
+        1 => Up,
+        2 => Down,
+        3 => Left,
+        4 => Right,
+        5 => Fire,
+        6 => Alt,
+        7 => Pause,
+        8 => Click { col, row },
+        _ => Flag { col, row },
+    }
+}
+
+#[test]
+fn random_input_never_breaks_a_game() {
+    let d = data();
+    for g in &d.games {
+        for seed in 0..20 {
+            let mut a = games::new_game(g, seed);
+            let mut rng = Rng::new(seed ^ 0xF422);
+            let (cols, rows) = (a.cols(), a.rows());
+            for _ in 0..10_000 {
+                let input = random_input(&mut rng, cols, rows);
+                a.step(input, rng.below(4) as u32);
+                assert_eq!(a.cells().len(), cols * rows, "{} seed {seed}", g.id);
+                if let Some((x, y)) = a.cursor() {
+                    assert!(x < cols && y < rows, "{} seed {seed}", g.id);
+                }
+                assert!(!a.status().is_empty());
+                if a.over() {
+                    // A finished game stays finished, whatever you press.
+                    let still = a.cells();
+                    a.step(input, 5);
+                    assert_eq!(a.cells(), still, "{} seed {seed}", g.id);
+                    a = games::new_game(g, seed + 100);
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn every_game_always_ends() {
+    // Fire, and a click on each square in turn: the snake runs into the wall, the blocks pile
+    // up, and the field is opened square by square.
+    let d = data();
+    for g in &d.games {
+        for seed in 0..20 {
+            let mut a = games::new_game(g, seed);
+            let (cols, rows) = (a.cols(), a.rows());
+            let mut n = 0;
+            while !a.over() {
+                let (col, row) = (n % cols, n / cols % rows);
+                a.step(games::Input::Click { col, row }, 1);
+                a.step(games::Input::Fire, 1);
+                n += 1;
+                assert!(n < 100_000, "{} seed {seed} never ended", g.id);
+            }
+        }
+    }
+}
+
+#[test]
+fn same_seed_same_game_for_every_engine() {
+    let d = data();
+    for g in &d.games {
+        let play = |seed: u64| {
+            let mut a = games::new_game(g, seed);
+            let mut rng = Rng::new(77);
+            let mut frames = Vec::new();
+            for _ in 0..300 {
+                let input = random_input(&mut rng, a.cols(), a.rows());
+                a.step(input, 1);
+                frames.push((a.cells(), a.score(), a.status()));
+            }
+            frames
+        };
+        assert_eq!(play(3), play(3), "{}", g.id);
+    }
+}
