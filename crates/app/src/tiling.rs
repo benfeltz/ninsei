@@ -1077,31 +1077,41 @@ mod tests {
         use ninsei_core::hub::GameCopy::{Boxed, Cracked};
         let mut r = Rig::new(true);
         r.save.learn_game("blox", Boxed);
-        r.key(egui::Key::Escape);
-        r.key(egui::Key::Space);
-        r.type_text("b");
-        assert!(r.h.find("Blox").is_some(), "{:?}", r.h.texts());
-        for g in &r.data.games {
-            for c in [Cracked, Boxed] {
-                let t = Tool::game(&g.id, c).unwrap();
-                if !r.save.opens(t) {
-                    let label = t.name(&r.data);
-                    assert!(r.h.find(&label).is_none(), "{label} listed");
-                }
+        // Each game by its own name, so every game's rows are looked for.
+        let games: Vec<(String, String)> = r
+            .data
+            .games
+            .iter()
+            .map(|g| (g.id.clone(), g.name.to_lowercase()))
+            .collect();
+        for (id, name) in games {
+            // A launcher that matched nothing is still up: Esc closes it.
+            if r.desk.launcher.is_some() {
+                r.key(egui::Key::Escape);
             }
+            r.key(egui::Key::Escape);
+            r.key(egui::Key::Space);
+            assert!(r.desk.launcher.is_some());
+            r.type_text(&name);
+            for c in [Cracked, Boxed] {
+                let t = Tool::game(&id, c).unwrap();
+                let label = t.name(&r.data);
+                assert_eq!(
+                    r.h.find(&label).is_some(),
+                    r.save.opens(t),
+                    "{label} listed: {:?}",
+                    r.h.texts()
+                );
+            }
+            // Enter opens only what's listed: never a game you don't own.
+            r.key(egui::Key::Enter);
         }
-        // Typing a game you don't own finds nothing to open.
-        r.key(egui::Key::Escape);
-        r.key(egui::Key::Escape);
-        r.key(egui::Key::Space);
-        r.type_text("nibbler");
-        r.key(egui::Key::Enter);
+        let tiled: Vec<Tool> = r.save.tiling.tiles().to_vec();
         assert!(
-            !r.save
-                .tiling
-                .tiles()
+            tiled
                 .iter()
-                .any(|t| matches!(t, Tool::Game(..)))
+                .all(|t| !matches!(t, Tool::Game(..)) || r.save.opens(*t)),
+            "{tiled:?}"
         );
     }
 }
