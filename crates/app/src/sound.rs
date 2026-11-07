@@ -166,14 +166,16 @@ impl<O: Output> Speaker<O> {
             muted: was,
         } = &mut self.music
             && w.same_tune(pack, *tier)
-            && *playing == tempo
         {
-            self.job = None;
+            // A drop step lands on the loop that's playing, even while a new tempo renders.
             if *was != muted {
                 out.mute_stem(muted);
                 *was = muted;
             }
-            return false;
+            if *playing == tempo {
+                self.job = None;
+                return false;
+            }
         }
         let fits = |j: &Job| w.same_tune(&j.pack, j.tier) && j.tempo == tempo;
         if !self.job.as_ref().is_some_and(fits) {
@@ -486,8 +488,15 @@ mod backend {
                 gain = Some(g);
             }
             let now = self.ctx.current_time();
-            for n in &nodes {
-                n.start_with_when_and_grain_offset(now, offset).ok()?;
+            for (i, n) in nodes.iter().enumerate() {
+                if n.start_with_when_and_grain_offset(now, offset).is_err() {
+                    // Don't leave a bed looping with nothing holding it.
+                    for started in &nodes[..i] {
+                        #[allow(deprecated)]
+                        let _ = started.stop();
+                    }
+                    return None;
+                }
             }
             Some((nodes, gain))
         }
@@ -677,10 +686,27 @@ mod tests {
         s.run_music(&at(&t, true, 0));
         s.run_music(&at(&t, false, 0));
         assert_eq!(said(&mut s), ["mute true", "mute false"]);
-        // The tempo step swaps in a new loop where the old one had got to.
+        // The tempo step swaps in a new loop where the old one had got to; the drop step that
+        // came with it lands on the old loop first.
         s.out.as_mut().unwrap().place = 0.25;
         settle(&mut s, &at(&t, true, 12));
-        assert_eq!(said(&mut s), ["loop from 0.25 muted true"]);
+        assert_eq!(said(&mut s), ["mute true", "loop from 0.25 muted true"]);
+    }
+
+    #[test]
+    fn a_drop_step_lands_while_the_new_tempo_renders() {
+        let d = ninsei_core::Data::builtin().unwrap();
+        let t = d.run_tune("ono", 2).unwrap();
+        let mut s = Speaker::<Log>::new(true);
+        settle(&mut s, &at(t, false, 0));
+        said(&mut s);
+        // Trace jumps past both steps at once: the stem mutes now, the faster loop follows
+        // once it's rendered, and the mute isn't asked for twice.
+        assert!(s.run_music(&at(t, true, 12)), "still rendering");
+        assert!(s.run_music(&at(t, true, 12)), "still rendering");
+        assert_eq!(said(&mut s), ["mute true"]);
+        settle(&mut s, &at(t, true, 12));
+        assert_eq!(said(&mut s), ["loop from 0 muted true"]);
     }
 
     #[test]
