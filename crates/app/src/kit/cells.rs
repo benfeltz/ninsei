@@ -8,7 +8,7 @@ use egui::{Align2, Color32, FontId, Painter, Pos2, Rect, Stroke, Ui, pos2, vec2}
 
 /// Extra line spacing on top of the font's height, as a share of it.
 const LEADING: f32 = 0.18;
-/// Corner radius of a box, as a share of a cell's width (btop's rounded corners).
+/// Corner radius of a box, as a share of a cell's width (a modern TUI's rounded corners).
 const CORNER: f32 = 0.5;
 
 /// A grid of `cols` × `rows` cells laid over `rect`.
@@ -26,7 +26,7 @@ pub struct Cells {
     pub paper: Color32,
     /// The outline of an unlit meter cell.
     pub empty: Color32,
-    /// Turbo Vision's look instead of btop's: square corners, titles set in the border with a
+    /// Turbo Vision's look instead of rounded boxes: square corners, titles set in the border with a
     /// space either side instead of cut into it.
     pub vision: bool,
 }
@@ -207,7 +207,7 @@ impl Cells {
         }
     }
 
-    /// A title cut into a border at (`c`, `r`), btop style: `┐title┌`, the border under it
+    /// A title cut into a border at (`c`, `r`), modern-TUI style: `┐title┌`, the border under it
     /// painted out. Returns the cells used.
     pub fn title(&self, p: &Painter, c: usize, r: usize, s: &str, color: Color32) -> usize {
         let (border, bg) = (self.border, self.paper);
@@ -247,7 +247,7 @@ impl Cells {
         }
     }
 
-    /// A btop meter: `w` cells, `on` of them lit along the `ramp` (faint → bright), the rest
+    /// A meter: `w` cells, `on` of them lit along the `ramp` (faint → bright), the rest
     /// drawn as empty cells.
     pub fn meter(&self, p: &Painter, c: usize, r: usize, w: usize, on: usize, ramp: &[Color32]) {
         self.meter_in(p, c, r, w, on, ramp, self.empty);

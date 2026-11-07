@@ -1,10 +1,10 @@
 //! How much room a screen needs. A screen declares the smallest cell grids it works in (one
 //! [`Fit`], or a few when it lays out differently by shape: wide and short, or narrow and
 //! tall); the desktop checks the room it has against them before drawing the screen and,
-//! when none fits, draws the one notice instead, btop style:
+//! when none fits, draws the one notice instead, the way a modern TUI does:
 //!
 //! ```text
-//!   NiGHTCOMM needs 64x20 (has 41x12)
+//!   <name> needs 64x20 (has 41x12)
 //!   Esc f: full screen
 //! ```
 //!
@@ -108,13 +108,13 @@ mod tests {
     fn the_notice_says_what_it_needs_and_has_then_the_hint() {
         let need = Fit { cols: 64, rows: 20 };
         assert_eq!(
-            lines("NiGHTCOMM", &[need], (41, 12), Some("Esc f: full screen")),
-            vec!["NiGHTCOMM needs 64x20 (has 41x12)", "Esc f: full screen"]
+            lines("Viewer", &[need], (41, 12), Some("Esc f: full screen")),
+            vec!["Viewer needs 64x20 (has 41x12)", "Esc f: full screen"]
         );
         let tall = Fit { cols: 40, rows: 30 };
         assert_eq!(
-            lines("System", &[need, tall], (41, 12), None),
-            vec!["System needs 64x20 or 40x30 (has 41x12)"]
+            lines("Viewer", &[need, tall], (41, 12), None),
+            vec!["Viewer needs 64x20 or 40x30 (has 41x12)"]
         );
     }
 
