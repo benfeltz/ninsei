@@ -293,7 +293,8 @@ fn assessment(
             tt.sel = Some(t.entry.id);
         }
     }
-    tt.targets_list.mark(g, p, c0 + 1, r0 + lh - 1, lw, ink());
+    tt.targets_list
+        .mark(g, p, c0 + 1, r0 + lh - 1, lw, c0 + 1, ink());
     let Some(t) = targets.iter().find(|t| Some(t.entry.id) == tt.sel) else {
         return;
     };
@@ -555,7 +556,8 @@ fn engagements(
         }
     }
     // Where you are, cut into the window's bottom border.
-    tt.engage_list.mark(g, p, c0 - 1, r0 + h, w + 2, ink());
+    tt.engage_list
+        .mark(g, p, c0 - 1, r0 + h, w + 2, c0 - 1, ink());
 }
 
 #[cfg(test)]

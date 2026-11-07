@@ -29,6 +29,8 @@ pub struct NightComm {
     pub(crate) intel_list: List,
     pub(crate) wardial_list: List,
     pub(crate) ranges_list: List,
+    /// iNTEL has no box under its list: its mark goes on the legend's border.
+    mark_on_legend: bool,
     /// TERM's command line.
     pub term: ninsei_term::LineEditor,
     /// What TERM has printed, oldest first.
@@ -54,6 +56,7 @@ impl Default for NightComm {
             intel_list: List::default(),
             wardial_list: List::default(),
             ranges_list: List::default(),
+            mark_on_legend: false,
             term: ninsei_term::LineEditor::new(TERM_HISTORY),
             term_lines: vec![
                 "NiGHTCOMM 3.1 TERM".to_string(),
@@ -290,6 +293,12 @@ pub fn show(
         }
         c += used + 1;
     }
+    // iNTEL's place in its list, on the legend's border when there's no box under the list:
+    // after the legend, in the room it leaves.
+    if nc.tab == Tab::Intel && nc.mark_on_legend {
+        nc.intel_list
+            .mark(&g, &p, 1, g.rows - 1, g.cols - 2, c, ink());
+    }
     if keys.text.contains(&'/') && nc.tab == Tab::Intel {
         nc.want_filter = true;
     }
@@ -501,8 +510,9 @@ fn intel(
             *dial = Some(e.id);
         }
     }
-    // Where you are, cut into the border under the list.
-    nc.intel_list.mark(g, p, c0, r0 + list_h, w, ink());
+    // Where you are goes in the border under the list, once what shares that border is
+    // drawn: the boxes below, or (with none) the legend, which `show` draws last.
+    nc.mark_on_legend = !detail;
     if !detail {
         return;
     }
@@ -512,6 +522,7 @@ fn intel(
     let dw = w - side;
     let Some(e) = nc.sel.and_then(|id| save.entry(id)) else {
         cx.boxed(c0, top, dw, DETAIL_ROWS, "");
+        nc.intel_list.mark(g, p, c0, top, w, c0, ink());
         return;
     };
     cx.boxed(
@@ -569,6 +580,7 @@ fn intel(
             g.text(p, sx + 2, top + 1 + i, &f.number, accent());
         }
     }
+    nc.intel_list.mark(g, p, c0, top, w, c0, ink());
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -642,7 +654,7 @@ pub(crate) fn wardial(
             nc.range = Some(r.def.id.clone());
         }
     }
-    nc.wardial_list.mark(g, p, c0, r0 + lh - 1, lw, ink());
+    nc.wardial_list.mark(g, p, c0, r0 + lh - 1, lw, c0, ink());
     let (mx, my, mw, mh) = if narrow {
         (c0, r0 + lh, w, h - lh)
     } else {
@@ -958,7 +970,7 @@ pub(crate) fn ranges(
     if wh > 0 {
         let top = r0 + th;
         cx.boxed(c0, top, w, wh, "watched lines");
-        nc.ranges_list.mark(g, p, c0, top, w, ink());
+        nc.ranges_list.mark(g, p, c0, top, w, c0, ink());
         let label = |id: &str| {
             data.exchanges
                 .iter()
@@ -1184,6 +1196,16 @@ mod tests {
         s
     }
 
+    /// A deck whose phonebook runs longer than a small tile's list.
+    fn big_book(data: &Data) -> Save {
+        let mut s = nightcomm_deck(data);
+        let mut rng = ninsei_core::rng::Rng::new(7);
+        while s.phonebook.len() < 16 {
+            s.add_number(data, &mut rng, 1).expect("a company to list");
+        }
+        s
+    }
+
     #[test]
     fn digits_pick_the_page() {
         let data = Data::builtin().unwrap();
@@ -1403,5 +1425,65 @@ mod tests {
         assert_eq!(at, len - 1, "the last number");
         assert!(home.nightcomm.intel_list.top > 0, "scrolled");
         assert!(home.nightcomm.intel_list.shows(at), "and it's on screen");
+    }
+
+    /// Draws iNTEL in a 56-cell-wide rect `rows` cells tall (each cell 17 points), picks the
+    /// last number, and returns when the `/` of its `n/len` mark was painted and every shape
+    /// under it, by the order they were painted in.
+    fn intel_mark(rows: usize) -> (usize, Vec<usize>) {
+        let data = Data::builtin().unwrap();
+        let save = big_book(&data);
+        let mut h = Harness::new(1280.0, 800.0);
+        crate::uitest::themed(&h.ctx, &data);
+        let mut home = Home::new(Vec::new());
+        let rect = egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(56.0 * 8.5, rows as f32 * 17.0 + 1.0),
+        );
+        let draw = |h: &mut Harness, home: &mut Home, events| {
+            crate::home::tests::frame_at(h, home, &data, &save, Tool::NightComm, rect, events);
+        };
+        draw(&mut h, &mut home, Vec::new());
+        for _ in 0..save.phonebook.len() {
+            draw(&mut h, &mut home, key(Key::ArrowDown));
+        }
+        draw(&mut h, &mut home, Vec::new());
+        let text = |s: &egui::Shape| match s {
+            egui::Shape::Text(t) => Some((t.galley.text().to_string(), t.visual_bounding_rect())),
+            _ => None,
+        };
+        let shapes = h.painted();
+        let (at, slash) = shapes
+            .iter()
+            .enumerate()
+            .filter_map(|(i, s)| text(s).map(|(t, r)| (i, t, r)))
+            .filter(|(_, t, _)| t == "/")
+            .map(|(i, _, r)| (i, r))
+            // The mark sits at the border's right end; the legend's `/ filter` at its left.
+            .max_by(|a, b| a.1.center().x.total_cmp(&b.1.center().x))
+            .expect("a mark");
+        assert!(
+            slash.center().x > rect.center().x,
+            "the mark, not the legend's /"
+        );
+        let row: Vec<usize> = shapes
+            .iter()
+            .enumerate()
+            .filter(|(i, s)| *i != at && s.visual_bounding_rect().intersects(slash))
+            .map(|(i, _)| i)
+            .collect();
+        (at, row)
+    }
+
+    #[test]
+    fn intels_mark_is_painted_over_whatever_shares_its_border() {
+        // With the box under the list (its border is the mark's), and without (the legend's).
+        for rows in [DETAIL_ROWS + 7, 12] {
+            let (mark, under) = intel_mark(rows);
+            assert!(
+                under.iter().all(|i| *i < mark),
+                "{rows} rows: something painted over the mark ({mark}): {under:?}"
+            );
+        }
     }
 }

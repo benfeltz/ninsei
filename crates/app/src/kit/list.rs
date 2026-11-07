@@ -40,14 +40,26 @@ impl List {
     }
 
     /// Where you are (`3/40`, `↓ 12 more`), cut into the right of a box's bottom border: the
-    /// box is `w` cells wide from column `c`, its bottom border on row `r`. Nothing when the
-    /// whole list shows.
-    pub fn mark(&self, g: &Cells, p: &Painter, c: usize, r: usize, w: usize, color: Color32) {
+    /// box is `w` cells wide from column `c`, its bottom border on row `r`. Draw it after
+    /// whatever else is drawn on that border; it only goes where it starts at column `from`
+    /// or later (what's on the border's left runs to there). Nothing when the whole list
+    /// shows, or there's no room.
+    #[allow(clippy::too_many_arguments)]
+    pub fn mark(
+        &self,
+        g: &Cells,
+        p: &Painter,
+        c: usize,
+        r: usize,
+        w: usize,
+        from: usize,
+        color: Color32,
+    ) {
         let Some(s) = scroll::position(self.len, self.sel, self.top, self.rows) else {
             return;
         };
         let n = s.chars().count();
-        if n + 4 <= w {
+        if n + 4 <= w && c + w - n - 4 >= from {
             g.title(p, c + w - n - 4, r, &s, color);
         }
     }

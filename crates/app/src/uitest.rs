@@ -129,6 +129,11 @@ impl Harness {
             .collect()
     }
 
+    /// What last frame painted, in order, flattened.
+    pub fn painted(&self) -> &[egui::Shape] {
+        &self.shapes
+    }
+
     /// Every widget text last frame, for a failing test to print.
     pub fn texts(&self) -> Vec<&str> {
         self.widgets.iter().map(|(t, _, _)| t.as_str()).collect()
