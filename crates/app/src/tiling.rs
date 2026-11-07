@@ -108,7 +108,7 @@ impl TilingDesk {
 
     /// Reads this frame's keys for the desktop. Returns true if something changed.
     /// `searching`: the Shell is in a `Ctrl+R` search, where Esc only ends the search.
-    fn keys(&mut self, ui: &Ui, t: &mut Tiling, searching: bool) {
+    fn keys(&mut self, ui: &Ui, t: &mut Tiling, searching: bool, help_open: bool) {
         let events = ui.input(|i| i.events.clone());
         for e in events {
             match e {
@@ -117,7 +117,7 @@ impl TilingDesk {
                     pressed: true,
                     ..
                 } => {
-                    if self.launcher.take().is_none() && !self.help && !searching {
+                    if self.launcher.take().is_none() && !help_open && !searching {
                         self.leader = !self.leader;
                     }
                     self.help = false;
@@ -175,7 +175,19 @@ impl DesktopView for TilingDesk {
             t.open(tool);
         }
         if live {
-            self.keys(ui, &mut t, home.shell_searching());
+            self.keys(
+                ui,
+                &mut t,
+                home.shell_searching(),
+                self.help || !save.tiling_help_seen,
+            );
+            // egui drops the focused widget on Esc: the Shell asks for it back, so closing the
+            // help or the leader leaves it typing.
+            if t.focused() == Some(Tool::Shell)
+                && ui.input(|i| i.key_pressed(Key::Escape) || i.key_released(Key::Escape))
+            {
+                home.focus();
+            }
         }
         let screen = ui.ctx().content_rect().translate(vec2(0.0, cx.offset));
         let painter = ui.painter_at(screen);
@@ -347,7 +359,7 @@ impl DesktopView for TilingDesk {
         if live {
             self.launcher_ui(ui, home, cx, &mut t, out);
             let first = !save.tiling_help_seen;
-            if (self.help || first) && help_ui(ui, screen) {
+            if (self.help || first) && help_ui(ui, screen, first) {
                 self.help = false;
                 if first {
                     out.push(WbOut::HelpSeen);
@@ -489,8 +501,9 @@ impl TilingDesk {
     }
 }
 
-/// The key help. Returns true when it's dismissed (a click, or any key but the leader).
-fn help_ui(ui: &mut Ui, screen: Rect) -> bool {
+/// The key help. Returns true when it's dismissed (a click, or any key but the leader). The
+/// first-boot help is also dismissed by Esc, which then doesn't open the leader (`keys`).
+fn help_ui(ui: &mut Ui, screen: Rect, first: bool) -> bool {
     let lines = [
         ("AnarchyOS // ono-sendai cyberspace vii", ""),
         ("", ""),
@@ -541,7 +554,7 @@ fn help_ui(ui: &mut Ui, screen: Rect) -> bool {
     ui.input(|i| {
         i.pointer.primary_clicked()
             || i.events.iter().any(|e| {
-                matches!(e, Event::Key { pressed: true, key, .. } if *key != Key::Escape && *key != Key::Questionmark && *key != Key::Slash)
+                matches!(e, Event::Key { pressed: true, key, .. } if (first || *key != Key::Escape) && *key != Key::Questionmark && *key != Key::Slash)
             })
     })
 }
@@ -673,5 +686,153 @@ mod tests {
         frame(&mut desk, &mut home, key(egui::Key::Num3));
         frame(&mut desk, &mut home, Vec::new());
         assert_eq!(home.system.panel, ninsei_core::system::Panel::Monitor);
+    }
+
+    /// Frames of the tiling desktop at 1280x800 with a save the test can watch.
+    struct Rig {
+        data: ninsei_core::Data,
+        save: ninsei_core::hub::Save,
+        ctx: egui::Context,
+        desk: TilingDesk,
+        home: Home,
+        t: f64,
+    }
+
+    impl Rig {
+        fn new(help_seen: bool) -> Self {
+            Rig {
+                data: ninsei_core::Data::builtin().unwrap(),
+                save: ninsei_core::hub::Save {
+                    tiling_help_seen: help_seen,
+                    ..Default::default()
+                },
+                ctx: egui::Context::default(),
+                desk: TilingDesk::new(),
+                home: Home::new(Vec::new()),
+                t: 0.0,
+            }
+        }
+
+        fn frame(&mut self, events: Vec<Event>) {
+            self.t += 0.1;
+            let raw = RawInput {
+                screen_rect: Some(Rect::from_min_size(pos2(0.0, 0.0), vec2(1280.0, 800.0))),
+                time: Some(self.t),
+                events,
+                ..RawInput::default()
+            };
+            let mut out = Vec::new();
+            let (data, save, desk, home) = (&self.data, &self.save, &mut self.desk, &mut self.home);
+            let mut o = self.ctx.run_ui(raw, |ui| {
+                let cx = Cx {
+                    data,
+                    save,
+                    offset: 0.0,
+                    live: true,
+                };
+                desk.show(ui, home, &cx, &mut out);
+            });
+            o.textures_delta.clear();
+            for w in out {
+                match w {
+                    crate::home::WbOut::Tiling(l) => self.save.tiling = l,
+                    crate::home::WbOut::HelpSeen => self.save.tiling_help_seen = true,
+                    _ => {}
+                }
+            }
+        }
+
+        fn key(&mut self, k: egui::Key) {
+            let e = |pressed| Event::Key {
+                key: k,
+                physical_key: None,
+                pressed,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            };
+            self.frame(vec![e(true), e(false)]);
+            self.frame(Vec::new());
+        }
+
+        fn click(&mut self, p: egui::Pos2) {
+            let b = |pressed| Event::PointerButton {
+                pos: p,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            };
+            self.frame(vec![Event::PointerMoved(p)]);
+            self.frame(vec![b(true), b(false)]);
+            self.frame(Vec::new());
+        }
+
+        fn type_text(&mut self, s: &str) {
+            self.frame(vec![Event::Text(s.into())]);
+            self.frame(Vec::new());
+        }
+    }
+
+    #[test]
+    fn the_shell_takes_typing_after_the_first_boot_help_closes() {
+        let mut r = Rig::new(false);
+        r.frame(Vec::new());
+        r.frame(Vec::new());
+        assert!(!r.save.tiling_help_seen);
+        // A key dismisses the help; the Shell must hear the typing that follows.
+        r.key(egui::Key::A);
+        assert!(r.save.tiling_help_seen, "the help closed");
+        r.type_text("help");
+        assert_eq!(r.home.shell_text(), "help");
+        r.key(egui::Key::Enter);
+        assert!(r.home.shell_has("dial <n>"), "help ran in the Shell");
+    }
+
+    #[test]
+    fn the_leader_and_a_click_hand_the_keys_back_to_the_focused_shell() {
+        let mut r = Rig::new(true);
+        r.frame(Vec::new());
+        r.frame(Vec::new());
+        r.type_text("ph");
+        assert_eq!(r.home.shell_text(), "ph");
+        // The leader takes the keyboard from the Shell; Esc gives the tile back, but not
+        // the keys.
+        r.key(egui::Key::Escape);
+        r.key(egui::Key::Escape);
+        r.type_text("x");
+        assert_eq!(
+            r.home.shell_text(),
+            "phx",
+            "Esc, Esc leaves the Shell typing"
+        );
+        r.click(pos2(640.0, 400.0));
+        r.type_text("y");
+        assert_eq!(
+            r.home.shell_text(),
+            "phxy",
+            "a click in the tile keeps it typing"
+        );
+    }
+
+    #[test]
+    fn the_shell_takes_typing_after_a_click_closes_the_help() {
+        for p in [pos2(640.0, 400.0), pos2(640.0, 760.0), pos2(30.0, 400.0)] {
+            let mut r = Rig::new(false);
+            r.frame(Vec::new());
+            r.frame(Vec::new());
+            r.click(p);
+            assert!(r.save.tiling_help_seen, "the help closed at {p:?}");
+            r.type_text("help");
+            assert_eq!(r.home.shell_text(), "help", "typing after a click at {p:?}");
+        }
+    }
+
+    #[test]
+    fn esc_on_the_first_boot_help_closes_it_and_the_shell_takes_typing() {
+        let mut r = Rig::new(false);
+        r.frame(Vec::new());
+        r.frame(Vec::new());
+        r.key(egui::Key::Escape);
+        r.type_text("help");
+        assert_eq!(r.home.shell_text(), "help");
     }
 }
