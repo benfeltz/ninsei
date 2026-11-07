@@ -48,7 +48,8 @@ pub trait Output: Sized {
     fn music_place(&self) -> f32;
     /// Fades the loop's stem out or back in.
     fn mute_stem(&mut self, muted: bool);
-    fn cue(&mut self, clip: Arc<Vec<f32>>);
+    /// Plays a cue clip over everything; false if it was dropped (too many already playing).
+    fn cue(&mut self, clip: Clip) -> bool;
     /// Silences everything at once (sound turned off).
     fn hush(&mut self);
     /// The master level, 0-1, over everything (eased, so a change never clicks).
@@ -345,9 +346,11 @@ impl<O: Output> Speaker<O> {
                 c
             }
         };
-        if let Some(out) = &mut self.out {
-            self.heard.push((Arc::clone(&clip), self.clock));
-            out.cue(clip);
+        // Only what the output took is heard: a dropped cue never played.
+        if let Some(out) = &mut self.out
+            && out.cue(Arc::clone(&clip))
+        {
+            self.heard.push((clip, self.clock));
         }
     }
 }
@@ -505,12 +508,15 @@ mod backend {
             self.with(|m| m.stem_to = if muted { 0.0 } else { 1.0 });
         }
 
-        fn cue(&mut self, clip: Arc<Vec<f32>>) {
+        fn cue(&mut self, clip: super::Clip) -> bool {
             self.with(|m| {
-                if m.voices.len() < super::MAX_VOICES {
+                let room = m.voices.len() < super::MAX_VOICES;
+                if room {
                     m.voices.push((clip, 0));
                 }
-            });
+                room
+            })
+            .unwrap_or(false)
         }
 
         fn hush(&mut self) {
@@ -581,8 +587,6 @@ mod backend {
 
 #[cfg(target_arch = "wasm32")]
 mod backend {
-    use std::sync::Arc;
-
     use web_sys::{AudioBufferSourceNode, AudioContext, GainNode};
 
     pub struct Out {
@@ -751,16 +755,18 @@ mod backend {
             }
         }
 
-        fn cue(&mut self, clip: Arc<Vec<f32>>) {
+        fn cue(&mut self, clip: super::Clip) -> bool {
             let now = self.ctx.current_time();
             self.voices.retain(|(_, ends)| *ends > now);
             if self.voices.len() >= super::MAX_VOICES {
-                return;
+                return false;
             }
             let secs = clip.len() as f64 / f64::from(self.ctx.sample_rate());
-            if let Some(src) = self.start(&clip) {
-                self.voices.push((src, now + secs));
-            }
+            let Some(src) = self.start(&clip) else {
+                return false;
+            };
+            self.voices.push((src, now + secs));
+            true
         }
 
         fn hush(&mut self) {
@@ -794,6 +800,8 @@ mod tests {
         place: f32,
         /// Loops refuse to start while this is above zero, counting down.
         refuse: u32,
+        /// Every cue voice is busy: cues are dropped.
+        full: bool,
     }
 
     impl Output for Log {
@@ -824,7 +832,9 @@ mod tests {
         fn mute_stem(&mut self, muted: bool) {
             self.said.push(format!("mute {muted}"));
         }
-        fn cue(&mut self, _: Arc<Vec<f32>>) {}
+        fn cue(&mut self, _: Clip) -> bool {
+            !self.full
+        }
         fn hush(&mut self) {
             self.said.push("hush".into());
         }
@@ -1016,6 +1026,13 @@ mod tests {
         assert!(loud(&s.listen(64)) > 0.0, "the cue");
         s.tick(20.0);
         assert!(s.heard.is_empty(), "a finished cue is forgotten");
+        // A cue the output dropped (every voice busy) never played, so it isn't heard.
+        s.out.as_mut().unwrap().full = true;
+        s.cue(Cue::Hit, "ono", pack);
+        s.tick(20.02);
+        assert!(s.heard.is_empty());
+        assert!(s.listen(64).iter().all(|v| *v == 0.0));
+        s.out.as_mut().unwrap().full = false;
         assert!(s.listen(64).iter().all(|v| *v == 0.0));
         // Sound off: silence, whatever was playing.
         s.tick(30.0);
