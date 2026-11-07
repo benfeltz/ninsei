@@ -60,7 +60,7 @@ fn a_game_you_own_has_an_icon_a_label_and_a_command() {
         .find(|i| i.tool == cracked)
         .expect("an icon");
     assert_eq!(icon.label, "NIBBLER [2K4]");
-    assert_eq!(icon.pixels, d.game("nibbler").unwrap().icon);
+    assert_eq!(icon.pixels, &d.game("nibbler").unwrap().icon[..]);
     assert_eq!(cracked.name(&d), "NIBBLER [2K4]");
     assert!(run_words(&save, &d).contains(&"nibbler[2k4]".to_string()));
     // By the box's name, or the label as it's listed.
@@ -89,7 +89,7 @@ fn owning_both_copies_is_two_icons_with_two_labels() {
         .icons(&d)
         .into_iter()
         .filter(|i| matches!(i.tool, Tool::Game(..)))
-        .map(|i| i.label)
+        .map(|i| i.label.into_owned())
         .collect();
     assert_eq!(labels, ["NIBBLER [2K4]", "Nibbler"]);
     // The plain name is the box's label; the tag picks the crack.

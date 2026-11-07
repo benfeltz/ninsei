@@ -262,8 +262,8 @@ pub struct Home {
     pub(crate) icedb_sel: Option<usize>,
     /// Cracktros: the pass each tool's body was last drawn on (so a fresh open replays its
     /// intro), and the intros playing now with the time each started.
-    intro_drawn: std::collections::HashMap<String, u64>,
-    intro_playing: std::collections::HashMap<String, f64>,
+    intro_drawn: std::collections::HashMap<&'static str, u64>,
+    intro_playing: std::collections::HashMap<&'static str, f64>,
     /// For the app's speaker: an intro whose tune should start (its id), or stop.
     pub(crate) tune: Option<TuneCue>,
     /// Where the Welcome to the Net stack is open.
@@ -499,7 +499,7 @@ impl Home {
     /// Plays tool `id`'s cracktro in its window, every time the window opens, until it ends or
     /// a click or key skips it. True while it's showing (draw nothing else). A tool with no
     /// intro, or intros switched off in System, opens straight away.
-    fn intro_gate(&mut self, ui: &mut Ui, data: &Data, save: &Save, id: &str) -> bool {
+    fn intro_gate(&mut self, ui: &mut Ui, data: &Data, save: &Save, id: &'static str) -> bool {
         match data.tool(id).and_then(|t| t.intro.clone()) {
             Some(intro) => self.splash_gate(ui, data, save, id, &intro),
             None => false,
@@ -513,7 +513,7 @@ impl Home {
         ui: &mut Ui,
         data: &Data,
         save: &Save,
-        id: &str,
+        id: &'static str,
         intro: &str,
     ) -> bool {
         let Some(def) = data.intro(intro) else {
@@ -524,10 +524,10 @@ impl Home {
         // Not drawn last pass: the window (or tab) just opened.
         let fresh = self
             .intro_drawn
-            .insert(id.to_string(), pass)
+            .insert(id, pass)
             .is_none_or(|last| last + 1 < pass);
         if fresh && save.intros {
-            self.intro_playing.insert(id.to_string(), now);
+            self.intro_playing.insert(id, now);
             self.tune = Some(TuneCue::Play(def.id.clone()));
         }
         let Some(&start) = self.intro_playing.get(id) else {
@@ -850,7 +850,7 @@ impl Home {
             Tool::Terminal => {
                 // Drawn this pass, splash or not, so hanging up a dial doesn't replay it.
                 self.intro_drawn
-                    .insert("carrierterm".into(), child.ctx().cumulative_pass_nr());
+                    .insert("carrierterm", child.ctx().cumulative_pass_nr());
                 // No dialer, no WarDial tab: CarrierTerm is just the phonebook. Once
                 // NiGHTCOMM is here, wardialing is its job.
                 let wardial_tab = save.has_tool("wardial") && !save.has_dialer();

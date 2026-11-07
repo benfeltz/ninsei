@@ -247,6 +247,21 @@ impl IconDef {
     }
 }
 
+/// A desktop icon as a desktop shows it, borrowed from `icons.ron` or a game's row: its label
+/// (a game copy's, worked out), the tool it opens and its pixel art.
+#[derive(Clone, Debug)]
+pub struct Icon<'a> {
+    pub label: std::borrow::Cow<'a, str>,
+    pub tool: Tool,
+    pub pixels: &'a [String],
+}
+
+impl Icon<'_> {
+    pub fn width(&self) -> usize {
+        self.pixels.first().map_or(0, |r| r.chars().count())
+    }
+}
+
 /// A network tier: size, ICE strength and pay (`data/hub/networks.ron`).
 #[derive(Deserialize, Clone, Debug)]
 pub struct TierDef {
@@ -1231,14 +1246,22 @@ impl Save {
 
     /// The desktop's icons: the tools you have, then each copy of a game you own, labelled as
     /// that copy is (`Nibbler`, `NIBBLER [2K4]`) with the game's own art.
-    pub fn icons(&self, data: &Data) -> Vec<IconDef> {
-        let tools = data.icons.iter().filter(|i| self.opens(i.tool)).cloned();
+    pub fn icons<'a>(&self, data: &'a Data) -> Vec<Icon<'a>> {
+        let tools = data
+            .icons
+            .iter()
+            .filter(|i| self.opens(i.tool))
+            .map(|i| Icon {
+                label: std::borrow::Cow::Borrowed(i.label.as_str()),
+                tool: i.tool,
+                pixels: &i.pixels,
+            });
         let games = Tool::games(data, self).into_iter().filter_map(|t| {
             let (g, _) = t.game_def(data)?;
-            Some(IconDef {
-                label: t.name(data),
+            Some(Icon {
+                label: std::borrow::Cow::Owned(t.name(data)),
                 tool: t,
-                pixels: g.icon.clone(),
+                pixels: &g.icon,
             })
         });
         tools.chain(games).collect()

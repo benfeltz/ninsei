@@ -6,7 +6,7 @@
 use egui::{Align2, Id, Pos2, Rect, Sense, Ui, Vec2, pos2, vec2};
 use ninsei_core::desktop::AddonEffect;
 use ninsei_core::hardware::Desktop;
-use ninsei_core::hub::{IconDef, Tool};
+use ninsei_core::hub::{Icon, Tool};
 
 use crate::home::{Cx, DesktopView, Home, WbOut, accent, backdrop, fill, font, ink, shadow};
 use crate::hubtools;
@@ -243,7 +243,7 @@ impl DesktopView for Workbench {
             if selected {
                 // Highlight exactly as wide as the name, however long it is.
                 let w = painter
-                    .layout_no_wrap(icon.label.clone(), font(), backdrop())
+                    .layout_no_wrap(icon.label.to_string(), font(), backdrop())
                     .size()
                     .x;
                 painter.rect_filled(
@@ -463,7 +463,7 @@ impl DesktopView for Workbench {
 }
 
 /// Paints an icon's pixels. Selected icons draw in complement colours, as on the real thing.
-fn draw_icon(painter: &egui::Painter, icon: &IconDef, at: Pos2, selected: bool) {
+fn draw_icon(painter: &egui::Painter, icon: &Icon, at: Pos2, selected: bool) {
     for (y, row) in icon.pixels.iter().enumerate() {
         for (x, ch) in row.chars().enumerate() {
             let col = match (ch, selected) {

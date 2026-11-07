@@ -8,7 +8,7 @@ use egui::{Vec2, pos2, vec2};
 use ninsei_core::Data;
 use ninsei_core::desktop::AddonEffect;
 use ninsei_core::hardware::Desktop;
-use ninsei_core::hub::{IconDef, Tool};
+use ninsei_core::hub::{Icon, Tool};
 
 use crate::home::{self, Cx, Desk, DesktopView, Home, WbOut, font};
 use crate::kit::liza::{self as kit, Look, size};
@@ -705,7 +705,7 @@ fn on_top(ui: &mut Ui, rect: Rect, order: egui::Order, name: &str) -> Ui {
 
 /// An icon in 1-bit: the art's outlines in ink, its body in paper (inverted when selected),
 /// with the name under it on a solid backing. Returns the area that takes clicks.
-fn draw_icon(painter: &egui::Painter, icon: &IconDef, cell: Rect, picked: bool, c: &Look) -> Rect {
+fn draw_icon(painter: &egui::Painter, icon: &Icon, cell: Rect, picked: bool, c: &Look) -> Rect {
     let (ink, paper) = (c.ink, c.paper);
     let w = icon.width() as f32 * look::ICON_SCALE;
     let h = icon.pixels.len() as f32 * look::ICON_SCALE;
