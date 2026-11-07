@@ -325,6 +325,7 @@ impl ChromeView for Stack {
             Tab::Target => "ICE",
             Tab::Todo => "To Do",
             Tab::Hex => "Hex",
+            Tab::Vis => "Scope",
             _ => return None,
         })
     }

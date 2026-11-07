@@ -35,6 +35,7 @@ mod tigerteam_view;
 mod tiling;
 #[cfg(test)]
 mod uitest;
+mod vispane;
 mod volume;
 mod workbench;
 
@@ -1563,6 +1564,8 @@ impl App {
             keep_room: (self.save.stash_cap(&self.data.rig) as usize)
                 .saturating_sub(self.save.stash.len()),
             suite: &mut self.suite,
+            scope: &[],
+            scope_rate: 0,
             out: Vec::new(),
         };
         egui::CentralPanel::default()
@@ -1802,7 +1805,7 @@ mod tests {
     #[test]
     fn default_layouts_round_trip() {
         for chrome in Chrome::ALL {
-            for extra in [&[][..], &[Tab::Net][..]] {
+            for extra in [&[][..], &[Tab::Net][..], &[Tab::Net, Tab::Vis][..]] {
                 let dock = default_layout(chrome, extra);
                 let text = ron::to_string(&dock).unwrap();
                 let back = parse_layout(&text, |_| true).expect("a default layout reads back");
@@ -1839,9 +1842,13 @@ mod tests {
 
     #[test]
     fn panes_you_lack_leave_a_saved_layout() {
-        let text = ron::to_string(&default_layout(Chrome::Btop, &[Tab::Net])).unwrap();
+        let text = ron::to_string(&default_layout(Chrome::Btop, &[Tab::Net, Tab::Vis])).unwrap();
         let back = parse_layout(&text, |_| false).expect("core panes are all there");
         assert!(back.find_tab(&Tab::Net).is_none());
+        assert!(back.find_tab(&Tab::Vis).is_none());
+        // Owning one keeps that one.
+        let back = parse_layout(&text, |t| t == Tab::Vis).unwrap();
+        assert!(back.find_tab(&Tab::Vis).is_some() && back.find_tab(&Tab::Net).is_none());
         assert!(Tab::CORE.iter().all(|t| back.find_tab(t).is_some()));
     }
 

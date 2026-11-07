@@ -1173,6 +1173,7 @@ impl ChromeView for Suite {
             Tab::Terminal => " ACTIVITY.LOG ",
             Tab::Todo => " WORKORD.DBF ",
             Tab::Net => " NETUSAGE.RPT ",
+            Tab::Vis => " SOUNDLVL.RPT ",
         })
     }
     fn scroll_bars(&self, _tab: Tab) -> Option<[bool; 2]> {
