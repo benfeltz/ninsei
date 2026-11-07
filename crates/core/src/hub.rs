@@ -734,6 +734,9 @@ pub struct Save {
     /// Modem sounds on or off.
     #[serde(default = "default_sound")]
     pub sound: bool,
+    /// How loud everything plays, in percent (100 is full); [`Save::sound`] mutes it all.
+    #[serde(default = "default_volume")]
+    pub volume: u8,
     /// Credits banked at home.
     #[serde(default)]
     pub bank: u32,
@@ -916,6 +919,10 @@ fn default_sound() -> bool {
     true
 }
 
+fn default_volume() -> u8 {
+    100
+}
+
 impl Default for Save {
     fn default() -> Self {
         Self {
@@ -927,6 +934,7 @@ impl Default for Save {
             phosphor: default_phosphor(),
             crt: default_crt(),
             sound: default_sound(),
+            volume: default_volume(),
             bank: 0,
             fragments: 0,
             key: 0,
@@ -977,6 +985,28 @@ struct VersionProbe {
 }
 
 impl Save {
+    /// Sets how loud everything plays, in percent (past 100 is full).
+    pub fn set_volume(&mut self, pct: u32) {
+        self.volume = pct.min(100) as u8;
+    }
+
+    /// The level as a gain for the speaker: 0 (silent) to 1 (full).
+    pub fn volume_gain(&self) -> f32 {
+        f32::from(self.volume.min(100)) / 100.0
+    }
+
+    /// The level as a notch on a control with `steps` notches above silent (a slider of
+    /// 0-7, ten meter cells): the nearest one.
+    pub fn volume_notch(&self, steps: u32) -> u32 {
+        (u32::from(self.volume.min(100)) * steps + 50) / 100
+    }
+
+    /// The level at notch `notch` of `steps` (past the top is full).
+    pub fn set_volume_notch(&mut self, notch: u32, steps: u32) {
+        let steps = steps.max(1);
+        self.set_volume((notch.min(steps) * 100 + steps / 2) / steps);
+    }
+
     /// Parses a save. Anything unreadable or from another version is an error;
     /// the app then starts a fresh hub instead of crashing.
     pub fn load(text: &str) -> Result<Save, String> {

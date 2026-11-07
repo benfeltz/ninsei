@@ -90,6 +90,10 @@ pub enum Request {
     Type(String),
     /// Print a line in the log (completions, a cancelled line).
     Say(String),
+    /// How loud everything plays, in percent.
+    Volume(u32),
+    /// Sound on or off (the same switch as the System app's).
+    SoundOn(bool),
 }
 
 pub struct Panes<'a> {

@@ -840,6 +840,17 @@ impl App {
                 self.game.say(LogKind::Sys, text);
                 return;
             }
+            Request::Volume(pct) => {
+                self.save.set_volume(pct);
+                self.save_dirty = true;
+                return;
+            }
+            Request::SoundOn(on) => {
+                if self.save.sound != on {
+                    self.toggle_sound();
+                }
+                return;
+            }
             Request::Type(text) => {
                 self.term.set_text(&text);
                 self.focus_input = true;
