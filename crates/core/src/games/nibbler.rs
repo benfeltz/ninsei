@@ -10,6 +10,9 @@ use crate::tuning::{
     NIBBLER_START_PERIOD,
 };
 
+/// Turns NIBBLER remembers ahead of the snake.
+pub const TURNS_QUEUED: usize = 2;
+
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Dir {
     Up,
@@ -46,8 +49,9 @@ pub struct Nibbler {
     /// Head first.
     body: VecDeque<(usize, usize)>,
     heading: Dir,
-    /// The turn to take on the next move.
-    next: Dir,
+    /// Turns pressed and not yet taken, oldest first: one a move, so a quick U-turn along a
+    /// wall keeps both keys. At most [`TURNS_QUEUED`].
+    turns: VecDeque<Dir>,
     food: Option<(usize, usize)>,
     meals: u32,
     clock: u32,
@@ -67,7 +71,7 @@ impl Nibbler {
             rng: Rng::new(seed),
             body,
             heading: Dir::Right,
-            next: Dir::Right,
+            turns: VecDeque::new(),
             food: None,
             meals: 0,
             clock: 0,
@@ -121,7 +125,9 @@ impl Nibbler {
     }
 
     fn advance(&mut self) {
-        self.heading = self.next;
+        if let Some(d) = self.turns.pop_front() {
+            self.heading = d;
+        }
         let (hx, hy) = self.body[0];
         let (dx, dy) = self.heading.delta();
         let (x, y) = ((hx as i32 + dx) as usize, (hy as i32 + dy) as usize);
@@ -159,11 +165,15 @@ impl Arcade for Nibbler {
             Input::Right => Some(Dir::Right),
             _ => None,
         };
-        // It can't turn back on itself.
+        // Each turn is checked against the one before it, so it never turns back on itself,
+        // and a turn it's already going doesn't take a place in the queue.
+        let last = self.turns.back().copied().unwrap_or(self.heading);
         if let Some(d) = turn
-            && d != self.heading.opposite()
+            && d != last
+            && d != last.opposite()
+            && self.turns.len() < TURNS_QUEUED
         {
-            self.next = d;
+            self.turns.push_back(d);
         }
         for _ in 0..ticks {
             if self.over {

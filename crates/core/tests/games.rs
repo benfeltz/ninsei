@@ -511,6 +511,20 @@ mod nibbler {
     }
 
     #[test]
+    fn a_quick_u_turn_keeps_both_keys() {
+        // Heading right: Up then Left inside one move goes up one square, then left.
+        let mut n = Nibbler::new(1, 32, 20);
+        let (x, y) = n.head();
+        n.step(Input::Up, 0);
+        n.step(Input::Left, 0);
+        n.step(Input::None, tuning::NIBBLER_START_PERIOD);
+        assert_eq!(n.head(), (x, y - 1));
+        n.step(Input::None, tuning::NIBBLER_START_PERIOD);
+        assert_eq!(n.head(), (x - 1, y - 1));
+        assert!(!n.over());
+    }
+
+    #[test]
     fn same_seed_same_food() {
         let foods = |seed| {
             let mut n = Nibbler::new(seed, 32, 20);
