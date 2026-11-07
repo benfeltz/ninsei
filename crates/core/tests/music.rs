@@ -216,6 +216,19 @@ mod in_a_run {
         assert_eq!(w.tune.tier, g.tier());
         assert_eq!(w.arrangement, Arrangement::PLAIN);
     }
+
+    #[test]
+    fn a_hosaka_run_plays_hold_music() {
+        let d = Data::builtin().unwrap();
+        let (s, g) = dialed(&d, "hosaka");
+        // PlanView 4.0 names the Hosaka pack.
+        assert_eq!(s.firmware_def(&d).sounds, "hosaka");
+        let w = wanted(Screen::Run, false, &s, &g, &d).expect("music in a PlanView run");
+        assert_eq!(w.pack, "hosaka");
+        let own = d.run_tune("hosaka", g.tier()).unwrap();
+        assert!(std::ptr::eq(w.tune, own), "the tier's own tune");
+        assert_eq!(w.arrangement, Arrangement::PLAIN);
+    }
 }
 
 /// A loop's loudest sample and its RMS.
