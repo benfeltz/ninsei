@@ -36,10 +36,10 @@ These are the numbers the kit draws to. Change them here and in `kit::anarchy::s
 
 | | |
 |---|---|
-| Box | 460×320px, centred across, its centre 35% down the screen |
+| Box | 460×320px, centred across, its centre 35% down the screen, rounded to whole pixels |
 | Frame | `backdrop` fill, 2px `accent` border, 6px corners, a 3px `shadow` halo |
 | Inside | 12px and 10px in: the search box, then the list |
-| List | 20px rows, the picked one in `accent` with `shadow` text; as many rows as fit, scrolling with the pick |
+| List | 20px rows on whole pixels, the picked one in `accent` with `shadow` text; as many whole rows as fit (eleven at this size), scrolling with the pick and the wheel; `3/19` in `muted` in the box's bottom right when the list runs past it |
 | Empty | `nothing matches` in `muted` |
 | Keys | type to filter, ↑↓ to pick, Enter to open or run, Esc to close |
 
@@ -47,7 +47,7 @@ These are the numbers the kit draws to. Change them here and in `kit::anarchy::s
 
 | | |
 |---|---|
-| Box | 580px wide, 22px a line plus 24px, centred on the screen |
+| Box | 580px wide, 22px a line plus 24px, centred on the screen on whole pixels |
 | Frame | as the launcher's, 2px `accent` |
 | Lines | the key in `accent` 18px in, what it does in `ink` 150px in |
-| Closes | a click, or any key but `?` and `/` (Esc too, on the first-boot help) |
+| Closes | a click, or any key but `?` and `/`; Esc closes it too (without opening the leader) |
