@@ -516,6 +516,26 @@ mod tests {
         output.textures_delta.clear();
     }
 
+    /// A save on a deck whose firmware runs Desktop (the Hosaka), every tool owned, past the
+    /// first boot.
+    fn desk(data: &Data) -> Save {
+        let mut s = Save {
+            tools: ninsei_core::data::TOOLS
+                .iter()
+                .map(|t| t.to_string())
+                .collect(),
+            guide_seen: true,
+            intros: false,
+            ..Save::default()
+        };
+        s.decks = data.hardware.decks.iter().map(|d| d.id.clone()).collect();
+        s.deck = "hosaka".into();
+        s.firmware = String::new();
+        s.ensure_hardware(data);
+        assert_eq!(s.firmware_def(data).desktop, Desktop::Workbench);
+        s
+    }
+
     fn click(at: Pos2) -> Vec<Event> {
         let b = |pressed| Event::PointerButton {
             pos: at,
@@ -529,13 +549,7 @@ mod tests {
     #[test]
     fn double_clicking_an_icon_raises_its_window() {
         let data = Data::builtin().unwrap();
-        let save = Save {
-            tools: ninsei_core::data::TOOLS
-                .iter()
-                .map(|t| t.to_string())
-                .collect(),
-            ..Save::default()
-        };
+        let save = desk(&data);
         let ctx = egui::Context::default();
         let mut wb = Workbench::new();
         let mut home = Home::new(Vec::new());
@@ -575,7 +589,7 @@ mod tests {
     #[test]
     fn clicking_inside_a_window_raises_it() {
         let data = Data::builtin().unwrap();
-        let save = Save::default();
+        let save = desk(&data);
         let ctx = egui::Context::default();
         let mut wb = Workbench::new();
         let mut home = Home::new(Vec::new());
@@ -608,15 +622,7 @@ mod tests {
     #[test]
     fn every_tool_window_opens_big_enough_for_its_tool() {
         let data = Data::builtin().unwrap();
-        let save = Save {
-            tools: ninsei_core::data::TOOLS
-                .iter()
-                .map(|t| t.to_string())
-                .collect(),
-            guide_seen: true,
-            intros: false,
-            ..Save::default()
-        };
+        let save = desk(&data);
         let ctx = egui::Context::default();
         crate::uitest::themed(&ctx, &data);
         let (mut wb, mut home) = (Workbench::new(), Home::new(Vec::new()));
@@ -634,7 +640,7 @@ mod tests {
     #[test]
     fn the_close_and_depth_gadgets_work_where_the_frame_draws_them() {
         let data = Data::builtin().unwrap();
-        let save = Save::default();
+        let save = desk(&data);
         let ctx = egui::Context::default();
         let (mut wb, mut home) = (Workbench::new(), Home::new(Vec::new()));
         wb.open(Tool::Shell);
@@ -664,18 +670,6 @@ mod tests {
         assert!(wb.wins.iter().all(|w| w.kind != back));
     }
 
-    fn all_tools() -> Save {
-        Save {
-            tools: ninsei_core::data::TOOLS
-                .iter()
-                .map(|t| t.to_string())
-                .collect(),
-            guide_seen: true,
-            intros: false,
-            ..Save::default()
-        }
-    }
-
     fn scroll_of(ctx: &egui::Context, tool: Tool) -> crate::kit::scrollbar::Scroll {
         let key = Id::new(("wb-scroll", tool)).with("kit-scroll");
         ctx.data(|d| d.get_temp(key)).unwrap()
@@ -684,7 +678,7 @@ mod tests {
     #[test]
     fn a_short_window_scrolls_with_the_proportional_gadget() {
         let data = Data::builtin().unwrap();
-        let save = all_tools();
+        let save = desk(&data);
         let ctx = egui::Context::default();
         crate::uitest::themed(&ctx, &data);
         let (mut wb, mut home) = (Workbench::new(), Home::new(Vec::new()));
@@ -716,7 +710,7 @@ mod tests {
     #[test]
     fn a_book_has_no_scroll_gadget_at_its_own_size() {
         let data = Data::builtin().unwrap();
-        let save = all_tools();
+        let save = desk(&data);
         let ctx = egui::Context::default();
         crate::uitest::themed(&ctx, &data);
         let (mut wb, mut home) = (Workbench::new(), Home::new(Vec::new()));
@@ -735,7 +729,7 @@ mod tests {
     #[test]
     fn every_tool_window_shows_its_tool_whole_beside_the_gadget() {
         let data = Data::builtin().unwrap();
-        let save = all_tools();
+        let save = desk(&data);
         for tool in Tool::ALL {
             let mut h = crate::uitest::Harness::new(1280.0, 800.0);
             crate::uitest::themed(&h.ctx, &data);
@@ -767,7 +761,7 @@ mod tests {
     #[test]
     fn the_wheel_over_a_window_in_front_doesnt_scroll_the_one_behind() {
         let data = Data::builtin().unwrap();
-        let save = all_tools();
+        let save = desk(&data);
         let ctx = egui::Context::default();
         crate::uitest::themed(&ctx, &data);
         let (mut wb, mut home) = (Workbench::new(), Home::new(Vec::new()));
