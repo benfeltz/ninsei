@@ -650,3 +650,133 @@ mod blox {
         assert_ne!(play(4), play(5));
     }
 }
+
+mod minefield {
+    use ninsei_core::games::minefield::Minefield;
+    use ninsei_core::games::{Arcade, Cell, Input};
+
+    #[test]
+    fn the_first_square_is_never_a_mine() {
+        for seed in 0..200 {
+            let mut m = Minefield::new(seed, 16, 16);
+            let (x, y) = ((seed % 16) as usize, (seed / 16 % 16) as usize);
+            m.step(Input::Click { col: x, row: y }, 0);
+            assert!(!m.is_mine(x, y) && !m.over(), "seed {seed}");
+        }
+        // Even a field that's nearly all mines.
+        let mut m = Minefield::new(3, 4, 4);
+        m.step(Input::Click { col: 0, row: 0 }, 0);
+        assert!(!m.is_mine(0, 0));
+    }
+
+    #[test]
+    fn an_empty_square_opens_its_region() {
+        let mut m = Minefield::new(1, 16, 16);
+        m.step(Input::Click { col: 8, row: 8 }, 0);
+        // The first square has no mine next to it, so it opened its neighbours too.
+        let opened = (0..16)
+            .flat_map(|y| (0..16).map(move |x| (x, y)))
+            .filter(|&(x, y)| m.is_open(x, y))
+            .count();
+        assert!(opened > 9, "only {opened} opened");
+        let cells = m.cells();
+        assert_eq!(cells[8 * 16 + 8], Cell::Empty);
+        // Every open square's number is the mines around it.
+        for y in 0..16 {
+            for x in 0..16 {
+                if let Cell::Number(n) = cells[y * 16 + x] {
+                    let around = (-1i32..=1)
+                        .flat_map(|dy| (-1i32..=1).map(move |dx| (dx, dy)))
+                        .filter(|&(dx, dy)| {
+                            m.is_mine((x as i32 + dx) as usize, (y as i32 + dy) as usize)
+                        })
+                        .count();
+                    assert_eq!(usize::from(n), around);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn opening_every_safe_square_wins() {
+        let mut m = Minefield::new(4, 16, 16);
+        m.step(Input::Click { col: 0, row: 0 }, 0);
+        for y in 0..16 {
+            for x in 0..16 {
+                if !m.is_mine(x, y) {
+                    m.step(Input::Click { col: x, row: y }, 0);
+                }
+            }
+        }
+        assert!(m.over() && m.won());
+        assert!(m.status().contains("FIELD CLEARED"));
+        assert_eq!(m.score() as usize, 16 * 16 - m.mines());
+    }
+
+    #[test]
+    fn a_mine_ends_it_and_shows_them_all() {
+        let mut m = Minefield::new(4, 16, 16);
+        m.step(Input::Click { col: 0, row: 0 }, 0);
+        let (x, y) = (0..256)
+            .map(|i| (i % 16, i / 16))
+            .find(|&(x, y)| m.is_mine(x, y))
+            .unwrap();
+        m.step(Input::Click { col: x, row: y }, 0);
+        assert!(m.over() && !m.won() && m.status().contains("BOOM"));
+        let shown = m.cells().iter().filter(|c| **c == Cell::Mine).count();
+        assert_eq!(shown, m.mines());
+    }
+
+    #[test]
+    fn flags_guard_a_square_and_count_down() {
+        let mut m = Minefield::new(2, 16, 16);
+        let all = m.mines();
+        m.step(Input::Flag { col: 3, row: 3 }, 0);
+        assert_eq!(m.mines_left(), all - 1);
+        assert_eq!(m.cells()[3 * 16 + 3], Cell::Flag);
+        m.step(Input::Click { col: 3, row: 3 }, 0);
+        assert!(!m.is_open(3, 3), "a flagged square doesn't open");
+        m.step(Input::Flag { col: 3, row: 3 }, 0);
+        assert_eq!(m.mines_left(), all);
+    }
+
+    #[test]
+    fn the_keyboard_moves_a_cursor_that_stays_on_the_field() {
+        let mut m = Minefield::new(2, 16, 16);
+        for _ in 0..40 {
+            m.step(Input::Left, 0);
+            m.step(Input::Up, 0);
+        }
+        assert_eq!(m.cursor(), Some((0, 0)));
+        m.step(Input::Alt, 0);
+        assert_eq!(m.cells()[0], Cell::Flag);
+        m.step(Input::Alt, 0);
+        m.step(Input::Fire, 0);
+        assert!(m.is_open(0, 0));
+    }
+
+    #[test]
+    fn same_seed_same_field() {
+        let field = |seed| {
+            let mut m = Minefield::new(seed, 16, 16);
+            m.step(Input::Click { col: 5, row: 5 }, 0);
+            (0..256)
+                .map(|i| m.is_mine(i % 16, i / 16))
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(field(8), field(8));
+        assert_ne!(field(8), field(9));
+    }
+}
+
+#[test]
+fn every_game_starts_a_playing_engine_on_its_own_field() {
+    let d = data();
+    for g in &d.games {
+        let a = games::new_game(g, 1);
+        assert_eq!((a.cols(), a.rows()), (g.cols as usize, g.rows as usize));
+        assert_eq!(a.cells().len(), a.cols() * a.rows(), "{}", g.id);
+        assert!(!a.over() && !a.paused() && a.score() == 0, "{}", g.id);
+        assert!(!a.status().is_empty());
+    }
+}

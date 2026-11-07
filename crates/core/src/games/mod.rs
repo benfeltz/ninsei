@@ -7,6 +7,7 @@
 use serde::Deserialize;
 
 pub mod blox;
+pub mod minefield;
 pub mod nibbler;
 
 /// One press, or nothing. Arrows steer and move a cursor, `Fire` is the main button, `Alt`
@@ -96,6 +97,17 @@ impl Engine {
             Engine::Blox => (6, 8),
             Engine::Minefield => (4, 4),
         }
+    }
+}
+
+/// A new game of `def`, on its own field, from `seed`: the same seed always deals the same
+/// game.
+pub fn new_game(def: &crate::data::GameDef, seed: u64) -> Box<dyn Arcade> {
+    let (cols, rows) = (def.cols as usize, def.rows as usize);
+    match def.engine {
+        Engine::Nibbler => Box::new(nibbler::Nibbler::new(seed, cols, rows)),
+        Engine::Blox => Box::new(blox::Blox::new(seed, cols, rows)),
+        Engine::Minefield => Box::new(minefield::Minefield::new(seed, cols, rows)),
     }
 }
 
