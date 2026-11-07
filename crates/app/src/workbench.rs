@@ -144,6 +144,12 @@ impl Workbench {
                 Kind::Guide => (pos2(200.0, 30.0), book_window()),
                 Kind::Requester(_) => (pos2(260.0, 150.0), vec2(330.0, 150.0)),
             };
+            // A tool's window has the proportional gadget down its right side, beside the
+            // tool's room (not the Shell's, which scrolls its own lines, or a requester's).
+            let size = match kind {
+                Kind::Shell | Kind::Requester(_) => size,
+                _ => size + vec2(kit::size::PROP_W, 0.0),
+            };
             self.wins.push(Win { kind, pos, size });
         }
     }
@@ -272,6 +278,14 @@ impl DesktopView for Workbench {
             }
         }
 
+        // A tool taller than its window scrolls with the proportional gadget.
+        let show =
+            |ui: &mut Ui, id: Id, body: &mut dyn FnMut(&mut Ui)| kit::scrolled(ui, id, &look, body);
+        let scroller = crate::home::Scroller {
+            width: kit::SCROLLED_W,
+            show: &show,
+        };
+
         // Windows, back to front.
         let mut raise = None;
         let mut close = None;
@@ -368,12 +382,14 @@ impl DesktopView for Workbench {
                 | Kind::Guide
                 | Kind::Terminal
                 | Kind::System => {
+                    // To the border, so the proportional gadget sits on it.
+                    let body = kit::window_scrolled(rect);
                     let mut child = ui.new_child(
                         egui::UiBuilder::new()
-                            .max_rect(content)
+                            .max_rect(body)
                             .layout(egui::Layout::top_down(egui::Align::Min)),
                     );
-                    child.set_clip_rect(content);
+                    child.set_clip_rect(body);
                     hubtools::wb_visuals(child.visuals_mut());
                     if !live {
                         child.disable();
@@ -397,7 +413,7 @@ impl DesktopView for Workbench {
                         save,
                         out,
                         hint,
-                        None,
+                        Some(&scroller),
                         ("wb-scroll", tool),
                     );
                 }
@@ -654,5 +670,145 @@ mod tests {
         run(&mut wb, &mut home, click(close));
         run(&mut wb, &mut home, Vec::new());
         assert!(wb.wins.iter().all(|w| w.kind != back));
+    }
+
+    fn all_tools() -> Save {
+        Save {
+            tools: ninsei_core::data::TOOLS
+                .iter()
+                .map(|t| t.to_string())
+                .collect(),
+            guide_seen: true,
+            intros: false,
+            ..Save::default()
+        }
+    }
+
+    fn scroll_of(ctx: &egui::Context, tool: Tool) -> crate::kit::scrollbar::Scroll {
+        let key = Id::new(("wb-scroll", tool)).with("kit-scroll");
+        ctx.data(|d| d.get_temp(key)).unwrap()
+    }
+
+    #[test]
+    fn a_short_window_scrolls_with_the_proportional_gadget() {
+        let data = Data::builtin().unwrap();
+        let save = all_tools();
+        let ctx = egui::Context::default();
+        crate::uitest::themed(&ctx, &data);
+        let (mut wb, mut home) = (Workbench::new(), Home::new(Vec::new()));
+        let mut t = 0.0;
+        let mut run = |wb: &mut Workbench, home: &mut Home, ev| {
+            t += 0.5;
+            frame(&ctx, wb, home, &data, &save, ev, t);
+        };
+        run(&mut wb, &mut home, Vec::new());
+        wb.open(Tool::System);
+        // Low on the screen the window is its shortest: System runs past it.
+        wb.wins.last_mut().unwrap().pos.y = 680.0;
+        for _ in 0..3 {
+            run(&mut wb, &mut home, Vec::new());
+        }
+        let s = scroll_of(&ctx, Tool::System);
+        assert!(s.active(), "{s:?}");
+        let w = wb.wins.last().unwrap();
+        let room = (800.0 - w.pos.y - WIN_MARGIN).max(WIN_MIN_H);
+        let rect = Rect::from_min_size(w.pos, vec2(w.size.x, w.size.y.min(room)));
+        let body = kit::window_scrolled(rect);
+        // A click on the container under the knob scrolls a page.
+        let below = pos2(body.right() - kit::size::PROP_W / 2.0, body.bottom() - 3.0);
+        run(&mut wb, &mut home, click(below));
+        let paged = scroll_of(&ctx, Tool::System);
+        assert!(paged.offset > s.offset, "{paged:?}");
+    }
+
+    #[test]
+    fn a_book_has_no_scroll_gadget_at_its_own_size() {
+        let data = Data::builtin().unwrap();
+        let save = all_tools();
+        let ctx = egui::Context::default();
+        crate::uitest::themed(&ctx, &data);
+        let (mut wb, mut home) = (Workbench::new(), Home::new(Vec::new()));
+        let mut t = 0.0;
+        for tool in [Tool::Rig, Tool::Guide] {
+            wb.open(tool);
+            for _ in 0..3 {
+                t += 0.5;
+                frame(&ctx, &mut wb, &mut home, &data, &save, Vec::new(), t);
+            }
+            let s = scroll_of(&ctx, tool);
+            assert!(!s.active(), "{tool:?}'s page fits its window: {s:?}");
+        }
+    }
+
+    #[test]
+    fn every_tool_window_shows_its_tool_whole_beside_the_gadget() {
+        let data = Data::builtin().unwrap();
+        let save = all_tools();
+        for tool in Tool::ALL {
+            let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+            crate::uitest::themed(&h.ctx, &data);
+            let (mut wb, mut home) = (Workbench::new(), Home::new(Vec::new()));
+            wb.open(tool);
+            for _ in 0..3 {
+                h.frame(Vec::new(), |ui| {
+                    let cx = Cx {
+                        data: &data,
+                        save: &save,
+                        offset: 0.0,
+                        live: true,
+                    };
+                    wb.show(ui, &mut home, &cx, &mut Vec::new());
+                });
+            }
+            let cut: Vec<_> = h
+                .cut_text()
+                .into_iter()
+                .filter(|(_, r)| r.bottom() < 780.0)
+                .collect();
+            assert!(
+                cut.is_empty(),
+                "{tool:?} is cut at its window's edge: {cut:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_wheel_over_a_window_in_front_doesnt_scroll_the_one_behind() {
+        let data = Data::builtin().unwrap();
+        let save = all_tools();
+        let ctx = egui::Context::default();
+        crate::uitest::themed(&ctx, &data);
+        let (mut wb, mut home) = (Workbench::new(), Home::new(Vec::new()));
+        let mut t = 0.0;
+        let mut run = |wb: &mut Workbench, home: &mut Home, ev| {
+            t += 0.5;
+            frame(&ctx, wb, home, &data, &save, ev, t);
+        };
+        run(&mut wb, &mut home, Vec::new());
+        // System low on the screen, so it scrolls; ICE DB in front, over System's gadget.
+        wb.open(Tool::System);
+        wb.wins.last_mut().unwrap().pos = pos2(100.0, 680.0);
+        wb.open(Tool::IceDb);
+        wb.wins.last_mut().unwrap().pos = pos2(700.0, 600.0);
+        for _ in 0..3 {
+            run(&mut wb, &mut home, Vec::new());
+        }
+        assert!(scroll_of(&ctx, Tool::System).active());
+        let sys = wb.wins.iter().find(|w| w.kind == Kind::System).unwrap();
+        let over = pos2(sys.pos.x + sys.size.x - 10.0, 760.0);
+        let wheel = vec![
+            Event::PointerMoved(over),
+            Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: vec2(0.0, -40.0),
+                modifiers: egui::Modifiers::NONE,
+                phase: egui::TouchPhase::Move,
+            },
+        ];
+        run(&mut wb, &mut home, wheel);
+        for _ in 0..10 {
+            run(&mut wb, &mut home, Vec::new());
+        }
+        assert_eq!(scroll_of(&ctx, Tool::System).offset, 0.0);
     }
 }

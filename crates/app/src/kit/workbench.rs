@@ -1,11 +1,13 @@
 //! The Workbench kit: the widgets of a desktop after the Amiga's Workbench 1.3. The screen's
-//! title bar, windows with their close and depth gadgets, the 1.3 bevel, push buttons and
-//! toggle gadgets, and the requester. It draws and reports clicks; what a window shows and what
+//! title bar, windows with their close and depth gadgets, the proportional gadget a window
+//! scrolls with, the 1.3 bevel, push buttons and toggle gadgets, and the requester. It draws and reports clicks; what a window shows and what
 //! a gadget does are the caller's. The numbers are the spec sheet's (`docs/refs/workbench.md`).
 //! Nothing here names a tool or a deck.
 
 use egui::{Align2, Color32, FontId, Id, Painter, Rect, Response, Sense, Stroke, StrokeKind, Ui};
 use egui::{pos2, vec2};
+
+use super::scrollbar::{self, Scroll};
 
 /// Sizes, in one place (the spec sheet's).
 pub mod size {
@@ -25,6 +27,9 @@ pub mod size {
     /// A toggle gadget's type, and its room around the label.
     pub const GADGET_FONT: f32 = 13.0;
     pub const GADGET_PAD: [f32; 2] = [18.0, 10.0];
+    /// The proportional gadget's width, and its knob's shortest.
+    pub const PROP_W: f32 = 16.0;
+    pub const KNOB_MIN: f32 = 12.0;
 }
 
 /// The desktop's colours and type, from the theme: 1.3's white, blue, black and orange, and
@@ -97,6 +102,16 @@ pub fn window_content(rect: Rect) -> Rect {
     Rect::from_min_max(
         g.bar.left_bottom() + vec2(side, size::PAD_TOP),
         rect.max - vec2(side, side),
+    )
+}
+
+/// Where a window's scrolled body goes ([`scrolled`]): from the content's left, under the title
+/// bar, to inside the border at the bottom right, so the proportional gadget sits flush on it.
+pub fn window_scrolled(rect: Rect) -> Rect {
+    let g = gadgets(rect);
+    Rect::from_min_max(
+        g.bar.left_bottom() + vec2(size::BORDER + size::PAD, 0.0),
+        rect.max - vec2(size::BORDER, size::BORDER),
     )
 }
 
@@ -264,6 +279,65 @@ pub fn toggle_gadget(ui: &mut Ui, label: &str, on: bool, look: &Look) -> Respons
     resp
 }
 
+/// The knob of a proportional gadget in `r` for `s`: as long as the view's share of the whole.
+fn knob(r: Rect, s: &Scroll) -> Option<Rect> {
+    let share = (s.view / s.content.max(1.0)).clamp(0.0, 1.0);
+    let len = (r.height() * share).max(size::KNOB_MIN).round();
+    scrollbar::thumb(r, s, len)
+}
+
+/// What the proportional gadget in `r` does to `s` this frame: a click above or below the knob
+/// scrolls a page, the knob drags the view, and the wheel over it scrolls it. Returns the new
+/// offset when it changed.
+fn prop_input(ui: &Ui, r: Rect, id: Id, s: &Scroll) -> Option<f32> {
+    let mut to = s.offset;
+    scrollbar::track_input(ui, r, knob(r, s), id, s, &mut to);
+    if let Some(wheel) = scrollbar::take_wheel(ui, r, id) {
+        to -= wheel;
+    }
+    s.settle(to)
+}
+
+/// Paints the proportional gadget in `r` for `s`: the container in the gadgets' face with a dark
+/// edge on its left, and the bevelled knob.
+fn prop_paint(p: &Painter, r: Rect, s: &Scroll, look: &Look) {
+    p.rect_filled(r, 0.0, look.fill);
+    p.rect_filled(
+        Rect::from_min_size(r.min, vec2(1.0, r.height())),
+        0.0,
+        look.shadow,
+    );
+    if let Some(k) = knob(r, s) {
+        let k = k.shrink2(vec2(2.0, 1.0));
+        p.rect_filled(k, 0.0, look.backdrop);
+        bevel(p, k, true, look);
+    }
+}
+
+/// `body` in a view that scrolls, filling `ui` (a window's [`window_scrolled`]), with the
+/// proportional gadget flush on the right while there's more than shows.
+pub fn scrolled(ui: &mut Ui, id: Id, look: &Look, body: impl FnOnce(&mut Ui)) {
+    let line = ui.fonts_mut(|f| f.row_height(&look.font)).ceil();
+    let pad = scrollbar::Pad {
+        top: size::PAD_TOP,
+        gap: size::PAD,
+        bottom: size::PAD,
+    };
+    scrollbar::view(
+        ui,
+        id,
+        line,
+        size::PROP_W,
+        pad,
+        body,
+        prop_input,
+        |p, bar, s| prop_paint(p, bar, s, look),
+    );
+}
+
+/// The room [`scrolled`] keeps beside its view: the gadget and the gap before it.
+pub const SCROLLED_W: f32 = size::PROP_W + size::PAD;
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -379,5 +453,25 @@ mod tests {
             clicked = toggle_gadget(ui, "Monitor", false, &look()).clicked();
         });
         assert!(clicked);
+    }
+
+    #[test]
+    fn the_knob_is_the_views_share_and_never_too_small() {
+        let r = Rect::from_min_size(pos2(0.0, 0.0), vec2(16.0, 200.0));
+        let s = |view, content| Scroll {
+            offset: 0.0,
+            view,
+            content,
+            line: 17.0,
+        };
+        assert_eq!(knob(r, &s(100.0, 400.0)).unwrap().height(), 50.0);
+        assert_eq!(
+            knob(r, &s(100.0, 100_000.0)).unwrap().height(),
+            size::KNOB_MIN
+        );
+        assert!(
+            knob(r, &s(100.0, 90.0)).is_none(),
+            "no knob when it all shows"
+        );
     }
 }
