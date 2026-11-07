@@ -373,8 +373,7 @@ impl DesktopView for Liza {
                     data,
                     save,
                     out,
-                    // A window dragged low is cut short by the screen's bottom edge.
-                    Some("Drag the window higher for more room."),
+                    home::drag_hint(pos.y, look::MENU_H),
                     ("liza-scroll", tool),
                 );
             }

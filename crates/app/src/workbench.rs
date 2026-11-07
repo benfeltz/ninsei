@@ -404,8 +404,7 @@ impl DesktopView for Workbench {
                         Kind::Guide => Tool::Guide,
                         _ => Tool::HexEd,
                     };
-                    // A window dragged low is cut short by the screen's bottom edge.
-                    let hint = Some("Drag the window higher for more room.");
+                    let hint = crate::home::drag_hint(pos.y, SCREEN_BAR_H);
                     home.tool_in(&mut child, tool, data, save, out, hint, ("wb-scroll", tool));
                 }
                 Kind::Requester(tool) => {

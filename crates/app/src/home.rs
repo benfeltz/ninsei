@@ -981,6 +981,13 @@ impl Home {
     }
 }
 
+/// The "too small" hint on a desktop of windows (Liza, Desktop): a window dragged low is cut
+/// short by the screen's bottom edge, so dragging it higher gives it room, unless its top is
+/// already as `highest` as it goes.
+pub(crate) fn drag_hint(top: f32, highest: f32) -> Option<&'static str> {
+    (top > highest + 0.5).then_some("Drag the window higher for more room.")
+}
+
 /// A dim line for an empty tile or slot.
 /// A tool's body in a window or tile that may be shorter than it: it scrolls, with a solid bar
 /// drawn in the text colour so every theme shows it.
@@ -1376,6 +1383,12 @@ pub(crate) mod tests {
                 );
             }
         }
+    }
+
+    #[test]
+    fn a_window_is_told_to_go_higher_only_when_it_can() {
+        assert!(drag_hint(300.0, 20.0).is_some());
+        assert_eq!(drag_hint(20.0, 20.0), None, "already at the top");
     }
 
     #[test]
