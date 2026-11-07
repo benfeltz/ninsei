@@ -61,10 +61,14 @@ pub fn boxed(ui: &mut Ui, p: &Palette, title: &str, note: &str, body: impl FnOnc
     (g.border, g.paper) = (p.dim, p.bg);
     let painter = ui.painter().clone();
     g.frame(&painter, 0, 0, g.cols, g.rows);
-    g.title(&painter, 2, 0, title, p.bright);
+    // Title and note cut with … to the room the border has, never dropped.
+    let title = cut(title, g.cols.saturating_sub(6));
+    g.title(&painter, 2, 0, &title, p.bright);
+    let spare = g.cols.saturating_sub(title.chars().count() + 10);
+    let note = cut(note, spare);
     let n = note.chars().count();
-    if n > 0 && n + 4 <= g.cols {
-        g.note(&painter, g.cols - n - 4, g.rows - 1, note, p.dim);
+    if n > 0 {
+        g.note(&painter, g.cols - n - 4, g.rows - 1, &note, p.dim);
     }
     if g.cols > 2 && g.rows > 2 {
         let inner = g.at(1, 1, g.cols - 2, g.rows - 2);
@@ -770,5 +774,42 @@ mod tests {
             })
             .expect("the title");
         assert!(d.top() < inner.top(), "on the top edge, above the body");
+    }
+
+    #[test]
+    fn a_narrow_box_cuts_its_title_and_note_rather_than_dropping_them() {
+        let data = ninsei_core::Data::builtin().unwrap();
+        let p = Palette::from_def(&data.themes[0]);
+        let painted = |w: f32| {
+            let mut h = Harness::new(800.0, 600.0);
+            let room = Rect::from_min_size(pos2(10.0, 10.0), vec2(w, 120.0));
+            h.frame(Vec::new(), |ui| {
+                let mut child = ui.new_child(UiBuilder::new().max_rect(room));
+                boxed(
+                    &mut child,
+                    &p,
+                    "net  NINSEI COMMUNITY COLLEGE",
+                    "a long note",
+                    |_| {},
+                );
+            });
+            h.painted()
+                .iter()
+                .filter_map(|s| match s {
+                    egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+                    _ => None,
+                })
+                .collect::<String>()
+        };
+        // Narrow: the title takes the edge, cut and marked.
+        let narrow = painted(200.0);
+        assert!(
+            narrow.starts_with("net") && narrow.contains('…'),
+            "{narrow}"
+        );
+        // Wider: the title whole, the note cut into what's left and marked.
+        let wide = painted(330.0);
+        assert!(wide.contains("NINSEICOMMUNITYCOLLEGE"), "{wide}");
+        assert!(wide.ends_with('…'), "the note, cut: {wide}");
     }
 }
