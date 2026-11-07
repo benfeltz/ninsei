@@ -13,6 +13,9 @@ use crate::data::Data;
 /// Rows the art may use: the last two rows are the board's ad and the scroller.
 pub const ART_ROWS: usize = ROWS - 2;
 
+/// The longest crew tag: `NIBBL-NM.ZIP` leaves three characters of an 8.3 name for it.
+pub const TAG_MAX: usize = 3;
+
 /// Tunables for every intro.
 pub mod anim {
     /// Scroller speed in characters a second, and in calm mode (glitches reduced or off).
@@ -57,10 +60,17 @@ pub struct IntroDef {
     /// From the file name.
     #[serde(skip)]
     pub id: String,
-    /// The board it advertises (an id in `data/bbs/`).
-    pub board: String,
+    /// The board it advertises (an id in `data/bbs/`). A crack always names one; a splash
+    /// (`tagline` set) may leave it out, and then shows no ad.
+    #[serde(default)]
+    pub board: Option<String>,
     /// The crew that cracked it.
     pub group: String,
+    /// The crew's short tag (`NM`, `PHS`, `2K4`, `RZW`): what a cracked copy is labelled with,
+    /// on the desktop and in a board's 8.3 file names. Required on a game's crack, never on a
+    /// splash.
+    #[serde(default)]
+    pub tag: Option<String>,
     /// How long it plays before the program opens, in seconds.
     pub secs: f32,
     /// How long each frame shows.
@@ -185,59 +195,8 @@ impl TuneDef {
         let step = (self.step_secs() * rate).max(1.0) as usize;
         let mut out = vec![0.0f32; len];
         for t in &self.tracks {
-            let Ok(pat) = steps(&t.pattern) else { continue };
-            let mut seed = 0x9E37_79B9_u32;
-            let (mut freq, mut start, mut sounding) = (0.0f32, 0usize, false);
-            let mut phase = 0.0f32;
-            let mut held = 0.0f32;
-            // How long each note runs, counting the holds after it.
-            let run = |at: usize| {
-                1 + (1..pat.len())
-                    .take_while(|k| pat[(at + k) % pat.len()] == Step::Hold)
-                    .count()
-            };
-            let mut length = step;
-            for (i, o) in out.iter_mut().enumerate() {
-                if i % step == 0 {
-                    let at = (i / step) % pat.len();
-                    match pat[at] {
-                        Step::Note(f) => {
-                            (freq, start, sounding, length) = (f, i, true, run(at) * step);
-                        }
-                        Step::Hit => {
-                            (freq, start, sounding, length) = (0.0, i, true, step);
-                        }
-                        Step::Rest => sounding = false,
-                        Step::Hold => {}
-                    }
-                }
-                if !sounding {
-                    continue;
-                }
-                let k = (i - start) as f32 / length.max(1) as f32;
-                if k >= 1.0 {
-                    sounding = false;
-                    continue;
-                }
-                let s = if freq == 0.0 {
-                    // A drum hit: noise, changing every few samples.
-                    if i % 3 == 0 {
-                        seed ^= seed << 13;
-                        seed ^= seed >> 17;
-                        seed ^= seed << 5;
-                        held = (seed % 2001) as f32 / 1000.0 - 1.0;
-                    }
-                    held * (1.0 - k).powi(4)
-                } else {
-                    phase = (phase + freq / rate).fract();
-                    let w = crate::cue::Wave::sample(t.wave, phase, &mut seed);
-                    // A pluck: a quick attack, then down to a sustain, released at the end.
-                    let attack = ((i - start) as f32 / (0.003 * rate)).min(1.0);
-                    let body = 0.55 + 0.45 * (1.0 - k).powi(3);
-                    let release = ((1.0 - k) / 0.15).min(1.0);
-                    w * attack * body * release
-                };
-                *o += s * t.vol;
+            if let Some(mut synth) = Synth::new(t, step) {
+                synth.fill(&mut out, 0, rate, len);
             }
         }
         let fade = (0.25 * rate) as usize;
@@ -252,13 +211,248 @@ impl TuneDef {
         }
         out
     }
+
+    /// Steps before every track lines up again: the least common multiple of their lengths
+    /// (`usize::MAX` if that's past counting, which no loop limit lets through).
+    pub fn loop_steps(&self) -> usize {
+        fn gcd(a: usize, b: usize) -> usize {
+            if b == 0 { a } else { gcd(b, a % b) }
+        }
+        self.tracks
+            .iter()
+            .filter_map(|t| steps(&t.pattern).ok())
+            .map(|p| p.len().max(1))
+            .try_fold(1usize, |l, n| (l / gcd(l, n)).checked_mul(n))
+            .unwrap_or(usize::MAX)
+    }
+
+    /// Seconds one cycle lasts at `bpm + tempo`.
+    pub fn loop_secs(&self, tempo: u32) -> f32 {
+        let per_step = 60.0 / ((self.bpm + tempo).max(1) * self.steps.max(1)) as f32;
+        self.loop_steps() as f32 * per_step
+    }
+
+    /// Exactly one cycle of the tune ([`Self::loop_steps`] steps), played with `arr`'s track
+    /// left out and its extra bpm, with no fade: played on repeat, it never seams. A note still
+    /// ringing at the end of the cycle carries on into the start, as it would on the next pass.
+    pub fn render_loop(&self, rate: u32, arr: &crate::music::Arrangement) -> Vec<f32> {
+        let mut job = self.loop_render(rate, arr.tempo, arr.drop);
+        while !job.work(usize::MAX) {}
+        job.finish().0
+    }
+
+    /// One cycle at `bpm + tempo`, split in two: the bed (every track but `stem`) and the stem
+    /// (that track alone, empty if none), the same length, so a player can mute the stem
+    /// without losing its place. Rendered a slice at a time ([`LoopRender::work`]), so a long
+    /// loop never holds up a frame; the samples are the same however it's sliced.
+    pub fn loop_render(&self, rate: u32, tempo: u32, stem: Option<usize>) -> LoopRender {
+        let rate = rate.max(1) as f32;
+        let bpm = (self.bpm + tempo).max(1) * self.steps.max(1);
+        let step = ((60.0 / bpm as f32) * rate).max(1.0) as usize;
+        let len = self.loop_steps().saturating_mul(step);
+        let synths: Vec<(Synth, bool)> = self
+            .tracks
+            .iter()
+            .enumerate()
+            .filter_map(|(n, t)| Some((Synth::new(t, step)?, stem == Some(n))))
+            .collect();
+        // Room for the last notes to ring out past the end, folded back to the start after.
+        let tail = synths.iter().map(|(s, _)| s.longest()).max().unwrap_or(0) * step;
+        let has_stem = synths.iter().any(|(_, st)| *st);
+        LoopRender {
+            bed: vec![0.0; len + tail],
+            stem: if has_stem {
+                vec![0.0; len + tail]
+            } else {
+                Vec::new()
+            },
+            len,
+            rate,
+            synths,
+            track: 0,
+            at: 0,
+        }
+    }
+}
+
+/// A tune's loop being rendered a slice at a time (see [`TuneDef::loop_render`]).
+pub struct LoopRender {
+    bed: Vec<f32>,
+    stem: Vec<f32>,
+    /// One cycle, in samples; the buffers run past it by the ringing tail.
+    len: usize,
+    rate: f32,
+    /// Each track's synth, and whether it plays on the stem.
+    synths: Vec<(Synth, bool)>,
+    /// The track being rendered, and how far into the buffer it has got.
+    track: usize,
+    at: usize,
+}
+
+impl LoopRender {
+    /// Renders about `budget` more samples (all tracks counted). True once it's all done.
+    pub fn work(&mut self, budget: usize) -> bool {
+        let mut left = budget.max(1);
+        while self.track < self.synths.len() && left > 0 {
+            let (synth, on_stem) = &mut self.synths[self.track];
+            let out = if *on_stem {
+                &mut self.stem
+            } else {
+                &mut self.bed
+            };
+            let to = self.at.saturating_add(left).min(out.len());
+            synth.fill(&mut out[self.at..to], self.at, self.rate, self.len);
+            left -= to - self.at;
+            self.at = to;
+            if self.at >= out.len() {
+                self.track += 1;
+                self.at = 0;
+            }
+        }
+        self.track >= self.synths.len()
+    }
+
+    /// The bed and the stem, one cycle each, with what rang past the end
+    /// folded back into the start. Call once [`Self::work`] says it's done.
+    pub fn finish(mut self) -> (Vec<f32>, Vec<f32>) {
+        let len = self.len;
+        let close = |buf: &mut Vec<f32>| {
+            if buf.is_empty() {
+                return;
+            }
+            let tail = buf.split_off(len);
+            for (o, t) in buf.iter_mut().zip(tail) {
+                *o += t;
+            }
+            for o in buf.iter_mut() {
+                *o = o.clamp(-1.0, 1.0);
+            }
+        };
+        close(&mut self.bed);
+        close(&mut self.stem);
+        (self.bed, self.stem)
+    }
+
+    /// Samples one cycle lasts.
+    pub fn len(&self) -> usize {
+        self.len
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.len == 0
+    }
+}
+
+/// One track's synthesizer: its pattern, looping from the first sample, `step` samples a
+/// step, and where it got to, so it can render in slices.
+struct Synth {
+    pat: Vec<Step>,
+    wave: crate::cue::Wave,
+    vol: f32,
+    step: usize,
+    seed: u32,
+    freq: f32,
+    start: usize,
+    sounding: bool,
+    phase: f32,
+    held: f32,
+    length: usize,
+}
+
+impl Synth {
+    fn new(t: &TrackDef, step: usize) -> Option<Synth> {
+        let pat = steps(&t.pattern).ok().filter(|p| !p.is_empty())?;
+        Some(Synth {
+            pat,
+            wave: t.wave,
+            vol: t.vol,
+            step,
+            seed: 0x9E37_79B9_u32,
+            freq: 0.0,
+            start: 0,
+            sounding: false,
+            phase: 0.0,
+            held: 0.0,
+            length: step,
+        })
+    }
+
+    /// How long a note starting at `at` runs, in steps, counting the holds after it.
+    fn run(&self, at: usize) -> usize {
+        let pat = &self.pat;
+        1 + (1..pat.len())
+            .take_while(|k| pat[(at + k) % pat.len()] == Step::Hold)
+            .count()
+    }
+
+    /// The longest any note or hit rings, in steps.
+    fn longest(&self) -> usize {
+        (0..self.pat.len())
+            .filter(|&at| matches!(self.pat[at], Step::Note(_) | Step::Hit))
+            .map(|at| self.run(at))
+            .max()
+            .unwrap_or(0)
+    }
+
+    /// Mixes the track into `out`, whose first sample is sample `base` of the whole. No note
+    /// starts from sample `until` on: what's ringing then plays out.
+    fn fill(&mut self, out: &mut [f32], base: usize, rate: f32, until: usize) {
+        let step = self.step;
+        for (j, o) in out.iter_mut().enumerate() {
+            let i = base + j;
+            if i.is_multiple_of(step) && i < until {
+                let at = (i / step) % self.pat.len();
+                match self.pat[at] {
+                    Step::Note(f) => {
+                        let length = self.run(at) * step;
+                        (self.freq, self.start, self.sounding, self.length) = (f, i, true, length);
+                    }
+                    Step::Hit => {
+                        (self.freq, self.start, self.sounding, self.length) = (0.0, i, true, step);
+                    }
+                    Step::Rest => self.sounding = false,
+                    Step::Hold => {}
+                }
+            }
+            if !self.sounding {
+                continue;
+            }
+            let k = (i - self.start) as f32 / self.length.max(1) as f32;
+            if k >= 1.0 {
+                self.sounding = false;
+                continue;
+            }
+            let s = if self.freq == 0.0 {
+                // A drum hit: noise, changing every few samples.
+                if i.is_multiple_of(3) {
+                    let seed = &mut self.seed;
+                    *seed ^= *seed << 13;
+                    *seed ^= *seed >> 17;
+                    *seed ^= *seed << 5;
+                    self.held = (*seed % 2001) as f32 / 1000.0 - 1.0;
+                }
+                self.held * (1.0 - k).powi(4)
+            } else {
+                self.phase = (self.phase + self.freq / rate).fract();
+                let w = crate::cue::Wave::sample(self.wave, self.phase, &mut self.seed);
+                // A pluck: a quick attack, then down to a sustain, released at the end.
+                let attack = ((i - self.start) as f32 / (0.003 * rate)).min(1.0);
+                let body = 0.55 + 0.45 * (1.0 - k).powi(3);
+                let release = ((1.0 - k) / 0.15).min(1.0);
+                w * attack * body * release
+            };
+            *o += s * self.vol;
+        }
+    }
 }
 
 impl IntroDef {
     pub fn validate(&self, data: &Data) -> Result<(), String> {
         let err = |m: String| Err(format!("intro `{}`: {m}", self.id));
-        if data.board(&self.board).is_none() {
-            return err(format!("unknown board `{}`", self.board));
+        match &self.board {
+            Some(b) if data.board(b).is_none() => return err(format!("unknown board `{b}`")),
+            None if !self.is_splash() => return err("a crack names its board".into()),
+            _ => {}
         }
         if self.secs <= 0.0 || self.frame_secs <= 0.0 {
             return err("secs and frame_secs must be above 0".into());
@@ -282,7 +476,25 @@ impl IntroDef {
                 return err(format!("effect rows {}..{} out of range", e.from, e.to));
             }
         }
-        if self.greetz.is_empty() && self.tagline.is_none() {
+        if self.is_splash() && !self.greetz.is_empty() {
+            return err("a splash greets nobody".into());
+        }
+        if self.is_splash() && self.tag.is_some() {
+            return err("a splash carries no crew's tag".into());
+        }
+        let fits = |t: &str| {
+            (1..=TAG_MAX).contains(&t.len())
+                && t.chars()
+                    .all(|c| c.is_ascii_uppercase() || c.is_ascii_digit())
+        };
+        if let Some(t) = &self.tag
+            && !fits(t)
+        {
+            return err(format!(
+                "tag `{t}`: 1-{TAG_MAX} capital letters or digits, so it fits an 8.3 name"
+            ));
+        }
+        if !self.is_splash() && self.greetz.is_empty() {
             return err("no greetz (or a tagline)".into());
         }
         if let Some(t) = &self.tune
@@ -291,6 +503,17 @@ impl IntroDef {
             return err(format!("tune: {e}"));
         }
         Ok(())
+    }
+
+    /// A publisher's splash (a tagline, no crew's greetz) rather than a crack.
+    pub fn is_splash(&self) -> bool {
+        self.tagline.is_some()
+    }
+
+    /// The board it advertises, if it names one.
+    fn ad_board<'a>(&self, data: &'a Data) -> Option<&'a crate::data::BbsDef> {
+        let id = self.board.as_deref()?;
+        data.board(id).map(|b| &data.boards[b])
     }
 
     /// Whether it has finished playing at time `t` (seconds since it started).
@@ -303,12 +526,9 @@ impl IntroDef {
         if let Some(t) = &self.tagline {
             return format!("{t} ▪ ");
         }
-        let board = data
-            .board(&self.board)
-            .map(|b| &data.boards[b])
-            .map_or(String::new(), |b| {
-                format!("CALL {} {} ▪ {} BAUD ▪ ", b.name, b.phone, b.baud)
-            });
+        let board = self.ad_board(data).map_or(String::new(), |b| {
+            format!("CALL {} {} ▪ {} BAUD ▪ ", b.name, b.phone, b.baud)
+        });
         format!(
             "CRACKED BY {} ▪ {board}GREETZ TO {} ▪ ",
             self.group,
@@ -333,13 +553,10 @@ impl IntroDef {
                 }
             }
         }
-        // The board's ad, centred above the scroller.
-        let ad = data
-            .board(&self.board)
-            .map(|b| &data.boards[b])
-            .map_or(String::new(), |b| {
-                format!("{} ▪ {} ▪ SYSOP {}", b.name, b.phone, b.sysop)
-            });
+        // The board's ad, centred above the scroller; a splash without a board leaves it blank.
+        let ad = self.ad_board(data).map_or(String::new(), |b| {
+            format!("{} ▪ {} ▪ SYSOP {}", b.name, b.phone, b.sysop)
+        });
         let pad = COLS.saturating_sub(ad.chars().count()) / 2;
         out.push(format!("|14{}{ad}", " ".repeat(pad)));
         out.push(format!("|11{}", window(&self.scroller(data), t, calm)));

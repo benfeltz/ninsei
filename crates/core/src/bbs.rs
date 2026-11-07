@@ -46,6 +46,17 @@ pub trait Line {
     fn has_tool(&self, id: &str) -> bool;
     /// Whether a textfile on this board is already on your disk.
     fn has_text(&self, id: &str) -> bool;
+    /// Whether you have a cracked copy of a game: it lists as yours, like a tool. A boxed
+    /// copy doesn't count; the board still sells the crack.
+    fn has_crack(&self, id: &str) -> bool;
+    /// Whether a file's tool or game crack is already yours: it lists as yours, not for sale.
+    fn owns(&self, item: &Drop) -> bool {
+        match item {
+            Drop::Tool(t) => self.has_tool(t),
+            Drop::Game(g) => self.has_crack(g),
+            _ => false,
+        }
+    }
 }
 
 impl Line for Game {
@@ -96,6 +107,10 @@ impl Line for Game {
 
     fn has_text(&self, id: &str) -> bool {
         Game::has_text(self, id)
+    }
+
+    fn has_crack(&self, id: &str) -> bool {
+        Game::has_crack(self, id)
     }
 }
 
@@ -547,10 +562,7 @@ impl Session {
                 for (i, a) in b.areas.iter().enumerate() {
                     let left = game.stock()[i]
                         .iter()
-                        .filter(|s| {
-                            !s.bought
-                                && !matches!(&a.files[s.def].item, Drop::Tool(t) if game.has_tool(t))
-                        })
+                        .filter(|s| !s.bought && !game.owns(&a.files[s.def].item))
                         .count();
                     out.push(format!(
                         "   {} {lb}{:<26}{dm}{left} file(s)",
@@ -573,7 +585,7 @@ impl Session {
                 for (i, s) in game.stock()[a].iter().enumerate() {
                     let f = &area.files[s.def];
                     let size = file_size(&f.file);
-                    let owned = matches!(&f.item, Drop::Tool(t) if game.has_tool(t));
+                    let owned = game.owns(&f.item);
                     if s.bought || owned {
                         let note = if owned { "[yours]" } else { "[downloaded]" };
                         out.push(format!(
@@ -783,7 +795,7 @@ fn drop_tag(item: &Drop, l: &Look) -> String {
         Drop::Warez(_) => String::new(),
         Drop::Hint(_) => format!(" {}[TXT]", pipe(l.ok)),
         Drop::Text(_) => format!(" {}[READ]", pipe(l.ok)),
-        Drop::Tool(_) => format!(" {}[EXE]", pipe(l.key)),
+        Drop::Tool(_) | Drop::Game(_) => format!(" {}[EXE]", pipe(l.key)),
         _ => format!(" {}[MOD]", pipe(l.aside)),
     }
 }

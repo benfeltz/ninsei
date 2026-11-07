@@ -98,11 +98,21 @@ pub struct Note {
     pub vol: f32,
 }
 
-/// A sound pack: every cue, for one deck's firmware (`data/sounds/<id>.ron`).
-#[derive(Clone, Debug, PartialEq)]
+/// A sound pack: every cue, and the run's music, for one deck's firmware (`data/sounds/<id>.ron`).
+#[derive(Clone, Debug)]
 pub struct SoundPack {
     pub id: String,
     pub sounds: Vec<SoundDef>,
+    /// A tune per network tier; none at all is a silent pack.
+    pub music: Vec<crate::music::RunTune>,
+}
+
+/// A sound pack file as written: `(cues: [...], music: [...])`.
+#[derive(Deserialize, Clone, Debug)]
+pub struct PackFile {
+    pub cues: Vec<SoundDef>,
+    #[serde(default)]
+    pub music: Vec<crate::music::RunTune>,
 }
 
 /// One line of a sound pack.

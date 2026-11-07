@@ -77,7 +77,7 @@ fn calm_holds_the_first_frame_still() {
 fn a_bad_intro_is_caught() {
     let d = data();
     let mut i = d.intro("hexed").unwrap().clone();
-    i.board = "nowhere".into();
+    i.board = Some("nowhere".into());
     assert!(i.validate(&d).unwrap_err().contains("unknown board"));
     let mut i = d.intro("hexed").unwrap().clone();
     i.frames[0].push("x".repeat(COLS + 1));
@@ -90,8 +90,15 @@ fn a_bad_intro_is_caught() {
 #[test]
 fn every_intro_has_a_tune_that_renders() {
     let d = data();
-    // The Gutter's cracktros play a tune; the terminals' splashes are silent.
-    let silent = ["carrierterm", "nightcomm", "tigerteam"];
+    // The Gutter's cracktros play a tune; the terminals' and the publisher's splashes are silent.
+    let silent = [
+        "carrierterm",
+        "nightcomm",
+        "tigerteam",
+        "nibbler-splash",
+        "blox-splash",
+        "minefield-splash",
+    ];
     for i in d.intros.iter().filter(|i| !silent.contains(&i.id.as_str())) {
         let tune = i.tune.as_ref().expect("every cracktro plays a tune");
         let a = tune.render(8000, i.secs);
@@ -125,4 +132,58 @@ fn the_terminals_splashes_are_silent() {
     }
     let c = d.intro("carrierterm").unwrap();
     assert!(c.scroller(&d).contains("Sense/Net") && !c.scroller(&d).contains("CRACKED"));
+}
+
+#[test]
+fn a_splash_without_a_board_shows_no_ad() {
+    let d = data();
+    let mut i = d.intro("carrierterm").unwrap().clone();
+    i.board = None;
+    assert!(i.validate(&d).is_ok(), "a splash needn't name a board");
+    let lines = i.screen(&d, 0.0, false);
+    assert_eq!(lines.len(), ROWS, "the scroller stays on the bottom row");
+    assert!(ansi::plain(&lines[ROWS - 2]).trim().is_empty(), "no ad row");
+    let text = i.scroller(&d);
+    assert_eq!(text, format!("{} ▪ ", i.tagline.as_deref().unwrap()));
+    assert!(!text.contains("CALL") && !text.contains("555"));
+}
+
+#[test]
+fn a_crack_names_its_board_and_greets_and_a_splash_greets_nobody() {
+    let d = data();
+    let mut i = d.intro("hexed").unwrap().clone();
+    i.board = None;
+    assert!(i.validate(&d).unwrap_err().contains("names its board"));
+    let mut i = d.intro("hexed").unwrap().clone();
+    i.greetz.clear();
+    assert!(i.validate(&d).unwrap_err().contains("no greetz"));
+    let mut i = d.intro("carrierterm").unwrap().clone();
+    i.greetz = vec!["c4se".into()];
+    assert!(i.validate(&d).unwrap_err().contains("greets nobody"));
+}
+
+#[test]
+fn a_crews_tag_fits_an_8_3_name_and_a_splash_has_none() {
+    let d = data();
+    let mut i = d.intro("blox-crack").unwrap().clone();
+    assert_eq!(i.tag.as_deref(), Some("PHS"));
+    for bad in ["", "PHOS", "ph", "P-S"] {
+        i.tag = Some(bad.into());
+        assert!(i.validate(&d).unwrap_err().contains("8.3"), "{bad:?}");
+    }
+    let mut s = d.intro("blox-splash").unwrap().clone();
+    s.tag = Some("PT".into());
+    assert!(s.validate(&d).unwrap_err().contains("no crew's tag"));
+}
+
+#[test]
+fn a_crew_signs_with_one_tag() {
+    let mut d = data();
+    let i = d
+        .intros
+        .iter()
+        .position(|i| i.id == "minefield-crack")
+        .unwrap();
+    d.intros[i].tag = Some("PH".into());
+    assert!(d.validate().unwrap_err().contains("signs as"));
 }
