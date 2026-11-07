@@ -266,10 +266,8 @@ fn every_scored_pack_has_a_tune_per_tier_that_sits_under_a_cracktro() {
             let secs = t.tune.loop_secs(0);
             assert!((24.0..=64.0).contains(&secs), "{at} loops after {secs:.1}s");
             assert!(t.drop.is_some(), "{at} has a track to drop");
-            let plain = t.tune.render_loop(HI, &Arrangement::PLAIN);
-            for pct in [0, MUSIC_DROP_AT, MUSIC_TEMPO_AT] {
-                let a = t.tune.render_loop(HI, &arrangement(pct, t.drop));
-                let (peak, rms) = level(&a);
+            let check = |pct: u32, a: &[f32]| {
+                let (peak, rms) = level(a);
                 assert!(peak < 0.5, "{at} at {pct}% peaks at {peak:.3}: no clipping");
                 assert!(
                     (0.035..=0.08).contains(&rms) && rms < cracktro,
@@ -283,9 +281,14 @@ fn every_scored_pack_has_a_tune_per_tier_that_sits_under_a_cracktro() {
                     (a[a.len() - 1] - a[0]).abs() < 0.05,
                     "{at} at {pct}% wraps without a click"
                 );
-                if pct >= MUSIC_DROP_AT {
-                    assert_ne!(a, plain, "{at} at {pct}% thins out");
-                }
+            };
+            // 0% trace is the tune as written.
+            let plain = t.tune.render_loop(HI, &Arrangement::PLAIN);
+            check(0, &plain);
+            for pct in [MUSIC_DROP_AT, MUSIC_TEMPO_AT] {
+                let a = t.tune.render_loop(HI, &arrangement(pct, t.drop));
+                check(pct, &a);
+                assert!(a != plain, "{at} at {pct}% thins out");
                 if pct >= MUSIC_TEMPO_AT {
                     assert!(a.len() < plain.len(), "{at} speeds up");
                 }
