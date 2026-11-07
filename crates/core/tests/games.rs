@@ -84,10 +84,17 @@ fn the_box_never_erases_the_crack() {
     assert_eq!(s.game_copy("blox"), Some(Cracked));
     assert!(s.learn_game("blox", Boxed), "the box goes beside the crack");
     assert!(s.has_copy("blox", Cracked) && s.has_copy("blox", Boxed));
-    assert_eq!(s.game_copy("blox"), Some(Boxed), "it opens with the box you paid for");
+    assert_eq!(
+        s.game_copy("blox"),
+        Some(Boxed),
+        "it opens with the box you paid for"
+    );
     assert!(s.learn_game("nibbler", Boxed));
     assert!(!s.has_copy("nibbler", Cracked));
-    assert!(s.learn_game("nibbler", Cracked), "a crack goes beside the box too");
+    assert!(
+        s.learn_game("nibbler", Cracked),
+        "a crack goes beside the box too"
+    );
     assert!(s.has_copy("nibbler", Boxed) && s.has_copy("nibbler", Cracked));
     assert_eq!(s.games.len(), 2, "one row a game");
     assert_eq!(s.cracks(), vec!["blox".to_string(), "nibbler".to_string()]);
@@ -177,7 +184,7 @@ fn a_game_downloads_and_comes_home_cracked() {
     assert_eq!(kit.games, vec!["blox".to_string()]);
     let mut g = run_on_board(&d, board, kit.games);
     let (area, file) = blox_file(&g);
-    assert!(g.buy_blocker(area, file).unwrap().contains("already have"));
+    assert_eq!(g.buy_blocker(area, file).unwrap(), "you already have BLOX.");
     g.phase = Phase::JackedOut;
     let report = save.record(&g, &[], &d.rig).unwrap();
     assert!(report.games.is_empty(), "nothing new came home");

@@ -49,14 +49,13 @@ pub trait Line {
     /// Whether you have a cracked copy of a game: it lists as yours, like a tool. A boxed
     /// copy doesn't count; the board still sells the crack.
     fn has_crack(&self, id: &str) -> bool;
-}
-
-/// Whether a file is a tool or a game you already own: the listing marks it yours.
-fn owned(game: &dyn Line, item: &Drop) -> bool {
-    match item {
-        Drop::Tool(t) => game.has_tool(t),
-        Drop::Game(g) => game.has_crack(g),
-        _ => false,
+    /// Whether a file's tool or game crack is already yours: it lists as yours, not for sale.
+    fn owns(&self, item: &Drop) -> bool {
+        match item {
+            Drop::Tool(t) => self.has_tool(t),
+            Drop::Game(g) => self.has_crack(g),
+            _ => false,
+        }
     }
 }
 
@@ -563,7 +562,7 @@ impl Session {
                 for (i, a) in b.areas.iter().enumerate() {
                     let left = game.stock()[i]
                         .iter()
-                        .filter(|s| !s.bought && !owned(game, &a.files[s.def].item))
+                        .filter(|s| !s.bought && !game.owns(&a.files[s.def].item))
                         .count();
                     out.push(format!(
                         "   {} {lb}{:<26}{dm}{left} file(s)",
@@ -586,7 +585,7 @@ impl Session {
                 for (i, s) in game.stock()[a].iter().enumerate() {
                     let f = &area.files[s.def];
                     let size = file_size(&f.file);
-                    let owned = owned(game, &f.item);
+                    let owned = game.owns(&f.item);
                     if s.bought || owned {
                         let note = if owned { "[yours]" } else { "[downloaded]" };
                         out.push(format!(

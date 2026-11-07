@@ -1532,13 +1532,7 @@ impl Game {
         if matches!(def.item, Drop::Warez(_)) && self.hdd.len() as u32 >= self.deck.hdd_max {
             return Some("hdd full. free a slot before downloading warez.".into());
         }
-        if let Some(why) = tool_blocker(
-            &self.data.tools,
-            &def.item,
-            |t| self.has_tool(t),
-            |t| self.has_text(t),
-            |t| self.has_crack(t),
-        ) {
+        if let Some(why) = tool_blocker(&self.data.tools, &self.data.games, &def.item, self) {
             return Some(why);
         }
         None
@@ -1785,26 +1779,24 @@ impl Game {
     }
 }
 
-/// Why a tool, game or textfile can't be downloaded, wherever you are: it's already yours.
+/// Why a tool, game or textfile can't be downloaded on `line`, wherever you are: it's
+/// already yours. `tools` and `games` name it.
 pub fn tool_blocker(
     tools: &[crate::data::ToolDef],
+    games: &[crate::data::GameDef],
     item: &Drop,
-    has: impl Fn(&str) -> bool,
-    has_text: impl Fn(&str) -> bool,
-    has_crack: impl Fn(&str) -> bool,
+    line: &dyn crate::bbs::Line,
 ) -> Option<String> {
-    match item {
-        Drop::Tool(id) if has(id) => Some(format!(
-            "you already have {}.",
-            tools
-                .iter()
-                .find(|t| t.id == *id)
-                .map_or(id.as_str(), |t| t.name.as_str())
-        )),
-        Drop::Text(id) if has_text(id) => Some("that textfile's already on your disk.".into()),
-        Drop::Game(id) if has_crack(id) => Some("you already have that game.".into()),
+    let name = match item {
+        Drop::Text(id) if line.has_text(id) => {
+            return Some("that textfile's already on your disk.".into());
+        }
+        _ if !line.owns(item) => return None,
+        Drop::Tool(id) => tools.iter().find(|t| t.id == *id).map(|t| &t.name),
+        Drop::Game(id) => games.iter().find(|g| g.id == *id).map(|g| &g.name),
         _ => None,
-    }
+    };
+    Some(format!("you already have {}.", name.map_or("that", |n| n)))
 }
 
 /// A board's listing for one visit: per area, `stock` files picked at random.

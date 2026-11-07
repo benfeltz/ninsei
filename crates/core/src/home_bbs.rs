@@ -29,7 +29,8 @@ pub struct HomeCall {
     games: Vec<String>,
     /// Textfiles from this board already on your disk (text ids).
     texts: Vec<String>,
-    defs: Vec<crate::data::ToolDef>,
+    tool_defs: Vec<crate::data::ToolDef>,
+    game_defs: Vec<crate::data::GameDef>,
 }
 
 impl Line for HomeCall {
@@ -80,13 +81,9 @@ impl Line for HomeCall {
         if matches!(f.item, Drop::Warez(_)) && self.stash_free == 0 {
             return Some("your stash is full.".into());
         }
-        if let Some(why) = crate::game::tool_blocker(
-            &self.defs,
-            &f.item,
-            |t| self.has_tool(t),
-            |t| self.has_text(t),
-            |t| self.has_crack(t),
-        ) {
+        if let Some(why) =
+            crate::game::tool_blocker(&self.tool_defs, &self.game_defs, &f.item, self)
+        {
             return Some(why);
         }
         if self.bank < f.price {
@@ -197,7 +194,8 @@ impl Save {
                 .filter(|k| k.board == data.boards[board].id)
                 .map(|k| k.id.clone())
                 .collect(),
-            defs: data.tools.clone(),
+            tool_defs: data.tools.clone(),
+            game_defs: data.games.clone(),
         }
     }
 
