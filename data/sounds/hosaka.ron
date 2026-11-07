@@ -1,5 +1,6 @@
-// The Hosaka's sound pack: a company workstation. Soft sines and triangles, office chimes,
-// a polite "ding". Calm on purpose: even the flatline is a tidy shutdown tune.
+// The Hosaka's sound pack: a company workstation. Soft sines and triangles (and a quiet
+// noise tick in the music), office chimes, a polite "ding". Calm on purpose: even the
+// flatline is a tidy shutdown tune.
 // Same format as ono.ron (see there); every cue needs an entry.
 //
 // Music: what the office plays while you're on hold. Sine tunes over triangle basses, major
