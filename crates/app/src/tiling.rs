@@ -211,7 +211,9 @@ impl DesktopView for TilingDesk {
         for tool in home.take_opens() {
             t.open(tool);
         }
-        if live {
+        // The leader's keys only while nothing over the desktop owns the keyboard (a board
+        // called from home gets its Esc and everything after it).
+        if live && cx.keys {
             self.keys(
                 ui,
                 &mut t,
@@ -353,7 +355,7 @@ impl DesktopView for TilingDesk {
             }
         }
 
-        if live {
+        if live && cx.keys {
             self.launcher_ui(ui, home, cx, &mut t, out, &look);
             let first = !save.tiling_help_seen;
             if (self.help || first) && anarchy::help(ui, screen, &HELP, &look) {

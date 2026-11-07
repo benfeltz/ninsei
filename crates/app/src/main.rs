@@ -1751,6 +1751,15 @@ mod tests {
         let g = app.home.game(mine).unwrap();
         assert_eq!(g.cursor(), moved, "the board has the keys, not the game");
         assert!(g.paused(), "and the game waits behind it");
+        // Esc goes down the line, never to AnarchyOS's leader: the keys after it aren't the
+        // desktop's (a workspace switch, closing the tile, the launcher).
+        let tiling = app.save.tiling.clone();
+        for k in [egui::Key::Num2, egui::Key::X, egui::Key::Space] {
+            frame(&mut h, &mut app, key(egui::Key::Escape));
+            frame(&mut h, &mut app, key(k));
+        }
+        assert_eq!(app.save.tiling, tiling, "the tiles are as they were");
+        assert!(app.home_bbs.is_some(), "still on the call");
     }
 
     #[test]
