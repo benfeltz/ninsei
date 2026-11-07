@@ -1264,6 +1264,42 @@ pub(crate) mod tests {
         assert!(home.directory.list.top < before, "the wheel scrolled it up");
     }
 
+    #[test]
+    fn a_list_box_takes_the_wheel_over_its_rows_and_leaves_none_for_the_tool() {
+        let data = Data::builtin().unwrap();
+        let mut h = Harness::new(600.0, 400.0);
+        crate::uitest::themed(&h.ctx, &data);
+        let mut list = crate::kit::List::default();
+        // One frame; returns the wheel left over once the list has drawn.
+        let frame = |h: &mut Harness, list: &mut crate::kit::List, events| {
+            let mut left = 0.0;
+            h.frame(events, |ui| {
+                hubtools::list_box(ui, 200.0, 40, list, None, |ui, i| {
+                    ui.label(format!("row {i}"));
+                });
+                left = ui.input(|i| i.smooth_scroll_delta.y);
+            });
+            left
+        };
+        frame(
+            &mut h,
+            &mut list,
+            vec![egui::Event::PointerMoved(pos2(100.0, 50.0))],
+        );
+        let wheel = vec![egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Line,
+            delta: vec2(0.0, -3.0),
+            modifiers: egui::Modifiers::NONE,
+            phase: egui::TouchPhase::Move,
+        }];
+        let mut left = frame(&mut h, &mut list, wheel);
+        for _ in 0..10 {
+            assert_eq!(left, 0.0, "the list left some wheel for the tool");
+            left = frame(&mut h, &mut list, Vec::new());
+        }
+        assert!(list.top > 0, "and scrolled itself");
+    }
+
     /// Widgets that reach past `rect`'s sides: what it would cut. (Faces scroll, so below
     /// the bottom is fine.)
     fn cut_at_the_sides(h: &Harness, rect: Rect) -> Vec<(String, Rect)> {

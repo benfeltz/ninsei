@@ -383,7 +383,7 @@ pub(crate) fn rows_in(height: f32, pitch: f32, gap: f32) -> usize {
 /// still reads as a list. It scrolls a row at a time through `list` (the kit's window, by
 /// core's scroll rule), following `follow` when given; the wheel over its rows scrolls it
 /// (from the next frame). `row` draws item `i`. Returns the rows it shows.
-fn list_box(
+pub(crate) fn list_box(
     ui: &mut Ui,
     height: f32,
     len: usize,
@@ -402,23 +402,15 @@ fn list_box(
             for i in list.view(len, follow, rows) {
                 row(ui, i);
             }
-            // The wheel, in rows (a notch is a row, pixels count by the row), and only over the
-            // rows it drew: the card and footer under it are the tool's.
-            let wheel: f32 = ui.input(|i| {
-                i.events
-                    .iter()
-                    .map(|e| match e {
-                        egui::Event::MouseWheel { unit, delta, .. } => match unit {
-                            egui::MouseWheelUnit::Point => delta.y / pitch,
-                            egui::MouseWheelUnit::Line => delta.y,
-                            egui::MouseWheelUnit::Page => delta.y * rows as f32,
-                        },
-                        _ => 0.0,
-                    })
-                    .sum()
-            });
-            if wheel != 0.0 && ui.rect_contains_pointer(ui.min_rect()) {
-                list.wheel(wheel);
+            // The wheel, in rows, and only over the rows it drew: the card and footer under it
+            // are the tool's. egui hands the wheel out smoothed over a few frames; the list
+            // takes each frame's share and leaves none for the tool's own scroll area.
+            if ui.rect_contains_pointer(ui.min_rect()) {
+                let delta = ui.input(|i| i.smooth_scroll_delta.y);
+                if delta != 0.0 {
+                    list.wheel(delta / pitch);
+                    ui.ctx().input_mut(|i| i.smooth_scroll_delta.y = 0.0);
+                }
             }
         });
     rows
