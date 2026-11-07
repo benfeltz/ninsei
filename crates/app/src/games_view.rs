@@ -574,4 +574,111 @@ mod tests {
             [Tool::game("blox", GameCopy::Boxed).unwrap()]
         );
     }
+
+    /// `gamer`, with intros on.
+    fn with_intros(data: &Data) -> Save {
+        Save {
+            intros: true,
+            ..gamer(data)
+        }
+    }
+
+    #[test]
+    fn a_crack_opens_with_its_crews_cracktro_and_a_box_with_its_splash() {
+        use crate::home::TuneCue;
+        let data = Data::builtin().unwrap();
+        let save = with_intros(&data);
+        let def = data.game("nibbler").unwrap();
+        for (copy, intro) in [
+            (GameCopy::Cracked, &def.crack),
+            (GameCopy::Boxed, &def.splash),
+        ] {
+            let t = Tool::game("nibbler", copy).unwrap();
+            let mut h = Harness::new(1280.0, 800.0);
+            let mut home = Home::new(Vec::new());
+            home.focused = true;
+            frame(&mut h, &mut home, &data, &save, t, Vec::new());
+            assert_eq!(home.tune, Some(TuneCue::Play(intro.clone())), "{copy:?}");
+            assert!(
+                home.game(t).is_none(),
+                "{copy:?}: the game waits for its intro"
+            );
+            // It plays to its end, then the game starts.
+            let secs = data.intro(intro).unwrap().secs as f64;
+            h.wait(secs + 1.0);
+            frame(&mut h, &mut home, &data, &save, t, Vec::new());
+            frame(&mut h, &mut home, &data, &save, t, Vec::new());
+            assert!(home.game(t).is_some(), "{copy:?}: the game after its intro");
+        }
+    }
+
+    #[test]
+    fn a_key_over_the_window_skips_the_intro_and_cuts_its_tune() {
+        use crate::home::TuneCue;
+        let data = Data::builtin().unwrap();
+        let save = with_intros(&data);
+        let t = tool("blox");
+        let mut h = Harness::new(1280.0, 800.0);
+        let mut home = Home::new(Vec::new());
+        home.focused = true;
+        frame(&mut h, &mut home, &data, &save, t, Vec::new());
+        let mut skip = vec![egui::Event::PointerMoved(pos2(400.0, 200.0))];
+        skip.extend(key(Key::Space));
+        frame(&mut h, &mut home, &data, &save, t, skip);
+        assert_eq!(home.tune, Some(TuneCue::Stop));
+        frame(&mut h, &mut home, &data, &save, t, Vec::new());
+        assert!(
+            home.game(t).is_some_and(|g| !g.over()),
+            "straight into the game"
+        );
+    }
+
+    #[test]
+    fn closing_the_window_mid_intro_cuts_its_tune() {
+        use crate::home::TuneCue;
+        let data = Data::builtin().unwrap();
+        let save = with_intros(&data);
+        let mut h = Harness::new(1280.0, 800.0);
+        let mut home = Home::new(Vec::new());
+        frame(
+            &mut h,
+            &mut home,
+            &data,
+            &save,
+            tool("minefield"),
+            Vec::new(),
+        );
+        home.tune = None;
+        h.frame(Vec::new(), |_| {});
+        home.drop_closed_intros(h.ctx.cumulative_pass_nr() + 1);
+        assert_eq!(home.tune, Some(TuneCue::Stop));
+    }
+
+    #[test]
+    fn with_intros_off_the_game_starts_at_once_and_plays_no_tune() {
+        let (_, home, ..) = open("nibbler");
+        assert!(home.tune.is_none());
+        assert!(home.game(tool("nibbler")).is_some());
+    }
+
+    #[test]
+    fn an_intro_in_a_room_narrower_than_its_screen_shrinks_to_fit_and_is_never_cut() {
+        let data = Data::builtin().unwrap();
+        let save = with_intros(&data);
+        let t = tool("blox");
+        // Blox's field takes a narrow room; its cracktro's 80x24 screen is wider.
+        let mut h = Harness::new(1280.0, 800.0);
+        let rect = Rect::from_min_size(Pos2::ZERO, vec2(330.0, 500.0));
+        let mut home = Home::new(Vec::new());
+        crate::home::tests::frame_at(&mut h, &mut home, &data, &save, t, rect, Vec::new());
+        crate::home::tests::frame_at(&mut h, &mut home, &data, &save, t, rect, Vec::new());
+        assert!(home.game(t).is_none(), "the intro is up");
+        assert!(h.cut_text().is_empty(), "cut: {:?}", h.cut_text());
+        let right = h
+            .painted()
+            .iter()
+            .map(|s| s.visual_bounding_rect().right())
+            .fold(0.0_f32, f32::max);
+        assert!(right <= rect.right() + 1.0, "drawn to {right}");
+    }
 }

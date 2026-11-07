@@ -322,7 +322,7 @@ impl DesktopView for Workbench {
                     )
                 };
                 self.wins[i].size =
-                    crate::home::game_window(ui.ctx(), data, t, view).unwrap_or(vec2(400.0, 300.0));
+                    crate::home::game_window(ui, data, t, view).unwrap_or(vec2(400.0, 300.0));
             }
             let (kind, pos, size) = (self.wins[i].kind, self.wins[i].pos, self.wins[i].size);
             // A window never runs off the bottom of the screen: it gets shorter and scrolls.

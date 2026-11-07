@@ -9,7 +9,7 @@ use ninsei_core::binary::Bin;
 use ninsei_core::data::ThemeDef;
 use ninsei_core::hardware::Desktop;
 use ninsei_core::hexedit::HexBuffer;
-use ninsei_core::hub::{self, Save, ScanResult, ShellEffect, Tool};
+use ninsei_core::hub::{self, GameCopy, Save, ScanResult, ShellEffect, Tool};
 use ninsei_core::modem::Handshake;
 use std::cell::Cell;
 
@@ -259,8 +259,8 @@ pub struct Home {
     pub(crate) icedb_sel: Option<usize>,
     /// Cracktros: the pass each tool's body was last drawn on (so a fresh open replays its
     /// intro), and the intros playing now with the time each started.
-    intro_drawn: std::collections::HashMap<&'static str, u64>,
-    intro_playing: std::collections::HashMap<&'static str, f64>,
+    intro_drawn: std::collections::HashMap<String, u64>,
+    intro_playing: std::collections::HashMap<String, f64>,
     /// For the app's speaker: an intro whose tune should start (its id), or stop.
     pub(crate) tune: Option<TuneCue>,
     /// Where the Welcome to the Net stack is open.
@@ -422,7 +422,7 @@ impl Home {
     /// Plays tool `id`'s cracktro in its window, every time the window opens, until it ends or
     /// a click or key skips it. True while it's showing (draw nothing else). A tool with no
     /// intro, or intros switched off in System, opens straight away.
-    fn intro_gate(&mut self, ui: &mut Ui, data: &Data, save: &Save, id: &'static str) -> bool {
+    fn intro_gate(&mut self, ui: &mut Ui, data: &Data, save: &Save, id: &str) -> bool {
         match data.tool(id).and_then(|t| t.intro.clone()) {
             Some(intro) => self.splash_gate(ui, data, save, id, &intro),
             None => false,
@@ -436,7 +436,7 @@ impl Home {
         ui: &mut Ui,
         data: &Data,
         save: &Save,
-        id: &'static str,
+        id: &str,
         intro: &str,
     ) -> bool {
         let Some(def) = data.intro(intro) else {
@@ -447,10 +447,10 @@ impl Home {
         // Not drawn last pass: the window (or tab) just opened.
         let fresh = self
             .intro_drawn
-            .insert(id, pass)
+            .insert(id.to_string(), pass)
             .is_none_or(|last| last + 1 < pass);
         if fresh && save.intros {
-            self.intro_playing.insert(id, now);
+            self.intro_playing.insert(id.to_string(), now);
             self.tune = Some(TuneCue::Play(def.id.clone()));
         }
         let Some(&start) = self.intro_playing.get(id) else {
@@ -477,7 +477,7 @@ impl Home {
         }
         let calm = save.glitches != ninsei_core::glitch::Glitches::On;
         let lines = def.screen(data, t, calm);
-        crate::bbs_view::paint_screen(ui, &lines, false, &desk_palette());
+        crate::bbs_view::paint_screen_fit(ui, &lines, false, &desk_palette());
         ui.ctx().request_repaint();
         true
     }
@@ -775,7 +775,7 @@ impl Home {
             Tool::Terminal => {
                 // Drawn this pass, splash or not, so hanging up a dial doesn't replay it.
                 self.intro_drawn
-                    .insert("carrierterm", child.ctx().cumulative_pass_nr());
+                    .insert("carrierterm".into(), child.ctx().cumulative_pass_nr());
                 // No dialer, no WarDial tab: CarrierTerm is just the phonebook. Once
                 // NiGHTCOMM is here, wardialing is its job.
                 let wardial_tab = save.has_tool("wardial") && !save.has_dialer();
@@ -863,6 +863,18 @@ impl Home {
             Tool::IceDb => hubtools::icedb(child, data, save, &mut self.icedb_sel),
             Tool::Guide => hubtools::guide(child, data, &mut self.guide_at),
             Tool::Shell => {}
+            // A crack opens with its crew's cracktro, a box with its publisher's splash.
+            Tool::Game(_, copy)
+                if tool.game_def(data).is_some_and(|(g, _)| {
+                    let intro = match copy {
+                        GameCopy::Cracked => &g.crack,
+                        GameCopy::Boxed => &g.splash,
+                    };
+                    self.splash_gate(child, data, save, &format!("game:{tool:?}"), intro)
+                }) =>
+            {
+                return;
+            }
             Tool::Game(..) => self.play(child, data, save, tool, out),
         }
         if let Some(id) = dial {
@@ -1043,19 +1055,21 @@ impl Home {
     }
 }
 
-/// How big a window of games must open for a game's face: the room its first (square-ish)
-/// grid needs in the kit's cells, plus what the window's frame takes around its `view` (the
-/// rect its tool is drawn in, from the window's rect). `None` for anything but a game.
+/// How big a window must open for a game: the room its first (square-ish) grid needs in the
+/// kit's cells, or its intro's 80x24 screen if that's bigger, plus what the window's frame
+/// takes around its `view` (the rect its tool is drawn in, from the window's rect). `None`
+/// for anything but a game.
 pub(crate) fn game_window(
-    ctx: &egui::Context,
+    ui: &Ui,
     data: &Data,
     tool: Tool,
     view: impl Fn(Rect) -> Rect,
 ) -> Option<Vec2> {
     let (def, _) = tool.game_def(data)?;
     let grid = crate::games_view::grids(def)[0];
-    let cell = crate::kit::Cells::cell_size(ctx);
-    let room = vec2(grid.cols as f32 * cell.x, grid.rows as f32 * cell.y);
+    let cell = crate::kit::Cells::cell_size(ui.ctx());
+    let field = vec2(grid.cols as f32 * cell.x, grid.rows as f32 * cell.y);
+    let room = field.max(crate::bbs_view::screen_size(ui));
     let probe = Rect::from_min_size(Pos2::ZERO, vec2(2000.0, 2000.0));
     let frame = probe.size() - view(probe).size();
     // A point of slack either way, so rounding never costs a cell.

@@ -388,7 +388,7 @@ impl DesktopView for Liza {
                         kit::SCROLL_PAD,
                     )
                 };
-                self.wins[i].size = home::game_window(ui.ctx(), data, self.wins[i].tool, view)
+                self.wins[i].size = home::game_window(ui, data, self.wins[i].tool, view)
                     .unwrap_or(vec2(400.0, 300.0));
             }
             let (tool, pos, size) = (self.wins[i].tool, self.wins[i].pos, self.wins[i].size);
