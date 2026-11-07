@@ -17,8 +17,7 @@ use ninsei_core::hub::Tool;
 use crate::home::{Cx, DesktopView, Home, WbOut, accent, backdrop, font, hint, ink, muted, shadow};
 use crate::kit::anarchy;
 
-/// Sizes, in one place: the kit's (`docs/refs/anarchyos.md`).
-pub(crate) use crate::kit::anarchy::size;
+use crate::kit::anarchy::size;
 
 /// The desktop's look for the kit: the theme's colours and the app's type, and `ui`'s visuals
 /// (what the theme set: the caret, square corners) dressed for the desk.
@@ -310,7 +309,7 @@ impl DesktopView for TilingDesk {
             if live && clicked.is_some_and(|p| r.contains(p)) {
                 focus_to = Some(i);
             }
-            let content = content_of(r);
+            let content = anarchy::tile_content(r);
             let typing = live && on && self.launcher.is_none() && !self.leader && !help_open;
             if tool == Tool::Shell {
                 home.shell(ui, content, data, save, typing, out);
@@ -425,12 +424,6 @@ fn full_screen_hint(full: bool, tiles: usize) -> Option<&'static str> {
 /// Where tiles go on `screen`: everything under the bar.
 pub(crate) fn work_area(screen: Rect) -> Rect {
     Rect::from_min_max(pos2(screen.left(), screen.top() + size::BAR_H), screen.max)
-}
-
-/// Where a tool draws inside its tile `r`: under the label cut into the top border, inside
-/// the margins.
-pub(crate) fn content_of(r: Rect) -> Rect {
-    anarchy::tile_content(r)
 }
 
 /// The key help: a key (after the leader) and what it does.

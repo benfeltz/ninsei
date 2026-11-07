@@ -1129,10 +1129,13 @@ pub(crate) mod tests {
                 t.resize_master(steps);
                 let tiles = t.layout(
                     [area.left(), area.top(), area.width(), area.height()],
-                    crate::tiling::size::GAP,
+                    crate::kit::anarchy::size::GAP,
                 );
                 for (i, (_, [x, y, w, h])) in tiles.into_iter().enumerate() {
-                    let r = crate::tiling::content_of(Rect::from_min_size(pos2(x, y), vec2(w, h)));
+                    let r = crate::kit::anarchy::tile_content(Rect::from_min_size(
+                        pos2(x, y),
+                        vec2(w, h),
+                    ));
                     if !out.iter().any(|(_, o)| o.size() == r.size()) {
                         let what = format!(
                             "tile {i} of {} with the master at {}%",
