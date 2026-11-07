@@ -71,7 +71,10 @@ pub fn boxed(ui: &mut Ui, p: &Palette, title: &str, note: &str, body: impl FnOnc
         g.note(&painter, g.cols - n - 4, g.rows - 1, &note, p.dim);
     }
     if g.cols > 2 && g.rows > 2 {
-        let inner = g.at(1, 1, g.cols - 2, g.rows - 2);
+        // The body sits where it always did: 10px and 12px inside the border line.
+        let line = g.at(0, 0, 1, 1).center();
+        let end = g.at(g.cols - 1, g.rows - 1, 1, 1).center();
+        let inner = Rect::from_min_max(line, end).shrink2(vec2(10.0, 12.0));
         ui.scope_builder(UiBuilder::new().max_rect(inner), body);
     }
     ui.allocate_rect(room, Sense::hover());
@@ -764,6 +767,18 @@ mod tests {
             assert!(room.contains_rect(r), "{r:?} outside the pane {room:?}");
         }
         assert!(room.shrink(3.0).contains_rect(inner) && inner.width() > 250.0);
+        // 10px and 12px inside the border line, as before the box sat on cells.
+        let line = h
+            .rects()
+            .into_iter()
+            .find(|(_, fill, stroke)| *fill == Color32::TRANSPARENT && *stroke == p.dim)
+            .expect("the border")
+            .0;
+        assert!(
+            (inner.left() - line.left() - 10.0).abs() < 0.6,
+            "{inner:?} in {line:?}"
+        );
+        assert!((inner.top() - line.top() - 12.0).abs() < 0.6);
         // The title's glyphs sit in the top row of cells, over the border.
         let d = h
             .painted()
