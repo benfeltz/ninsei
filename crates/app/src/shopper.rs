@@ -868,4 +868,38 @@ mod tests {
             "{out:?}"
         );
     }
+
+    #[test]
+    fn the_cover_and_contents_print_every_story_whole() {
+        let data = Data::builtin().unwrap();
+        let save = deck(&data);
+        let (mut h, mut home) = (Harness::new(1280.0, 800.0), Home::new(Vec::new()));
+        crate::uitest::themed(&h.ctx, &data);
+        let page = Rect::from_min_size(Pos2::ZERO, pager::SIZE + egui::vec2(16.0, 16.0));
+        frame(&mut h, &mut home, &data, &save, Tool::Rig, Vec::new());
+        frame(&mut h, &mut home, &data, &save, Tool::Rig, Vec::new());
+        let whole = |h: &Harness, what: &str| {
+            assert!(h.cut_text().is_empty(), "{what} cut: {:?}", h.cut_text());
+            for (t, r) in h.painted_text() {
+                assert!(
+                    page.contains_rect(r),
+                    "{what}: {t:?} runs off the page at {r:?}"
+                );
+            }
+        };
+        // Every cover story, the Games one included.
+        let texts: Vec<String> = h.painted_text().into_iter().map(|(t, _)| t).collect();
+        for c in &data.shopper.cover {
+            assert!(
+                texts.contains(&c.headline),
+                "{} isn't on the cover",
+                c.headline
+            );
+        }
+        whole(&h, "the cover");
+        let next = press_on(&mut h, "▶");
+        frame(&mut h, &mut home, &data, &save, Tool::Rig, next);
+        frame(&mut h, &mut home, &data, &save, Tool::Rig, Vec::new());
+        whole(&h, "the contents");
+    }
 }
