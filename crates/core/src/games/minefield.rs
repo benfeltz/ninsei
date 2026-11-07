@@ -59,8 +59,12 @@ impl Minefield {
         self.mines
     }
 
-    /// Mines not yet flagged (can go below zero on a wrong guess, shown as 0).
+    /// Mines not yet flagged (a wrong guess can take it below zero, shown as 0). A cleared
+    /// field has every mine flagged.
     pub fn mines_left(&self) -> usize {
+        if self.won {
+            return 0;
+        }
         self.mines
             .saturating_sub(self.flag.iter().filter(|f| **f).count())
     }
@@ -187,18 +191,28 @@ impl Arcade for Minefield {
     }
 
     fn cells(&self) -> Vec<Cell> {
+        let lost = self.over && !self.won;
         (0..self.cols * self.rows)
             .map(|i| {
-                // When it's lost, every mine shows.
-                let shown = self.open[i] || (self.over && !self.won && self.mine[i]);
-                match (shown, self.mine[i], self.flag[i]) {
-                    (true, true, _) => Cell::Mine,
-                    (true, false, _) => match self.count(i) {
-                        0 => Cell::Empty,
-                        n => Cell::Number(n),
-                    },
-                    (false, _, true) => Cell::Flag,
-                    (false, _, false) => Cell::Covered,
+                let (mine, flag) = (self.mine[i], self.flag[i]);
+                if self.open[i] {
+                    return if mine {
+                        Cell::Mine
+                    } else {
+                        match self.count(i) {
+                            0 => Cell::Empty,
+                            n => Cell::Number(n),
+                        }
+                    };
+                }
+                match (mine, flag) {
+                    // A cleared field flags every mine; a lost one shows the rest of them and
+                    // marks the flags that were wrong.
+                    (true, _) if self.won => Cell::Flag,
+                    (true, false) if lost => Cell::Mine,
+                    (false, true) if lost => Cell::WrongFlag,
+                    (_, true) => Cell::Flag,
+                    (_, false) => Cell::Covered,
                 }
             })
             .collect()

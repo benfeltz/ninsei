@@ -48,6 +48,8 @@ pub enum Cell {
     /// A square not yet opened.
     Covered,
     Flag,
+    /// A flag on a square with no mine, shown once the game is lost.
+    WrongFlag,
     /// An open square and the mines around it (0-8).
     Number(u8),
     Mine,

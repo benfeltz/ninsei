@@ -747,7 +747,70 @@ mod minefield {
         m.step(Input::Click { col: x, row: y }, 0);
         assert!(m.over() && !m.won() && m.status().contains("BOOM"));
         let shown = m.cells().iter().filter(|c| **c == Cell::Mine).count();
-        assert_eq!(shown, m.mines());
+        assert_eq!(shown, m.mines(), "nothing was flagged, so every mine shows");
+    }
+
+    #[test]
+    fn a_lost_field_keeps_right_flags_and_marks_wrong_ones() {
+        let mut m = Minefield::new(4, 16, 16, 100);
+        m.step(Input::Click { col: 0, row: 0 }, 0);
+        let squares: Vec<(usize, usize)> = (0..256).map(|i| (i % 16, i / 16)).collect();
+        let mines: Vec<_> = squares.iter().filter(|&&(x, y)| m.is_mine(x, y)).collect();
+        let safe = squares
+            .iter()
+            .find(|&&(x, y)| !m.is_mine(x, y) && !m.is_open(x, y))
+            .unwrap();
+        let (right, boom) = (mines[0], mines[1]);
+        m.step(
+            Input::Flag {
+                col: right.0,
+                row: right.1,
+            },
+            0,
+        );
+        m.step(
+            Input::Flag {
+                col: safe.0,
+                row: safe.1,
+            },
+            0,
+        );
+        m.step(
+            Input::Click {
+                col: boom.0,
+                row: boom.1,
+            },
+            0,
+        );
+        let cells = m.cells();
+        let at = |(x, y): (usize, usize)| cells[y * 16 + x];
+        assert_eq!(at(*right), Cell::Flag, "a right flag stays a flag");
+        assert_eq!(at(*safe), Cell::WrongFlag);
+        assert_eq!(at(*boom), Cell::Mine);
+        let shown = cells.iter().filter(|c| **c == Cell::Mine).count();
+        assert_eq!(shown, m.mines() - 1, "every mine but the flagged one");
+    }
+
+    #[test]
+    fn a_cleared_field_flags_every_mine() {
+        let mut m = Minefield::new(4, 16, 16, 100);
+        m.step(Input::Click { col: 0, row: 0 }, 0);
+        for i in 0..256 {
+            if !m.is_mine(i % 16, i / 16) {
+                m.step(
+                    Input::Click {
+                        col: i % 16,
+                        row: i / 16,
+                    },
+                    0,
+                );
+            }
+        }
+        assert!(m.won());
+        let flags = m.cells().iter().filter(|c| **c == Cell::Flag).count();
+        assert_eq!(flags, m.mines());
+        assert_eq!(m.mines_left(), 0);
+        assert!(!m.cells().contains(&Cell::Covered));
     }
 
     #[test]
