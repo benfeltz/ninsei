@@ -281,6 +281,8 @@ fn contents(
     boxed(ui, features, 2.0, |ui| {
         ui.label(small("FEATURES"));
         ui.add_space(4.0);
+        // Set tight, a story to a leader line and its deck, so every cover story fits.
+        ui.spacing_mut().item_spacing.y = 1.0;
         for c in &def.cover {
             let at = toc.iter().find(|(s, ..)| *s == c.section);
             let page = at.map_or(String::new(), |&(_, _, n)| n.to_string());
@@ -891,11 +893,12 @@ mod tests {
         let every_story = |h: &Harness, what: &str| {
             let seen = h.visible_text();
             for c in &data.shopper.cover {
-                assert!(
-                    seen.iter().any(|t| t.contains(&c.headline)),
-                    "{} isn't readable on {what}",
-                    c.headline
-                );
+                for t in [&c.headline, &c.line] {
+                    assert!(
+                        seen.iter().any(|s| s.contains(t.as_str())),
+                        "{t} isn't readable on {what}"
+                    );
+                }
             }
         };
         every_story(&h, "the cover");
