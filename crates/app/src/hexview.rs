@@ -191,7 +191,6 @@ fn grid(ui: &mut Ui, h: &mut HexBuffer, p: &Palette) {
         Sense::click(),
     );
     let rect = resp.rect;
-    let cw = g.cw;
     let focused = ui.memory(|m| m.has_focus(grid_id()));
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 0.0, p.bg);
@@ -265,24 +264,18 @@ fn grid(ui: &mut Ui, h: &mut HexBuffer, p: &Palette) {
         g.text(&painter, ascii_c + col, r, &ch.to_string(), ascii_ink);
     }
 
-    // Mouse: click a byte to put the cursor there and take keyboard focus.
+    // Mouse: click a byte to put the cursor there and take keyboard focus. The cell under
+    // the pointer maps back through the same columns the bytes were drawn in: a byte's two
+    // digits and the space after them, or its ASCII cell.
     let pick = |pos: egui::Pos2| -> Option<(usize, bool)> {
-        let row = ((pos.y - g.rect.top()) / CELL_H).floor() as isize - 1;
-        if !(0..rows as isize).contains(&row) {
-            return None;
-        }
-        let row = row as usize;
-        let ax = pos.x - g.at(ascii_c, 0, 1, 1).left();
-        if ax >= 0.0 {
-            let col = (ax / cw) as usize;
-            return (col < ROW).then_some((row * ROW + col, true));
+        let (c, r) = g.cell_at(pos)?;
+        let row = r.checked_sub(1).filter(|&row| row < rows)?;
+        if (ascii_c..ascii_c + ROW).contains(&c) {
+            return Some((row * ROW + c - ascii_c, true));
         }
         (0..ROW)
-            .find(|&c| {
-                let x = g.at(hex_c(c), 0, 1, 1).left();
-                pos.x >= x - 2.0 && pos.x < x + cw * 3.0
-            })
-            .map(|c| (row * ROW + c, false))
+            .find(|&col| (hex_c(col)..hex_c(col) + 3).contains(&c))
+            .map(|col| (row * ROW + col, false))
     };
     if let Some(pos) = resp.hover_pos()
         && let Some((i, _)) = pick(pos)

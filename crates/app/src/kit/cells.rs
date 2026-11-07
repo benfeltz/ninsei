@@ -178,6 +178,16 @@ impl Cells {
         )
     }
 
+    /// The cell under `pos`, if it's on the grid: the inverse of [`Cells::at`].
+    pub fn cell_at(&self, pos: Pos2) -> Option<(usize, usize)> {
+        if !self.rect.contains(pos) {
+            return None;
+        }
+        let c = ((pos.x - self.rect.left()) / self.cw).floor() as usize;
+        let r = ((pos.y - self.rect.top()) / self.ch).floor() as usize;
+        (c < self.cols && r < self.rows).then_some((c, r))
+    }
+
     /// The centre of a cell: where border lines run.
     fn mid(&self, c: usize, r: usize) -> Pos2 {
         self.rect.min + vec2((c as f32 + 0.5) * self.cw, (r as f32 + 0.5) * self.ch)
@@ -385,5 +395,31 @@ impl Cells {
                 p.rect_stroke(cell, 0.0, Stroke::new(1.0, empty), egui::StrokeKind::Inside);
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cell_at_finds_the_cell_at_drew() {
+        let mut h = crate::uitest::Harness::new(400.0, 300.0);
+        h.frame(Vec::new(), |ui| {
+            let g = Cells::sized(
+                ui,
+                pos2(10.0, 20.0),
+                FontId::monospace(15.0),
+                Some(22.0),
+                (12, 4),
+            );
+            for (c, r) in [(0, 0), (11, 3), (5, 2)] {
+                let cell = g.at(c, r, 1, 1);
+                assert_eq!(g.cell_at(cell.center()), Some((c, r)));
+                assert_eq!(g.cell_at(cell.min), Some((c, r)), "its top-left is its own");
+            }
+            assert_eq!(g.cell_at(pos2(5.0, 25.0)), None, "left of the grid");
+            assert_eq!(g.cell_at(g.rect.right_bottom() + vec2(1.0, 1.0)), None);
+        });
     }
 }
