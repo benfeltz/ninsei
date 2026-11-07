@@ -90,8 +90,15 @@ fn a_bad_intro_is_caught() {
 #[test]
 fn every_intro_has_a_tune_that_renders() {
     let d = data();
-    // The Gutter's cracktros play a tune; the terminals' splashes are silent.
-    let silent = ["carrierterm", "nightcomm", "tigerteam"];
+    // The Gutter's cracktros play a tune; the terminals' and the publisher's splashes are silent.
+    let silent = [
+        "carrierterm",
+        "nightcomm",
+        "tigerteam",
+        "nibbler-splash",
+        "blox-splash",
+        "minefield-splash",
+    ];
     for i in d.intros.iter().filter(|i| !silent.contains(&i.id.as_str())) {
         let tune = i.tune.as_ref().expect("every cracktro plays a tune");
         let a = tune.render(8000, i.secs);

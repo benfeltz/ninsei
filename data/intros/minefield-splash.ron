@@ -1,0 +1,21 @@
+// MINEFIELD's splash (see crates/core/src/intro.rs): the boxed copy from Paper Tiger Software.
+// No board, no crew, no greetz. A placeholder: one frame, silent. Task 47.5 gives it its art.
+(
+    group: "Paper Tiger Software",
+    secs: 2.5,
+    frame_secs: 1.0,
+    frames: [
+        [
+            "",
+            "|14                     P A P E R   T I G E R",
+            "|06                          S O F T W A R E",
+            "",
+            "|15                          M I N E F I E L D   1.1",
+            "",
+            "|07                       fun for the whole deck",
+            "",
+            "|08         (c) Paper Tiger Software. Customer line 1-800-PAPER-TG",
+        ],
+    ],
+    tagline: Some("MINEFIELD 1.1 ▪ Paper Tiger Software ▪ fun for the whole deck"),
+)

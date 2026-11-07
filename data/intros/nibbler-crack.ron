@@ -1,0 +1,23 @@
+// NIBBLER's cracktro (see crates/core/src/intro.rs). A placeholder: one frame and a short loop,
+// enough for Data::validate. Task 47.5 gives it its art and its tune.
+(
+    board: Some("gutter"),
+    group: "the NiGHTMOTHS",
+    secs: 4.0,
+    frame_secs: 1.0,
+    frames: [
+        [
+            "",
+            "|11                        N  I  B  B  L  E  R",
+            "",
+            "|03                     cracked by the NiGHTMOTHS",
+            "",
+            "|07                 eat the dots ▪ don't eat yourself",
+        ],
+    ],
+    greetz: ["c4se", "ratz", "zero_kool", "kr4ken (no hard feelings)"],
+    tune: Some((bpm: 132, tracks: [
+        (wave: Square, vol: 0.16, pattern: "C5 E5 G5 E5 C5 E5 G5 C6"),
+        (wave: Triangle, vol: 0.3, pattern: "C3 - - . G2 - - ."),
+    ])),
+)
