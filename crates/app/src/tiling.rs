@@ -5,8 +5,9 @@
 //!
 //! Keys: **Esc** is the leader (it also lets go of the Shell), then a key:
 //! `1`-`9` workspace, `Shift`+digit send the tile there, `Space` launcher, `h`/`l` or arrows
-//! focus, `Enter` swap with master, `x` close, `?` help. The mouse works too: click a tile to
-//! focus it, a workspace to switch. Browser-safe: no Ctrl or Alt shortcuts.
+//! focus, `Enter` swap with master, `f` full screen, `[`/`]` resize the master, `x` close,
+//! `?` help. The mouse works too: click a tile to focus it, a workspace to switch.
+//! Browser-safe: no Ctrl or Alt shortcuts.
 
 use egui::{
     Align2, Event, FontFamily, FontId, Id, Key, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2,
@@ -156,6 +157,9 @@ impl TilingDesk {
                         (Key::H | Key::ArrowLeft | Key::K | Key::ArrowUp, _) => t.step(-1),
                         (Key::L | Key::ArrowRight | Key::J | Key::ArrowDown, _) => t.step(1),
                         (Key::Enter, _) => t.swap_master(),
+                        (Key::F, _) => t.toggle_full(),
+                        (Key::OpenBracket, _) => t.resize_master(-1),
+                        (Key::CloseBracket, _) => t.resize_master(1),
                         (Key::X, _) => {
                             t.close();
                         }
@@ -244,7 +248,10 @@ impl DesktopView for TilingDesk {
             small.clone(),
             if self.leader { accent() } else { muted() },
         );
-        let focused = t.focused().map_or("empty", Tool::volume);
+        let mut focused = t.focused().map_or("empty", Tool::volume).to_string();
+        if t.shape().full {
+            focused.push_str("  [full]");
+        }
         painter.text(
             pos2(x + 110.0, bar.center().y),
             Align2::LEFT_CENTER,
@@ -317,7 +324,9 @@ impl DesktopView for TilingDesk {
             self.focus_pending = true;
         }
         self.shell_typing = shell_typing;
-        for (i, (tool, [x, y, w, h])) in layout.into_iter().enumerate() {
+        for (tool, [x, y, w, h]) in layout {
+            // The tile's place on the workspace (full screen lays out only the focused one).
+            let i = t.tiles().iter().position(|x| *x == tool).unwrap_or(t.focus);
             let r = Rect::from_min_size(pos2(x, y), vec2(w, h));
             let on = i == t.focus;
             painter.rect_filled(r, size::ROUND, backdrop());
@@ -517,23 +526,28 @@ impl TilingDesk {
     }
 }
 
+/// The key help: a key (after the leader) and what it does.
+const HELP: [(&str, &str); 14] = [
+    ("AnarchyOS // ono-sendai cyberspace vii", ""),
+    ("", ""),
+    ("esc", "leader: then one of these"),
+    ("space", "launcher: open a tool"),
+    ("1-9", "go to workspace"),
+    ("shift+1-9", "send the tile to a workspace"),
+    ("h / l", "focus previous / next tile"),
+    ("enter", "swap the tile with the master"),
+    ("f", "full screen, and back"),
+    ("[ / ]", "shrink / grow the master"),
+    ("x", "close the tile"),
+    ("?", "this help"),
+    ("", ""),
+    ("", "the mouse works too. click anywhere to start."),
+];
+
 /// The key help. Returns true when it's dismissed (a click, or any key but `?` and `/`, which
 /// open it).
 fn help_ui(ui: &mut Ui, screen: Rect) -> bool {
-    let lines = [
-        ("AnarchyOS // ono-sendai cyberspace vii", ""),
-        ("", ""),
-        ("esc", "leader: then one of these"),
-        ("space", "launcher: open a tool"),
-        ("1-9", "go to workspace"),
-        ("shift+1-9", "send the tile to a workspace"),
-        ("h / l", "focus previous / next tile"),
-        ("enter", "swap the tile with the master"),
-        ("x", "close the tile"),
-        ("?", "this help"),
-        ("", ""),
-        ("", "the mouse works too. click anywhere to start."),
-    ];
+    let lines = HELP;
     let r = Rect::from_center_size(
         screen.center(),
         vec2(580.0, 22.0 * lines.len() as f32 + 24.0),
@@ -868,5 +882,52 @@ mod tests {
         assert_eq!(r.save.tiling.focused(), Some(Tool::Shell));
         r.type_text("ph");
         assert_eq!(r.home.shell_text(), "ph");
+    }
+
+    #[test]
+    fn esc_f_full_screens_the_focused_tile_and_esc_brackets_resize_the_master() {
+        let mut r = Rig::new(true);
+        r.save.tools = ninsei_core::data::TOOLS
+            .iter()
+            .map(|t| t.to_string())
+            .collect();
+        r.home.open(Tool::IceDb);
+        r.frame(Vec::new());
+        r.frame(Vec::new());
+        assert_eq!(r.save.tiling.focused(), Some(Tool::IceDb), "the stack tile");
+        let master = pos2(100.0, 400.0);
+        r.key(egui::Key::Escape);
+        r.key(egui::Key::F);
+        assert!(r.save.tiling.shape().full);
+        // The master isn't drawn: a click where it was lands on the full-screen tile.
+        r.send(crate::uitest::click(master));
+        assert_eq!(r.save.tiling.focused(), Some(Tool::IceDb));
+        r.key(egui::Key::Escape);
+        r.key(egui::Key::F);
+        assert!(!r.save.tiling.shape().full, "and back");
+        r.send(crate::uitest::click(master));
+        assert_eq!(
+            r.save.tiling.focused(),
+            Some(Tool::Shell),
+            "the master is back"
+        );
+        // Esc ] grows the master, Esc [ shrinks it.
+        let pct = ninsei_core::desktop::MASTER_PCT;
+        let step = ninsei_core::desktop::MASTER_STEP;
+        r.key(egui::Key::Escape);
+        r.key(egui::Key::CloseBracket);
+        assert_eq!(r.save.tiling.shape().master, pct + step);
+        for _ in 0..2 {
+            r.key(egui::Key::Escape);
+            r.key(egui::Key::OpenBracket);
+        }
+        assert_eq!(r.save.tiling.shape().master, pct - step);
+        assert_eq!(r.home.shell_text(), "", "none of it was typed");
+    }
+
+    #[test]
+    fn the_help_names_full_screen_and_the_resize_keys() {
+        assert!(HELP.contains(&("f", "full screen, and back")));
+        assert!(HELP.contains(&("[ / ]", "shrink / grow the master")));
     }
 }
