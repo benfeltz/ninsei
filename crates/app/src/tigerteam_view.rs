@@ -11,8 +11,8 @@ use ninsei_core::nightcomm::Tab;
 use ninsei_core::tigerteam::{self, Order, Page, Profile};
 use ninsei_core::tuning::HEAT_MAX;
 
-use crate::cells::Cells;
 use crate::home::{Dialing, WbOut, accent, backdrop, fill, ink, muted, shadow};
+use crate::kit::Cells;
 use crate::nightcomm_view::{self as nc_view, Ctx, Keys, NightComm};
 
 /// Tiger Team Pro's state between frames.

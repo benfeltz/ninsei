@@ -1,4 +1,4 @@
-//! A character-cell canvas for the text-mode tools (NiGHTCOMM and the ones after it). Real
+//! A character-cell canvas for text-mode screens. Real
 //! text-mode software lives on a grid of cells, so everything here is placed by column and
 //! row: whole cells only, the leftover pixels split around the edges, every glyph drawn in its
 //! own cell so a fallback glyph can never push a column out of line. Borders are lines through
@@ -31,15 +31,35 @@ pub struct Cells {
     pub vision: bool,
 }
 
+/// `ui`'s monospace font and the size of one cell in it.
+fn metrics(ui: &Ui) -> (FontId, f32, f32) {
+    let font = egui::TextStyle::Monospace.resolve(ui.style());
+    let cw = ui.fonts_mut(|f| f.glyph_width(&font, 'M')).max(1.0);
+    let ch = (font.size * (1.0 + LEADING)).round().max(1.0);
+    (font, cw, ch)
+}
+
+/// Whole cells of `cw` × `ch` that fit in `area`.
+fn grid(cw: f32, ch: f32, area: Rect) -> (usize, usize) {
+    (
+        (area.width() / cw).floor().max(0.0) as usize,
+        (area.height() / ch).floor().max(0.0) as usize,
+    )
+}
+
+/// How many whole cells of `ui`'s monospace font fit in `area`: columns, rows.
+pub fn cells_in(ui: &Ui, area: Rect) -> (usize, usize) {
+    let (_, cw, ch) = metrics(ui);
+    grid(cw, ch, area)
+}
+
 impl Cells {
     /// The biggest whole grid that fits in `area`, centred, in `ui`'s monospace font, drawing
     /// borders in `border` on `paper` and unlit meter cells in `empty`.
     pub fn fit(ui: &Ui, area: Rect, border: Color32, paper: Color32, empty: Color32) -> Cells {
-        let font = egui::TextStyle::Monospace.resolve(ui.style());
-        let cw = ui.fonts_mut(|f| f.glyph_width(&font, 'M')).max(1.0);
-        let ch = (font.size * (1.0 + LEADING)).round().max(1.0);
-        let cols = (area.width() / cw).floor().max(1.0) as usize;
-        let rows = (area.height() / ch).floor().max(1.0) as usize;
+        let (font, cw, ch) = metrics(ui);
+        let (cols, rows) = grid(cw, ch, area);
+        let (cols, rows) = (cols.max(1), rows.max(1));
         let size = vec2(cols as f32 * cw, rows as f32 * ch);
         let min = pos2(
             (area.left() + (area.width() - size.x) / 2.0).round(),
@@ -117,6 +137,25 @@ impl Cells {
         self.text(p, end.saturating_sub(n), r, s, color);
     }
 
+    /// Inverse video, the period's selection: `w` cells filled with `bg`, the text on them in
+    /// `fg`, cut at the row's end.
+    #[allow(clippy::too_many_arguments)]
+    pub fn inverse(
+        &self,
+        p: &Painter,
+        c: usize,
+        r: usize,
+        w: usize,
+        s: &str,
+        fg: Color32,
+        bg: Color32,
+    ) {
+        self.fill(p, c, r, w, 1, bg);
+        if !s.is_empty() {
+            self.text_max(p, c, r, s, w, fg);
+        }
+    }
+
     /// Fills `w` × `h` cells.
     pub fn fill(&self, p: &Painter, c: usize, r: usize, w: usize, h: usize, color: Color32) {
         p.rect_filled(self.at(c, r, w, h), 0.0, color);
@@ -186,7 +225,22 @@ impl Cells {
     /// A btop meter: `w` cells, `on` of them lit along the `ramp` (faint → bright), the rest
     /// drawn as empty cells.
     pub fn meter(&self, p: &Painter, c: usize, r: usize, w: usize, on: usize, ramp: &[Color32]) {
-        let empty = self.empty;
+        self.meter_in(p, c, r, w, on, ramp, self.empty);
+    }
+
+    /// A meter whose unlit cells are outlined in `empty`: on an inverse row, lit and unlit
+    /// cells are both drawn in the row's text colour so the meter stays readable.
+    #[allow(clippy::too_many_arguments)]
+    pub fn meter_in(
+        &self,
+        p: &Painter,
+        c: usize,
+        r: usize,
+        w: usize,
+        on: usize,
+        ramp: &[Color32],
+        empty: Color32,
+    ) {
         for i in 0..w {
             let cell = self
                 .at(c + i, r, 1, 1)

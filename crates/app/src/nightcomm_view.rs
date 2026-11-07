@@ -11,9 +11,9 @@ use ninsei_core::modem::Handshake;
 use ninsei_core::nightcomm::{self, Block, Sort, Tab};
 use ninsei_core::tuning::{HEAT_COOL, HEAT_MAX};
 
-use crate::cells::Cells;
 use crate::home::{Dialing, WbOut, accent, fill, ink, muted, shadow};
 use crate::hubtools::SCAN_FILL_SECS;
+use crate::kit::Cells;
 
 /// NiGHTCOMM's state between frames: the page, the order and filter, what's picked, and the
 /// TERM page's line and scrollback.

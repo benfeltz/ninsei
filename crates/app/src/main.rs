@@ -2,7 +2,6 @@
 
 mod bbs_view;
 mod btop;
-mod cells;
 mod chrome;
 mod crash;
 mod crt;
@@ -13,6 +12,7 @@ mod glitch;
 mod hexview;
 mod home;
 mod hubtools;
+mod kit;
 mod liza;
 mod netmap;
 mod netmap_draft;
