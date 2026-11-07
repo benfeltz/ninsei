@@ -117,8 +117,8 @@ pub fn keys(ctx: &Context, flip: Key) -> Keys {
     })
 }
 
-/// The classic chrome's pop-out: a small window with a slider and the switch, in the menus'
-/// own words.
+/// The classic chrome's pop-out: a small window with a slider, the sound switch (the
+/// System app's: it mutes everything) and close.
 pub fn classic(ctx: &Context, cx: &mut crate::chrome::FrameCx) -> Vec<Request> {
     let (p, now) = (cx.pal, cx.level);
     let (mut to, k) = start(ctx, now, Key::M, CLASSIC_NOTCHES);
@@ -141,7 +141,7 @@ pub fn classic(ctx: &Context, cx: &mut crate::chrome::FrameCx) -> Vec<Request> {
                         to.volume = v;
                     }
                     let mut on = to.on;
-                    if ui.checkbox(&mut on, "modem sounds").changed() {
+                    if ui.checkbox(&mut on, "sound").changed() {
                         to.on = on;
                     }
                     if ui.button("close").clicked() {
@@ -534,9 +534,9 @@ pub mod tests {
     fn the_classic_window_has_a_slider_a_switch_and_close() {
         let c = Chrome::Classic;
         let mut s = opened(c, true, 50);
-        assert!(s.h.find("modem sounds").is_some(), "{:?}", s.h.texts());
+        assert!(s.h.find("sound").is_some(), "{:?}", s.h.texts());
         assert_eq!(said(&s.frame(c, key(egui::Key::ArrowRight))), ["volume 55"]);
-        assert_eq!(said(&s.press(c, "modem sounds")), ["sound off"]);
+        assert_eq!(said(&s.press(c, "sound")), ["sound off"]);
         s.press(c, "close");
         assert!(!s.popup.is_open());
     }

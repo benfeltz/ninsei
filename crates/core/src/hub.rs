@@ -2170,7 +2170,7 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
                 "crt              CRT effects on/off",
                 "monitor [id]     plug in a monitor you own",
                 "deck [id]        run with a deck you own",
-                "sound            modem sounds on/off",
+                "sound            all sound on/off",
                 "echo <text>      say something",
                 "leet <text>      say it in l33t",
                 "clear            clear the window",

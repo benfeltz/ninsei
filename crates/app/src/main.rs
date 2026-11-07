@@ -931,7 +931,7 @@ impl App {
             }
             Command::Sound => {
                 let state = self.toggle_sound();
-                self.game.say(LogKind::Sys, format!("modem sounds {state}"));
+                self.game.say(LogKind::Sys, format!("sound {state}"));
             }
             Command::Theme(name) => match self.set_run_theme(ctx, &name) {
                 Ok(label) => self.game.say(LogKind::Sys, format!("theme: {label}")),
@@ -1110,14 +1110,7 @@ impl App {
                 if ui.button(crt).clicked() {
                     out.push(Request::Cmd(Command::Crt));
                 }
-                let sound = if self.save.sound {
-                    "[x] modem sounds"
-                } else {
-                    "[ ] modem sounds"
-                };
-                if ui.button(sound).clicked() {
-                    out.push(Request::Cmd(Command::Sound));
-                }
+                // The sound switch lives in the sound pop-out (`MenuPart::Sound`).
             }
             MenuPart::Sound => {
                 let v = chrome::view(self.save.firmware_def(&self.data).chrome);
@@ -1384,7 +1377,7 @@ impl eframe::App for App {
                     }
                     WbOut::Sound => {
                         let state = self.toggle_sound();
-                        self.home.say(format!("modem sounds {state}"));
+                        self.home.say(format!("sound {state}"));
                     }
                     WbOut::At(from, line) => self.modem(from, &line),
                     other => self.home_action(other),

@@ -25,7 +25,7 @@ pub enum MenuPart {
     Panes,
     /// Damage glitches on, reduced or off.
     Glitches,
-    /// CRT effects and sounds on or off.
+    /// CRT effects on or off.
     Toggles,
     /// Opens the sound pop-out (the level and the switch).
     Sound,
