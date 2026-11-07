@@ -278,7 +278,6 @@ mod backend {
 
     /// What's playing: the modem channel, the music channel (a bed, maybe a stem beside it,
     /// looping or not), and cue clips with how far in each is.
-    #[derive(Default)]
     struct Mix {
         dial: (Vec<f32>, usize),
         music: Vec<f32>,
@@ -293,6 +292,25 @@ mod backend {
         master: f32,
         master_to: f32,
         voices: Vec<(Arc<Vec<f32>>, usize)>,
+    }
+
+    impl Default for Mix {
+        /// Nothing playing, at full level (the master multiplies everything: zero is silence).
+        fn default() -> Mix {
+            Mix {
+                dial: (Vec::new(), 0),
+                music: Vec::new(),
+                stem: Vec::new(),
+                at: 0,
+                looping: false,
+                stem_gain: 0.0,
+                stem_to: 0.0,
+                ramp: 0.0,
+                master: 1.0,
+                master_to: 1.0,
+                voices: Vec::new(),
+            }
+        }
     }
 
     impl Mix {
@@ -348,8 +366,6 @@ mod backend {
             let mix = Arc::new(Mutex::new(Mix {
                 // About 10 ms to fade the stem, so muting it never clicks.
                 ramp: 1.0 / (0.01 * rate as f32).max(1.0),
-                master: 1.0,
-                master_to: 1.0,
                 ..Mix::default()
             }));
             let stream = match config.sample_format() {
@@ -425,8 +441,6 @@ mod backend {
             looping: true,
             voices: vec![(Arc::new(vec![0.2; 400]), 0)],
             ramp: 0.1,
-            master: 1.0,
-            master_to: 1.0,
             ..Mix::default()
         };
         assert!(
@@ -442,6 +456,12 @@ mod backend {
         let h = m.hushed();
         assert_eq!((h.master, h.master_to, h.ramp), (0.5, 0.5, 0.1));
         assert!(h.music.is_empty() && h.voices.is_empty() && h.dial.0.is_empty());
+        // A fresh mix is at full: whatever it's given is heard.
+        let mut fresh = Mix {
+            music: vec![0.2; 4],
+            ..Mix::default()
+        };
+        assert!((fresh.next() - 0.2).abs() < 1e-6);
     }
 
     fn stream<T: SizedSample + FromSample<f32>>(
