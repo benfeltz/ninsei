@@ -122,15 +122,27 @@ impl Engine {
     }
 }
 
-/// A new game of `def`, on its own field, from `seed`: the same seed always deals the same
-/// game.
-pub fn new_game(def: &crate::data::GameDef, seed: u64) -> Box<dyn Arcade> {
+/// Round `round` of `def` (0 for the first, one more each time it starts again), on its own
+/// field, from `seed` (the save's). The game's id and the round go into the seed, so each
+/// round deals a new field and no two games share a stream, while the same seed, game and
+/// round always deal the same game.
+pub fn new_game(def: &crate::data::GameDef, seed: u64, round: u64) -> Box<dyn Arcade> {
+    let seed = round_seed(&def.id, seed, round);
     let (cols, rows) = (def.cols as usize, def.rows as usize);
     match def.engine {
         Engine::Nibbler => Box::new(nibbler::Nibbler::new(seed, cols, rows)),
         Engine::Blox => Box::new(blox::Blox::new(seed, cols, rows)),
         Engine::Minefield => Box::new(minefield::Minefield::new(seed, cols, rows, def.tick_ms)),
     }
+}
+
+/// The seed for round `round` of game `id` on a save seeded `seed`.
+pub fn round_seed(id: &str, seed: u64, round: u64) -> u64 {
+    let salt = id.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+    });
+    let mut rng = crate::rng::Rng::new(seed ^ salt ^ round.wrapping_mul(0x9E37_79B9_7F4A_7C15));
+    rng.next_u64()
 }
 
 /// The pause every engine shares: `Pause` toggles it, and nothing else gets through it.

@@ -896,7 +896,7 @@ fn an_engine_plays_on_exactly_the_field_validation_allows() {
         (g.cols, g.rows) = e.min_size();
         let g = g.clone();
         d.validate().unwrap();
-        let a = games::new_game(&g, 1);
+        let a = games::new_game(&g, 1, 0);
         assert_eq!((a.cols() as u32, a.rows() as u32), e.min_size(), "{e:?}");
     }
 }
@@ -905,7 +905,7 @@ fn an_engine_plays_on_exactly_the_field_validation_allows() {
 fn every_game_starts_a_playing_engine_on_its_own_field() {
     let d = data();
     for g in &d.games {
-        let a = games::new_game(g, 1);
+        let a = games::new_game(g, 1, 0);
         assert_eq!((a.cols(), a.rows()), (g.cols as usize, g.rows as usize));
         assert_eq!(a.cells().len(), a.cols() * a.rows(), "{}", g.id);
         assert!(!a.over() && !a.paused() && a.score() == 0, "{}", g.id);
@@ -936,7 +936,7 @@ fn random_input_never_breaks_a_game() {
     let d = data();
     for g in &d.games {
         for seed in 0..20 {
-            let mut a = games::new_game(g, seed);
+            let mut a = games::new_game(g, seed, 0);
             let mut rng = Rng::new(seed ^ 0xF422);
             let (cols, rows) = (a.cols(), a.rows());
             for _ in 0..10_000 {
@@ -952,7 +952,7 @@ fn random_input_never_breaks_a_game() {
                     let still = a.cells();
                     a.step(input, 5);
                     assert_eq!(a.cells(), still, "{} seed {seed}", g.id);
-                    a = games::new_game(g, seed + 100);
+                    a = games::new_game(g, seed + 100, 0);
                 }
             }
         }
@@ -966,7 +966,7 @@ fn every_game_always_ends() {
     let d = data();
     for g in &d.games {
         for seed in 0..20 {
-            let mut a = games::new_game(g, seed);
+            let mut a = games::new_game(g, seed, 0);
             let (cols, rows) = (a.cols(), a.rows());
             let mut n = 0;
             while !a.over() {
@@ -981,11 +981,45 @@ fn every_game_always_ends() {
 }
 
 #[test]
+fn every_round_deals_a_new_game_and_no_two_games_share_a_stream() {
+    let d = data();
+    for g in &d.games {
+        let field = |seed, round| {
+            let mut a = games::new_game(g, seed, round);
+            // Open the middle square (a click) and drop a piece (Fire), so the seed shows.
+            let (col, row) = (a.cols() / 2, a.rows() / 2);
+            a.step(games::Input::Click { col, row }, 0);
+            a.step(games::Input::Fire, 0);
+            a.cells()
+        };
+        assert_eq!(field(5, 2), field(5, 2), "{}: same seed and round", g.id);
+        let rounds: Vec<_> = (0..4).map(|r| field(5, r)).collect();
+        assert!(
+            rounds.windows(2).any(|w| w[0] != w[1]),
+            "{}: every round dealt the same field",
+            g.id
+        );
+    }
+    // The same save seed and round seed each game differently.
+    let seeds: Vec<u64> = d
+        .games
+        .iter()
+        .map(|g| games::round_seed(&g.id, 5, 0))
+        .collect();
+    assert!(
+        seeds
+            .iter()
+            .enumerate()
+            .all(|(i, s)| !seeds[..i].contains(s))
+    );
+}
+
+#[test]
 fn same_seed_same_game_for_every_engine() {
     let d = data();
     for g in &d.games {
         let play = |seed: u64| {
-            let mut a = games::new_game(g, seed);
+            let mut a = games::new_game(g, seed, 0);
             let mut rng = Rng::new(77);
             let mut frames = Vec::new();
             for _ in 0..300 {
