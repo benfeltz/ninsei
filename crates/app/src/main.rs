@@ -1447,6 +1447,10 @@ impl App {
             .fixed_pos(egui::pos2(0.0, 0.0))
             .show(&ctx, |ui| {
                 ui.set_min_size(ctx.content_rect().size());
+                // A game lives while any desktop still has its window open.
+                let (desktops, save) = (&self.desktops, &self.save);
+                self.home
+                    .keep_open(ui.input(|i| i.time), |t| desktops.is_open(save, t));
                 let desk = self.save.firmware_def(&self.data).desktop;
                 let view = self.desktops.get(desk);
                 // A board called from home owns the keyboard while it's up.
@@ -1747,6 +1751,42 @@ mod tests {
         let g = app.home.game(mine).unwrap();
         assert_eq!(g.cursor(), moved, "the board has the keys, not the game");
         assert!(g.paused(), "and the game waits behind it");
+    }
+
+    #[test]
+    fn a_game_open_on_one_desktop_survives_a_switch_of_firmware_and_back() {
+        use crate::uitest::Harness;
+        use ninsei_core::hub::GameCopy;
+        let mut h = Harness::new(1280.0, 800.0);
+        let cc = eframe::CreationContext::_new_kittest(h.ctx.clone());
+        let mut app = App::new(&cc, Data::builtin().unwrap(), Some(7));
+        app.save.decks.push("onosendai".into());
+        app.save.guide_seen = true;
+        app.save.tiling_help_seen = true;
+        app.save.intros = false;
+        app.save.learn_game("nibbler", GameCopy::Cracked);
+        let use_deck = |app: &mut App, deck: &str| {
+            app.save.deck = deck.into();
+            app.save.firmware = app.save.deck_def(&app.data).firmware[0].id.clone();
+        };
+        use_deck(&mut app, "sensenet");
+        let nib = Tool::game("nibbler", GameCopy::Cracked).unwrap();
+        app.home.open(nib);
+        let frames = |h: &mut Harness, app: &mut App, n: usize| {
+            for _ in 0..n {
+                let pal = app.pal;
+                h.frame(Vec::new(), |ui| app.hub_ui(ui.ctx(), &pal));
+            }
+        };
+        frames(&mut h, &mut app, 3);
+        let round = app.home.round(nib).expect("Nibbler plays on Liza");
+        assert_eq!(app.save.game_round("nibbler"), 1);
+        use_deck(&mut app, "onosendai");
+        frames(&mut h, &mut app, 3);
+        use_deck(&mut app, "sensenet");
+        frames(&mut h, &mut app, 3);
+        assert_eq!(app.home.round(nib), Some(round), "the same round");
+        assert_eq!(app.save.game_round("nibbler"), 1, "no new round dealt");
     }
 
     #[test]

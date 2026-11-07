@@ -118,6 +118,11 @@ impl Workbench {
         }
     }
 
+    /// Whether a window of `tool` is open (in front or not).
+    pub(crate) fn has(&self, tool: Tool) -> bool {
+        self.wins.iter().any(|w| w.kind == Kind::Tool(tool))
+    }
+
     /// Opens (or raises) a tool's window. Tools not installed yet get a requester.
     fn open(&mut self, tool: Tool) {
         let kind = match tool {
@@ -176,10 +181,6 @@ impl DesktopView for Workbench {
         for t in home.take_opens() {
             self.open(t);
         }
-        home.keep_open(self.wins.iter().filter_map(|w| match w.kind {
-            Kind::Tool(t) => Some(t),
-            _ => None,
-        }));
         // The Welcome stack is the Sense/Net's: this desktop reaches it with `help net`.
         let icons: Vec<_> = save
             .icons(data)

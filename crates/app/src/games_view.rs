@@ -544,7 +544,7 @@ mod tests {
         frame(&mut h, &mut home, &data, &save, t, key(Key::ArrowRight));
         let moved = home.game(t).unwrap().cursor();
         // The desktop closes its window, then it's opened again.
-        home.keep_open([]);
+        home.keep_open(0.0, |_| false);
         let out = frame(&mut h, &mut home, &data, &save, t, Vec::new());
         assert!(out.contains(&WbOut::GameStarted("minefield".into())));
         assert_ne!(home.game(t).unwrap().cursor(), moved);
@@ -558,7 +558,7 @@ mod tests {
         let moved = home.game(t).unwrap().cursor();
         // Not drawn at all (another workspace, a full-screen tile), still open.
         for _ in 0..3 {
-            home.keep_open([t]);
+            home.keep_open(0.0, |x| x == t);
             h.frame(Vec::new(), |_| {});
         }
         // Drawn too small: the notice instead of the game.
@@ -578,7 +578,7 @@ mod tests {
             );
             assert!(!drawn, "the notice, not the game");
         });
-        home.keep_open([t]);
+        home.keep_open(0.0, |x| x == t);
         let out = frame(&mut h, &mut home, &data, &save, t, Vec::new());
         assert!(out.is_empty(), "no new round: {out:?}");
         assert_eq!(home.game(t).unwrap().cursor(), moved, "the same game");
@@ -673,8 +673,10 @@ mod tests {
             let secs = data.intro(intro).unwrap().secs as f64;
             h.wait(secs + 1.0);
             frame(&mut h, &mut home, &data, &save, t, Vec::new());
-            frame(&mut h, &mut home, &data, &save, t, Vec::new());
-            assert!(home.game(t).is_some(), "{copy:?}: the game after its intro");
+            assert!(
+                home.game(t).is_some(),
+                "{copy:?}: the game on the frame its intro ends, no blank frame"
+            );
         }
     }
 
@@ -714,10 +716,34 @@ mod tests {
             Vec::new(),
         );
         home.tune = None;
-        home.keep_open([tool("minefield")]);
+        let now = h.ctx.input(|i| i.time);
+        home.keep_open(now, |x| x == tool("minefield"));
         assert_eq!(home.tune, None, "still open, still playing");
-        home.keep_open([]);
+        home.keep_open(now, |_| false);
         assert_eq!(home.tune, Some(TuneCue::Stop));
+    }
+
+    #[test]
+    fn closing_a_window_whose_intro_ran_out_unseen_cuts_no_tune() {
+        use crate::home::TuneCue;
+        let data = Data::builtin().unwrap();
+        let save = with_intros(&data);
+        let mut h = Harness::new(1280.0, 800.0);
+        let mut home = Home::new(Vec::new());
+        frame(
+            &mut h,
+            &mut home,
+            &data,
+            &save,
+            tool("minefield"),
+            Vec::new(),
+        );
+        assert!(matches!(home.tune, Some(TuneCue::Play(_))));
+        // Never drawn again (the notice, a hidden workspace) till long after its intro ended;
+        // meanwhile another intro's tune plays.
+        home.tune = None;
+        home.keep_open(1000.0, |_| false);
+        assert_eq!(home.tune, None, "another intro's tune plays on");
     }
 
     #[test]
@@ -853,7 +879,7 @@ mod tests {
         counted.start_game("minefield");
         counted.start_game("minefield");
         frame(&mut h, &mut home, &data, &counted, boxed, Vec::new());
-        home.keep_open([]);
+        home.keep_open(0.0, |_| false);
         frame(&mut h, &mut home, &data, &counted, boxed, Vec::new());
         assert_eq!(home.round(boxed), Some(2));
     }

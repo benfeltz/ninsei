@@ -241,6 +241,11 @@ impl Liza {
         }
     }
 
+    /// Whether a window of `tool` is open (in front or not).
+    pub(crate) fn has(&self, tool: Tool) -> bool {
+        self.wins.iter().any(|w| w.tool == tool)
+    }
+
     fn act(&mut self, a: Act, now: f64) {
         match a {
             Act::Open(t) => self.open(t),
@@ -282,7 +287,6 @@ impl DesktopView for Liza {
             self.open(Tool::Guide);
             out.push(WbOut::GuideSeen);
         }
-        home.keep_open(self.wins.iter().map(|w| w.tool));
         let theme = home::desk();
         let c = look(theme, data);
         let (ink, paper) = (c.ink, c.paper);

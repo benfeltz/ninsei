@@ -209,6 +209,15 @@ impl Desktops {
         }
     }
 
+    /// Whether any desktop has `tool` open: a window on Liza or Desktop, a tile on any of
+    /// AnarchyOS's workspaces (kept on the save). Every desktop's windows outlive a switch of
+    /// firmware, so a game open on one stays open while another is on screen.
+    pub fn is_open(&self, save: &Save, tool: Tool) -> bool {
+        self.liza.has(tool)
+            || self.workbench.has(tool)
+            || save.tiling.workspaces.iter().flatten().any(|t| *t == tool)
+    }
+
     pub fn get(&mut self, d: Desktop) -> &mut dyn DesktopView {
         match d {
             Desktop::Workbench => &mut self.workbench,
@@ -280,7 +289,8 @@ pub struct Home {
 
 /// A game's open window: its intro (the time it started) until it ends, then the round.
 struct GameWin {
-    intro: Option<f64>,
+    /// The intro's start and end, in the frames' time.
+    intro: Option<(f64, f64)>,
     session: Option<crate::games_view::Session>,
 }
 
@@ -350,12 +360,16 @@ impl Home {
     /// The tools whose windows (or tiles) the desktop has open, every frame before it draws:
     /// a game whose window is no longer among them is over, its intro's tune cut. Hidden, too
     /// small for a frame, on another workspace: still open, and it waits where it was.
-    pub fn keep_open(&mut self, open: impl IntoIterator<Item = Tool>) {
-        let open: Vec<Tool> = open.into_iter().collect();
+    pub fn keep_open(&mut self, now: f64, open: impl Fn(Tool) -> bool) {
+        if self.games.is_empty() {
+            return;
+        }
         let mut cut = false;
         self.games.retain(|t, w| {
-            let keep = open.contains(t);
-            cut |= !keep && w.intro.is_some();
+            let keep = open(*t);
+            // Only an intro still playing has a tune to cut (one not drawn since it ran out
+            // must not cut another window's).
+            cut |= !keep && w.intro.is_some_and(|(_, end)| now < end);
             keep
         });
         if cut {
@@ -391,23 +405,25 @@ impl Home {
                 self.tune = Some(TuneCue::Play(i.id.clone()));
             }
             let w = GameWin {
-                intro: intro.map(|_| now),
+                intro: intro.map(|i| (now, now + f64::from(i.secs))),
                 session: None,
             };
             self.games.insert(tool, w);
         }
         let w = self.games.get_mut(&tool).expect("opened above");
-        if let (Some(start), Some(i)) = (w.intro, intro) {
+        if let (Some((start, _)), Some(i)) = (w.intro, intro) {
             match intro_frame(ui, data, save, i, start, keys) {
                 IntroFrame::Showing => return,
-                // The game starts next frame: the key that skipped it isn't the game's.
-                IntroFrame::Ended { skipped } => {
+                // Skipped: the game starts next frame, so the key that skipped it isn't the
+                // game's.
+                IntroFrame::Ended { skipped: true } => {
                     w.intro = None;
-                    if skipped {
-                        self.tune = Some(TuneCue::Stop);
-                    }
+                    self.tune = Some(TuneCue::Stop);
+                    ui.ctx().request_repaint();
                     return;
                 }
+                // Run to its end: the game starts on this frame.
+                IntroFrame::Ended { skipped: false } => w.intro = None,
             }
         }
         let dealt = &mut self.dealt;
