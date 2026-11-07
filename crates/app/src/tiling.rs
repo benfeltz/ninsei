@@ -223,69 +223,18 @@ impl DesktopView for TilingDesk {
         let painter = ui.painter_at(screen);
         painter.rect_filled(screen, 0.0, shadow());
 
-        // The bar.
-        let bar = Rect::from_min_size(screen.min, vec2(screen.width(), size::BAR_H));
-        painter.rect_filled(bar, 0.0, shadow());
-        painter.line_segment(
-            [bar.left_bottom(), bar.right_bottom()],
-            Stroke::new(1.0, muted()),
-        );
         let look = look();
-        let small = look.small.clone();
-        let mut x = bar.left() + 8.0;
-        for w in 0..t.workspaces.len() {
-            let r = Rect::from_min_size(pos2(x, bar.top() + 4.0), vec2(22.0, size::BAR_H - 8.0));
-            let here = w == t.current;
-            let used = !t.workspaces[w].is_empty();
-            if here {
-                painter.rect_filled(r, 4.0, accent());
-            }
-            let col = if here {
-                shadow()
-            } else if used {
-                ink()
-            } else {
-                muted()
-            };
-            painter.text(
-                r.center(),
-                Align2::CENTER_CENTER,
-                (w + 1).to_string(),
-                small.clone(),
-                col,
-            );
-            if live
-                && ui
-                    .interact(r, Id::new(("tile-ws", w)), Sense::click())
-                    .clicked()
-            {
-                t.switch(w);
-            }
-            x += 26.0;
-        }
-        let mode = if self.leader {
-            " LEADER "
-        } else {
-            "  esc: keys"
-        };
-        painter.text(
-            pos2(x + 8.0, bar.center().y),
-            Align2::LEFT_CENTER,
-            mode,
-            small.clone(),
-            if self.leader { accent() } else { muted() },
-        );
+        // The bar: the workspaces, the mode, the focused tile and the widgets.
+        let workspaces: Vec<anarchy::Workspace> = (0..t.workspaces.len())
+            .map(|w| anarchy::Workspace {
+                here: w == t.current,
+                used: !t.workspaces[w].is_empty(),
+            })
+            .collect();
         let mut focused = t.focused().map_or("empty", Tool::volume).to_string();
         if t.shape().full {
             focused.push_str("  [full]");
         }
-        painter.text(
-            pos2(x + 110.0, bar.center().y),
-            Align2::LEFT_CENTER,
-            focused,
-            small.clone(),
-            ink(),
-        );
         let deck = save.deck_def(data).title();
         let monitor = save.monitor_def(data).title();
         let up = ui.input(|i| i.time) as u64;
@@ -305,13 +254,20 @@ impl DesktopView for TilingDesk {
                 save.runs, save.exits, save.flatlines, save.best_haul
             );
         }
-        painter.text(
-            bar.right_center() - vec2(8.0, 0.0),
-            Align2::RIGHT_CENTER,
-            right,
-            small.clone(),
-            muted(),
-        );
+        let bar = anarchy::Bar {
+            workspaces: &workspaces,
+            mode: if self.leader {
+                " LEADER "
+            } else {
+                "  esc: keys"
+            },
+            mode_lit: self.leader,
+            focused: &focused,
+            right: &right,
+        };
+        if let Some(w) = anarchy::bar(ui, &painter, screen, &bar, &look, live) {
+            t.switch(w);
+        }
         ui.ctx()
             .request_repaint_after(std::time::Duration::from_secs(1));
 
