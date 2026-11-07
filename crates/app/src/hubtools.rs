@@ -381,8 +381,8 @@ pub(crate) fn rows_in(height: f32, pitch: f32, gap: f32) -> usize {
 
 /// The list's box: an outline around as many whole rows as fit in `height`, so a short list
 /// still reads as a list. It scrolls a row at a time through `list` (the kit's window, by
-/// core's scroll rule), following `follow` when given; the wheel over it scrolls too. `row`
-/// draws item `i`. Returns the rows it shows.
+/// core's scroll rule), following `follow` when given; the wheel over its rows scrolls it
+/// (from the next frame). `row` draws item `i`. Returns the rows it shows.
 fn list_box(
     ui: &mut Ui,
     height: f32,
@@ -399,7 +399,11 @@ fn list_box(
         .show(ui, |ui| {
             ui.set_min_height(whole_rows(ui, rows));
             ui.set_width(ui.available_width());
-            // The wheel, in rows: a notch (a line) is a row, and pixels count by the row.
+            for i in list.view(len, follow, rows) {
+                row(ui, i);
+            }
+            // The wheel, in rows (a notch is a row, pixels count by the row), and only over the
+            // rows it drew: the card and footer under it are the tool's.
             let wheel: f32 = ui.input(|i| {
                 i.events
                     .iter()
@@ -413,11 +417,8 @@ fn list_box(
                     })
                     .sum()
             });
-            if wheel != 0.0 && ui.rect_contains_pointer(ui.max_rect()) {
+            if wheel != 0.0 && ui.rect_contains_pointer(ui.min_rect()) {
                 list.wheel(wheel);
-            }
-            for i in list.view(len, follow, rows) {
-                row(ui, i);
             }
         });
     rows

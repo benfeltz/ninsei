@@ -1243,6 +1243,22 @@ pub(crate) mod tests {
         ];
         let before = home.directory.list.top;
         assert!(before > 0, "scrolled to follow the pick");
+        // The wheel over the card under the list is the card's, not the list's.
+        let card = h.find("DIRECTORY CARD").expect("the card").center();
+        let over_card = vec![
+            egui::Event::PointerMoved(card),
+            egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Line,
+                delta: vec2(0.0, 3.0),
+                modifiers: egui::Modifiers::NONE,
+                phase: egui::TouchPhase::Move,
+            },
+        ];
+        run(&mut h, &mut home, over_card);
+        assert_eq!(
+            home.directory.list.top, before,
+            "the card's wheel left the list alone"
+        );
         run(&mut h, &mut home, wheel);
         check(&h, "wheeled up");
         assert!(home.directory.list.top < before, "the wheel scrolled it up");
