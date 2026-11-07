@@ -48,6 +48,8 @@ pub struct Nibbler {
     rng: Rng,
     /// Head first.
     body: VecDeque<(usize, usize)>,
+    /// Which squares the body covers, row by row, kept with `body`: a lookup, not a search.
+    occupied: Vec<bool>,
     heading: Dir,
     /// Turns pressed and not yet taken, oldest first: one a move, so a quick U-turn along a
     /// wall keeps both keys. At most [`TURNS_QUEUED`].
@@ -64,12 +66,17 @@ impl Nibbler {
     pub fn new(seed: u64, cols: usize, rows: usize) -> Self {
         let (cols, rows) = super::Engine::Nibbler.field(cols, rows);
         let (x, y) = (cols / 2, rows / 2);
-        let body = (0..NIBBLER_START_LEN).map(|i| (x - i, y)).collect();
+        let body: VecDeque<(usize, usize)> = (0..NIBBLER_START_LEN).map(|i| (x - i, y)).collect();
+        let mut occupied = vec![false; cols * rows];
+        for &(bx, by) in &body {
+            occupied[by * cols + bx] = true;
+        }
         let mut n = Self {
             cols,
             rows,
             rng: Rng::new(seed),
             body,
+            occupied,
             heading: Dir::Right,
             turns: VecDeque::new(),
             food: None,
@@ -86,18 +93,24 @@ impl Nibbler {
         x == 0 || y == 0 || x == self.cols - 1 || y == self.rows - 1
     }
 
-    /// Food on a random free square; none left means the field is full and the game is won.
+    fn free(&self, x: usize, y: usize) -> bool {
+        !self.wall(x, y) && !self.occupied[y * self.cols + x]
+    }
+
+    /// Food on a random free square (the k-th, row by row); none left means the field is full
+    /// and the game is won.
     fn place_food(&mut self) {
-        let free: Vec<(usize, usize)> = (0..self.rows)
-            .flat_map(|y| (0..self.cols).map(move |x| (x, y)))
-            .filter(|&(x, y)| !self.wall(x, y) && !self.body.contains(&(x, y)))
-            .collect();
-        if free.is_empty() {
+        let free = (self.cols - 2) * (self.rows - 2) - self.body.len();
+        if free == 0 {
             self.food = None;
             self.over = true;
             return;
         }
-        self.food = Some(free[self.rng.below(free.len())]);
+        let k = self.rng.below(free);
+        self.food = (0..self.rows)
+            .flat_map(|y| (0..self.cols).map(move |x| (x, y)))
+            .filter(|&(x, y)| self.free(x, y))
+            .nth(k);
     }
 
     /// Ticks between moves now: faster every few meals.
@@ -138,17 +151,19 @@ impl Nibbler {
         } else {
             self.body.back().copied()
         };
-        let bites = self.body.iter().any(|&p| p == (x, y) && Some(p) != tail);
+        let bites = self.occupied[y * self.cols + x] && Some((x, y)) != tail;
         if self.wall(x, y) || bites {
             self.over = true;
             return;
         }
+        if !eats && let Some((tx, ty)) = self.body.pop_back() {
+            self.occupied[ty * self.cols + tx] = false;
+        }
         self.body.push_front((x, y));
+        self.occupied[y * self.cols + x] = true;
         if eats {
             self.meals += 1;
             self.place_food();
-        } else {
-            self.body.pop_back();
         }
     }
 }

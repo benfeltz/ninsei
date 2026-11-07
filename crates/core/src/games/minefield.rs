@@ -14,7 +14,11 @@ pub struct Minefield {
     mines: usize,
     /// Laid on the first open, so it can't be under your first square.
     mine: Vec<bool>,
+    /// Each square's mines around it, worked out once when the mines are laid.
+    counts: Vec<u8>,
     open: Vec<bool>,
+    /// Safe squares opened.
+    opened: usize,
     flag: Vec<bool>,
     laid: bool,
     cursor: (usize, usize),
@@ -37,7 +41,9 @@ impl Minefield {
             rng: Rng::new(seed),
             mines: (n * MINEFIELD_MINE_PCT / 100).clamp(1, n - 1),
             mine: vec![false; n],
+            counts: vec![0; n],
             open: vec![false; n],
+            opened: 0,
             flag: vec![false; n],
             laid: false,
             cursor: (cols / 2, rows / 2),
@@ -93,7 +99,7 @@ impl Minefield {
     }
 
     fn count(&self, i: usize) -> u8 {
-        self.neighbours(i).filter(|&n| self.mine[n]).count() as u8
+        self.counts[i]
     }
 
     /// Lays the mines anywhere but `first` and, if there's room, its neighbours.
@@ -108,6 +114,9 @@ impl Minefield {
             let i = pool.swap_remove(self.rng.below(pool.len()));
             self.mine[i] = true;
         }
+        self.counts = (0..n)
+            .map(|i| self.neighbours(i).filter(|&j| self.mine[j]).count() as u8)
+            .collect();
         self.laid = true;
     }
 
@@ -134,12 +143,12 @@ impl Minefield {
                 continue;
             }
             self.open[j] = true;
+            self.opened += 1;
             if self.count(j) == 0 {
                 todo.extend(self.neighbours(j).filter(|&n| !self.open[n]));
             }
         }
-        let safe = self.cols * self.rows - self.mines;
-        if self.open.iter().filter(|o| **o).count() == safe {
+        if self.opened == self.cols * self.rows - self.mines {
             self.won = true;
             self.over = true;
         }
@@ -241,9 +250,7 @@ impl Arcade for Minefield {
 
     /// The safe squares opened.
     fn score(&self) -> u32 {
-        (0..self.open.len())
-            .filter(|&i| self.open[i] && !self.mine[i])
-            .count() as u32
+        self.opened as u32
     }
 
     fn status(&self) -> String {
