@@ -1,5 +1,6 @@
 // DEAD SECTOR: an anarchy board on corp nets (tier 2), and anywhere a pirate runs it off a
-// backbone. Hot warez, hot hardware, the first core ranges. Red on black, box-drawn headers.
+// backbone. The hackers' and phreaks' board (see docs/world.md): hot warez, hot hardware, the
+// first core ranges. No games, no kids. Red on black, box-drawn headers.
 (
     name: "DEAD SECTOR",
     sysop: "d1rge",
