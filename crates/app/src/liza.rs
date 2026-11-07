@@ -373,7 +373,8 @@ impl DesktopView for Liza {
                     data,
                     save,
                     out,
-                    None,
+                    // A window dragged low is cut short by the screen's bottom edge.
+                    Some("Drag the window higher for more room."),
                     ("liza-scroll", tool),
                 );
             }
@@ -1040,5 +1041,31 @@ mod tests {
             }
         }
         assert!(home.notices.is_empty(), "too small: {:?}", home.notices);
+    }
+
+    #[test]
+    fn a_window_dragged_low_shows_the_notice_until_it_has_room_again() {
+        let data = Data::builtin().unwrap();
+        let ctx = egui::Context::default();
+        crate::uitest::themed(&ctx, &data);
+        let (mut liza, mut home) = booted(&ctx, &data);
+        let mut t = look::BOOT_SECS + 0.2;
+        let mut run = |liza: &mut Liza, home: &mut Home| {
+            for _ in 0..2 {
+                t += 0.1;
+                frame(&ctx, liza, home, &data, Vec::new(), t);
+            }
+        };
+        liza.open(Tool::NightComm);
+        run(&mut liza, &mut home);
+        assert!(home.notices.is_empty());
+        // Near the bottom of the screen the window is only its minimum height.
+        liza.wins.last_mut().unwrap().pos.y = 700.0;
+        run(&mut liza, &mut home);
+        assert!(home.notices.contains(&Tool::NightComm));
+        home.notices.clear();
+        liza.wins.last_mut().unwrap().pos.y = 46.0;
+        run(&mut liza, &mut home);
+        assert!(home.notices.is_empty(), "back up, it draws again");
     }
 }

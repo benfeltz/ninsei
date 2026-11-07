@@ -130,6 +130,23 @@ impl Grid {
     }
 }
 
+/// What the text face needs: its grid is never narrower than 40 of its columns (it lays out
+/// to at least that and would cut the rest); its height scrolls, so a few rows will do.
+pub const NEED: crate::kit::fit::Need = crate::kit::fit::Need {
+    grids: &[crate::kit::Fit { cols: 40, rows: 8 }],
+    cells: cells_in,
+};
+
+/// The cells of this face's own font that fit in `rect`.
+fn cells_in(ui: &Ui, rect: egui::Rect) -> (usize, usize) {
+    let cw = ui.fonts_mut(|f| f.glyph_width(&font(), 'M'));
+    let ch = ui.fonts_mut(|f| f.row_height(&font()));
+    (
+        (rect.width() / cw).floor() as usize,
+        (rect.height() / ch).floor() as usize,
+    )
+}
+
 pub fn show(ui: &mut Ui, data: &Data, save: &Save, st: &mut SystemUi, out: &mut Vec<WbOut>) {
     let cw = ui.fonts_mut(|f| f.glyph_width(&font(), 'M'));
     let ch = ui.fonts_mut(|f| f.row_height(&font()));

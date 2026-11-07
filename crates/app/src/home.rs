@@ -636,23 +636,24 @@ impl Home {
     /// the tiler gives.
     pub const TEXT_TOOLS: [Tool; 3] = [Tool::NightComm, Tool::TigerTeam, Tool::System];
 
-    /// The smallest grids of cells each tool works in (it fits if any one does): the one
-    /// place a tool says so. A tool that says nothing gets [`Fit::DEFAULT`].
-    pub fn fit(tool: Tool) -> &'static [Fit] {
-        match tool {
-            // The list with its header and a few rows, and every page's columns.
-            Tool::NightComm | Tool::TigerTeam => &[Fit { cols: 56, rows: 12 }],
-            // The text face's About panel: the logo beside the specs fills an 80x24 terminal;
-            // narrower, the logo goes above them and it needs the height. Every other panel
-            // fits inside either.
-            Tool::System => &[Fit { cols: 80, rows: 24 }, Fit { cols: 56, rows: 34 }],
-            _ => &[Fit::DEFAULT],
+    /// What each tool's face on `desktop` needs to be drawn at all: the one place a tool
+    /// says so. Faces that scroll (the GUI ones) need nothing: a small window scrolls them.
+    pub fn fit(tool: Tool, desktop: Desktop) -> Option<fit::Need> {
+        match (tool, desktop) {
+            // Laid out in cells on every desktop: the list's header and a few rows, and
+            // every page's columns.
+            (Tool::NightComm | Tool::TigerTeam, _) => {
+                Some(fit::Need::cells(&[Fit { cols: 56, rows: 12 }]))
+            }
+            // AnarchyOS's System is text mode, in its own grid.
+            (Tool::System, Desktop::Tiling) => Some(crate::system_tui::NEED),
+            _ => None,
         }
     }
 
-    /// Draws `tool` in `ui` (a desktop's window or tile, dressed by `hubtools::wb_visuals`) if
-    /// the room it has is at least the tool's [`Home::fit`]; below it, the one notice in its
-    /// place, with the desktop's `hint`. Returns whether the tool was drawn.
+    /// Draws `tool` in `ui` (a desktop's window or tile, dressed by `hubtools::wb_visuals`)
+    /// unless its face needs more room than `ui` has ([`Home::fit`]); then the one notice in
+    /// its place, with the desktop's `hint`. Returns whether the tool was drawn.
     #[allow(clippy::too_many_arguments)]
     pub fn tool_in(
         &mut self,
@@ -665,16 +666,18 @@ impl Home {
         salt: impl std::hash::Hash + std::fmt::Debug,
     ) -> bool {
         let rect = ui.max_rect();
-        let need = Self::fit(tool);
-        let (have, fits) = fit::check(ui, rect, need);
-        if !fits {
+        let desktop = save.firmware_def(data).desktop;
+        let need = Self::fit(tool, desktop);
+        if let Some(need) = need
+            && let (have, false) = fit::check(ui, rect, need)
+        {
             #[cfg(test)]
             self.notices.push(tool);
             fit::notice(
                 ui,
                 rect,
                 tool.volume(),
-                need,
+                need.grids,
                 have,
                 hint,
                 (backdrop(), ink(), muted()),
@@ -1161,7 +1164,8 @@ pub(crate) mod tests {
             home.notices.clear();
             h.frame(Vec::new(), |ui| {
                 let mut child = ui.new_child(UiBuilder::new().max_rect(rect));
-                have = crate::kit::cells::cells_in(&child, rect);
+                have = Home::fit(tool, Desktop::Tiling)
+                    .map_or((0, 0), |need| (need.cells)(&child, rect));
                 drawn = home.tool_in(&mut child, tool, data, save, &mut Vec::new(), None, "t");
             });
         }
@@ -1215,6 +1219,15 @@ pub(crate) mod tests {
         }
     }
 
+    /// Widgets that reach past `rect`'s sides: what it would cut. (Faces scroll, so below
+    /// the bottom is fine.)
+    fn cut_at_the_sides(h: &Harness, rect: Rect) -> Vec<(String, Rect)> {
+        h.outside(rect)
+            .into_iter()
+            .filter(|(_, r)| r.left() < rect.left() - 0.5 || r.right() > rect.right() + 0.5)
+            .collect()
+    }
+
     #[test]
     fn every_text_tool_fits_its_tiles_or_says_so() {
         let data = Data::builtin().unwrap();
@@ -1222,20 +1235,21 @@ pub(crate) mod tests {
         let sizes = tile_sizes();
         assert!(sizes.len() > 8, "a spread of tiles: {sizes:?}");
         for tool in Home::TEXT_TOOLS {
+            let need = Home::fit(tool, Desktop::Tiling).expect("a text face declares its need");
             for page in 0..Home::pages(tool) {
                 for (what, rect) in &sizes {
                     let (have, drawn, h) = draw_at(&data, &save, tool, *rect, page);
                     assert_eq!(
                         drawn,
-                        fit::fits(Home::fit(tool), have),
+                        fit::fits(need.grids, have),
                         "{tool:?} page {page} as {what}: {have:?} cells, needs {:?}",
-                        Home::fit(tool)
+                        need.grids
                     );
                     if drawn {
                         assert!(
-                            h.outside(*rect).is_empty(),
-                            "{tool:?} page {page} as {what} reaches outside: {:?}",
-                            h.outside(*rect)
+                            cut_at_the_sides(&h, *rect).is_empty(),
+                            "{tool:?} page {page} as {what} is cut: {:?}",
+                            cut_at_the_sides(&h, *rect)
                         );
                     }
                 }
@@ -1247,30 +1261,65 @@ pub(crate) mod tests {
     fn the_notice_shows_exactly_below_each_tools_minimum() {
         let data = Data::builtin().unwrap();
         let save = anarchy_deck(&data);
-        let mut cell = vec2(0.0, 0.0);
         let mut h = Harness::new(100.0, 100.0);
         crate::uitest::themed(&h.ctx, &data);
-        h.frame(Vec::new(), |ui| cell = crate::kit::cells::cell_size(ui));
-        let at = |cols: usize, rows: usize| {
-            Rect::from_min_size(
-                pos2(10.0, 10.0),
-                vec2(cols as f32 * cell.x + 0.5, rows as f32 * cell.y + 0.5),
-            )
-        };
         for tool in Home::TEXT_TOOLS {
-            let needs = Home::fit(tool);
-            for (page, need) in
-                (0..Home::pages(tool)).flat_map(|p| needs.iter().map(move |n| (p, n)))
-            {
-                let (have, drawn, _) = draw_at(&data, &save, tool, at(need.cols, need.rows), page);
-                assert_eq!(have, (need.cols, need.rows));
-                assert!(drawn, "{tool:?} page {page} at exactly {need:?} is drawn");
-                // A cell short either way: the notice, unless another shape it declared fits.
-                for short in [(need.cols - 1, need.rows), (need.cols, need.rows - 1)] {
-                    let drawn = draw_at(&data, &save, tool, at(short.0, short.1), page).1;
-                    assert_eq!(drawn, fit::fits(needs, short), "{tool:?} at {short:?}");
+            let need = Home::fit(tool, Desktop::Tiling).unwrap();
+            // The smallest rect holding `cols` x `rows` of the face's own cells.
+            let mut at = |cols: usize, rows: usize| {
+                let mut size = vec2(0.0, 2000.0);
+                h.frame(Vec::new(), |ui| {
+                    let r = |s| Rect::from_min_size(pos2(10.0, 10.0), s);
+                    while (need.cells)(ui, r(size)).0 < cols {
+                        size.x += 0.25;
+                    }
+                    size.y = 0.0;
+                    while (need.cells)(ui, r(size)).1 < rows {
+                        size.y += 0.25;
+                    }
+                });
+                Rect::from_min_size(pos2(10.0, 10.0), size)
+            };
+            for page in 0..Home::pages(tool) {
+                for grid in need.grids {
+                    let exact = at(grid.cols, grid.rows);
+                    let (have, drawn, _) = draw_at(&data, &save, tool, exact, page);
+                    assert_eq!(have, (grid.cols, grid.rows));
+                    assert!(drawn, "{tool:?} page {page} at exactly {grid:?} is drawn");
+                    // A cell short either way: the notice, unless another grid it declared fits.
+                    for short in [(grid.cols - 1, grid.rows), (grid.cols, grid.rows - 1)] {
+                        let drawn = draw_at(&data, &save, tool, at(short.0, short.1), page).1;
+                        assert_eq!(drawn, fit::fits(need.grids, short), "{tool:?} at {short:?}");
+                    }
                 }
             }
+        }
+    }
+
+    #[test]
+    fn gui_faces_declare_nothing_and_scroll() {
+        for tool in Tool::ALL {
+            for desktop in [Desktop::Liza, Desktop::Workbench] {
+                let text = matches!(tool, Tool::NightComm | Tool::TigerTeam);
+                assert_eq!(
+                    Home::fit(tool, desktop).is_some(),
+                    text,
+                    "{tool:?} on {desktop:?}"
+                );
+            }
+        }
+        for tool in [
+            Tool::Terminal,
+            Tool::Rig,
+            Tool::HexEd,
+            Tool::Qwk,
+            Tool::IceDb,
+            Tool::Guide,
+        ] {
+            assert!(
+                Home::fit(tool, Desktop::Tiling).is_none(),
+                "{tool:?} scrolls in a tile"
+            );
         }
     }
 

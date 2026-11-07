@@ -1,7 +1,8 @@
-//! How much room a screen needs. A screen declares the smallest cell grids it works in (one
-//! [`Fit`], or a few when it lays out differently by shape: wide and short, or narrow and
-//! tall); the desktop checks the room it has against them before drawing the screen and,
-//! when none fits, draws the one notice instead, the way a modern TUI does:
+//! How much room a screen needs. A screen that can't scroll its way out of a small window
+//! declares the smallest cell grids it works in (a [`Need`]: one [`Fit`], or a few when it
+//! lays out differently by shape, counted in its own cells); the desktop checks the room it
+//! has against them before drawing the screen and, when none fits, draws the one notice
+//! instead, the way a modern TUI does:
 //!
 //! ```text
 //!   <name> needs 64x20 (has 41x12)
@@ -23,12 +24,27 @@ pub struct Fit {
 }
 
 impl Fit {
-    /// For a screen that declares nothing.
-    pub const DEFAULT: Fit = Fit { cols: 40, rows: 12 };
-
     /// Whether a grid of `cols` × `rows` is enough.
     pub fn fits(self, (cols, rows): (usize, usize)) -> bool {
         cols >= self.cols && rows >= self.rows
+    }
+}
+
+/// What a screen needs: the grids it works in (any one will do), and how it counts the cells
+/// a rect holds, in its own font.
+#[derive(Clone, Copy, Debug)]
+pub struct Need {
+    pub grids: &'static [Fit],
+    pub cells: fn(&Ui, Rect) -> (usize, usize),
+}
+
+impl Need {
+    /// Grids counted in the kit's cells (`Cells`).
+    pub const fn cells(grids: &'static [Fit]) -> Need {
+        Need {
+            grids,
+            cells: cells_in,
+        }
     }
 }
 
@@ -37,10 +53,10 @@ pub fn fits(need: &[Fit], have: (usize, usize)) -> bool {
     need.iter().any(|f| f.fits(have))
 }
 
-/// The cells `rect` holds in `ui`'s monospace font, and whether that's enough for `need`.
-pub fn check(ui: &Ui, rect: Rect, need: &[Fit]) -> ((usize, usize), bool) {
-    let have = cells_in(ui, rect);
-    (have, fits(need, have))
+/// The cells `rect` holds, counted the way `need` counts them, and whether that's enough.
+pub fn check(ui: &Ui, rect: Rect, need: Need) -> ((usize, usize), bool) {
+    let have = (need.cells)(ui, rect);
+    (have, fits(need.grids, have))
 }
 
 /// The notice's lines: what needs how much and has how much, then the desktop's hint.
@@ -126,7 +142,7 @@ mod tests {
             let font = egui::TextStyle::Monospace.resolve(ui.style());
             let cw = ui.fonts_mut(|f| f.glyph_width(&font, 'M'));
             let rect = Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(cw * 40.5, 1000.0));
-            got = Some(check(ui, rect, &[Fit::DEFAULT]));
+            got = Some(check(ui, rect, Need::cells(&[Fit { cols: 40, rows: 12 }])));
         });
         let ((cols, rows), ok) = got.unwrap();
         assert_eq!(cols, 40, "half a cell doesn't count");
