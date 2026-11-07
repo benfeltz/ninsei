@@ -1038,6 +1038,7 @@ impl Data {
         crate::hub::RangeDef::validate(&self.exchanges, &self.networks)
             .map_err(|e| format!("hub/exchanges.ron: {e}"))?;
         // Every hint anywhere must name a range that exists.
+        // Drops that turn up on a run (loot and encounters), then the boards' files.
         let mut drops: Vec<(String, &Drop)> = Vec::new();
         for (name, t) in [
             ("ice", &self.loot.ice),
@@ -1049,15 +1050,6 @@ impl Data {
                     .iter()
                     .map(|e| (format!("loot table `{name}`"), &e.drop)),
             );
-        }
-        for b in &self.boards {
-            for a in &b.areas {
-                drops.extend(
-                    a.files
-                        .iter()
-                        .map(|f| (format!("bbs/{} file `{}`", b.id, f.file), &f.item)),
-                );
-            }
         }
         for ev in &self.events {
             for c in &ev.choices {
@@ -1072,16 +1064,27 @@ impl Data {
                 }
             }
         }
+        // A game is a crew's crack posted on a board: it never drops from ICE, a vault or an
+        // encounter.
+        if let Some((place, _)) = drops.iter().find(|(_, d)| matches!(d, Drop::Game(_))) {
+            return Err(format!(
+                "{place} drops a game: games only come from a board's files"
+            ));
+        }
+        for b in &self.boards {
+            for a in &b.areas {
+                drops.extend(
+                    a.files
+                        .iter()
+                        .map(|f| (format!("bbs/{} file `{}`", b.id, f.file), &f.item)),
+                );
+            }
+        }
         for (place, d) in drops {
             if let Drop::Hint(r) = d
                 && !self.exchanges.iter().any(|x| &x.id == r)
             {
                 return Err(format!("{place} hints at unknown range `{r}`"));
-            }
-            if let Drop::Game(id) = d
-                && self.game(id).is_none()
-            {
-                return Err(format!("{place} names unknown game `{id}`"));
             }
         }
         if self.contracts.is_empty() {
@@ -1244,6 +1247,11 @@ impl Data {
                         && self.tool(id).is_none()
                     {
                         return Err(err(format!("file `{}` names unknown tool `{id}`", f.file)));
+                    }
+                    if let Drop::Game(id) = &f.item
+                        && self.game(id).is_none()
+                    {
+                        return Err(err(format!("file `{}` names unknown game `{id}`", f.file)));
                     }
                     if let Drop::Text(id) = &f.item {
                         if !b.texts.iter().any(|t| &t.id == id) {

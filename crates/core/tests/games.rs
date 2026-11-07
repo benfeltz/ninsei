@@ -220,7 +220,35 @@ fn a_board_file_naming_an_unknown_game_is_rejected() {
     let (mut d, board, area) = gutter_stocks_blox();
     let f = d.boards[board].areas[area].files.last_mut().unwrap();
     f.item = Drop::Game("pong".into());
-    assert!(d.validate().unwrap_err().contains("unknown game `pong`"));
+    assert!(
+        d.validate()
+            .unwrap_err()
+            .contains("file `BLOX.ZIP` names unknown game `pong`")
+    );
+}
+
+#[test]
+fn a_game_never_drops_from_loot_or_an_encounter() {
+    let mut d = data();
+    d.loot.vault.entries[0].drop = Drop::Game("blox".into());
+    let e = d.validate().unwrap_err();
+    assert!(e.contains("loot table `vault` drops a game"), "{e}");
+    let mut d = data();
+    let ev = d
+        .events
+        .iter()
+        .position(|e| {
+            e.choices
+                .iter()
+                .any(|c| matches!(c.effect, data::ChoiceEffect::Pay { .. }))
+        })
+        .expect("an event that sells something");
+    for c in &mut d.events[ev].choices {
+        if let data::ChoiceEffect::Pay { get, .. } = &mut c.effect {
+            *get = Drop::Game("blox".into());
+        }
+    }
+    assert!(d.validate().unwrap_err().contains("drops a game"));
 }
 
 #[test]
