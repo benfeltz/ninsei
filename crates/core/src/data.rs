@@ -1275,13 +1275,6 @@ impl Data {
                     {
                         return Err(err(format!("file `{}` names unknown game `{id}`", f.file)));
                     }
-                    // Games are flavour: stocking one must never move a run's dice.
-                    if matches!(f.item, Drop::Game(_)) && !area.always {
-                        return Err(err(format!(
-                            "file `{}` is a game in rolled area `{}`: a game's area is `always`, so it never touches a run's dice",
-                            f.file, area.name
-                        )));
-                    }
                     if let Drop::Text(id) = &f.item {
                         if !b.texts.iter().any(|t| &t.id == id) {
                             return Err(err(format!(
