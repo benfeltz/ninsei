@@ -57,6 +57,8 @@
          terms: ["Only for the desktops your decks run.", "Installs at once."]),
         (id: "tigerteam", name: "Tiger Team Systems", hotline: Some("1-800-TIGER-TS"), slogan: Some("KNOW YOUR EXPOSURE"),
          terms: ["Site licences for the enterprise.", "For authorized security testing only."]),
+        (id: "papertiger", name: "Paper Tiger Software", hotline: Some("1-800-PAPER-TG"), slogan: Some("FUN FOR THE WHOLE DECK"),
+         terms: ["Every game boxed, with a manual and a warranty card.", "Credits only."]),
         (id: "d1rge", name: "d1rge mail order", slogan: Some("PLAIN WRAPPER · NO QUESTIONS"),
          terms: ["Shipped on 1 disk, no manual.", "Tools arrive on your desktop."]),
     ],

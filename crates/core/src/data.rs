@@ -272,6 +272,39 @@ fn first_version() -> String {
     "1.0".into()
 }
 
+/// A game you can own (`data/hub/games.ron`): a cracked copy from a board, or a boxed one by
+/// mail order. Which copy you own picks the intro it opens with; either one plays.
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct GameDef {
+    pub id: String,
+    pub name: String,
+    pub blurb: String,
+    /// Who publishes the boxed copy (a vendor id in `hub/shopper.ron`).
+    pub publisher: String,
+    /// Its version string, as System's About This Deck lists it.
+    #[serde(default = "first_version")]
+    pub version: String,
+    /// The play field, in cells.
+    pub cols: u32,
+    pub rows: u32,
+    /// The cracktro a board's copy opens with (a crack in `data/intros/`).
+    pub crack: String,
+    /// The splash the boxed copy opens with (a splash in `data/intros/`).
+    pub splash: String,
+    /// Sold boxed in CPU Shopper's Games section, if it is.
+    #[serde(default)]
+    pub shop: Option<GameShop>,
+}
+
+/// How a game is sold by mail order (the optional `shop` block in `games.ron`).
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct GameShop {
+    pub price: u32,
+}
+
+/// Every game's id: each one has an engine in core, and `games.ron` has a row for each.
+pub const GAMES: &[&str] = &["nibbler", "blox", "minefield"];
+
 /// Every tool's id: what `hub::Save::has_tool` and the desktops ask about.
 pub const TOOLS: &[&str] = &[
     "wardial",
@@ -673,6 +706,7 @@ pub struct Sources<'a> {
     pub netmap: &'a str,
     pub hardware: &'a str,
     pub tools: &'a str,
+    pub games: &'a str,
     pub addons: &'a str,
     pub panes: &'a str,
     pub shopper: &'a str,
@@ -707,6 +741,7 @@ impl Sources<'static> {
             netmap: include_str!("../../../data/netmap.ron"),
             hardware: include_str!("../../../data/hub/hardware.ron"),
             tools: include_str!("../../../data/hub/tools.ron"),
+            games: include_str!("../../../data/hub/games.ron"),
             addons: include_str!("../../../data/hub/desktops.ron"),
             panes: include_str!("../../../data/hub/panes.ron"),
             shopper: include_str!("../../../data/hub/shopper.ron"),
@@ -750,6 +785,8 @@ pub struct Data {
     pub hardware: crate::hardware::HardwareDef,
     /// Desktop tools you download from boards.
     pub tools: Vec<ToolDef>,
+    /// Games you can own: cracked from a board or boxed by mail.
+    pub games: Vec<GameDef>,
     /// Desktop add-ons you can buy.
     pub addons: Vec<crate::desktop::AddonDef>,
     /// Secondary panes you can buy for the run screen.
@@ -817,6 +854,7 @@ impl Data {
             netmap: ron::from_str(src.netmap).map_err(|e| format!("netmap.ron: {e}"))?,
             hardware: ron::from_str(src.hardware).map_err(|e| format!("hub/hardware.ron: {e}"))?,
             tools: ron::from_str(src.tools).map_err(|e| format!("hub/tools.ron: {e}"))?,
+            games: ron::from_str(src.games).map_err(|e| format!("hub/games.ron: {e}"))?,
             addons: ron::from_str(src.addons).map_err(|e| format!("hub/desktops.ron: {e}"))?,
             panes: ron::from_str(src.panes).map_err(|e| format!("hub/panes.ron: {e}"))?,
             shopper: ron::from_str(src.shopper).map_err(|e| format!("hub/shopper.ron: {e}"))?,
@@ -877,6 +915,8 @@ impl Data {
                 return Err(format!("tool `{}` names unknown intro `{id}`", t.id));
             }
         }
+        self.validate_games()
+            .map_err(|e| format!("hub/games.ron: {e}"))?;
         for (i, w) in self.warez.iter().enumerate() {
             if self.warez[..i].iter().any(|o| o.id == w.id) {
                 return Err(format!("duplicate warez id `{}`", w.id));
@@ -1225,6 +1265,51 @@ impl Data {
         Ok(())
     }
 
+    /// Every game has a row and an engine, its field fits a screen, its crack is a crack and
+    /// its splash a splash, and its publisher advertises in CPU Shopper.
+    fn validate_games(&self) -> Result<(), String> {
+        for (i, g) in self.games.iter().enumerate() {
+            let err = |m: String| Err(format!("game `{}`: {m}", g.id));
+            if self.games[..i].iter().any(|o| o.id == g.id) {
+                return err("listed twice".into());
+            }
+            if !GAMES.contains(&g.id.as_str()) {
+                return err("has no engine (not in data::GAMES)".into());
+            }
+            let (cols, rows) = (crate::bbs::COLS as u32, crate::bbs::ROWS as u32);
+            if !(1..=cols).contains(&g.cols) || !(1..=rows).contains(&g.rows) {
+                return err(format!(
+                    "a {}x{} field (1-{cols} x 1-{rows})",
+                    g.cols, g.rows
+                ));
+            }
+            match self.intro(&g.crack) {
+                None => return err(format!("unknown crack intro `{}`", g.crack)),
+                Some(i) if i.is_splash() => {
+                    return err(format!("crack intro `{}` is a splash", g.crack));
+                }
+                _ => {}
+            }
+            match self.intro(&g.splash) {
+                None => return err(format!("unknown splash intro `{}`", g.splash)),
+                Some(i) if !i.is_splash() => {
+                    return err(format!("splash intro `{}` is a crack", g.splash));
+                }
+                _ => {}
+            }
+            if self.shopper.vendor(&g.publisher).is_none() {
+                return err(format!("unknown publisher `{}`", g.publisher));
+            }
+            if g.shop.as_ref().is_some_and(|s| s.price == 0) {
+                return err("sold for nothing".into());
+            }
+        }
+        if let Some(id) = GAMES.iter().find(|id| self.game(id).is_none()) {
+            return Err(format!("no row for game `{id}`"));
+        }
+        Ok(())
+    }
+
     /// A picture from `data/art/` by id.
     pub fn art(&self, id: &str) -> Option<&ArtDef> {
         self.art.iter().find(|a| a.id == id)
@@ -1283,6 +1368,10 @@ impl Data {
 
     pub fn tool(&self, id: &str) -> Option<&ToolDef> {
         self.tools.iter().find(|t| t.id == id)
+    }
+
+    pub fn game(&self, id: &str) -> Option<&GameDef> {
+        self.games.iter().find(|g| g.id == id)
     }
 
     pub fn warez_ix(&self, id: &str) -> Option<usize> {
