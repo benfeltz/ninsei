@@ -97,7 +97,8 @@ pub trait ChromeView {
     }
     /// The vis pane (secondary): what the speaker is playing.
     fn vis(&self, p: &mut Panes, ui: &mut Ui) {
-        crate::vispane::trace(ui, &p.pal, p.scope);
+        let centre = crate::vispane::Centre::Line(p.pal.faint);
+        crate::vispane::trace(ui, &p.pal, p.scope, centre);
     }
 
     /// The tab brought forward when ICE rezzes or the run ends.

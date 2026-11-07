@@ -7,18 +7,40 @@ use ninsei_core::scope;
 
 use crate::theme::Palette;
 
-/// An oscilloscope trace of `samples` across the pane, in the text colour on a dim centre line:
-/// the classic dressing.
-pub fn trace(ui: &mut Ui, p: &Palette, samples: &[f32]) {
+/// A scope's centre line: a line in a colour, or a dotted line (a 1-bit graticule).
+#[derive(Clone, Copy, Debug)]
+pub enum Centre {
+    Line(egui::Color32),
+    Dots(egui::Color32),
+}
+
+/// An oscilloscope trace of `samples` across the pane, in the text colour over the centre
+/// line `centre`.
+pub fn trace(ui: &mut Ui, p: &Palette, samples: &[f32], centre: Centre) {
     let (rect, _) = ui.allocate_exact_size(ui.available_size(), Sense::hover());
     // On whole pixels: one point of the trace per pixel column.
     let rect = egui::Rect::from_min_max(rect.min.round(), rect.max.round());
     let painter = ui.painter_at(rect);
     let mid = rect.center().y.round();
-    painter.line_segment(
-        [pos2(rect.left(), mid), pos2(rect.right(), mid)],
-        Stroke::new(1.0, p.faint),
-    );
+    match centre {
+        Centre::Line(c) => {
+            painter.line_segment(
+                [pos2(rect.left(), mid), pos2(rect.right(), mid)],
+                Stroke::new(1.0, c),
+            );
+        }
+        Centre::Dots(c) => {
+            let mut x = rect.left();
+            while x < rect.right() {
+                painter.rect_filled(
+                    egui::Rect::from_min_size(pos2(x, mid), egui::vec2(1.0, 1.0)),
+                    0.0,
+                    c,
+                );
+                x += 4.0;
+            }
+        }
+    }
     let points = scope::trace(samples, rect.width() as usize);
     if points.iter().all(|v| *v == 0.0) {
         return;

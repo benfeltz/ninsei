@@ -474,7 +474,11 @@ impl ChromeView for Stack {
         egui::Frame::new()
             .stroke(Stroke::new(1.0, ink))
             .inner_margin(egui::Margin::same(4))
-            .show(ui, |ui| crate::vispane::trace(ui, &p.pal, p.scope));
+            .show(ui, |ui| {
+                // Ink only: a dotted graticule, not a grey line.
+                let centre = crate::vispane::Centre::Dots(ink);
+                crate::vispane::trace(ui, &p.pal, p.scope, centre)
+            });
     }
 
     /// A fight brings up a Mac alert over the card. It's small and off to the side of the
