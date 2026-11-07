@@ -47,6 +47,8 @@ pub trait Output: Sized {
     fn cue(&mut self, clip: Arc<Vec<f32>>);
     /// Silences everything at once (sound turned off).
     fn hush(&mut self);
+    /// The master level, 0-1, over everything (eased, so a change never clicks).
+    fn volume(&mut self, gain: f32);
 }
 
 /// What's on the music channel.
@@ -79,6 +81,8 @@ pub struct Speaker<O: Output = backend::Out> {
     clips: HashMap<(String, Cue), Arc<Vec<f32>>>,
     music: Music,
     job: Option<Job>,
+    /// The master level (`Save::volume`), 0-1.
+    volume: f32,
 }
 
 impl<O: Output> Speaker<O> {
@@ -90,6 +94,15 @@ impl<O: Output> Speaker<O> {
             clips: HashMap::new(),
             music: Music::Quiet,
             job: None,
+            volume: 1.0,
+        }
+    }
+
+    /// Sets the master level over the modem, the music and the cues alike (0-1).
+    pub fn set_volume(&mut self, gain: f32) {
+        self.volume = gain.clamp(0.0, 1.0);
+        if let Some(out) = &mut self.out {
+            out.volume(self.volume);
         }
     }
 
@@ -113,6 +126,11 @@ impl<O: Output> Speaker<O> {
         if self.out.is_none() {
             self.out = O::open();
             self.dead = self.out.is_none();
+            // A new output starts at full; turn it down to the saved level.
+            let gain = self.volume;
+            if let Some(out) = self.out.as_mut().filter(|_| gain < 1.0) {
+                out.volume(gain);
+            }
         }
         self.out.as_mut()
     }
@@ -271,10 +289,23 @@ mod backend {
         stem_gain: f32,
         stem_to: f32,
         ramp: f32,
+        /// The master level over everything, easing toward `master_to` like the stem.
+        master: f32,
+        master_to: f32,
         voices: Vec<(Arc<Vec<f32>>, usize)>,
     }
 
     impl Mix {
+        /// Nothing playing, at the same level.
+        fn hushed(&self) -> Mix {
+            Mix {
+                ramp: self.ramp,
+                master: self.master_to,
+                master_to: self.master_to,
+                ..Mix::default()
+            }
+        }
+
         fn next(&mut self) -> f32 {
             let (samples, pos) = &mut self.dial;
             let mut s = samples.get(*pos).copied().unwrap_or(0.0);
@@ -291,6 +322,8 @@ mod backend {
                 *at += 1;
             }
             self.voices.retain(|(clip, at)| *at < clip.len());
+            s *= self.master;
+            self.master += (self.master_to - self.master) * self.ramp;
             s.clamp(-1.0, 1.0)
         }
     }
@@ -315,6 +348,8 @@ mod backend {
             let mix = Arc::new(Mutex::new(Mix {
                 // About 10 ms to fade the stem, so muting it never clicks.
                 ramp: 1.0 / (0.01 * rate as f32).max(1.0),
+                master: 1.0,
+                master_to: 1.0,
                 ..Mix::default()
             }));
             let stream = match config.sample_format() {
@@ -373,13 +408,40 @@ mod backend {
         }
 
         fn hush(&mut self) {
-            self.with(|m| {
-                *m = Mix {
-                    ramp: m.ramp,
-                    ..Mix::default()
-                }
-            });
+            self.with(|m| *m = m.hushed());
         }
+
+        fn volume(&mut self, gain: f32) {
+            self.with(|m| m.master_to = gain);
+        }
+    }
+
+    #[cfg(test)]
+    #[test]
+    fn the_master_level_scales_everything_and_eases() {
+        let mut m = Mix {
+            dial: (vec![0.2; 400], 0),
+            music: vec![0.2; 400],
+            looping: true,
+            voices: vec![(Arc::new(vec![0.2; 400]), 0)],
+            ramp: 0.1,
+            master: 1.0,
+            master_to: 1.0,
+            ..Mix::default()
+        };
+        assert!(
+            (m.next() - 0.6).abs() < 1e-6,
+            "full: modem, music and a cue"
+        );
+        m.master_to = 0.5;
+        let first = m.next();
+        assert!(first > 0.3, "it eases down, never jumps: {first}");
+        let settled = (0..200).map(|_| m.next()).last().unwrap();
+        assert!((settled - 0.3).abs() < 1e-3, "half: {settled}");
+        // Hushing (sound off) silences everything but keeps the level.
+        let h = m.hushed();
+        assert_eq!((h.master, h.master_to, h.ramp), (0.5, 0.5, 0.1));
+        assert!(h.music.is_empty() && h.voices.is_empty() && h.dial.0.is_empty());
     }
 
     fn stream<T: SizedSample + FromSample<f32>>(
@@ -415,6 +477,8 @@ mod backend {
 
     pub struct Out {
         ctx: AudioContext,
+        /// Everything plays through this, at the master level.
+        master: GainNode,
         /// The modem channel, so a hang-up can stop it.
         dialing: Option<AudioBufferSourceNode>,
         /// The music channel's sources (a tune, or a loop's bed and stem), so they can stop.
@@ -451,7 +515,7 @@ mod backend {
                 return None;
             }
             let src = self.source(samples, false)?;
-            src.connect_with_audio_node(&self.ctx.destination()).ok()?;
+            src.connect_with_audio_node(&self.master).ok()?;
             src.start().ok()?;
             Some(src)
         }
@@ -474,14 +538,14 @@ mod backend {
             muted: bool,
         ) -> Option<(Vec<AudioBufferSourceNode>, Option<GainNode>)> {
             let _ = self.ctx.resume();
-            let out = self.ctx.destination();
+            let out = &self.master;
             let mut nodes = vec![self.source(bed, true)?];
-            nodes[0].connect_with_audio_node(&out).ok()?;
+            nodes[0].connect_with_audio_node(out).ok()?;
             let mut gain = None;
             if !stem.is_empty() {
                 let g = self.ctx.create_gain().ok()?;
                 g.gain().set_value(if muted { 0.0 } else { 1.0 });
-                g.connect_with_audio_node(&out).ok()?;
+                g.connect_with_audio_node(out).ok()?;
                 let src = self.source(stem, true)?;
                 src.connect_with_audio_node(&g).ok()?;
                 nodes.push(src);
@@ -504,8 +568,12 @@ mod backend {
 
     impl super::Output for Out {
         fn open() -> Option<Self> {
+            let ctx = AudioContext::new().ok()?;
+            let master = ctx.create_gain().ok()?;
+            master.connect_with_audio_node(&ctx.destination()).ok()?;
             Some(Self {
-                ctx: AudioContext::new().ok()?,
+                ctx,
+                master,
                 dialing: None,
                 playing: Vec::new(),
                 stem_gain: None,
@@ -587,6 +655,14 @@ mod backend {
                 let _ = src.stop();
             }
         }
+
+        fn volume(&mut self, gain: f32) {
+            // About 10 ms to get there, so a change never clicks.
+            let _ = self
+                .master
+                .gain()
+                .set_target_at_time(gain, self.ctx.current_time(), 0.01);
+        }
     }
 }
 
@@ -635,6 +711,9 @@ mod tests {
         fn cue(&mut self, _: Arc<Vec<f32>>) {}
         fn hush(&mut self) {
             self.said.push("hush".into());
+        }
+        fn volume(&mut self, gain: f32) {
+            self.said.push(format!("volume {gain}"));
         }
     }
 
@@ -757,6 +836,34 @@ mod tests {
             said(&mut s),
             ["loop from 0 muted false", "hush", "loop from 0 muted false"]
         );
+    }
+
+    #[test]
+    fn the_volume_reaches_the_output_whenever_it_opens() {
+        let t = tune();
+        // Set before anything played: the output opens at that level.
+        let mut s = Speaker::<Log>::new(true);
+        s.set_volume(0.4);
+        assert!(s.out.is_none(), "nothing opened yet");
+        settle(&mut s, &at(&t, false, 0));
+        assert_eq!(said(&mut s), ["volume 0.4", "loop from 0 muted false"]);
+        // Changed while playing: straight to the output, the loop untouched.
+        s.set_volume(0.9);
+        s.set_volume(7.0);
+        assert_eq!(said(&mut s), ["volume 0.9", "volume 1"]);
+        // Sound off and on again keeps the level.
+        s.set_volume(0.5);
+        s.set_on(false);
+        s.set_on(true);
+        settle(&mut s, &at(&t, false, 0));
+        assert_eq!(
+            said(&mut s),
+            ["volume 0.5", "hush", "loop from 0 muted false"]
+        );
+        // At full, a new output is left as it opens.
+        let mut s = Speaker::<Log>::new(true);
+        settle(&mut s, &at(&t, false, 0));
+        assert_eq!(said(&mut s), ["loop from 0 muted false"]);
     }
 
     #[test]

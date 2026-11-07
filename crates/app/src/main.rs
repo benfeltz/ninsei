@@ -326,7 +326,11 @@ impl App {
         let game = Game::new(data.clone(), first_seed.unwrap_or(0));
         let mut me = Self {
             crt: save.crt,
-            speaker: sound::Speaker::new(save.sound),
+            speaker: {
+                let mut s = sound::Speaker::new(save.sound);
+                s.set_volume(save.volume_gain());
+                s
+            },
             bbs_heard: false,
             data,
             save,
@@ -842,6 +846,7 @@ impl App {
             }
             Request::Volume(pct) => {
                 self.save.set_volume(pct);
+                self.speaker.set_volume(self.save.volume_gain());
                 self.save_dirty = true;
                 return;
             }
