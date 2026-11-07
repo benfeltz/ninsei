@@ -24,6 +24,8 @@ pub mod size {
     pub const MONO: f32 = 12.0;
     pub const SMALL: f32 = 10.0;
     pub const ROW_H: f32 = 17.0;
+    /// How far a window's shadow falls.
+    pub const SHADOW: f32 = 5.0;
     /// Report charts take this share of a window's height, within these bounds.
     pub const CHART_SHARE: f32 = 0.3;
     pub const CHART_MIN: f32 = 56.0;
@@ -80,22 +82,25 @@ fn small(s: impl Into<String>, c: Color32) -> RichText {
     RichText::new(s).font(mono(size::SMALL)).color(c)
 }
 
-/// A document window filling the pane, on the suite's cells: a shadow a cell down and right,
+/// A document window filling the pane, on the suite's cells: a shadow,
 /// a double border, a title row with the close box, the name and the window's number, and
 /// `body` inside.
 pub fn window(ui: &mut Ui, p: &Palette, num: usize, title: &str, body: impl FnOnce(&mut Ui)) {
     let full = ui.available_rect_before_wrap();
     let painter = ui.painter().clone();
     painter.rect_filled(full, 0.0, p.panel);
-    // Room for the window and its shadow, a cell down and right.
-    let probe = Cells::sized(ui, full.min, mono(size::MONO), Some(size::ROW_H), (1, 1));
+    // Room for the window and its shadow (a drop of paint, not a cell of layout).
     let area = Rect::from_min_max(
         full.min + vec2(4.0, 4.0),
-        full.max - vec2(4.0 + probe.cw, 4.0 + probe.ch),
+        full.max - vec2(4.0 + size::SHADOW, 4.0 + size::SHADOW),
     );
     let mut g = Cells::fit_font(ui, area, mono(size::MONO), Some(size::ROW_H));
     g.border = p.fg;
-    painter.rect_filled(g.rect.translate(vec2(g.cw, g.ch)), 0.0, p.bg);
+    painter.rect_filled(
+        g.rect.translate(vec2(size::SHADOW, size::SHADOW)),
+        0.0,
+        p.bg,
+    );
     painter.rect_filled(g.rect, 0.0, p.bg);
     g.frame_double(&painter, 0, 0, g.cols, g.rows);
     if g.cols < 10 || g.rows < 5 {
