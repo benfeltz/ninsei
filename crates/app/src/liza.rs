@@ -346,8 +346,6 @@ impl DesktopView for Liza {
                 *p += drag.drag_delta();
                 p.x = p.x.clamp(-size.x + 60.0, screen.width() - 60.0);
                 p.y = p.y.clamp(size::MENU_H, screen.height() - size::TITLE_H);
-                // On whole pixels, where its frame is drawn.
-                *p = p.round();
             }
             if drag.drag_started() || drag.clicked() {
                 raise = Some(i);
@@ -1181,5 +1179,51 @@ mod tests {
             at(&ctx).offset > 0.0,
             "uncovered, the wheel scrolls the view"
         );
+    }
+
+    #[test]
+    fn a_slow_drag_moves_a_window_every_way() {
+        let data = Data::builtin().unwrap();
+        for step in [vec2(-0.5, -0.5), vec2(0.5, 0.5)] {
+            let ctx = egui::Context::default();
+            let (mut liza, mut home) = booted(&ctx, &data);
+            liza.open(Tool::System);
+            let mut t = look::BOOT_SECS + 0.2;
+            let mut run = |liza: &mut Liza, home: &mut Home, ev: Vec<egui::Event>| {
+                t += 0.05;
+                frame(&ctx, liza, home, &data, ev, t);
+            };
+            run(&mut liza, &mut home, Vec::new());
+            let from = liza.wins.last().unwrap().pos;
+            let grab = from + vec2(300.0, 10.0);
+            let button = |pos, pressed| egui::Event::PointerButton {
+                pos,
+                button: PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            };
+            run(
+                &mut liza,
+                &mut home,
+                vec![egui::Event::PointerMoved(grab), button(grab, true)],
+            );
+            for k in 1..=60 {
+                run(
+                    &mut liza,
+                    &mut home,
+                    vec![egui::Event::PointerMoved(grab + step * k as f32)],
+                );
+            }
+            run(
+                &mut liza,
+                &mut home,
+                vec![button(grab + step * 60.0, false)],
+            );
+            let to = liza.wins.last().unwrap().pos;
+            assert!(
+                (to - from).length() > 10.0 && (to - from).x.signum() == step.x.signum(),
+                "a drag of {step:?} a frame moved it {from:?} to {to:?}"
+            );
+        }
     }
 }

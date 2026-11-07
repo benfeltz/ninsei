@@ -329,8 +329,6 @@ impl DesktopView for Workbench {
                     kit::size::SCREEN_BAR_H,
                     screen.height() - kit::size::TITLE_H,
                 );
-                // On whole pixels, where its frame is drawn.
-                *p = p.round();
             }
             if drag.drag_started() || drag.clicked() {
                 raise = Some(i);
@@ -902,5 +900,48 @@ mod tests {
             scroll_of(&ctx, Tool::System).offset > 0.0,
             "the wheel scrolls the view"
         );
+    }
+
+    #[test]
+    fn a_slow_drag_moves_a_window_every_way() {
+        let data = Data::builtin().unwrap();
+        let save = desk(&data);
+        for step in [vec2(-0.5, -0.5), vec2(0.5, 0.5)] {
+            let ctx = egui::Context::default();
+            let (mut wb, mut home) = (Workbench::new(), Home::new(Vec::new()));
+            let mut t = 0.0;
+            let mut run = |wb: &mut Workbench, home: &mut Home, ev| {
+                t += 0.05;
+                frame(&ctx, wb, home, &data, &save, ev, t);
+            };
+            run(&mut wb, &mut home, Vec::new());
+            let i = wb.wins.iter().position(|w| w.kind == Kind::Shell).unwrap();
+            let from = wb.wins[i].pos;
+            let grab = from + vec2(300.0, 10.0);
+            let button = |pos, pressed| Event::PointerButton {
+                pos,
+                button: PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            };
+            run(
+                &mut wb,
+                &mut home,
+                vec![Event::PointerMoved(grab), button(grab, true)],
+            );
+            for k in 1..=60 {
+                run(
+                    &mut wb,
+                    &mut home,
+                    vec![Event::PointerMoved(grab + step * k as f32)],
+                );
+            }
+            run(&mut wb, &mut home, vec![button(grab + step * 60.0, false)]);
+            let to = wb.wins.iter().find(|w| w.kind == Kind::Shell).unwrap().pos;
+            assert!(
+                (to - from).length() > 10.0 && (to - from).x.signum() == step.x.signum(),
+                "a drag of {step:?} a frame moved it {from:?} to {to:?}"
+            );
+        }
     }
 }
