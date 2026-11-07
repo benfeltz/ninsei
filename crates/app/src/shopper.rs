@@ -814,4 +814,55 @@ mod tests {
             "picking it in System plugs it in"
         );
     }
+
+    #[test]
+    fn the_games_page_prints_paper_tigers_blox_ad_and_it_orders_the_box() {
+        let data = Data::builtin().unwrap();
+        let mut save = deck(&data);
+        save.bank = 1000;
+        let (mut h, mut home) = (Harness::new(1280.0, 800.0), Home::new(Vec::new()));
+        crate::uitest::themed(&h.ctx, &data);
+        let count = shopper::layout(&data.shopper, &save.catalog(&data)).len();
+        frame(&mut h, &mut home, &data, &save, Tool::Rig, Vec::new());
+        let painted = |h: &Harness, t: &str| {
+            h.painted_text()
+                .into_iter()
+                .find(|(s, _)| s == t)
+                .map(|(_, r)| r)
+        };
+        let mut headline = None;
+        for _ in 0..count {
+            if let Some(r) = painted(&h, "BLOX 2.0") {
+                headline = Some(r);
+                break;
+            }
+            let next = press_on(&mut h, "▶");
+            frame(&mut h, &mut home, &data, &save, Tool::Rig, next);
+            frame(&mut h, &mut home, &data, &save, Tool::Rig, Vec::new());
+        }
+        let headline = headline.expect("Paper Tiger's BLOX ad is in the issue");
+        assert!(painted(&h, "PAPER TIGER SOFTWARE").is_some(), "the vendor signs it");
+        assert!(h.cut_text().is_empty(), "cut: {:?}", h.cut_text());
+        // The ORDER button in the ad's box, the one nearest its headline.
+        let order = h
+            .all("ORDER")
+            .into_iter()
+            .min_by(|a, b| {
+                let d = |r: &Rect| r.center().distance(headline.center());
+                d(a).total_cmp(&d(b))
+            })
+            .expect("the ad takes orders");
+        let out = frame(
+            &mut h,
+            &mut home,
+            &data,
+            &save,
+            Tool::Rig,
+            click(order.center()),
+        );
+        assert!(
+            out.contains(&WbOut::Order(Item::Game("blox".into()))),
+            "{out:?}"
+        );
+    }
 }

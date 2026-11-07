@@ -337,18 +337,19 @@ fn a_game_bought_by_mail_is_boxed() {
 }
 
 #[test]
-fn a_game_is_in_the_next_issue_without_an_ad() {
-    let d = shop_sells_games();
-    assert!(
-        !d.shopper
-            .ads
-            .iter()
-            .any(|a| matches!(a.item, Item::Game(_))),
-        "no ad is written yet"
-    );
+fn a_game_without_an_ad_is_a_price_list_line_and_bloxs_is_paper_tigers_boxed_ad() {
+    let d = data();
     let cat = Save::default().catalog(&d);
     let pages = shopper::layout(&d.shopper, &cat);
-    for g in d.games.iter().filter(|g| g.shop.is_some()) {
+    let blocks = || {
+        pages.iter().flat_map(|p| match p {
+            Page::Section {
+                sections, blocks, ..
+            } if sections.contains(&Section::Games) => blocks.iter().map(|(b, _)| b).collect(),
+            _ => Vec::new(),
+        })
+    };
+    for g in &d.games {
         let ix = cat
             .iter()
             .position(|l| l.item == Item::Game(g.id.clone()))
@@ -357,17 +358,38 @@ fn a_game_is_in_the_next_issue_without_an_ad() {
         assert_eq!(l.section, Section::Games);
         assert_eq!(l.stock, Stock::Price(g.shop.as_ref().unwrap().price));
         assert_eq!(d.shopper.vendor_of(l), "papertiger");
-        let in_list = pages.iter().any(|p| match p {
-            Page::Section {
-                sections, blocks, ..
-            } => sections.contains(&Section::Games)
-                && blocks.iter().any(
-                    |(b, _)| matches!(b, Block::List { listings, .. } if listings.contains(&ix)),
-                ),
+        let ad = d
+            .shopper
+            .ads
+            .iter()
+            .position(|a| a.item == Item::Game(g.id.clone()));
+        let printed = blocks().any(|b| match (b, ad) {
+            (Block::Ad { listing, ad: a }, Some(want)) => *listing == ix && *a == want,
+            (Block::List { listings, .. }, None) => listings.contains(&ix),
             _ => false,
         });
-        assert!(in_list, "{} is a price-list line in Games", g.id);
+        assert!(
+            printed,
+            "{}: an ad if it has one, a price-list line if not",
+            g.id
+        );
     }
+    let blox = d
+        .shopper
+        .ads
+        .iter()
+        .find(|a| a.item == Item::Game("blox".into()))
+        .unwrap();
+    assert_eq!(blox.size, shopper::AdSize::Box);
+    // Ordering from the ad boxes the game.
+    let mut s = Save {
+        bank: 100,
+        ..Save::default()
+    };
+    s.buy_item(&d, &blox.item).unwrap();
+    assert_eq!(s.copies("blox"), vec![GameCopy::Boxed]);
+    // And the cover points at the Games section.
+    assert!(d.shopper.cover.iter().any(|c| c.section == Section::Games));
 }
 
 #[test]
