@@ -414,12 +414,7 @@ fn list_box(
                     .sum()
             });
             if wheel != 0.0 && ui.rect_contains_pointer(ui.max_rect()) {
-                let steps = wheel.round().abs().max(1.0) as usize;
-                list.top = if wheel > 0.0 {
-                    list.top.saturating_sub(steps)
-                } else {
-                    list.top + steps
-                };
+                list.wheel(wheel);
             }
             for i in list.view(len, follow, rows) {
                 row(ui, i);
