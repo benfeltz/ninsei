@@ -13,7 +13,7 @@ use ninsei_core::tuning::{HEAT_COOL, HEAT_MAX};
 
 use crate::home::{Dialing, WbOut, accent, fill, ink, muted, shadow};
 use crate::hubtools::SCAN_FILL_SECS;
-use crate::kit::Cells;
+use crate::kit::{Cells, List};
 
 /// NiGHTCOMM's state between frames: the page, the order and filter, what's picked, and the
 /// TERM page's line and scrollback.
@@ -25,6 +25,10 @@ pub struct NightComm {
     pub sel: Option<u32>,
     /// The range picked on WARDiAL and RANGES.
     pub range: Option<String>,
+    /// Where iNTEL's, WARDiAL's and RANGES's lists are scrolled to.
+    pub(crate) intel_list: List,
+    pub(crate) wardial_list: List,
+    pub(crate) ranges_list: List,
     /// TERM's command line.
     pub term: ninsei_term::LineEditor,
     /// What TERM has printed, oldest first.
@@ -47,6 +51,9 @@ impl Default for NightComm {
             query: String::new(),
             sel: None,
             range: None,
+            intel_list: List::default(),
+            wardial_list: List::default(),
+            ranges_list: List::default(),
             term: ninsei_term::LineEditor::new(TERM_HISTORY),
             term_lines: vec![
                 "NiGHTCOMM 3.1 TERM".to_string(),
@@ -318,15 +325,12 @@ impl Ctx<'_> {
 
     /// An inverse-video row: the period's selection.
     pub(crate) fn picked(&self, c: usize, r: usize, w: usize) {
-        self.g.fill(self.p, c, r, w, 1, accent());
+        self.g.inverse(self.p, c, r, w, "", shadow(), accent());
     }
 
     /// A sub-box with its title cut into the top border.
     pub(crate) fn boxed(&self, c: usize, r: usize, w: usize, h: usize, title: &str) {
-        self.g.frame(self.p, c, r, w, h);
-        if !title.is_empty() {
-            self.g.title(self.p, c + 2, r, title, ink());
-        }
+        self.g.boxed(self.p, c, r, w, h, title, ink());
     }
 }
 
@@ -351,11 +355,6 @@ pub(crate) fn step<T: PartialEq + Clone>(ids: &[T], cur: &mut Option<T>, keys: &
         i = (i + 1).min(ids.len() - 1);
     }
     *cur = Some(ids[i].clone());
-}
-
-/// The first row to show so `at` stays in a window of `rows`.
-pub(crate) fn scroll_to(at: usize, rows: usize) -> usize {
-    (at + 1).saturating_sub(rows.max(1))
 }
 
 fn result_glyph(e: RunEnd) -> char {
@@ -401,16 +400,15 @@ fn intel(
     // Columns, sized from their widest real value.
     let heat_w = HEAT_MAX as usize + 5;
     let listing_w = if narrow { 0 } else { 14 };
+    // The last results; a narrow window leaves them to the box under the list, so the names
+    // keep their room.
+    let last_w = if narrow {
+        0
+    } else {
+        ninsei_core::tuning::RESULTS_KEPT + 1
+    };
     // Everything but the name: margins, number, listing, heat, runs and the last results.
-    let others = 1
-        + 10
-        + 2
-        + if narrow { 0 } else { listing_w + 2 }
-        + heat_w
-        + 2
-        + 6
-        + ninsei_core::tuning::RESULTS_KEPT
-        + 1;
+    let others = 1 + 10 + 2 + if narrow { 0 } else { listing_w + 2 } + heat_w + 2 + 6 + last_w;
     let name_w = w.saturating_sub(others);
     let x_num = c0 + 1;
     let x_name = x_num + 10;
@@ -445,7 +443,9 @@ fn intel(
         },
         muted(),
     );
-    g.text(p, x_last, r0, "LAST", muted());
+    if !narrow {
+        g.text(p, x_last, r0, "LAST", muted());
+    }
     let visible = list_h.saturating_sub(1);
     if rows.is_empty() {
         let msg = if save.phonebook.is_empty() {
@@ -455,17 +455,10 @@ fn intel(
         };
         g.text(p, x_num, r0 + 1, msg, muted());
     }
-    let at = nc
-        .sel
-        .and_then(|s| ids.iter().position(|i| *i == s))
-        .unwrap_or(0);
-    for (k, e) in rows
-        .iter()
-        .enumerate()
-        .skip(scroll_to(at, visible))
-        .take(visible)
-    {
-        let r = r0 + 1 + (k - scroll_to(at, visible));
+    let at = nc.sel.and_then(|s| ids.iter().position(|i| *i == s));
+    for k in nc.intel_list.view(rows.len(), at, visible) {
+        let e = &rows[k];
+        let r = r0 + 1 + nc.intel_list.row(k);
         let on = nc.sel == Some(e.id);
         if on {
             cx.picked(c0, r, w);
@@ -481,13 +474,8 @@ fn intel(
             g.text_max(p, x_list, r, &e.business, listing_w, dim);
         }
         if on {
-            g.text(
-                p,
-                x_heat,
-                r,
-                &format!("{:<w$}", "■".repeat(e.heat as usize), w = HEAT_MAX as usize),
-                fg,
-            );
+            // Inverse, like the row's text: lit and unlit cells in the row's ink.
+            g.meter_in(p, x_heat, r, HEAT_MAX as usize, e.heat as usize, &[fg], fg);
         } else {
             g.meter(p, x_heat, r, HEAT_MAX as usize, e.heat as usize, &ramp());
         }
@@ -501,8 +489,10 @@ fn intel(
         };
         g.text(p, x_heat + HEAT_MAX as usize + 1, r, word, word_col);
         g.text_right(p, x_runs + 4, r, &e.runs.to_string(), fg);
-        let last: String = e.last.iter().map(|x| result_glyph(*x)).collect();
-        g.text(p, x_last, r, if last.is_empty() { "-" } else { &last }, dim);
+        if !narrow {
+            let last: String = e.last.iter().map(|x| result_glyph(*x)).collect();
+            g.text(p, x_last, r, if last.is_empty() { "-" } else { &last }, dim);
+        }
         let hit = cx.click(c0, r, w, ("nc-row", e.id));
         if hit.clicked() {
             nc.sel = Some(e.id);
@@ -511,6 +501,8 @@ fn intel(
             *dial = Some(e.id);
         }
     }
+    // Where you are, cut into the border under the list.
+    nc.intel_list.mark(g, p, c0, r0 + list_h, w, ink());
     if !detail {
         return;
     }
@@ -625,8 +617,13 @@ pub(crate) fn wardial(
         h
     };
     cx.boxed(c0, r0, lw, lh, "ranges");
-    for (i, r) in known.iter().take(lh - 2).enumerate() {
-        let y = r0 + 1 + i;
+    let at = nc
+        .range
+        .as_ref()
+        .and_then(|s| ids.iter().position(|i| i == s));
+    for i in nc.wardial_list.view(known.len(), at, lh - 2) {
+        let r = &known[i];
+        let y = r0 + 1 + nc.wardial_list.row(i);
         let on = Some(&r.def.id) == nc.range.as_ref();
         if on {
             cx.picked(c0 + 1, y, lw - 2);
@@ -645,6 +642,7 @@ pub(crate) fn wardial(
             nc.range = Some(r.def.id.clone());
         }
     }
+    nc.wardial_list.mark(g, p, c0, r0 + lh - 1, lw, ink());
     let (mx, my, mw, mh) = if narrow {
         (c0, r0 + lh, w, h - lh)
     } else {
@@ -888,8 +886,13 @@ pub(crate) fn ranges(
     if wide_from {
         g.text(p, x_from, r0, "FROM", muted());
     }
-    for (i, r) in rows.iter().enumerate().take(th.saturating_sub(1)) {
-        let y = r0 + 1 + i;
+    let at = nc
+        .range
+        .as_ref()
+        .and_then(|s| ids.iter().position(|i| i == s));
+    for i in nc.ranges_list.view(rows.len(), at, th.saturating_sub(1)) {
+        let r = &rows[i];
+        let y = r0 + 1 + nc.ranges_list.row(i);
         let on = Some(&r.def.id) == nc.range.as_ref();
         if on {
             cx.picked(c0, y, w);
@@ -928,7 +931,7 @@ pub(crate) fn ranges(
                 (r.scanned as usize * 8).div_ceil(r.blocks as usize).min(8)
             };
             if on {
-                g.text(p, x_dial, y, &format!("{:<8}", "■".repeat(lit)), fg);
+                g.meter_in(p, x_dial, y, 8, lit, &[fg], fg);
             } else {
                 g.meter(p, x_dial, y, 8, lit, &ramp());
             }
@@ -955,6 +958,7 @@ pub(crate) fn ranges(
     if wh > 0 {
         let top = r0 + th;
         cx.boxed(c0, top, w, wh, "watched lines");
+        nc.ranges_list.mark(g, p, c0, top, w, ink());
         let label = |id: &str| {
             data.exchanges
                 .iter()
@@ -1340,5 +1344,64 @@ mod tests {
             Tab::Wardial,
             "on an empty line it turns the page"
         );
+    }
+
+    #[test]
+    fn the_picked_row_shows_its_heat_meter_inverse() {
+        let data = Data::builtin().unwrap();
+        let save = nightcomm_deck(&data);
+        let (h, home) = opened(&data, &save);
+        assert!(home.nightcomm.sel.is_some(), "a number is picked");
+        // The picked row: the full-width inverse bar.
+        let (bar, _, _) = h
+            .rects()
+            .into_iter()
+            .find(|(r, fill, _)| *fill == accent() && r.width() > 400.0)
+            .expect("the picked row");
+        let meter = h
+            .rects()
+            .into_iter()
+            .filter(|(r, fill, stroke)| {
+                bar.contains_rect(*r)
+                    && r.width() < bar.width() / 4.0
+                    && (*fill == shadow() || *stroke == shadow())
+            })
+            .count();
+        assert_eq!(
+            meter, HEAT_MAX as usize,
+            "every cell of the meter, in the row's ink"
+        );
+    }
+
+    #[test]
+    fn a_short_tile_scrolls_intel_to_the_picked_number_and_says_where() {
+        let data = Data::builtin().unwrap();
+        let save = nightcomm_deck(&data);
+        let mut h = Harness::new(1280.0, 800.0);
+        crate::uitest::themed(&h.ctx, &data);
+        let mut home = Home::new(Vec::new());
+        // Eight rows of 17 points: the list shows five numbers of the seven, and no box
+        // under it.
+        let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(560.0, 8.0 * 17.0));
+        let draw = |h: &mut Harness, home: &mut Home, events| {
+            crate::home::tests::frame_at(h, home, &data, &save, Tool::NightComm, rect, events);
+        };
+        draw(&mut h, &mut home, Vec::new());
+        draw(&mut h, &mut home, Vec::new());
+        let len = save.phonebook.len();
+        for _ in 0..len {
+            draw(&mut h, &mut home, key(Key::ArrowDown));
+        }
+        let ids: Vec<u32> = nightcomm::intel(&save, "", home.nightcomm.sort)
+            .iter()
+            .map(|e| e.id)
+            .collect();
+        let at = ids
+            .iter()
+            .position(|i| Some(*i) == home.nightcomm.sel)
+            .unwrap();
+        assert_eq!(at, len - 1, "the last number");
+        assert!(home.nightcomm.intel_list.top > 0, "scrolled");
+        assert!(home.nightcomm.intel_list.shows(at), "and it's on screen");
     }
 }

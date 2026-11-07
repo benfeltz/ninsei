@@ -21,6 +21,9 @@ pub struct TigerTeam {
     /// The target picked on Assessment and Engagements.
     pub sel: Option<u32>,
     pub order: Order,
+    /// Where the Assessment's targets and the Engagements table are scrolled to.
+    pub(crate) targets_list: crate::kit::List,
+    pub(crate) engage_list: crate::kit::List,
     /// The pages it shares with NiGHTCOMM keep their state here, its own terminal included.
     pub nc: NightComm,
     /// The frame it was last drawn on (none yet: it has just opened).
@@ -40,6 +43,8 @@ impl Default for TigerTeam {
             page: Page::default(),
             sel: None,
             order: Order::default(),
+            targets_list: Default::default(),
+            engage_list: Default::default(),
             nc,
             drawn: None,
             want_focus: false,
@@ -263,13 +268,10 @@ fn assessment(
     };
     cx.boxed(c0 + 1, r0, lw, lh, "Targets");
     let rows = lh.saturating_sub(2);
-    let at = tt
-        .sel
-        .and_then(|s| ids.iter().position(|i| *i == s))
-        .unwrap_or(0);
-    let start = nc_view::scroll_to(at, rows);
-    for (k, t) in targets.iter().enumerate().skip(start).take(rows) {
-        let y = r0 + 1 + k - start;
+    let at = tt.sel.and_then(|s| ids.iter().position(|i| *i == s));
+    for k in tt.targets_list.view(targets.len(), at, rows) {
+        let t = &targets[k];
+        let y = r0 + 1 + tt.targets_list.row(k);
         let on = tt.sel == Some(t.entry.id);
         if on {
             cx.picked(c0 + 2, y, lw - 2);
@@ -291,6 +293,7 @@ fn assessment(
             tt.sel = Some(t.entry.id);
         }
     }
+    tt.targets_list.mark(g, p, c0 + 1, r0 + lh - 1, lw, ink());
     let Some(t) = targets.iter().find(|t| Some(t.entry.id) == tt.sel) else {
         return;
     };
@@ -501,13 +504,10 @@ fn engagements(
         head(x_find, "FINDINGS", None);
     }
     let visible = h.saturating_sub(1);
-    let at = tt
-        .sel
-        .and_then(|s| ids.iter().position(|i| *i == s))
-        .unwrap_or(0);
-    let start = nc_view::scroll_to(at, visible);
-    for (k, t) in rows.iter().enumerate().skip(start).take(visible) {
-        let y = r0 + 1 + k - start;
+    let at = tt.sel.and_then(|s| ids.iter().position(|i| *i == s));
+    for k in tt.engage_list.view(rows.len(), at, visible) {
+        let t = &rows[k];
+        let y = r0 + 1 + tt.engage_list.row(k);
         let on = tt.sel == Some(t.entry.id);
         if on {
             cx.picked(c0 + 1, y, w - 2);
@@ -554,6 +554,8 @@ fn engagements(
             tt.page = Page::Assessment;
         }
     }
+    // Where you are, cut into the window's bottom border.
+    tt.engage_list.mark(g, p, c0 - 1, r0 + h, w + 2, ink());
 }
 
 #[cfg(test)]

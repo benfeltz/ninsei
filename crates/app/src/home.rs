@@ -1030,11 +1030,23 @@ pub(crate) mod tests {
         tool: Tool,
         events: Vec<egui::Event>,
     ) -> Vec<WbOut> {
+        let rect = Rect::from_min_size(Pos2::ZERO, vec2(880.0, 500.0));
+        frame_at(h, home, data, save, tool, rect, events)
+    }
+
+    /// One frame of `tool` drawn in `rect`, with these events. Returns what it sent.
+    pub(crate) fn frame_at(
+        h: &mut Harness,
+        home: &mut Home,
+        data: &Data,
+        save: &Save,
+        tool: Tool,
+        rect: Rect,
+        events: Vec<egui::Event>,
+    ) -> Vec<WbOut> {
         let mut out = Vec::new();
         h.frame(events, |ui| {
-            let mut child = ui.new_child(
-                UiBuilder::new().max_rect(Rect::from_min_size(Pos2::ZERO, vec2(880.0, 500.0))),
-            );
+            let mut child = ui.new_child(UiBuilder::new().max_rect(rect));
             home.tool_body(&mut child, tool, data, save, &mut out);
         });
         out
@@ -1158,6 +1170,48 @@ pub(crate) mod tests {
             "a notice exactly when not drawn"
         );
         (have, drawn, h)
+    }
+
+    #[test]
+    fn carrierterm_in_a_narrow_tile_shows_whole_rows() {
+        let data = Data::builtin().unwrap();
+        let mut save = anarchy_deck(&data);
+        save.add_starters(&data);
+        let mut h = Harness::new(1280.0, 800.0);
+        crate::uitest::themed(&h.ctx, &data);
+        let mut home = Home::new(Vec::new());
+        // An AnarchyOS stack tile: the card goes under the list.
+        let rect = Rect::from_min_size(pos2(10.0, 10.0), vec2(508.0, 700.0));
+        for _ in 0..3 {
+            frame_at(
+                &mut h,
+                &mut home,
+                &data,
+                &save,
+                Tool::Terminal,
+                rect,
+                Vec::new(),
+            );
+        }
+        let footer = h
+            .find("7 of 7 numbers")
+            .unwrap_or_else(|| panic!("{:?}", h.texts()))
+            .top();
+        // The box ends above its footer: the item spacing, then the frame's margin.
+        let bottom = footer - 4.0 - 2.0;
+        let rows = h.all("555-");
+        let shown: Vec<_> = rows.iter().filter(|r| r.top() < bottom).collect();
+        assert!(shown.len() >= 5, "a list: {:?}", h.texts());
+        assert!(
+            rows.iter().any(|r| r.top() >= bottom),
+            "and more below it: {rows:?}"
+        );
+        for r in shown {
+            assert!(
+                r.bottom() <= bottom,
+                "a row cut by the box: {r:?}, box ends {bottom}"
+            );
+        }
     }
 
     #[test]

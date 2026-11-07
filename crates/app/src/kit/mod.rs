@@ -6,8 +6,6 @@
 //! app is drawing it, it belongs in that app's renderer. New screens use the kit, and a
 //! touched screen moves onto it.
 
-#![allow(dead_code, unused_imports)] // Until the tools and desktops use it (this PR's later steps).
-
 pub mod cells;
 pub mod fit;
 pub mod list;

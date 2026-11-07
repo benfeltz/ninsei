@@ -12,6 +12,8 @@ pub struct Harness {
     /// What last frame's widgets said (label or value), where they were, and whether they
     /// would take a click.
     widgets: Vec<(String, Rect, bool)>,
+    /// What last frame painted, flattened.
+    shapes: Vec<egui::Shape>,
 }
 
 impl Harness {
@@ -24,6 +26,7 @@ impl Harness {
             size: vec2(w, h),
             t: 0.0,
             widgets: Vec::new(),
+            shapes: Vec::new(),
         }
     }
 
@@ -38,6 +41,16 @@ impl Harness {
         self.t += 0.1;
         let mut out = self.ctx.run_ui(raw, |u| ui(u));
         out.textures_delta.clear();
+        fn flat(s: egui::Shape, into: &mut Vec<egui::Shape>) {
+            match s {
+                egui::Shape::Vec(v) => v.into_iter().for_each(|s| flat(s, into)),
+                s => into.push(s),
+            }
+        }
+        self.shapes.clear();
+        for c in std::mem::take(&mut out.shapes) {
+            flat(c.shape, &mut self.shapes);
+        }
         self.widgets = out
             .platform_output
             .accesskit_update
@@ -102,6 +115,17 @@ impl Harness {
             .iter()
             .filter(|(_, r, _)| r.is_positive() && !area.contains_rect(*r))
             .map(|(t, r, _)| (t.clone(), *r))
+            .collect()
+    }
+
+    /// The rectangles last frame painted: where, its fill, and its outline's colour.
+    pub fn rects(&self) -> Vec<(Rect, egui::Color32, egui::Color32)> {
+        self.shapes
+            .iter()
+            .filter_map(|s| match s {
+                egui::Shape::Rect(r) => Some((r.rect, r.fill, r.stroke.color)),
+                _ => None,
+            })
             .collect()
     }
 

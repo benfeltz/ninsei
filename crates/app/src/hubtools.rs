@@ -303,8 +303,8 @@ const GUTTER: usize = 2;
 const LISTING_MIN_COLS: usize = 10;
 /// The narrowest the directory list goes beside the card; narrower, the card goes under it.
 const LIST_MIN_W: f32 = 300.0;
-/// The list's height when the card sits under it.
-const NARROW_LIST_H: f32 = 140.0;
+/// Rows the list shows when the card sits under it.
+const NARROW_ROWS: usize = 6;
 /// Height kept under the list for its status line.
 const FOOTER_H: f32 = 22.0;
 /// The search box's widget id.
@@ -353,6 +353,17 @@ fn dir_row(ui: &mut Ui, line: String, on: bool, live: bool) -> egui::Response {
     } else {
         b.sense(egui::Sense::hover())
     })
+}
+
+/// The height of `n` whole rows of the list (a row is one `dir_row`), so the box never shows
+/// half of one.
+fn whole_rows(ui: &Ui, n: usize) -> f32 {
+    let s = ui.spacing();
+    let row = s
+        .interact_size
+        .y
+        .max(ui.text_style_height(&egui::TextStyle::Monospace) + 2.0 * s.button_padding.y);
+    n as f32 * (row + s.item_spacing.y) - s.item_spacing.y
 }
 
 /// The list's box: an outline the full height it's given, so a short list reads as a list.
@@ -490,7 +501,7 @@ pub fn carrierterm(
         let height = if wide {
             (ui.available_height() - FOOTER_H - 8.0).max(80.0)
         } else {
-            NARROW_LIST_H
+            whole_rows(ui, NARROW_ROWS)
         };
         list_box(ui, height, |ui| {
             if shown.is_empty() {

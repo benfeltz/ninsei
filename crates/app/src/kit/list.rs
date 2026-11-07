@@ -28,6 +28,12 @@ impl List {
         self.top..(self.top + rows).min(len)
     }
 
+    /// Whether item `i` was in the window last drawn.
+    #[cfg(test)]
+    pub fn shows(&self, i: usize) -> bool {
+        (self.top..self.top + self.rows).contains(&i) && i < self.len
+    }
+
     /// The row on screen (counted from the window's first) that item `i` is drawn on.
     pub fn row(&self, i: usize) -> usize {
         i - self.top

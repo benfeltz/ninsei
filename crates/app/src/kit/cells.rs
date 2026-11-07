@@ -48,6 +48,7 @@ fn grid(cw: f32, ch: f32, area: Rect) -> (usize, usize) {
 }
 
 /// The size of one cell in `ui`'s monospace font.
+#[cfg(test)]
 pub fn cell_size(ui: &Ui) -> egui::Vec2 {
     let (_, cw, ch) = metrics(ui);
     vec2(cw, ch)
@@ -186,6 +187,24 @@ impl Cells {
             Stroke::new(1.0, color),
             egui::StrokeKind::Middle,
         );
+    }
+
+    /// A box with `title` (if any) cut into its top border, two cells in.
+    #[allow(clippy::too_many_arguments)]
+    pub fn boxed(
+        &self,
+        p: &Painter,
+        c: usize,
+        r: usize,
+        w: usize,
+        h: usize,
+        title: &str,
+        color: Color32,
+    ) {
+        self.frame(p, c, r, w, h);
+        if !title.is_empty() {
+            self.title(p, c + 2, r, title, color);
+        }
     }
 
     /// A title cut into a border at (`c`, `r`), btop style: `┐title┌`, the border under it
