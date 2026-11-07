@@ -686,7 +686,7 @@ impl Home {
             fit::notice(
                 ui,
                 room,
-                tool.volume(),
+                &tool.name(data),
                 need.grids,
                 have,
                 hint,
@@ -817,6 +817,8 @@ impl Home {
             Tool::IceDb => hubtools::icedb(child, data, save, &mut self.icedb_sel),
             Tool::Guide => hubtools::guide(child, data, &mut self.guide_at),
             Tool::Shell => {}
+            // Games open on the desktops in the next step.
+            Tool::Game(..) => {}
         }
         if let Some(id) = dial {
             self.dial_from(tool, id, save);

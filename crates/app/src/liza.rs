@@ -124,6 +124,7 @@ fn title(tool: Tool) -> &'static str {
         Tool::System => "System",
         Tool::Rig => "CPU Shopper",
         Tool::HexEd => "HexEd",
+        Tool::Game(..) => "Game",
     }
 }
 
@@ -181,6 +182,8 @@ impl Liza {
             Tool::TigerTeam => (pos2(50.0, 40.0), vec2(900.0, 540.0)),
             Tool::IceDb => (pos2(100.0, 60.0), vec2(700.0, 470.0)),
             Tool::Guide => (pos2(120.0, 30.0), book_window()),
+            // Games open on the desktops in the next step.
+            Tool::Game(..) => return,
         };
         // A tool's window has the scroll bar down its right side, beside the tool's room.
         let size = if tool == Tool::Shell {

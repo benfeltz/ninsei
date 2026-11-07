@@ -127,6 +127,8 @@ impl Workbench {
             Tool::NightComm => Kind::NightComm,
             Tool::TigerTeam => Kind::TigerTeam,
             Tool::Guide => Kind::Guide,
+            // Games open on the desktops in the next step.
+            Tool::Game(..) => return,
         };
         if let Some(i) = self.wins.iter().position(|w| w.kind == kind) {
             let w = self.wins.remove(i);
@@ -407,14 +409,15 @@ impl DesktopView for Workbench {
                     );
                 }
                 Kind::Requester(tool) => {
+                    let name = tool.name(data);
                     let lines = [
                         ("Please insert volume", false),
-                        (tool.volume(), true),
+                        (name.as_str(), true),
                         ("in any drive", false),
                     ];
                     let buttons = ["Retry", "Cancel"];
                     match kit::requester(ui, &painter, content, &lines, buttons, live, wid, &look) {
-                        Some(0) => home.say(format!("{}: still not installed.", tool.volume())),
+                        Some(0) => home.say(format!("{name}: still not installed.")),
                         Some(_) => close = Some(i),
                         None => {}
                     }
@@ -615,6 +618,7 @@ mod tests {
             Tool::NightComm => Kind::NightComm,
             Tool::TigerTeam => Kind::TigerTeam,
             Tool::Guide => Kind::Guide,
+            Tool::Game(..) => unreachable!("games open in the next step"),
         }
     }
 

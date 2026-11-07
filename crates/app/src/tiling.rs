@@ -224,7 +224,7 @@ impl DesktopView for TilingDesk {
                 used: !t.workspaces[w].is_empty(),
             })
             .collect();
-        let mut focused = t.focused().map_or("empty", Tool::volume).to_string();
+        let mut focused = t.focused().map_or("empty".into(), |t| t.name(data));
         if t.shape().full {
             focused.push_str("  [full]");
         }
@@ -305,7 +305,7 @@ impl DesktopView for TilingDesk {
             let i = t.tiles().iter().position(|x| *x == tool).unwrap_or(t.focus);
             let r = Rect::from_min_size(pos2(x, y), vec2(w, h));
             let on = i == t.focus;
-            anarchy::tile(&painter, r, &tool.volume().to_lowercase(), on, &look);
+            anarchy::tile(&painter, r, &tool.name(data).to_lowercase(), on, &look);
             if live && clicked.is_some_and(|p| r.contains(p)) {
                 focus_to = Some(i);
             }

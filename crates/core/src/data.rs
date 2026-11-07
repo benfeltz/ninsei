@@ -302,6 +302,8 @@ pub struct GameDef {
     /// Sold boxed in CPU Shopper's Games section, if it is.
     #[serde(default)]
     pub shop: Option<GameShop>,
+    /// Its desktop icon, in the 1.3 palette like `hub/icons.ron`'s (both copies wear it).
+    pub icon: Vec<String>,
 }
 
 /// How a game is sold by mail order (the optional `shop` block in `games.ron`).
@@ -1309,6 +1311,13 @@ impl Data {
             if self.games[..i].iter().any(|o| o.id == g.id) {
                 return err("listed twice".into());
             }
+            if crate::hub::GameId::new(&g.id).is_none() {
+                return err(format!(
+                    "an id is 1-{} ASCII characters",
+                    crate::hub::GAME_ID_MAX
+                ));
+            }
+            crate::hub::IconDef::check_art(&g.id, &g.icon).or_else(err)?;
             let (cols, rows) = (crate::bbs::COLS as u32, crate::bbs::ROWS as u32);
             let (min_c, min_r) = g.engine.min_size();
             if !(min_c..=cols).contains(&g.cols) || !(min_r..=rows).contains(&g.rows) {
