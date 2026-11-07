@@ -373,6 +373,12 @@ fn whole_rows(ui: &Ui, n: usize) -> f32 {
     n as f32 * pitch - gap
 }
 
+/// Whole rows of `pitch` (a row and the `gap` after it) in `height`, at least one. A height
+/// made as n rows (`whole_rows`) gives n back, whatever float rounding does on the way.
+pub(crate) fn rows_in(height: f32, pitch: f32, gap: f32) -> usize {
+    (((height + gap) / pitch + 1e-3).floor() as usize).max(1)
+}
+
 /// The list's box: an outline around as many whole rows as fit in `height`, so a short list
 /// still reads as a list. It scrolls a row at a time through `list` (the kit's window, by
 /// core's scroll rule), following `follow` when given; the wheel over it scrolls too. `row`
@@ -386,7 +392,7 @@ fn list_box(
     mut row: impl FnMut(&mut Ui, usize),
 ) -> usize {
     let (pitch, gap) = row_pitch(ui);
-    let rows = (((height + gap) / pitch).floor() as usize).max(1);
+    let rows = rows_in(height, pitch, gap);
     egui::Frame::new()
         .stroke(egui::Stroke::new(1.0, muted()))
         .inner_margin(2.0)

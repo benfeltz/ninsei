@@ -1258,6 +1258,21 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_list_box_made_n_rows_tall_shows_n_rows() {
+        for pitch in [21.3_f32, 22.0, 19.7, 23.1, 20.9] {
+            let gap = 4.0;
+            for n in 1..40 {
+                let height = n as f32 * pitch - gap;
+                assert_eq!(
+                    hubtools::rows_in(height, pitch, gap),
+                    n,
+                    "{n} rows of {pitch}"
+                );
+            }
+        }
+    }
+
+    #[test]
     fn every_text_tool_fits_its_tiles_or_says_so() {
         let data = Data::builtin().unwrap();
         let save = anarchy_deck(&data);
