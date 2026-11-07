@@ -188,7 +188,9 @@ fn software_grid(ui: &mut Ui, software: &[(String, String)]) {
 fn preferences(ui: &mut Ui, data: &Data, save: &Save, st: &mut SystemUi, out: &mut Vec<WbOut>) {
     ui.horizontal(|ui| {
         for p in Panel::ALL {
-            if gadget(ui, p.label(), st.panel == p).clicked() {
+            if crate::kit::workbench::toggle_gadget(ui, p.label(), st.panel == p, &amiga())
+                .clicked()
+            {
                 st.panel = p;
             }
             ui.add_space(4.0);
@@ -202,31 +204,16 @@ fn preferences(ui: &mut Ui, data: &Data, save: &Save, st: &mut SystemUi, out: &m
     panel_body(ui, data, save, Look::Amiga, st, out);
 }
 
-/// A Workbench 1.3 gadget: a box with a light top-left edge and a dark bottom-right one,
-/// pressed in (edges swapped, filled with the accent) when it's the open panel.
-fn gadget(ui: &mut Ui, label: &str, on: bool) -> egui::Response {
-    let font = egui::FontId::monospace(13.0);
-    let galley = ui.painter().layout_no_wrap(label.to_string(), font, ink());
-    let size = galley.size() + egui::vec2(18.0, 10.0);
-    let (r, resp) = ui.allocate_exact_size(size, egui::Sense::click());
-    resp.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, label)
-    });
-    let p = ui.painter();
-    p.rect_filled(r, 0.0, if on { accent() } else { fill() });
-    let (lt, rb) = if on {
-        (shadow(), ink())
-    } else {
-        (ink(), shadow())
-    };
-    let s = |c| egui::Stroke::new(2.0, c);
-    p.line_segment([r.left_bottom(), r.left_top()], s(lt));
-    p.line_segment([r.left_top(), r.right_top()], s(lt));
-    p.line_segment([r.right_top(), r.right_bottom()], s(rb));
-    p.line_segment([r.right_bottom(), r.left_bottom()], s(rb));
-    let text = if on { shadow() } else { ink() };
-    p.galley_with_override_text_color(r.center() - galley.size() / 2.0, galley, text);
-    resp
+/// Desktop's controls in the theme's colours.
+fn amiga() -> crate::kit::workbench::Look {
+    crate::kit::workbench::Look {
+        ink: ink(),
+        backdrop: backdrop(),
+        shadow: shadow(),
+        accent: accent(),
+        fill: fill(),
+        font: font(),
+    }
 }
 
 fn head(ui: &mut Ui, t: &str) {

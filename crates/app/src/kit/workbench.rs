@@ -4,7 +4,8 @@
 //! a gadget does are the caller's. The numbers are the spec sheet's (`docs/refs/workbench.md`).
 //! Nothing here names a tool or a deck.
 
-use egui::{Align2, Color32, FontId, Painter, Rect, Stroke, StrokeKind, pos2, vec2};
+use egui::{Align2, Color32, FontId, Id, Painter, Rect, Response, Sense, Stroke, StrokeKind, Ui};
+use egui::{pos2, vec2};
 
 /// Sizes, in one place (the spec sheet's).
 pub mod size {
@@ -15,15 +16,26 @@ pub mod size {
     pub const PAD: f32 = 4.0;
     /// Under the title bar.
     pub const PAD_TOP: f32 = 4.0;
+    /// The bevel's lines.
+    pub const BEVEL: f32 = 2.0;
+    /// A requester's buttons.
+    pub const BUTTON: [f32; 2] = [84.0, 22.0];
+    /// A requester's lines, apart.
+    pub const LINE: f32 = 18.0;
+    /// A toggle gadget's type, and its room around the label.
+    pub const GADGET_FONT: f32 = 13.0;
+    pub const GADGET_PAD: [f32; 2] = [18.0, 10.0];
 }
 
-/// The desktop's colours and type, from the theme: 1.3's white, blue, black and orange.
+/// The desktop's colours and type, from the theme: 1.3's white, blue, black and orange, and
+/// the gadgets' faces.
 #[derive(Clone)]
 pub struct Look {
     pub ink: Color32,
     pub backdrop: Color32,
     pub shadow: Color32,
     pub accent: Color32,
+    pub fill: Color32,
     pub font: FontId,
 }
 
@@ -151,6 +163,107 @@ pub fn depth_gadget(p: &Painter, r: Rect, look: &Look) {
     );
 }
 
+/// The 1.3 bevel round `r`: light (`ink`) top and left and dark (`shadow`) bottom and right
+/// when `raised`, the other way round when pressed in.
+pub fn bevel(p: &Painter, r: Rect, raised: bool, look: &Look) {
+    let (lt, rb) = if raised {
+        (look.ink, look.shadow)
+    } else {
+        (look.shadow, look.ink)
+    };
+    let line = |c| Stroke::new(size::BEVEL, c);
+    p.line_segment([r.left_top(), r.right_top()], line(lt));
+    p.line_segment([r.left_top(), r.left_bottom()], line(lt));
+    p.line_segment([r.left_bottom(), r.right_bottom()], line(rb));
+    p.line_segment([r.right_top(), r.right_bottom()], line(rb));
+}
+
+/// A push button in `r`: a bevelled box with its label, inverted (an `accent` face) while
+/// pressed. Clicks count only when `live`.
+pub fn button(
+    ui: &Ui,
+    p: &Painter,
+    r: Rect,
+    id: Id,
+    label: &str,
+    live: bool,
+    look: &Look,
+) -> Response {
+    let resp = ui.interact(r, id, if live { Sense::click() } else { Sense::hover() });
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, live, label));
+    let pressed = resp.is_pointer_button_down_on();
+    let (face, text) = if pressed {
+        (look.accent, look.shadow)
+    } else {
+        (look.backdrop, look.ink)
+    };
+    p.rect_filled(r, 0.0, face);
+    bevel(p, r, !pressed, look);
+    p.text(
+        r.center(),
+        Align2::CENTER_CENTER,
+        label,
+        look.font.clone(),
+        text,
+    );
+    resp
+}
+
+/// A requester in `rect`: its `lines` centred down from the top (each in `accent` when
+/// flagged), and two buttons along the bottom, `buttons[0]` at the left and `buttons[1]` at the
+/// right. Returns the button clicked.
+#[allow(clippy::too_many_arguments)]
+pub fn requester(
+    ui: &Ui,
+    p: &Painter,
+    rect: Rect,
+    lines: &[(&str, bool)],
+    buttons: [&str; 2],
+    live: bool,
+    id: Id,
+    look: &Look,
+) -> Option<usize> {
+    for (k, (l, lit)) in lines.iter().enumerate() {
+        p.text(
+            pos2(rect.center().x, rect.top() + 6.0 + k as f32 * size::LINE),
+            Align2::CENTER_TOP,
+            *l,
+            look.font.clone(),
+            if *lit { look.accent } else { look.ink },
+        );
+    }
+    let bw = vec2(size::BUTTON[0], size::BUTTON[1]);
+    let left = Rect::from_min_size(pos2(rect.left() + 6.0, rect.bottom() - bw.y), bw);
+    let right = Rect::from_min_size(pos2(rect.right() - 6.0 - bw.x, rect.bottom() - bw.y), bw);
+    let mut out = None;
+    for (k, r) in [left, right].into_iter().enumerate() {
+        if button(ui, p, r, id.with(buttons[k]), buttons[k], live, look).clicked() {
+            out = Some(k);
+        }
+    }
+    out
+}
+
+/// A toggle gadget laid out in `ui`: a chunky bevelled box round `label`, pressed in (an
+/// `accent` face) when `on`. Returns its response; clicked is the caller's to act on.
+pub fn toggle_gadget(ui: &mut Ui, label: &str, on: bool, look: &Look) -> Response {
+    let font = FontId::new(size::GADGET_FONT, look.font.family.clone());
+    let galley = ui
+        .painter()
+        .layout_no_wrap(label.to_string(), font, look.ink);
+    let size = galley.size() + vec2(size::GADGET_PAD[0], size::GADGET_PAD[1]);
+    let (r, resp) = ui.allocate_exact_size(size, Sense::click());
+    resp.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, label)
+    });
+    let p = ui.painter();
+    p.rect_filled(r, 0.0, if on { look.accent } else { look.fill });
+    bevel(p, r, !on, look);
+    let text = if on { look.shadow } else { look.ink };
+    p.galley_with_override_text_color(r.center() - galley.size() / 2.0, galley, text);
+    resp
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -167,5 +280,104 @@ mod tests {
         let c = window_content(win);
         assert!(win.contains_rect(c) && c.top() >= g.bar.bottom());
         assert!(!c.intersects(g.close) && !c.intersects(g.depth));
+    }
+
+    fn look() -> Look {
+        Look {
+            ink: Color32::WHITE,
+            backdrop: Color32::BLUE,
+            shadow: Color32::BLACK,
+            accent: Color32::from_rgb(255, 136, 0),
+            fill: Color32::GRAY,
+            font: FontId::monospace(14.0),
+        }
+    }
+
+    #[test]
+    fn the_bevel_is_light_top_left_when_raised_and_swaps_when_pressed() {
+        let mut h = crate::uitest::Harness::new(200.0, 100.0);
+        let r = Rect::from_min_size(pos2(10.0, 10.0), vec2(80.0, 22.0));
+        let lines = |h: &crate::uitest::Harness| -> Vec<Color32> {
+            h.painted()
+                .iter()
+                .filter_map(|s| match s {
+                    egui::Shape::LineSegment { stroke, .. } => Some(stroke.color),
+                    _ => None,
+                })
+                .collect()
+        };
+        h.frame(vec![], |ui| bevel(ui.painter(), r, true, &look()));
+        assert_eq!(
+            lines(&h),
+            [
+                Color32::WHITE,
+                Color32::WHITE,
+                Color32::BLACK,
+                Color32::BLACK
+            ]
+        );
+        h.frame(vec![], |ui| bevel(ui.painter(), r, false, &look()));
+        assert_eq!(
+            lines(&h),
+            [
+                Color32::BLACK,
+                Color32::BLACK,
+                Color32::WHITE,
+                Color32::WHITE
+            ]
+        );
+    }
+
+    #[test]
+    fn a_requester_answers_its_buttons_only_when_live() {
+        let mut h = crate::uitest::Harness::new(400.0, 300.0);
+        let rect = Rect::from_min_size(pos2(20.0, 20.0), vec2(320.0, 120.0));
+        let ask = |h: &mut crate::uitest::Harness, live, ev| {
+            let mut got = None;
+            h.frame(ev, |ui| {
+                got = requester(
+                    ui,
+                    ui.painter(),
+                    rect,
+                    &[("Please insert volume", false), ("Tools:", true)],
+                    ["Retry", "Cancel"],
+                    live,
+                    Id::new("req"),
+                    &look(),
+                );
+            });
+            got
+        };
+        ask(&mut h, true, vec![]);
+        let (retry, cancel) = (h.find("Retry").unwrap(), h.find("Cancel").unwrap());
+        assert!(retry.right() < cancel.left(), "Retry left, Cancel right");
+        assert_eq!(
+            ask(&mut h, true, crate::uitest::click(retry.center())),
+            Some(0)
+        );
+        assert_eq!(
+            ask(&mut h, true, crate::uitest::click(cancel.center())),
+            Some(1)
+        );
+        assert_eq!(
+            ask(&mut h, false, crate::uitest::click(cancel.center())),
+            None
+        );
+    }
+
+    #[test]
+    fn a_toggle_gadget_is_pressed_in_when_on() {
+        let mut h = crate::uitest::Harness::new(400.0, 100.0);
+        let mut clicked = false;
+        h.frame(vec![], |ui| {
+            toggle_gadget(ui, "Monitor", true, &look());
+        });
+        let face = h.rects().into_iter().next().unwrap();
+        assert_eq!(face.1, look().accent, "on: the accent face");
+        let at = h.find("Monitor").unwrap().center();
+        h.frame(crate::uitest::click(at), |ui| {
+            clicked = toggle_gadget(ui, "Monitor", false, &look()).clicked();
+        });
+        assert!(clicked);
     }
 }

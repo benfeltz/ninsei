@@ -3,7 +3,7 @@
 //! which holds the Shell and the tools' state. All drawn by hand into one area so the whole
 //! screen can be dragged off a run.
 
-use egui::{Align2, Id, Pos2, Rect, Sense, Stroke, Ui, Vec2, pos2, vec2};
+use egui::{Align2, Id, Pos2, Rect, Sense, Ui, Vec2, pos2, vec2};
 use ninsei_core::desktop::AddonEffect;
 use ninsei_core::hardware::Desktop;
 use ninsei_core::hub::{IconDef, Tool};
@@ -87,6 +87,7 @@ fn look() -> Look {
         backdrop: backdrop(),
         shadow: shadow(),
         accent: accent(),
+        fill: fill(),
         font: font(),
     }
 }
@@ -401,13 +402,16 @@ impl DesktopView for Workbench {
                     );
                 }
                 Kind::Requester(tool) => {
-                    if let Some(action) = requester(ui, &painter, content, tool, live, wid) {
-                        match action {
-                            Req::Retry => {
-                                home.say(format!("{}: still not installed.", tool.volume()))
-                            }
-                            Req::Cancel => close = Some(i),
-                        }
+                    let lines = [
+                        ("Please insert volume", false),
+                        (tool.volume(), true),
+                        ("in any drive", false),
+                    ];
+                    let buttons = ["Retry", "Cancel"];
+                    match kit::requester(ui, &painter, content, &lines, buttons, live, wid, &look) {
+                        Some(0) => home.say(format!("{}: still not installed.", tool.volume())),
+                        Some(_) => close = Some(i),
+                        None => {}
                     }
                 }
             }
@@ -438,76 +442,6 @@ impl DesktopView for Workbench {
         }
         self.top = top;
     }
-}
-
-enum Req {
-    Retry,
-    Cancel,
-}
-
-fn requester(
-    ui: &mut Ui,
-    painter: &egui::Painter,
-    rect: Rect,
-    tool: Tool,
-    live: bool,
-    wid: Id,
-) -> Option<Req> {
-    let lines = ["Please insert volume", tool.volume(), "in any drive"];
-    for (k, l) in lines.iter().enumerate() {
-        let col = if k == 1 { accent() } else { ink() };
-        painter.text(
-            pos2(rect.center().x, rect.top() + 6.0 + k as f32 * 18.0),
-            Align2::CENTER_TOP,
-            *l,
-            font(),
-            col,
-        );
-    }
-    let bw = vec2(84.0, 22.0);
-    let retry = Rect::from_min_size(pos2(rect.left() + 6.0, rect.bottom() - bw.y), bw);
-    let cancel = Rect::from_min_size(pos2(rect.right() - 6.0 - bw.x, rect.bottom() - bw.y), bw);
-    let mut out = None;
-    for (r, label, what) in [(retry, "Retry", 0), (cancel, "Cancel", 1)] {
-        let resp = ui.interact(
-            r,
-            wid.with(label),
-            if live { Sense::click() } else { Sense::hover() },
-        );
-        let pressed = resp.is_pointer_button_down_on();
-        button(painter, r, label, pressed);
-        if resp.clicked() {
-            out = Some(if what == 0 { Req::Retry } else { Req::Cancel });
-        }
-    }
-    out
-}
-
-/// A 1.3 push button: white box, black shadow edges, inverted while pressed.
-fn button(painter: &egui::Painter, r: Rect, label: &str, pressed: bool) {
-    let (face, text) = if pressed {
-        (accent(), shadow())
-    } else {
-        (backdrop(), ink())
-    };
-    painter.rect_filled(r, 0.0, face);
-    painter.line_segment(
-        [r.left_top(), r.right_top()],
-        Stroke::new(2.0, if pressed { shadow() } else { ink() }),
-    );
-    painter.line_segment(
-        [r.left_top(), r.left_bottom()],
-        Stroke::new(2.0, if pressed { shadow() } else { ink() }),
-    );
-    painter.line_segment(
-        [r.left_bottom(), r.right_bottom()],
-        Stroke::new(2.0, if pressed { ink() } else { shadow() }),
-    );
-    painter.line_segment(
-        [r.right_top(), r.right_bottom()],
-        Stroke::new(2.0, if pressed { ink() } else { shadow() }),
-    );
-    painter.text(r.center(), Align2::CENTER_CENTER, label, font(), text);
 }
 
 /// Paints an icon's pixels. Selected icons draw in complement colours, as on the real thing.
