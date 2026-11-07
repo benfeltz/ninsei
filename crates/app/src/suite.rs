@@ -14,6 +14,7 @@ use ninsei_core::suite::{self as rules, Notice, SheetCol, Watch};
 use ninsei_core::{Action, Command, ContractStatus, Effect, Game, LogKind, Phase, tuning};
 
 use crate::chrome::{ChromeView, FrameCx, MenuPart, Menus, act};
+use crate::kit::Cells;
 use crate::panes::{Panes, Request, Tab};
 use crate::theme::Palette;
 
@@ -25,9 +26,6 @@ pub mod size {
     /// How far a window's shadow falls.
     pub const SHADOW: f32 = 5.0;
     pub const ROW_H: f32 = 17.0;
-    /// Spreadsheet column widths, in characters (row numbers, then `SheetCol::ALL`).
-    pub const ROWNUM_CH: f32 = 3.0;
-    pub const COL_CH: [f32; 6] = [5.0, 14.0, 5.0, 5.0, 5.0, 8.0];
     /// Report charts take this share of a window's height, within these bounds.
     pub const CHART_SHARE: f32 = 0.3;
     pub const CHART_MIN: f32 = 56.0;
@@ -546,12 +544,54 @@ impl Panes<'_> {
                     p.dim,
                 ));
             });
-            let cw = ui.fonts_mut(|f| f.glyph_width(&mono(size::MONO), 'M'));
-            let widths: Vec<f32> = std::iter::once(size::ROWNUM_CH)
-                .chain(size::COL_CH)
-                .map(|c| c * cw + 8.0)
+            // Columns in whole cells, each its widest real value (core's `sheet_widths`) with a
+            // cell of padding either side, so nothing is cut.
+            let (rownum, value_w) = rules::sheet_widths(&g.hdd);
+            let widths: Vec<usize> = std::iter::once(rownum)
+                .chain(value_w)
+                .map(|w| w + 2)
                 .collect();
-            let total_w: f32 = widths.iter().sum();
+            let starts: Vec<usize> = widths
+                .iter()
+                .scan(0, |at, w| {
+                    let s = *at;
+                    *at += w;
+                    Some(s)
+                })
+                .collect();
+            let total: usize = widths.iter().sum();
+            // A row of the sheet: its cells, and which column the pointer pressed, if any.
+            let row = |ui: &mut Ui| {
+                let (resp, g) = Cells::allocate(
+                    ui,
+                    mono(size::MONO),
+                    Some(size::ROW_H),
+                    (total, 1),
+                    vec2(0.0, 0.0),
+                    Sense::click(),
+                );
+                let hit = resp
+                    .interact_pointer_pos()
+                    .and_then(|q| g.cell_at(q))
+                    .and_then(|(c, _)| (0..widths.len()).rfind(|&k| starts[k] <= c));
+                (resp, g, hit)
+            };
+            // Where column `k`'s text goes: left, right or centred in it.
+            let put = |g: &Cells,
+                       painter: &egui::Painter,
+                       k: usize,
+                       text: &str,
+                       align: Align2,
+                       col: Color32| {
+                let (at, w) = (starts[k], widths[k]);
+                let n = text.chars().count();
+                let c = match align {
+                    Align2::LEFT_CENTER => at + 1,
+                    Align2::RIGHT_CENTER => at + w - 1 - n,
+                    _ => at + (w - n) / 2,
+                };
+                g.text(painter, c, 0, text, col);
+            };
             let foot_h = size::ROW_H * 2.0 + 6.0;
             ScrollArea::both()
                 .id_salt("suite-sheet")
@@ -559,15 +599,13 @@ impl Panes<'_> {
                 .max_height((ui.available_height() - foot_h).max(size::ROW_H * 3.0))
                 .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
                 .show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
                     // Column letters, then row 1: the headers. Either sorts.
                     for header in [true, false] {
-                        let (r, resp) =
-                            ui.allocate_exact_size(vec2(total_w, size::ROW_H), Sense::click());
-                        let painter = ui.painter_at(r);
-                        let mut x = r.left();
-                        let mut hit = None;
+                        let (resp, cells, hit) = row(ui);
+                        let painter = ui.painter_at(resp.rect);
                         for (k, w) in widths.iter().enumerate() {
-                            let cell = Rect::from_min_size(pos2(x, r.top()), vec2(*w, r.height()));
+                            let cell = cells.at(starts[k], 0, *w, 1);
                             painter.rect_filled(cell, 0.0, p.panel);
                             painter.rect_stroke(
                                 cell,
@@ -589,20 +627,8 @@ impl Panes<'_> {
                                     format!("{}{arrow}", c.header())
                                 }
                             };
-                            painter.text(
-                                cell.center(),
-                                Align2::CENTER_CENTER,
-                                text,
-                                mono(size::MONO),
-                                if header { p.dim } else { p.bright },
-                            );
-                            if resp
-                                .interact_pointer_pos()
-                                .is_some_and(|q| cell.contains(q))
-                            {
-                                hit = Some(k);
-                            }
-                            x += w;
+                            let col = if header { p.dim } else { p.bright };
+                            put(&cells, &painter, k, &text, Align2::CENTER_CENTER, col);
                         }
                         if resp.clicked()
                             && let Some(k) = hit.filter(|k| *k > 0)
@@ -619,13 +645,10 @@ impl Panes<'_> {
                     for (n, &slot) in rows.iter().enumerate() {
                         let s = &g.hdd[slot];
                         let on = picked == Some(slot);
-                        let (r, resp) =
-                            ui.allocate_exact_size(vec2(total_w, size::ROW_H), Sense::click());
-                        let painter = ui.painter_at(r);
-                        let mut x = r.left();
-                        let mut hit = None;
+                        let (resp, cells, hit) = row(ui);
+                        let painter = ui.painter_at(resp.rect);
                         for (k, w) in widths.iter().enumerate() {
-                            let cell = Rect::from_min_size(pos2(x, r.top()), vec2(*w, r.height()));
+                            let cell = cells.at(starts[k], 0, *w, 1);
                             let cursor = on && k > 0 && SheetCol::ALL[k - 1] == st.col;
                             if k == 0 {
                                 painter.rect_filled(cell, 0.0, if on { p.dim } else { p.panel });
@@ -638,12 +661,16 @@ impl Panes<'_> {
                                 Stroke::new(1.0, p.faint),
                                 StrokeKind::Inside,
                             );
-                            let (text, col, align) = if k == 0 {
-                                (
-                                    (n + 2).to_string(),
-                                    if on { p.bg } else { p.dim },
+                            if k == 0 {
+                                let col = if on { p.bg } else { p.dim };
+                                put(
+                                    &cells,
+                                    &painter,
+                                    0,
+                                    &(n + 2).to_string(),
                                     Align2::CENTER_CENTER,
-                                )
+                                    col,
+                                );
                             } else {
                                 let c = SheetCol::ALL[k - 1];
                                 let colour = if cursor {
@@ -659,27 +686,8 @@ impl Panes<'_> {
                                     SheetCol::File | SheetCol::Status => Align2::LEFT_CENTER,
                                     _ => Align2::RIGHT_CENTER,
                                 };
-                                (c.cell(slot, s), colour, align)
-                            };
-                            let at = match align {
-                                Align2::LEFT_CENTER => cell.left_center() + vec2(4.0, 0.0),
-                                Align2::RIGHT_CENTER => cell.right_center() - vec2(4.0, 0.0),
-                                _ => cell.center(),
-                            };
-                            painter.with_clip_rect(cell).text(
-                                at,
-                                align,
-                                text,
-                                mono(size::MONO),
-                                col,
-                            );
-                            if resp
-                                .interact_pointer_pos()
-                                .is_some_and(|q| cell.contains(q))
-                            {
-                                hit = Some(k);
+                                put(&cells, &painter, k, &c.cell(slot, s), align, colour);
                             }
-                            x += w;
                         }
                         if resp.clicked() || resp.secondary_clicked() {
                             st.select(g, slot);
@@ -1372,5 +1380,113 @@ impl ChromeView for Suite {
             st.dialogs.remove(0);
         }
         Vec::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::uitest::{Harness, click};
+    use ninsei_core::Data;
+    use ninsei_core::hardware::Chrome;
+    use ninsei_core::hub::Save;
+
+    /// A run whose first program has a long name, the sheet drawn in a 900x500 window.
+    fn sheet(h: &mut Harness, d: &Data, g: &Game, st: &mut State, events: Vec<egui::Event>) {
+        let (mut term, mut focus, mut hex, mut keep) =
+            (ninsei_term::LineEditor::default(), false, None, Vec::new());
+        for ev in [events, Vec::new()] {
+            h.frame(ev, |ui| {
+                let mut child = ui.new_child(
+                    UiBuilder::new()
+                        .max_rect(Rect::from_min_size(egui::Pos2::ZERO, vec2(900.0, 500.0))),
+                );
+                let mut panes = Panes {
+                    game: g,
+                    pal: Palette::from_def(&d.themes[0]),
+                    map: ninsei_core::netview::MapView::Draft,
+                    deck: String::new(),
+                    chrome: Chrome::Suite,
+                    corrupt: (0.0, 0),
+                    term: &mut term,
+                    focus_input: &mut focus,
+                    bbs_open: false,
+                    hex: &mut hex,
+                    keep: &mut keep,
+                    keep_room: 0,
+                    suite: &mut *st,
+                    out: Vec::new(),
+                };
+                panes.suite_warez(&mut child);
+            });
+        }
+    }
+
+    /// Each row of single glyphs the last frame painted, left to right: (where the row was
+    /// placed, each glyph's ink and text).
+    fn glyph_rows(h: &Harness) -> Vec<(i32, Vec<(Rect, String)>)> {
+        let mut rows: Vec<(i32, Vec<(Rect, String)>)> = Vec::new();
+        for s in h.painted() {
+            if let egui::Shape::Text(t) = s
+                && t.galley.text().chars().count() == 1
+            {
+                // A row's glyphs share where they were placed, whatever their ink's shape.
+                let r = t.visual_bounding_rect();
+                let y = t.pos.y.round() as i32;
+                match rows.iter_mut().find(|(ry, _)| *ry == y) {
+                    Some((_, v)) => v.push((r, t.galley.text().to_string())),
+                    None => rows.push((y, vec![(r, t.galley.text().to_string())])),
+                }
+            }
+        }
+        for (_, v) in &mut rows {
+            v.sort_by(|a, b| a.0.left().total_cmp(&b.0.left()));
+        }
+        rows
+    }
+
+    #[test]
+    fn the_sheet_shows_every_value_whole_and_a_click_lands_on_its_cell() {
+        let d = Data::builtin().unwrap();
+        let mut s = Save::default();
+        s.ensure_hardware(&d);
+        let mut g = s.jack_in(&d, &d.rig, 1);
+        g.hdd[0].spec.name = "A.MUCH.LONGER.PROGRAM.NAME".into();
+        let long = g.hdd[0].spec.file();
+        let uid = g.hdd[0].uid;
+        let mut st = State::default();
+        let mut h = Harness::new(900.0, 500.0);
+        sheet(&mut h, &d, &g, &mut st, Vec::new());
+        let rows = glyph_rows(&h);
+        let (_, name_row) = rows
+            .iter()
+            .find(|(_, v)| {
+                v.iter()
+                    .map(|g| g.1.as_str())
+                    .collect::<String>()
+                    .contains(&long)
+            })
+            .unwrap_or_else(|| panic!("{long} painted whole: {rows:?}"));
+        // The name's first glyph: click it, and the cursor goes to that program's FILE cell.
+        let joined: String = name_row.iter().map(|g| g.1.as_str()).collect();
+        let at = joined.find(&long).unwrap();
+        let first = name_row[joined[..at].chars().count()].0;
+        sheet(&mut h, &d, &g, &mut st, click(first.center()));
+        assert_eq!((st.sel, st.col), (Some(uid), SheetCol::File));
+        // The header row's RAM sorts.
+        let rows = glyph_rows(&h);
+        let (_, head) = rows
+            .iter()
+            .find(|(_, v)| {
+                v.iter()
+                    .map(|g| g.1.as_str())
+                    .collect::<String>()
+                    .contains("SLOT")
+            })
+            .expect("the headers");
+        let joined: String = head.iter().map(|g| g.1.as_str()).collect();
+        let ram = head[joined[..joined.find("RAM").unwrap()].chars().count()].0;
+        sheet(&mut h, &d, &g, &mut st, click(ram.center()));
+        assert_eq!(st.sort, SheetCol::Ram);
     }
 }
