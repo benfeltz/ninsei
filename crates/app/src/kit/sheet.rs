@@ -32,6 +32,25 @@ impl<C: Clone> Sheet<C> {
         self.rows
     }
 
+    /// Makes the sheet at least `rows` tall (room kept under what's written).
+    pub fn grow_to(&mut self, rows: usize) {
+        self.rows = self.rows.max(rows);
+    }
+
+    /// Writes `other` (a narrower sheet, for text wrapped to a column) onto this one with its
+    /// top-left at (col, row): its text, and its clickable runs.
+    pub fn stamp(&mut self, other: Sheet<C>, col: usize, row: usize) {
+        for (c, r, ch, fg, bg) in other.cells {
+            if c + col < self.cols {
+                self.cells.push((c + col, r + row, ch, fg, bg));
+            }
+        }
+        for (c, r, len, give, name) in other.hits {
+            self.hits.push((c + col, r + row, len, give, name));
+        }
+        self.rows = self.rows.max(row + other.rows);
+    }
+
     /// Writes `s` at (col, row) in `fg`, cut at the sheet's edge; returns the column after it.
     pub fn put(&mut self, col: usize, row: usize, s: &str, fg: Color32) -> usize {
         self.write(col, row, s, fg, None)
@@ -166,6 +185,16 @@ mod tests {
         s.put(18, 1, "cut here", Color32::WHITE);
         assert_eq!(s.rows(), 3);
         assert_eq!(s.text(18, 1, 2), "cu", "cut at the sheet's edge");
+        let mut col: Sheet<u8> = Sheet::new(4);
+        col.put(0, 0, "wrap", Color32::WHITE);
+        col.put(0, 1, "ped", Color32::WHITE);
+        s.stamp(col, 10, 3);
+        assert_eq!(s.text(10, 4, 3), "ped");
+        assert_eq!(s.rows(), 5, "as tall as the stamp's foot");
+        s.grow_to(7);
+        assert_eq!(s.rows(), 7);
+        s.grow_to(2);
+        assert_eq!(s.rows(), 7, "never shorter");
 
         let mut h = Harness::new(400.0, 200.0);
         let mut got = Vec::new();

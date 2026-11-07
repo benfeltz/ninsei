@@ -3,7 +3,7 @@
 //! neofetch, Disk is a DEFRAG-style text block map. It draws a character grid in the desk's
 //! colours and sends the same `WbOut`s as the other looks. Every key has a click.
 
-use egui::{Align2, Color32, FontId, Rect, Sense, Ui, vec2};
+use egui::{Color32, FontId, Ui};
 use ninsei_core::disk::{self, Disk, Program};
 use ninsei_core::glitch::Glitches;
 use ninsei_core::hardware::Desktop;
@@ -11,6 +11,7 @@ use ninsei_core::system::{self, Panel};
 use ninsei_core::{Data, WarezKind, hub::Save};
 
 use crate::home::{WbOut, accent, backdrop, fill, ink, muted, shadow};
+use crate::kit::Sheet;
 use crate::system::SystemUi;
 
 const SIZE: f32 = 13.0;
@@ -53,81 +54,12 @@ struct Item {
     next: Option<WbOut>,
 }
 
-/// A character grid: text goes in cells, clicks come back as `Cmd`s.
-struct Grid {
-    cols: usize,
-    cells: Vec<(usize, usize, char, Color32, Option<Color32>)>,
-    /// Clickable runs: (col, row, len, what it does, its name if not its text).
-    hits: Vec<(usize, usize, usize, Cmd, Option<String>)>,
-    rows: usize,
-}
+/// The face's character grid: text goes in cells, clicks come back as `Cmd`s.
+type Grid = Sheet<Cmd>;
 
-impl Grid {
-    /// Writes `s` at (col, row), clipped to the grid; returns the column after it.
-    fn put(&mut self, col: usize, row: usize, s: &str, fg: Color32) -> usize {
-        self.paint(col, row, s, fg, None)
-    }
-
-    /// Writes `s` in `fg` on `bg`.
-    fn inv(&mut self, col: usize, row: usize, s: &str, fg: Color32, bg: Color32) -> usize {
-        self.paint(col, row, s, fg, Some(bg))
-    }
-
-    fn paint(
-        &mut self,
-        col: usize,
-        row: usize,
-        s: &str,
-        fg: Color32,
-        bg: Option<Color32>,
-    ) -> usize {
-        let mut c = col;
-        for ch in s.chars() {
-            if c < self.cols {
-                self.cells.push((c, row, ch, fg, bg));
-            }
-            c += 1;
-        }
-        self.rows = self.rows.max(row + 1);
-        c
-    }
-
-    /// Makes `len` cells from (col, row) clickable.
-    fn hit(&mut self, col: usize, row: usize, len: usize, cmd: Cmd) {
-        self.hits.push((col, row, len, cmd, None));
-    }
-
-    /// Like `hit`, named `label` for a screen reader instead of the glyphs it shows.
-    fn hit_as(&mut self, col: usize, row: usize, len: usize, cmd: Cmd, label: String) {
-        self.hits.push((col, row, len, cmd, Some(label)));
-    }
-
-    /// A key hint: the key in the accent, what it does muted. Clickable when `cmd` is given.
-    fn key(&mut self, col: usize, row: usize, k: &str, what: &str, cmd: Option<Cmd>) -> usize {
-        let mid = self.put(col, row, k, accent());
-        let end = self.put(mid + 1, row, what, muted());
-        if let Some(cmd) = cmd {
-            self.hit(col, row, end - col, cmd);
-        }
-        end + 2
-    }
-
-    /// The text in `len` cells from (col, row), trimmed: what a hit there says.
-    fn text(&self, col: usize, row: usize, len: usize) -> String {
-        let mut line = vec![' '; len];
-        for &(c, r, ch, _, _) in &self.cells {
-            if r == row && (col..col + len).contains(&c) {
-                line[c - col] = ch;
-            }
-        }
-        let s: String = line.into_iter().collect();
-        s.split_whitespace().collect::<Vec<_>>().join(" ")
-    }
-
-    fn rule(&mut self, row: usize) {
-        let line = "─".repeat(self.cols);
-        self.put(0, row, &line, fill());
-    }
+/// A key hint in the face's colours.
+fn key(g: &mut Grid, col: usize, row: usize, k: &str, what: &str, cmd: Option<Cmd>) -> usize {
+    g.key(col, row, k, what, cmd, (accent(), muted()))
 }
 
 /// What the text face needs: its grid is never narrower than 40 of its columns (it lays out
@@ -150,14 +82,8 @@ fn cells_in(ui: &Ui, rect: egui::Rect) -> (usize, usize) {
 
 pub fn show(ui: &mut Ui, data: &Data, save: &Save, st: &mut SystemUi, out: &mut Vec<WbOut>) {
     let cw = ui.fonts_mut(|f| f.glyph_width(&font(), 'M'));
-    let ch = ui.fonts_mut(|f| f.row_height(&font()));
     let cols = ((ui.available_width() / cw) as usize).max(40);
-    let mut g = Grid {
-        cols,
-        cells: Vec::new(),
-        hits: Vec::new(),
-        rows: 0,
-    };
+    let mut g = Grid::new(cols);
 
     // Disk works on what's installed and in the box; a pick that's gone is dropped.
     let on = disk::installed(save, data);
@@ -203,8 +129,8 @@ pub fn show(ui: &mut Ui, data: &Data, save: &Save, st: &mut SystemUi, out: &mut 
     st.cursor = st.cursor.min(items.len().saturating_sub(1));
 
     // The keys along the bottom.
-    let foot = g.rows + 1;
-    g.rule(foot);
+    let foot = g.rows() + 1;
+    g.rule(foot, fill());
     // Wrapped onto another line when the tile's narrow.
     let (mut c, mut fy) = (1, foot + 1);
     let all = [
@@ -216,40 +142,11 @@ pub fn show(ui: &mut Ui, data: &Data, save: &Save, st: &mut SystemUi, out: &mut 
         if c > 1 && c + k.chars().count() + what.chars().count() + 1 > g.cols {
             (c, fy) = (1, fy + 1);
         }
-        c = g.key(c, fy, k, what, cmd);
+        c = key(&mut g, c, fy, k, what, cmd);
     }
 
     // Paint the grid and read clicks.
-    let size = vec2(cols as f32 * cw, g.rows as f32 * ch);
-    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
-    let p = ui.painter_at(rect);
-    let cell = |c: usize, r: usize| {
-        Rect::from_min_size(rect.min + vec2(c as f32 * cw, r as f32 * ch), vec2(cw, ch))
-    };
-    for &(c, r, chr, fg, bg) in &g.cells {
-        let cr = cell(c, r);
-        if let Some(bg) = bg {
-            p.rect_filled(cr.expand(0.3), 0.0, bg);
-        }
-        if chr != ' ' {
-            p.text(cr.min, Align2::LEFT_TOP, chr, font(), fg);
-        }
-    }
-    // Every clickable run of cells is a widget, labelled with its text, so a screen reader
-    // (or a test) can find it. The last one added wins where they overlap.
-    let mut cmds = Vec::new();
-    for (i, (hc, hr, len, cmd, name)) in g.hits.iter().enumerate() {
-        let r = cell(*hc, *hr).union(cell(hc + len.saturating_sub(1), *hr));
-        let hit = ui.interact(r, ui.id().with(("system-hit", i)), Sense::CLICK);
-        let label = name.clone().unwrap_or_else(|| g.text(*hc, *hr, *len));
-        hit.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &label));
-        if hit.hovered() {
-            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
-        }
-        if hit.clicked() {
-            cmds.push(cmd.clone());
-        }
-    }
+    let mut cmds = g.paint(ui, font(), None);
     keys(ui, st, &mut cmds);
     for cmd in cmds {
         apply(
@@ -453,7 +350,7 @@ fn tabs(g: &mut Grid, data: &Data, save: &Save, st: &SystemUi) {
     let fw = format!("system // {}", save.firmware_def(data).label.to_lowercase());
     let at = g.cols.saturating_sub(fw.chars().count() + 1).max(c + 2);
     g.put(at, 0, &fw, muted());
-    g.rule(1);
+    g.rule(1, fill());
 }
 
 /// One row with a cursor: `▸` and the accent when highlighted. Clicking it is Enter.
@@ -965,7 +862,7 @@ fn disk_panel(
     } else {
         info(g, data, save, st, on, shelf, ix, y);
     }
-    g.rows = g.rows.max(y + listed + 1);
+    g.grow_to(y + listed + 1);
 }
 
 /// The picked program, from its binary, and what Enter would do with it.
@@ -992,17 +889,10 @@ fn info(
     g.put(x, y, &s.file(), accent());
     y += 1;
     let w = g.cols.saturating_sub(x + 1).max(20);
-    let mut sub = Grid {
-        cols: w,
-        cells: Vec::new(),
-        hits: Vec::new(),
-        rows: 0,
-    };
+    let mut sub = Grid::new(w);
     let n = wrap(&mut sub, 0, 0, &data.warez[prog.warez].blurb, muted());
     let n = wrap(&mut sub, 0, n, &s.effect.describe(), ink());
-    for (c, r, ch, fg, bg) in sub.cells {
-        g.cells.push((c + x, r + y, ch, fg, bg));
-    }
+    g.stamp(sub, x, y);
     y += n;
     let mut line = format!("{:?} · ram {} · cpu {}", prog.kind, s.ram, s.cpu).to_lowercase();
     if let Some(pw) = prog.power() {
@@ -1015,16 +905,16 @@ fn info(
     y += 2;
     if let Some(id) = st.confirm_scrap {
         let c = g.put(x, y, "scrap it for good?", ink());
-        let c = g.key(c + 2, y, "y", "yes", Some(Cmd::Yes));
-        g.key(c, y, "n", "no", Some(Cmd::No));
+        let c = key(g, c + 2, y, "y", "yes", Some(Cmd::Yes));
+        key(g, c, y, "n", "no", Some(Cmd::No));
         let _ = id;
         return;
     }
     let c = if save.is_installed(&prog.at) {
-        g.key(x, y, "enter", "remove", Some(Cmd::Enter))
+        key(g, x, y, "enter", "remove", Some(Cmd::Enter))
     } else {
         match save.install_blocker(data, &prog.at) {
-            None => g.key(x, y, "enter", "install", Some(Cmd::Enter)),
+            None => key(g, x, y, "enter", "install", Some(Cmd::Enter)),
             Some(why) => {
                 wrap(g, x, y, &why, ink());
                 return;
@@ -1032,6 +922,6 @@ fn info(
         }
     };
     if matches!(prog.at, Disk::Stash(_)) {
-        g.key(c, y, "x", "scrap", Some(Cmd::Scrap));
+        key(g, c, y, "x", "scrap", Some(Cmd::Scrap));
     }
 }
