@@ -121,11 +121,7 @@ pub fn keys(ctx: &Context, flip: Key) -> Keys {
 /// own words.
 pub fn classic(ctx: &Context, cx: &mut crate::chrome::FrameCx) -> Vec<Request> {
     let (p, now) = (cx.pal, cx.level);
-    let k = keys(ctx, Key::M);
-    let mut to = now.nudged(k.nudge, CLASSIC_NOTCHES);
-    if k.flip {
-        to.on = !to.on;
-    }
+    let (mut to, k) = start(ctx, now, Key::M, CLASSIC_NOTCHES);
     let mut close = k.esc || k.ok;
     egui::Area::new(egui::Id::new("classic-volume"))
         .order(egui::Order::Foreground)
@@ -161,6 +157,37 @@ pub fn classic(ctx: &Context, cx: &mut crate::chrome::FrameCx) -> Vec<Request> {
 
 /// The classic slider's notches: 5% apiece.
 const CLASSIC_NOTCHES: u32 = 20;
+
+/// The start of every pop-out's frame: its keys, and the level they move to (`by` notches of
+/// `notches`, the switch flipped by `flip`).
+pub fn start(ctx: &Context, now: Level, flip: Key, notches: u32) -> (Level, Keys) {
+    let k = keys(ctx, flip);
+    let mut to = now.nudged(k.nudge, notches);
+    if k.flip {
+        to.on = !to.on;
+    }
+    (to, k)
+}
+
+/// Names a control for a screen reader (and the tests): what it says it is.
+pub fn named(r: egui::Response, label: &str) -> egui::Response {
+    r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
+    r
+}
+
+/// A control over drawn cells or pixels: `rect` takes `sense`, named `label`.
+pub fn hit(
+    ui: &mut egui::Ui,
+    rect: egui::Rect,
+    salt: &str,
+    label: &str,
+    sense: egui::Sense,
+) -> egui::Response {
+    let r = ui
+        .interact(rect, egui::Id::new((salt, label)), sense)
+        .on_hover_cursor(egui::CursorIcon::PointingHand);
+    named(r, label)
+}
 
 #[cfg(test)]
 pub mod tests {

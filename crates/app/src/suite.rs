@@ -1327,58 +1327,16 @@ impl ChromeView for Suite {
         let p = cx.pal;
         let waiting = st.dialogs.len();
         let mut ok = was_up && cx.keys_free && ctx.input(|i| i.key_pressed(Key::Enter));
-        egui::Area::new(egui::Id::new("suite-dialog"))
-            .order(egui::Order::Foreground)
-            .anchor(Align2::CENTER_CENTER, vec2(0.0, -40.0))
-            .show(ctx, |ui| {
-                egui::Frame::new()
-                    .fill(p.bg)
-                    .stroke(Stroke::new(2.0, p.fg))
-                    .inner_margin(egui::Margin::same(3))
-                    .shadow(egui::Shadow {
-                        offset: [8, 8],
-                        blur: 0,
-                        spread: 0,
-                        color: p.faint,
-                    })
-                    .show(ui, |ui| {
-                        ui.set_width(size::DIALOG_W);
-                        let (bar, _) = ui.allocate_exact_size(
-                            vec2(size::DIALOG_W, size::TITLE_H + 2.0),
-                            Sense::hover(),
-                        );
-                        ui.painter().rect_filled(bar, 0.0, p.panel);
-                        ui.painter().text(
-                            bar.center(),
-                            Align2::CENTER_CENTER,
-                            &n.title,
-                            mono(size::MONO),
-                            p.bright,
-                        );
-                        egui::Frame::new()
-                            .inner_margin(egui::Margin::symmetric(14, 10))
-                            .show(ui, |ui| {
-                                for l in &n.lines {
-                                    ui.label(t(l, p.fg));
-                                }
-                                ui.add_space(8.0);
-                                ui.horizontal(|ui| {
-                                    if waiting > 1 {
-                                        ui.label(small(format!("1 of {waiting}"), p.dim));
-                                    }
-                                    ui.with_layout(
-                                        egui::Layout::right_to_left(egui::Align::Center),
-                                        |ui| {
-                                            if ui.button(t("[  OK  ]", p.bright)).clicked() {
-                                                ok = true;
-                                            }
-                                            ui.label(small("Enter", p.dim));
-                                        },
-                                    );
-                                });
-                            });
-                    });
-            });
+        dialog(ctx, "suite-dialog", &p, &n.title, size::DIALOG_W, |ui| {
+            for l in &n.lines {
+                ui.label(t(l, p.fg));
+            }
+            ui.add_space(8.0);
+            let count = (waiting > 1).then(|| format!("1 of {waiting}"));
+            if buttons(ui, &p, count, &[("[  OK  ]", "Enter")]) == Some(0) {
+                ok = true;
+            }
+        });
         if ok {
             st.dialogs.remove(0);
         }
@@ -1394,18 +1352,59 @@ const SOUND_NOTCHES: u32 = 10;
 /// which puts back what was set when it opened. Changes are heard as they're made.
 fn sound_dialog(ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
     let (p, now) = (cx.pal, cx.level);
-    let k = crate::volume::keys(ctx, Key::Space);
-    let mut to = now.nudged(k.nudge, SOUND_NOTCHES);
-    if k.flip {
-        to.on = !to.on;
-    }
+    let (mut to, k) = crate::volume::start(ctx, now, Key::Space, SOUND_NOTCHES);
     let (mut ok, mut cancel) = (k.ok, k.esc);
     let click = |ui: &mut Ui, text: RichText, label: &str| {
         let r = ui.add(egui::Label::new(text).sense(Sense::click()));
-        r.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label));
-        r.clicked()
+        crate::volume::named(r, label).clicked()
     };
-    egui::Area::new(egui::Id::new("suite-sound"))
+    dialog(ctx, "suite-sound", &p, "Sound", size::SOUND_W, |ui| {
+        ui.spacing_mut().item_spacing.x = 0.0;
+        ui.horizontal(|ui| {
+            ui.label(t("Volume   ", p.fg));
+            let lit = now.notch(SOUND_NOTCHES);
+            for n in 1..=SOUND_NOTCHES {
+                let c = if n <= lit { p.bright } else { p.faint };
+                let pct = ninsei_core::hub::notch_volume(n, SOUND_NOTCHES);
+                if click(ui, t("■", c), &format!("{pct}%")) {
+                    to.volume = pct;
+                }
+            }
+            ui.label(t(format!("  {:>3}%", now.volume), p.fg));
+        });
+        ui.add_space(6.0);
+        let mark = if now.on { "[ ]" } else { "[X]" };
+        if click(ui, t(format!("{mark} Mute"), p.fg), "Mute") {
+            to.on = !to.on;
+        }
+        ui.add_space(10.0);
+        ui.spacing_mut().item_spacing.x = 6.0;
+        match buttons(ui, &p, None, &[("[Cancel]", "Esc"), ("[  OK  ]", "Enter")]) {
+            Some(0) => cancel = true,
+            Some(_) => ok = true,
+            None => {}
+        }
+    });
+    if cancel {
+        return cx.popup.cancel(now);
+    }
+    if ok {
+        cx.popup.close();
+    }
+    now.to(to)
+}
+
+/// A suite dialog: a hard shadow, a double-weight frame, the title on a filled bar, and `body`
+/// inside, centred a little above the middle of the screen.
+fn dialog(
+    ctx: &egui::Context,
+    id: &str,
+    p: &Palette,
+    title: &str,
+    width: f32,
+    body: impl FnOnce(&mut Ui),
+) {
+    egui::Area::new(egui::Id::new(id))
         .order(egui::Order::Foreground)
         .anchor(Align2::CENTER_CENTER, vec2(0.0, -40.0))
         .show(ctx, |ui| {
@@ -1420,64 +1419,50 @@ fn sound_dialog(ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
                     color: p.faint,
                 })
                 .show(ui, |ui| {
-                    let w = size::SOUND_W;
-                    ui.set_width(w);
+                    ui.set_width(width);
                     let (bar, _) =
-                        ui.allocate_exact_size(vec2(w, size::TITLE_H + 2.0), Sense::hover());
+                        ui.allocate_exact_size(vec2(width, size::TITLE_H + 2.0), Sense::hover());
                     ui.painter().rect_filled(bar, 0.0, p.panel);
                     ui.painter().text(
                         bar.center(),
                         Align2::CENTER_CENTER,
-                        "Sound",
+                        title,
                         mono(size::MONO),
                         p.bright,
                     );
                     egui::Frame::new()
                         .inner_margin(egui::Margin::symmetric(14, 10))
-                        .show(ui, |ui| {
-                            ui.spacing_mut().item_spacing.x = 0.0;
-                            ui.horizontal(|ui| {
-                                ui.label(t("Volume   ", p.fg));
-                                let lit = now.notch(SOUND_NOTCHES);
-                                for n in 1..=SOUND_NOTCHES {
-                                    let c = if n <= lit { p.bright } else { p.faint };
-                                    let pct = ninsei_core::hub::notch_volume(n, SOUND_NOTCHES);
-                                    if click(ui, t("■", c), &format!("{pct}%")) {
-                                        to.volume = pct;
-                                    }
-                                }
-                                ui.label(t(format!("  {:>3}%", now.volume), p.fg));
-                            });
-                            ui.add_space(6.0);
-                            let mark = if now.on { "[ ]" } else { "[X]" };
-                            if click(ui, t(format!("{mark} Mute"), p.fg), "Mute") {
-                                to.on = !to.on;
-                            }
-                            ui.add_space(10.0);
-                            ui.horizontal(|ui| {
-                                ui.spacing_mut().item_spacing.x = 6.0;
-                                ui.with_layout(
-                                    egui::Layout::right_to_left(egui::Align::Center),
-                                    |ui| {
-                                        if ui.button(t("[Cancel]", p.fg)).clicked() {
-                                            cancel = true;
-                                        }
-                                        ui.label(small("Esc", p.dim));
-                                        if ui.button(t("[  OK  ]", p.bright)).clicked() {
-                                            ok = true;
-                                        }
-                                        ui.label(small("Enter", p.dim));
-                                    },
-                                );
-                            });
-                        });
+                        .show(ui, body);
                 });
         });
-    if cancel {
-        return cx.popup.cancel(now);
-    }
-    if ok {
-        cx.popup.close();
-    }
-    now.to(to)
+}
+
+/// A dialog's button row: an optional note at the left, then `buttons` from the right (the
+/// last is the default, lit), each with its key beside it. Which one was clicked.
+fn buttons(
+    ui: &mut Ui,
+    p: &Palette,
+    note: Option<String>,
+    buttons: &[(&str, &str)],
+) -> Option<usize> {
+    let mut hit = None;
+    ui.horizontal(|ui| {
+        if let Some(note) = note {
+            ui.label(small(note, p.dim));
+        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            for (i, (label, key)) in buttons.iter().enumerate() {
+                let lit = if i + 1 == buttons.len() {
+                    p.bright
+                } else {
+                    p.fg
+                };
+                if ui.button(t(*label, lit)).clicked() {
+                    hit = Some(i);
+                }
+                ui.label(small(*key, p.dim));
+            }
+        });
+    });
+    hit
 }

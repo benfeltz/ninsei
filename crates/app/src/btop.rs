@@ -796,11 +796,7 @@ pub fn sound_popup(
 ) -> Vec<crate::panes::Request> {
     use crate::cells::Cells;
     let (p, now) = (cx.pal, cx.level);
-    let k = crate::volume::keys(ctx, egui::Key::M);
-    let mut to = now.nudged(k.nudge, vol::NOTCHES);
-    if k.flip {
-        to.on = !to.on;
-    }
+    let (mut to, k) = crate::volume::start(ctx, now, egui::Key::M, vol::NOTCHES);
     if k.esc || k.ok {
         cx.popup.close();
     }
@@ -848,17 +844,7 @@ pub fn sound_popup(
                 &colours,
             );
             let hit = |ui: &mut Ui, r: Rect, label: String| {
-                let resp = ui
-                    .interact(
-                        r,
-                        egui::Id::new(("btop-volume", label.clone())),
-                        Sense::click(),
-                    )
-                    .on_hover_cursor(egui::CursorIcon::PointingHand);
-                resp.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &label)
-                });
-                resp.clicked()
+                crate::volume::hit(ui, r, "btop-volume", &label, Sense::click()).clicked()
             };
             for i in 0..n {
                 let pct = ninsei_core::hub::notch_volume(i as u32 + 1, vol::NOTCHES);

@@ -572,11 +572,7 @@ fn control_panel(ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
     use egui::pos2;
     let (ink, paper) = (cx.pal.fg, cx.pal.bg);
     let now = cx.level;
-    let k = crate::volume::keys(ctx, egui::Key::Space);
-    let mut to = now.nudged(k.nudge, SPEAKER_NOTCHES);
-    if k.flip {
-        to.on = !to.on;
-    }
+    let (mut to, k) = crate::volume::start(ctx, now, egui::Key::Space, SPEAKER_NOTCHES);
     let mut done = k.ok || k.esc;
     let size = vec2(look::PANEL_W, look::PANEL_H);
     let screen = ctx.content_rect();
@@ -591,11 +587,7 @@ fn control_panel(ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
             let two = crate::liza::Two { ink, paper };
             let close = crate::liza::window_frame(&painter, data, rect, "Control Panel", true, two);
             let hit = |ui: &mut Ui, r: Rect, label: &str, sense: Sense| {
-                let resp = ui.interact(r, Id::new(("stack-control-panel", label)), sense);
-                resp.widget_info(|| {
-                    egui::WidgetInfo::labeled(egui::WidgetType::Button, true, label)
-                });
-                resp
+                crate::volume::hit(ui, r, "stack-control-panel", label, sense)
             };
             if hit(ui, close, "close", Sense::click()).clicked() {
                 done = true;
