@@ -287,8 +287,8 @@ fn contents(
             if leader(ui, &c.headline, &page).clicked() {
                 to = at.map(|&(_, i, _)| Turn::To(i));
             }
-            ui.label(text(&c.line, size::BODY));
-            ui.add_space(6.0);
+            ui.label(text(&c.line, size::SMALL));
+            ui.add_space(2.0);
         }
     });
     to
@@ -887,19 +887,23 @@ mod tests {
                 );
             }
         };
-        // Every cover story, the Games one included.
-        let texts: Vec<String> = h.painted_text().into_iter().map(|(t, _)| t).collect();
-        for c in &data.shopper.cover {
-            assert!(
-                texts.contains(&c.headline),
-                "{} isn't on the cover",
-                c.headline
-            );
-        }
+        // Every cover story, the Games one included, readable on the cover and in FEATURES.
+        let every_story = |h: &Harness, what: &str| {
+            let seen = h.visible_text();
+            for c in &data.shopper.cover {
+                assert!(
+                    seen.iter().any(|t| t.contains(&c.headline)),
+                    "{} isn't readable on {what}",
+                    c.headline
+                );
+            }
+        };
+        every_story(&h, "the cover");
         whole(&h, "the cover");
         let next = press_on(&mut h, "▶");
         frame(&mut h, &mut home, &data, &save, Tool::Rig, next);
         frame(&mut h, &mut home, &data, &save, Tool::Rig, Vec::new());
+        every_story(&h, "the contents");
         whole(&h, "the contents");
     }
 }
