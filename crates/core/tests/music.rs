@@ -187,29 +187,16 @@ mod in_a_run {
 
     #[test]
     fn a_pack_without_music_is_valid_and_plays_nothing() {
-        // Every deck's pack, its music taken out: still a valid pack, and the run is silent.
-        let texts: Vec<String> = ninsei_core::data::BUILTIN_SOUNDS
-            .iter()
-            .map(|p| {
-                let cues = &p.sounds[..p.sounds.rfind("music: [").expect("a music section")];
-                format!("{cues}music: [],\n)")
-            })
-            .collect();
-        let packs: Vec<_> = ninsei_core::data::BUILTIN_SOUNDS
-            .iter()
-            .zip(&texts)
-            .map(|(p, t)| ninsei_core::data::PackSrc {
-                id: p.id,
-                sounds: t,
-            })
-            .collect();
-        let d = Data::parse(ninsei_core::data::Sources {
-            sounds: &packs,
-            ..ninsei_core::data::Sources::builtin()
-        })
-        .unwrap();
+        // Every deck's pack, its music taken out: still valid, and every run is silent.
+        // (An empty music section parses: `cues.rs` checks that.)
+        let mut d = Data::builtin().unwrap();
+        for p in &mut d.sounds {
+            p.music.clear();
+        }
         assert!(d.validate().is_ok());
-        for deck in ["sensenet", "onosendai", "hosaka"] {
+        let decks: Vec<String> = d.hardware.decks.iter().map(|k| k.id.clone()).collect();
+        assert!(decks.len() >= 3, "{decks:?}");
+        for deck in &decks {
             let (s, g) = dialed(&d, deck);
             assert_eq!(g.phase, Phase::Exploring);
             assert!(wanted(Screen::Run, false, &s, &g, &d).is_none(), "{deck}");
