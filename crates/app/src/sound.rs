@@ -37,7 +37,7 @@ pub trait Output: Sized {
     fn open() -> Option<Self>;
     fn rate(&self) -> u32;
     /// The modem channel; empty stops it.
-    fn dial(&mut self, samples: Vec<f32>);
+    fn dial(&mut self, samples: Clip);
     /// Plays a tune once on the music channel, cutting what's there; empty stops it.
     fn music(&mut self, samples: Vec<f32>);
     /// Loops `bed` and `stem` (empty, or as long as the bed) together on the music channel,
@@ -211,10 +211,9 @@ impl<O: Output> Speaker<O> {
     /// Plays the call to `number` on the modem channel, cutting off any call still playing.
     pub fn dial(&mut self, number: &str) {
         if let Some(out) = self.out() {
-            let samples = Handshake::new(number).render(out.rate());
-            let kept = Arc::new(samples.clone());
-            out.dial(samples);
-            self.heard_dial = Some((kept, self.clock));
+            let samples = Arc::new(Handshake::new(number).render(out.rate()));
+            out.dial(Arc::clone(&samples));
+            self.heard_dial = Some((samples, self.clock));
         }
     }
 
@@ -325,7 +324,7 @@ impl<O: Output> Speaker<O> {
     pub fn stop(&mut self) {
         self.heard_dial = None;
         if let Some(out) = &mut self.out {
-            out.dial(Vec::new());
+            out.dial(Arc::new(Vec::new()));
         }
     }
 
@@ -365,7 +364,7 @@ mod backend {
     /// What's playing: the modem channel, the music channel (a bed, maybe a stem beside it,
     /// looping or not), and cue clips with how far in each is.
     struct Mix {
-        dial: (Vec<f32>, usize),
+        dial: (super::Clip, usize),
         music: super::Clip,
         stem: super::Clip,
         at: usize,
@@ -384,7 +383,7 @@ mod backend {
         /// Nothing playing, at full level (the master multiplies everything: zero is silence).
         fn default() -> Mix {
             Mix {
-                dial: (Vec::new(), 0),
+                dial: (Arc::new(Vec::new()), 0),
                 music: Arc::new(Vec::new()),
                 stem: Arc::new(Vec::new()),
                 at: 0,
@@ -472,7 +471,7 @@ mod backend {
             self.rate
         }
 
-        fn dial(&mut self, samples: Vec<f32>) {
+        fn dial(&mut self, samples: super::Clip) {
             self.with(|m| m.dial = (samples, 0));
         }
 
@@ -532,7 +531,7 @@ mod backend {
     #[test]
     fn the_master_level_scales_everything_and_eases() {
         let mut m = Mix {
-            dial: (vec![0.2; 400], 0),
+            dial: (Arc::new(vec![0.2; 400]), 0),
             music: Arc::new(vec![0.2; 400]),
             looping: true,
             voices: vec![(Arc::new(vec![0.2; 400]), 0)],
@@ -701,7 +700,7 @@ mod backend {
             self.ctx.sample_rate() as u32
         }
 
-        fn dial(&mut self, samples: Vec<f32>) {
+        fn dial(&mut self, samples: super::Clip) {
             if let Some(src) = self.dialing.take() {
                 #[allow(deprecated)]
                 let _ = src.stop();
@@ -770,7 +769,7 @@ mod backend {
         }
 
         fn hush(&mut self) {
-            self.dial(Vec::new());
+            self.dial(std::sync::Arc::new(Vec::new()));
             self.stop_music();
             for (src, _) in self.voices.drain(..) {
                 #[allow(deprecated)]
@@ -811,7 +810,7 @@ mod tests {
         fn rate(&self) -> u32 {
             8000
         }
-        fn dial(&mut self, _: Vec<f32>) {}
+        fn dial(&mut self, _: Clip) {}
         fn music(&mut self, s: Vec<f32>) {
             self.said
                 .push(if s.is_empty() { "stop" } else { "tune" }.into());
@@ -1034,6 +1033,13 @@ mod tests {
         assert!(s.listen(64).iter().all(|v| *v == 0.0));
         s.out.as_mut().unwrap().full = false;
         assert!(s.listen(64).iter().all(|v| *v == 0.0));
+        // The modem is heard while it plays, from the very samples the output was given.
+        s.tick(25.0);
+        s.dial("555-0001");
+        s.tick(25.5);
+        assert!(loud(&s.listen(256)) > 0.0, "the handshake");
+        s.stop();
+        assert!(s.listen(256).iter().all(|v| *v == 0.0), "hung up");
         // Sound off: silence, whatever was playing.
         s.tick(30.0);
         s.cue(Cue::Hit, "ono", pack);
