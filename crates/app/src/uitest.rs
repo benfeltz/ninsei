@@ -14,6 +14,8 @@ pub struct Harness {
     widgets: Vec<(String, Rect, bool)>,
     /// What last frame painted, flattened.
     shapes: Vec<egui::Shape>,
+    /// Each shape's clip rect, beside `shapes`.
+    clips: Vec<Rect>,
 }
 
 impl Harness {
@@ -27,6 +29,7 @@ impl Harness {
             t: 0.0,
             widgets: Vec::new(),
             shapes: Vec::new(),
+            clips: Vec::new(),
         }
     }
 
@@ -48,8 +51,10 @@ impl Harness {
             }
         }
         self.shapes.clear();
+        self.clips.clear();
         for c in std::mem::take(&mut out.shapes) {
             flat(c.shape, &mut self.shapes);
+            self.clips.resize(self.shapes.len(), c.clip_rect);
         }
         self.widgets = out
             .platform_output
@@ -124,6 +129,24 @@ impl Harness {
             .iter()
             .filter_map(|s| match s {
                 egui::Shape::Rect(r) => Some((r.rect, r.fill, r.stroke.color)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Text last frame cut at a clip rect: what it said and where it would have run, for each
+    /// piece of text that starts inside its clip and runs past its right or bottom edge.
+    pub fn cut_text(&self) -> Vec<(String, Rect)> {
+        self.shapes
+            .iter()
+            .zip(&self.clips)
+            .filter_map(|(s, clip)| match s {
+                egui::Shape::Text(t) => {
+                    let r = Rect::from_min_size(t.pos, t.galley.size());
+                    let cut = clip.contains(r.min)
+                        && (r.right() > clip.right() + 0.5 || r.bottom() > clip.bottom() + 0.5);
+                    cut.then(|| (t.galley.text().to_string(), r))
+                }
                 _ => None,
             })
             .collect()

@@ -161,8 +161,9 @@ impl Liza {
         }
     }
 
-    /// Opens (or brings forward) a tool's window. A book (RIG, the Welcome stack) gets a window
-    /// its fixed page fits exactly, so it never scrolls.
+    /// Opens (or brings forward) a tool's window: the tool's room, and the scroll bar beside it
+    /// (not the Shell's, which scrolls its own lines). A book (RIG, the Welcome stack) gets a
+    /// window its fixed page fits exactly, so it never scrolls.
     fn open(&mut self, tool: Tool) {
         if let Some(i) = self.wins.iter().position(|w| w.tool == tool) {
             let w = self.wins.remove(i);
@@ -180,6 +181,12 @@ impl Liza {
             Tool::TigerTeam => (pos2(50.0, 40.0), vec2(900.0, 540.0)),
             Tool::IceDb => (pos2(100.0, 60.0), vec2(700.0, 470.0)),
             Tool::Guide => (pos2(120.0, 30.0), book_window()),
+        };
+        // A tool's window has the scroll bar down its right side, beside the tool's room.
+        let size = if tool == Tool::Shell {
+            size
+        } else {
+            size + vec2(kit::size::SCROLL_W, 0.0)
         };
         self.wins.push(Win { tool, pos, size });
         // Without MultiFinder, Liza keeps a few windows: the oldest goes.
@@ -1010,5 +1017,45 @@ mod tests {
         t += 0.1;
         frame(&ctx, &mut liza, &mut home, &data, click(down), t);
         assert_eq!(at(&ctx).offset, s.line, "the down arrow scrolled it a line");
+    }
+
+    #[test]
+    fn every_tool_window_shows_its_tool_whole_beside_the_scroll_bar() {
+        let data = Data::builtin().unwrap();
+        let save = Save {
+            tools: ninsei_core::data::TOOLS
+                .iter()
+                .map(|t| t.to_string())
+                .collect(),
+            guide_seen: true,
+            ..Save::default()
+        };
+        for tool in Tool::ALL {
+            let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+            crate::uitest::themed(&h.ctx, &data);
+            let (mut liza, mut home) = (Liza::new(), Home::new(Vec::new()));
+            liza.booted = true;
+            liza.open(tool);
+            for _ in 0..3 {
+                h.frame(Vec::new(), |ui| {
+                    let cx = Cx {
+                        data: &data,
+                        save: &save,
+                        offset: 0.0,
+                        live: true,
+                    };
+                    liza.show(ui, &mut home, &cx, &mut Vec::new());
+                });
+            }
+            let cut: Vec<_> = h
+                .cut_text()
+                .into_iter()
+                .filter(|(_, r)| r.bottom() < 780.0)
+                .collect();
+            assert!(
+                cut.is_empty(),
+                "{tool:?} is cut at its window's edge: {cut:?}"
+            );
+        }
     }
 }

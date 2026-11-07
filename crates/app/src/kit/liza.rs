@@ -364,11 +364,14 @@ pub fn scrolled(ui: &mut Ui, id: Id, look: &Look, body: impl FnOnce(&mut Ui)) {
     // The bar acts on last frame's numbers, so this frame's view already shows the move.
     let last = ui.data(|d| d.get_temp::<Scroll>(key));
     let set = last.and_then(|s| bar_input(ui, bar, key, &s));
+    let view_rect = rect.with_max_x(bar.left());
     let mut view = ui.new_child(
         egui::UiBuilder::new()
-            .max_rect(rect.with_max_x(bar.left()))
+            .max_rect(view_rect)
             .layout(egui::Layout::top_down(egui::Align::Min)),
     );
+    // A vertical scroll area clips only top and bottom; the bar's edge is the view's too.
+    view.set_clip_rect(view_rect.intersect(ui.clip_rect()));
     let mut area = egui::ScrollArea::vertical()
         .id_salt(key)
         .auto_shrink([false, false])
