@@ -64,7 +64,7 @@ pub fn boxed(ui: &mut Ui, p: &Palette, title: &str, note: &str, body: impl FnOnc
     g.title(&painter, 2, 0, title, p.bright);
     let n = note.chars().count();
     if n > 0 && n + 4 <= g.cols {
-        g.title(&painter, g.cols - n - 4, g.rows - 1, note, p.dim);
+        g.note(&painter, g.cols - n - 4, g.rows - 1, note, p.dim);
     }
     if g.cols > 2 && g.rows > 2 {
         let inner = g.at(1, 1, g.cols - 2, g.rows - 2);
