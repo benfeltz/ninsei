@@ -681,4 +681,66 @@ mod tests {
             .fold(0.0_f32, f32::max);
         assert!(right <= rect.right() + 1.0, "drawn to {right}");
     }
+
+    /// Where the snake's head is.
+    fn head(home: &Home, t: Tool) -> (i32, i32) {
+        let g = home.game(t).unwrap();
+        let i = g.cells().iter().position(|c| *c == Cell::Head).unwrap();
+        ((i % g.cols()) as i32, (i / g.cols()) as i32)
+    }
+
+    /// Frames until the head moves, and which way it went.
+    fn step_of(h: &mut Harness, home: &mut Home, data: &Data, save: &Save, t: Tool) -> (i32, i32) {
+        let from = head(home, t);
+        for _ in 0..50 {
+            frame(h, home, data, save, t, Vec::new());
+            let to = head(home, t);
+            if to != from {
+                return (to.0 - from.0, to.1 - from.1);
+            }
+        }
+        panic!("the snake never moved");
+    }
+
+    #[test]
+    fn arrows_steer_the_snake() {
+        let (mut h, mut home, data, save, _) = open("nibbler");
+        let t = tool("nibbler");
+        let going = step_of(&mut h, &mut home, &data, &save, t);
+        // Turn across the way it's going.
+        let (k, want) = if going.0 != 0 {
+            (Key::ArrowUp, (0, -1))
+        } else {
+            (Key::ArrowLeft, (-1, 0))
+        };
+        frame(&mut h, &mut home, &data, &save, t, key(k));
+        assert_eq!(step_of(&mut h, &mut home, &data, &save, t), want);
+    }
+
+    #[test]
+    fn a_game_you_dont_own_is_on_no_desktop() {
+        let data = Data::builtin().unwrap();
+        let mut save = deck(&data);
+        save.learn_game("blox", GameCopy::Boxed);
+        let unowned = |t: &Tool| matches!(t, Tool::Game(id, _) if id.as_str() != "blox");
+        let shown: Vec<Tool> = save.icons(&data).into_iter().map(|i| i.tool).collect();
+        assert!(!shown.iter().any(unowned), "no icon on Liza or Desktop");
+        assert_eq!(
+            Tool::games(&data, &save),
+            [Tool::game("blox", GameCopy::Boxed).unwrap()]
+        );
+        assert!(
+            !Tool::games(&data, &save).iter().any(unowned),
+            "no Games menu item, no launcher entry"
+        );
+        let words = ninsei_core::hub::shell_complete("run ", &save, &data);
+        assert!(words.contains(&"blox".to_string()));
+        assert!(
+            !words
+                .iter()
+                .any(|w| w.contains("nibbler") || w.contains("minefield"))
+        );
+        // And the crack of the game you own is no more there than the others.
+        assert!(!save.opens(Tool::game("blox", GameCopy::Cracked).unwrap()));
+    }
 }
