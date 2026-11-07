@@ -192,3 +192,28 @@ mod in_a_run {
         assert_eq!(wanted(Screen::Run, false, &s, &g, &d), None);
     }
 }
+
+#[test]
+fn the_ono_sendai_scores_every_tier_and_the_others_stay_silent() {
+    let d = ninsei_core::Data::builtin().unwrap();
+    for tier in 1..=3 {
+        let t = d.run_tune("ono", tier).expect("a tune for every tier");
+        let step = (t.tune.step_secs() * RATE as f32) as usize;
+        let secs = (t.tune.loop_steps() * step) as f32 / RATE as f32;
+        assert!(secs >= 24.0, "tier {tier} loops after {secs:.1}s");
+        let a = t.tune.render_loop(RATE, &Arrangement::PLAIN);
+        assert!(
+            a.iter().any(|s| s.abs() > 0.05),
+            "tier {tier} makes a sound"
+        );
+        assert!(
+            a[a.len() - 50..].iter().all(|s| s.abs() < 0.05),
+            "tier {tier} ends quiet"
+        );
+        let hot = t.tune.render_loop(RATE, &arrangement(100, t.drop));
+        assert!(hot.len() < a.len(), "tier {tier} speeds up");
+    }
+    for pack in ["hosaka", "sensenet"] {
+        assert!((1..=3).all(|t| d.run_tune(pack, t).is_none()), "{pack}");
+    }
+}
