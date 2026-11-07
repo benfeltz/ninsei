@@ -170,11 +170,13 @@ fn run_on_board(d: &Data, board: usize, kit_games: Vec<String>) -> Game {
     g
 }
 
-/// Where the BLOX file sits in today's listing.
+/// Where `gutter_stocks_blox`'s free BLOX file sits in today's listing (not the GAMES
+/// area's, which costs).
 fn blox_file(line: &dyn Line) -> (usize, usize) {
     for (a, files) in line.stock().iter().enumerate() {
         for (f, s) in files.iter().enumerate() {
-            if line.board().areas[a].files[s.def].item == Drop::Game("blox".into()) {
+            let def = &line.board().areas[a].files[s.def];
+            if def.item == Drop::Game("blox".into()) && def.file == "BLOX.ZIP" {
                 return (a, f);
             }
         }
@@ -1093,4 +1095,81 @@ fn every_game_crack_signs_its_crew_advertises_the_gutter_and_greets_only_the_wor
             g.id
         );
     }
+}
+
+#[test]
+fn games_are_sold_on_the_gutter_only() {
+    let d = data();
+    for b in &d.boards {
+        let games: Vec<&str> = b
+            .areas
+            .iter()
+            .flat_map(|a| &a.files)
+            .filter_map(|f| match &f.item {
+                Drop::Game(id) => Some(id.as_str()),
+                _ => None,
+            })
+            .collect();
+        if b.id == "gutter" {
+            let mut all: Vec<&str> = d.games.iter().map(|g| g.id.as_str()).collect();
+            let mut have = games.clone();
+            all.sort();
+            have.sort();
+            assert_eq!(have, all, "the Gutter stocks every game once");
+            // In 8.3, with the crew's tag.
+            for f in b.areas.iter().flat_map(|a| &a.files) {
+                if let Drop::Game(id) = &f.item {
+                    let tag = d
+                        .intro(&d.game(id).unwrap().crack)
+                        .unwrap()
+                        .tag
+                        .clone()
+                        .unwrap();
+                    let (stem, ext) = f.file.split_once('.').unwrap();
+                    assert!(stem.len() <= 8 && ext.len() <= 3, "{} isn't 8.3", f.file);
+                    assert!(
+                        stem.ends_with(&format!("-{tag}")),
+                        "{} lacks -{tag}",
+                        f.file
+                    );
+                }
+            }
+        } else {
+            assert!(games.is_empty(), "{} sells games: {games:?}", b.id);
+        }
+    }
+}
+
+#[test]
+fn the_gutters_games_area_stocks_every_game_and_a_download_comes_home_cracked() {
+    let d = data();
+    let board = d.board("gutter").unwrap();
+    let mut seen: Vec<String> = Vec::new();
+    for key in 1..200u64 {
+        let mut s = Save::default();
+        s.ensure_key(key);
+        s.learn_board("gutter", "a test");
+        s.bank = 1000;
+        let call = s.home_call(&d, &d.rig, board);
+        for (a, files) in call.stock().iter().enumerate() {
+            for (f, st) in files.iter().enumerate() {
+                let def = &call.board().areas[a].files[st.def];
+                let Drop::Game(id) = &def.item else { continue };
+                if seen.contains(id) {
+                    continue;
+                }
+                seen.push(id.clone());
+                let bank = s.bank;
+                let line = s.home_buy(&d, &d.rig, board, a, f).unwrap();
+                let label = d.game_label(id, GameCopy::Cracked);
+                assert!(line.contains(&label), "{line}");
+                assert_eq!(s.copies(id), vec![GameCopy::Cracked]);
+                assert_eq!(s.bank, bank - def.price, "{id} costs {}¢", def.price);
+            }
+        }
+        if seen.len() == d.games.len() {
+            return;
+        }
+    }
+    panic!("in 200 saves the Gutter only ever stocked {seen:?}");
 }
