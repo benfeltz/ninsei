@@ -17,7 +17,10 @@ fn every_game_validates() {
     for id in data::GAMES {
         let g = d.game(id).expect("a row for every engine");
         assert!(!g.name.is_empty() && !g.blurb.is_empty() && !g.version.is_empty());
-        assert_eq!(g.publisher, "papertiger", "{id}: Paper Tiger boxes the games");
+        assert_eq!(
+            g.publisher, "papertiger",
+            "{id}: Paper Tiger boxes the games"
+        );
     }
 }
 
@@ -30,7 +33,11 @@ fn every_game_has_a_crack_and_a_splash() {
         assert!(!crack.is_splash() && crack.board.is_some() && !crack.greetz.is_empty());
         let splash = d.intro(&g.splash).expect("its splash");
         assert!(splash.is_splash() && splash.greetz.is_empty(), "{}", g.id);
-        assert!(splash.board.is_none(), "{}: a publisher advertises no board", g.id);
+        assert!(
+            splash.board.is_none(),
+            "{}: a publisher advertises no board",
+            g.id
+        );
         for id in [&g.crack, &g.splash] {
             assert!(!seen.contains(&id.as_str()), "{id} is used twice");
             seen.push(id);
@@ -74,7 +81,10 @@ fn a_boxed_copy_outranks_a_cracked_one() {
     assert!(!s.has_game("blox") && s.game_copy("blox").is_none());
     assert!(s.learn_game("blox", Cracked));
     assert!(!s.learn_game("blox", Cracked), "once");
-    assert!(s.learn_game("blox", Boxed), "the boxed copy replaces the crack");
+    assert!(
+        s.learn_game("blox", Boxed),
+        "the boxed copy replaces the crack"
+    );
     assert_eq!(s.game_copy("blox"), Some(Boxed));
     assert!(s.learn_game("nibbler", Boxed));
     assert!(!s.learn_game("nibbler", Cracked), "never the reverse");
@@ -224,7 +234,10 @@ fn a_game_bought_by_mail_is_boxed() {
 fn a_game_is_in_the_next_issue_without_an_ad() {
     let d = data();
     assert!(
-        !d.shopper.ads.iter().any(|a| matches!(a.item, Item::Game(_))),
+        !d.shopper
+            .ads
+            .iter()
+            .any(|a| matches!(a.item, Item::Game(_))),
         "no ad is written yet"
     );
     let cat = Save::default().catalog(&d);
@@ -241,12 +254,10 @@ fn a_game_is_in_the_next_issue_without_an_ad() {
         let in_list = pages.iter().any(|p| match p {
             Page::Section {
                 sections, blocks, ..
-            } => {
-                sections.contains(&Section::Games)
-                    && blocks.iter().any(
-                        |(b, _)| matches!(b, Block::List { listings, .. } if listings.contains(&ix)),
-                    )
-            }
+            } => sections.contains(&Section::Games)
+                && blocks.iter().any(
+                    |(b, _)| matches!(b, Block::List { listings, .. } if listings.contains(&ix)),
+                ),
             _ => false,
         });
         assert!(in_list, "{} is a price-list line in Games", g.id);

@@ -504,8 +504,8 @@ impl IntroDef {
             return format!("{t} ▪ ");
         }
         let board = self.ad_board(data).map_or(String::new(), |b| {
-                format!("CALL {} {} ▪ {} BAUD ▪ ", b.name, b.phone, b.baud)
-            });
+            format!("CALL {} {} ▪ {} BAUD ▪ ", b.name, b.phone, b.baud)
+        });
         format!(
             "CRACKED BY {} ▪ {board}GREETZ TO {} ▪ ",
             self.group,
