@@ -1270,10 +1270,32 @@ impl Data {
                     {
                         return Err(err(format!("file `{}` names unknown tool `{id}`", f.file)));
                     }
-                    if let Drop::Game(id) = &f.item
-                        && self.game(id).is_none()
-                    {
-                        return Err(err(format!("file `{}` names unknown game `{id}`", f.file)));
+                    if let Drop::Game(id) = &f.item {
+                        let Some(g) = self.game(id) else {
+                            return Err(err(format!(
+                                "file `{}` names unknown game `{id}`",
+                                f.file
+                            )));
+                        };
+                        // A crack is posted where its crew posts it, named the way a sysop
+                        // names a crack: 8.3, the stem ending in the crew's tag.
+                        let crack = self.intro(&g.crack);
+                        if crack.and_then(|i| i.board.as_deref()) != Some(b.id.as_str()) {
+                            return Err(err(format!(
+                                "file `{}`: {id}'s crack is posted on its crew's board, not here",
+                                f.file
+                            )));
+                        }
+                        let tag = crack.and_then(|i| i.tag.as_deref()).unwrap_or("");
+                        let ok = f.file.split_once('.').is_some_and(|(stem, ext)| {
+                            stem.len() <= 8 && ext.len() <= 3 && stem.ends_with(&format!("-{tag}"))
+                        });
+                        if !ok {
+                            return Err(err(format!(
+                                "file `{}`: a crack is named in 8.3 ending in its crew's tag (-{tag})",
+                                f.file
+                            )));
+                        }
                     }
                     if let Drop::Text(id) = &f.item {
                         if !b.texts.iter().any(|t| &t.id == id) {

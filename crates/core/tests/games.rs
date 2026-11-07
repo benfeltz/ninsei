@@ -137,7 +137,7 @@ fn gutter_stocks_blox() -> (Data, usize, usize) {
     let b = d.board("gutter").unwrap();
     let area = d.boards[b].areas.iter().position(|a| a.always).unwrap();
     d.boards[b].areas[area].files.push(BbsFileDef {
-        file: "BLOX.ZIP".into(),
+        file: "FREE-PHS.ZIP".into(),
         item: Drop::Game("blox".into()),
         price: 0,
         desc: "BLOX cracked".into(),
@@ -176,7 +176,7 @@ fn blox_file(line: &dyn Line) -> (usize, usize) {
     for (a, files) in line.stock().iter().enumerate() {
         for (f, s) in files.iter().enumerate() {
             let def = &line.board().areas[a].files[s.def];
-            if def.item == Drop::Game("blox".into()) && def.file == "BLOX.ZIP" {
+            if def.item == Drop::Game("blox".into()) && def.file == "FREE-PHS.ZIP" {
                 return (a, f);
             }
         }
@@ -252,7 +252,7 @@ fn a_board_file_naming_an_unknown_game_is_rejected() {
     assert!(
         d.validate()
             .unwrap_err()
-            .contains("file `BLOX.ZIP` names unknown game `pong`")
+            .contains("file `FREE-PHS.ZIP` names unknown game `pong`")
     );
 }
 
@@ -414,14 +414,14 @@ fn the_listing_marks_a_crack_you_have_as_yours() {
         words[words.len() - 2].parse().unwrap()
     };
     let (files, areas) = screens(Vec::new());
-    let blox = files.lines().find(|l| l.contains("BLOX.ZIP")).unwrap();
+    let blox = files.lines().find(|l| l.contains("FREE-PHS.ZIP")).unwrap();
     assert!(
         blox.contains("[EXE]") && !blox.contains("[yours]"),
         "{blox}"
     );
     let before = left(&areas);
     let (files, areas) = screens(vec!["blox".into()]);
-    let blox = files.lines().find(|l| l.contains("BLOX.ZIP")).unwrap();
+    let blox = files.lines().find(|l| l.contains("FREE-PHS.ZIP")).unwrap();
     assert!(
         blox.contains("[yours]") && !blox.contains("[EXE]"),
         "{blox}"
@@ -1223,4 +1223,36 @@ fn the_2400_club_greets_only_what_a_kid_on_the_gutter_could_know() {
         "{:?}",
         i.greetz
     );
+}
+
+#[test]
+fn a_crack_posted_on_another_board_or_misnamed_is_rejected() {
+    // Posted on Dead Sector, though its crew posts it on the Gutter.
+    let mut d = data();
+    let ds = d.board("deadsector").unwrap();
+    d.boards[ds].areas[0].files.push(BbsFileDef {
+        file: "BLOX-PHS.ZIP".into(),
+        item: Drop::Game("blox".into()),
+        price: 30,
+        desc: "BLOX".into(),
+    });
+    assert!(d.validate().unwrap_err().contains("its crew's board"));
+    // Named without the crew's tag, or past 8.3.
+    for bad in ["BLOX.ZIP", "BLOX-2K4.ZIP", "BLOXBLOX-PHS.ZIP"] {
+        let mut d = data();
+        let g = d.board("gutter").unwrap();
+        let f = d.boards[g]
+            .areas
+            .iter_mut()
+            .flat_map(|a| a.files.iter_mut())
+            .find(|f| f.item == Drop::Game("blox".into()))
+            .unwrap();
+        f.file = bad.into();
+        assert!(
+            d.validate()
+                .unwrap_err()
+                .contains("ending in its crew's tag"),
+            "{bad}"
+        );
+    }
 }
