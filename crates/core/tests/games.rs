@@ -314,3 +314,44 @@ fn a_game_is_in_the_next_issue_without_an_ad() {
         assert!(in_list, "{} is a price-list line in Games", g.id);
     }
 }
+
+#[test]
+fn the_listing_marks_a_crack_you_have_as_yours() {
+    use ninsei_core::bbs::{Screen, Session};
+    let (d, board, area) = gutter_stocks_blox();
+    let screens = |cracks: Vec<String>| {
+        let g = run_on_board(&d, board, cracks);
+        let mut s = Session::new();
+        s.screen = Screen::Area(area);
+        let files = ansi::plain(&s.render(&g).join("\n"));
+        s.screen = Screen::Areas;
+        let areas = ansi::plain(&s.render(&g).join("\n"));
+        (files, areas)
+    };
+    // The area's "N file(s)" count on the FILE AREAS screen.
+    let left = |areas: &str| -> usize {
+        // The Gutter writes in l33t, so find the area by its translated name.
+        let name = leet::translate(&d.boards[board].areas[area].name);
+        let line = areas.lines().find(|l| l.contains(name.as_str())).unwrap();
+        let words: Vec<&str> = line.split_whitespace().collect();
+        words[words.len() - 2].parse().unwrap()
+    };
+    let (files, areas) = screens(Vec::new());
+    let blox = files.lines().find(|l| l.contains("BLOX.ZIP")).unwrap();
+    assert!(
+        blox.contains("[EXE]") && !blox.contains("[yours]"),
+        "{blox}"
+    );
+    let before = left(&areas);
+    let (files, areas) = screens(vec!["blox".into()]);
+    let blox = files.lines().find(|l| l.contains("BLOX.ZIP")).unwrap();
+    assert!(
+        blox.contains("[yours]") && !blox.contains("[EXE]"),
+        "{blox}"
+    );
+    assert_eq!(
+        left(&areas),
+        before - 1,
+        "an owned crack drops out of the count"
+    );
+}
