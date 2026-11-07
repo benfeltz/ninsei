@@ -28,6 +28,10 @@ pub const MAX_VOICES: usize = 8;
 /// Samples of a run loop rendered per frame (all tracks counted): a few milliseconds' work.
 const LOOP_SLICE: usize = 250_000;
 
+/// Samples shared between the speaker (which keeps what it plays, for the vis pane) and the
+/// output.
+pub type Clip = Arc<Vec<f32>>;
+
 /// What the speaker plays through: cpal, Web Audio, or a test's stand-in.
 pub trait Output: Sized {
     fn open() -> Option<Self>;
@@ -39,7 +43,7 @@ pub trait Output: Sized {
     /// Loops `bed` and `stem` (empty, or as long as the bed) together on the music channel,
     /// starting `from` (0-1) of the way through, the stem silent if `muted`. False if it
     /// couldn't start.
-    fn music_loop(&mut self, bed: Vec<f32>, stem: Vec<f32>, from: f32, muted: bool) -> bool;
+    fn music_loop(&mut self, bed: Clip, stem: Clip, from: f32, muted: bool) -> bool;
     /// How far through the loop it is, 0-1.
     fn music_place(&self) -> f32;
     /// Fades the loop's stem out or back in.
@@ -83,6 +87,14 @@ pub struct Speaker<O: Output = backend::Out> {
     job: Option<Job>,
     /// The master level (`Save::volume`), 0-1.
     volume: f32,
+    /// What's playing, kept for [`Speaker::listen`]: the run loop's bed and stem (and whether
+    /// the stem is dropped), and clips (cues, the modem) with when they started.
+    heard_loop: Option<(Clip, Clip, bool)>,
+    heard: Vec<(Clip, f64)>,
+    /// The modem's clip, apart from the cues so a hang-up can drop it.
+    heard_dial: Option<(Clip, f64)>,
+    /// The frame clock (seconds), from [`Speaker::tick`].
+    clock: f64,
 }
 
 impl<O: Output> Speaker<O> {
@@ -95,7 +107,64 @@ impl<O: Output> Speaker<O> {
             music: Music::Quiet,
             job: None,
             volume: 1.0,
+            heard_loop: None,
+            heard: Vec::new(),
+            heard_dial: None,
+            clock: 0.0,
         }
+    }
+
+    /// Moves the frame clock on to `now` (seconds) and forgets clips that have finished.
+    pub fn tick(&mut self, now: f64) {
+        self.clock = now;
+        let Some(rate) = self.rate() else { return };
+        let done = |(c, t0): &(Clip, f64)| (now - t0) * f64::from(rate) >= c.len() as f64;
+        self.heard.retain(|h| !done(h));
+        if self.heard_dial.as_ref().is_some_and(done) {
+            self.heard_dial = None;
+        }
+    }
+
+    /// The output's sample rate, once it's open.
+    pub fn rate(&self) -> Option<u32> {
+        self.out.as_ref().map(|o| o.rate())
+    }
+
+    /// The last `n` samples of what's playing (oldest first), as the speaker mixes them: the
+    /// run loop where it's got to (its stem only while it isn't dropped), the cues and the
+    /// modem by when they started, all at the master level. Silence when sound is off or
+    /// nothing's playing. For drawing only: it reads, never plays.
+    pub fn listen(&self, n: usize) -> Vec<f32> {
+        let mut w = vec![0.0f32; n];
+        let Some(out) = self.out.as_ref().filter(|_| self.on) else {
+            return w;
+        };
+        if let Some((bed, stem, dropped)) = &self.heard_loop {
+            let len = bed.len();
+            if len > 0 {
+                let end = (out.music_place().clamp(0.0, 1.0) * len as f32) as usize;
+                for (i, o) in w.iter_mut().enumerate() {
+                    let at = (end + len * (n / len + 1) - n + i) % len;
+                    *o += bed[at];
+                    if !dropped {
+                        *o += stem.get(at).copied().unwrap_or(0.0);
+                    }
+                }
+            }
+        }
+        let rate = f64::from(out.rate());
+        for (clip, t0) in self.heard.iter().chain(&self.heard_dial) {
+            let end = ((self.clock - t0) * rate) as i64;
+            for (i, o) in w.iter_mut().enumerate() {
+                let k = end - n as i64 + i as i64;
+                if k >= 0 {
+                    *o += clip.get(k as usize).copied().unwrap_or(0.0);
+                }
+            }
+        }
+        w.iter_mut()
+            .for_each(|s| *s = (*s * self.volume).clamp(-1.0, 1.0));
+        w
     }
 
     /// Sets the master level over the modem, the music and the cues alike (0-1).
@@ -113,6 +182,9 @@ impl<O: Output> Speaker<O> {
             // Sound back on starts the run's tune again on the next frame.
             self.music = Music::Quiet;
             self.job = None;
+            self.heard_loop = None;
+            self.heard.clear();
+            self.heard_dial = None;
             if let Some(out) = &mut self.out {
                 out.hush();
             }
@@ -139,7 +211,9 @@ impl<O: Output> Speaker<O> {
     pub fn dial(&mut self, number: &str) {
         if let Some(out) = self.out() {
             let samples = Handshake::new(number).render(out.rate());
+            let kept = Arc::new(samples.clone());
             out.dial(samples);
+            self.heard_dial = Some((kept, self.clock));
         }
     }
 
@@ -151,6 +225,7 @@ impl<O: Output> Speaker<O> {
             samples.iter_mut().for_each(|s| *s *= MUSIC_GAIN);
             out.music(samples);
             self.music = Music::Intro;
+            self.heard_loop = None;
         }
     }
 
@@ -189,6 +264,9 @@ impl<O: Output> Speaker<O> {
             if *was != muted {
                 out.mute_stem(muted);
                 *was = muted;
+                if let Some(h) = &mut self.heard_loop {
+                    h.2 = muted;
+                }
             }
             if *playing == tempo {
                 self.job = None;
@@ -217,7 +295,9 @@ impl<O: Output> Speaker<O> {
             _ => 0.0,
         };
         // If it couldn't start, the next frame tries again.
-        if out.music_loop(bed, stem, from, muted) {
+        let (bed, stem) = (Arc::new(bed), Arc::new(stem));
+        if out.music_loop(Arc::clone(&bed), Arc::clone(&stem), from, muted) {
+            self.heard_loop = Some((bed, stem, muted));
             self.music = Music::Run {
                 pack: job.pack,
                 tier: job.tier,
@@ -233,6 +313,7 @@ impl<O: Output> Speaker<O> {
         self.job = None;
         if matches!(self.music, Music::Run { .. }) {
             self.music = Music::Quiet;
+            self.heard_loop = None;
             if let Some(out) = &mut self.out {
                 out.music(Vec::new());
             }
@@ -241,6 +322,7 @@ impl<O: Output> Speaker<O> {
 
     /// Stops the modem (a BBS line dropped). Cues play out.
     pub fn stop(&mut self) {
+        self.heard_dial = None;
         if let Some(out) = &mut self.out {
             out.dial(Vec::new());
         }
@@ -264,6 +346,7 @@ impl<O: Output> Speaker<O> {
             }
         };
         if let Some(out) = &mut self.out {
+            self.heard.push((Arc::clone(&clip), self.clock));
             out.cue(clip);
         }
     }
@@ -280,8 +363,8 @@ mod backend {
     /// looping or not), and cue clips with how far in each is.
     struct Mix {
         dial: (Vec<f32>, usize),
-        music: Vec<f32>,
-        stem: Vec<f32>,
+        music: super::Clip,
+        stem: super::Clip,
         at: usize,
         looping: bool,
         /// The stem's loudness now and where it's heading, and how fast it gets there.
@@ -299,8 +382,8 @@ mod backend {
         fn default() -> Mix {
             Mix {
                 dial: (Vec::new(), 0),
-                music: Vec::new(),
-                stem: Vec::new(),
+                music: Arc::new(Vec::new()),
+                stem: Arc::new(Vec::new()),
                 at: 0,
                 looping: false,
                 stem_gain: 0.0,
@@ -392,11 +475,18 @@ mod backend {
 
         fn music(&mut self, samples: Vec<f32>) {
             self.with(|m| {
-                (m.music, m.stem, m.at, m.looping) = (samples, Vec::new(), 0, false);
+                (m.music, m.stem, m.at, m.looping) =
+                    (Arc::new(samples), Arc::new(Vec::new()), 0, false);
             });
         }
 
-        fn music_loop(&mut self, bed: Vec<f32>, stem: Vec<f32>, from: f32, muted: bool) -> bool {
+        fn music_loop(
+            &mut self,
+            bed: super::Clip,
+            stem: super::Clip,
+            from: f32,
+            muted: bool,
+        ) -> bool {
             let at = (from.clamp(0.0, 1.0) * bed.len() as f32) as usize;
             let gain = if muted { 0.0 } else { 1.0 };
             self.with(|m| {
@@ -437,7 +527,7 @@ mod backend {
     fn the_master_level_scales_everything_and_eases() {
         let mut m = Mix {
             dial: (vec![0.2; 400], 0),
-            music: vec![0.2; 400],
+            music: Arc::new(vec![0.2; 400]),
             looping: true,
             voices: vec![(Arc::new(vec![0.2; 400]), 0)],
             ramp: 0.1,
@@ -458,7 +548,7 @@ mod backend {
         assert!(h.music.is_empty() && h.voices.is_empty() && h.dial.0.is_empty());
         // A fresh mix is at full: whatever it's given is heard.
         let mut fresh = Mix {
-            music: vec![0.2; 4],
+            music: Arc::new(vec![0.2; 4]),
             ..Mix::default()
         };
         assert!((fresh.next() - 0.2).abs() < 1e-6);
@@ -620,7 +710,13 @@ mod backend {
             self.playing.extend(self.start(&samples));
         }
 
-        fn music_loop(&mut self, bed: Vec<f32>, stem: Vec<f32>, from: f32, muted: bool) -> bool {
+        fn music_loop(
+            &mut self,
+            bed: super::Clip,
+            stem: super::Clip,
+            from: f32,
+            muted: bool,
+        ) -> bool {
             self.stop_music();
             if bed.is_empty() {
                 return false;
@@ -712,7 +808,7 @@ mod tests {
             self.said
                 .push(if s.is_empty() { "stop" } else { "tune" }.into());
         }
-        fn music_loop(&mut self, bed: Vec<f32>, stem: Vec<f32>, from: f32, muted: bool) -> bool {
+        fn music_loop(&mut self, bed: Clip, stem: Clip, from: f32, muted: bool) -> bool {
             assert_eq!(bed.len(), stem.len(), "the stem keeps step with the bed");
             if self.refuse > 0 {
                 self.refuse -= 1;
@@ -884,6 +980,49 @@ mod tests {
         let mut s = Speaker::<Log>::new(true);
         settle(&mut s, &at(&t, false, 0));
         assert_eq!(said(&mut s), ["loop from 0 muted false"]);
+    }
+
+    #[test]
+    fn it_hears_what_it_plays_and_nothing_when_it_s_off() {
+        let t = tune();
+        let mut s = Speaker::<Log>::new(true);
+        assert!(s.listen(64).iter().all(|v| *v == 0.0), "nothing open yet");
+        settle(&mut s, &at(&t, false, 0));
+        s.out.as_mut().unwrap().place = 0.5;
+        let loud = |w: &[f32]| w.iter().map(|v| v.abs()).sum::<f32>();
+        let both = s.listen(256);
+        assert_eq!(both.len(), 256);
+        assert!(loud(&both) > 0.0, "the loop is heard");
+        // The drop step takes the stem out of what's heard too.
+        s.run_music(&at(&t, true, 0));
+        let bed = s.listen(256);
+        assert_ne!(bed, both);
+        // The master level scales it.
+        s.set_volume(0.5);
+        let half = s.listen(256);
+        assert!(
+            bed.iter()
+                .zip(&half)
+                .all(|(a, b)| (a * 0.5 - b).abs() < 1e-6)
+        );
+        // A cue is heard from when it started until it's done.
+        s.stop_music();
+        assert!(s.listen(64).iter().all(|v| *v == 0.0), "the loop stopped");
+        let d = ninsei_core::Data::builtin().unwrap();
+        let pack = d.sound_pack("ono").unwrap();
+        s.tick(10.0);
+        s.cue(Cue::Hit, "ono", pack);
+        s.tick(10.02);
+        assert!(loud(&s.listen(64)) > 0.0, "the cue");
+        s.tick(20.0);
+        assert!(s.heard.is_empty(), "a finished cue is forgotten");
+        assert!(s.listen(64).iter().all(|v| *v == 0.0));
+        // Sound off: silence, whatever was playing.
+        s.tick(30.0);
+        s.cue(Cue::Hit, "ono", pack);
+        s.tick(30.02);
+        s.set_on(false);
+        assert!(s.listen(64).iter().all(|v| *v == 0.0));
     }
 
     #[test]

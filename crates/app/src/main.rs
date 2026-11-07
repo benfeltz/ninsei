@@ -1250,6 +1250,7 @@ impl eframe::App for App {
         let dt = ctx.input(|i| i.stable_dt).min(0.1);
         self.screen = self.screen.tick(dt);
         self.home.drop_closed_intros(ctx.cumulative_pass_nr());
+        self.speaker.tick(ctx.input(|i| i.time));
         self.sync_sound();
         // The run's sound cues: whatever happened since last frame, played together.
         // The deck's firmware picks the sound pack.
@@ -1546,6 +1547,15 @@ impl App {
         }
 
         fit_tools(&mut self.dock, &self.game);
+        // The vis pane's samples: only taken while it's in the layout, and it keeps moving
+        // while it's on screen.
+        let scope = if self.dock.find_tab(&Tab::Vis).is_some() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(vispane::FRAME_MS));
+            self.speaker.listen(vispane::WINDOW)
+        } else {
+            Vec::new()
+        };
+        let scope_rate = self.speaker.rate().unwrap_or(0);
         let mut panes = Panes {
             game: &self.game,
             pal,
@@ -1564,8 +1574,8 @@ impl App {
             keep_room: (self.save.stash_cap(&self.data.rig) as usize)
                 .saturating_sub(self.save.stash.len()),
             suite: &mut self.suite,
-            scope: &[],
-            scope_rate: 0,
+            scope: &scope,
+            scope_rate,
             out: Vec::new(),
         };
         egui::CentralPanel::default()

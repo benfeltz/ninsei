@@ -49,6 +49,11 @@ pub fn trace_points(samples: &[f32], width: usize) -> Vec<f32> {
         .collect()
 }
 
+/// Samples the pane is handed each frame: a power of two, for the spectrum.
+pub const WINDOW: usize = 2048;
+/// How often it redraws while it's on screen.
+pub const FRAME_MS: u64 = 33;
+
 /// How much a trace is magnified: run music peaks around 0.3.
 pub const TRACE_GAIN: f32 = 3.0;
 
