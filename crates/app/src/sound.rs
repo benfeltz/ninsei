@@ -356,6 +356,7 @@ impl<O: Output> Speaker<O> {
 
 #[cfg(not(target_arch = "wasm32"))]
 mod backend {
+    use std::sync::atomic::{AtomicU32, Ordering};
     use std::sync::{Arc, Mutex};
 
     use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
@@ -399,6 +400,11 @@ mod backend {
     }
 
     impl Mix {
+        /// How far through the music it is, 0-1.
+        fn place(&self) -> f32 {
+            self.at as f32 / self.music.len().max(1) as f32
+        }
+
         /// Nothing playing, at the same level.
         fn hushed(&self) -> Mix {
             Mix {
@@ -433,6 +439,9 @@ mod backend {
 
     pub struct Out {
         mix: Arc<Mutex<Mix>>,
+        /// How far through the music it is (0-1, as f32 bits): the callback writes it once a
+        /// buffer, so reading it never waits on the mix's lock.
+        place: Arc<AtomicU32>,
         rate: u32,
         _stream: cpal::Stream,
     }
@@ -440,6 +449,15 @@ mod backend {
     impl Out {
         fn with<R>(&self, f: impl FnOnce(&mut Mix) -> R) -> Option<R> {
             self.mix.lock().ok().map(|mut m| f(&mut m))
+        }
+
+        /// Sets the music and its place together (the place the callback will next report).
+        fn set_music(&self, f: impl FnOnce(&mut Mix)) -> bool {
+            self.with(|m| {
+                f(m);
+                self.place.store(m.place().to_bits(), Ordering::Relaxed);
+            })
+            .is_some()
         }
     }
 
@@ -453,15 +471,18 @@ mod backend {
                 ramp: 1.0 / (0.01 * rate as f32).max(1.0),
                 ..Mix::default()
             }));
+            let place = Arc::new(AtomicU32::new(0));
+            let (m, p) = (mix.clone(), place.clone());
             let stream = match config.sample_format() {
-                cpal::SampleFormat::F32 => stream::<f32>(&device, &config.into(), mix.clone()),
-                cpal::SampleFormat::I16 => stream::<i16>(&device, &config.into(), mix.clone()),
-                cpal::SampleFormat::U16 => stream::<u16>(&device, &config.into(), mix.clone()),
+                cpal::SampleFormat::F32 => stream::<f32>(&device, &config.into(), m, p),
+                cpal::SampleFormat::I16 => stream::<i16>(&device, &config.into(), m, p),
+                cpal::SampleFormat::U16 => stream::<u16>(&device, &config.into(), m, p),
                 _ => None,
             }?;
             stream.play().ok()?;
             Some(Self {
                 mix,
+                place,
                 rate,
                 _stream: stream,
             })
@@ -476,7 +497,7 @@ mod backend {
         }
 
         fn music(&mut self, samples: Vec<f32>) {
-            self.with(|m| {
+            self.set_music(|m| {
                 (m.music, m.stem, m.at, m.looping) =
                     (Arc::new(samples), Arc::new(Vec::new()), 0, false);
             });
@@ -491,16 +512,14 @@ mod backend {
         ) -> bool {
             let at = (from.clamp(0.0, 1.0) * bed.len() as f32) as usize;
             let gain = if muted { 0.0 } else { 1.0 };
-            self.with(|m| {
+            self.set_music(|m| {
                 (m.music, m.stem, m.at, m.looping) = (bed, stem, at, true);
                 (m.stem_gain, m.stem_to) = (gain, gain);
             })
-            .is_some()
         }
 
         fn music_place(&self) -> f32 {
-            self.with(|m| m.at as f32 / m.music.len().max(1) as f32)
-                .unwrap_or(0.0)
+            f32::from_bits(self.place.load(Ordering::Relaxed))
         }
 
         fn mute_stem(&mut self, muted: bool) {
@@ -557,12 +576,15 @@ mod backend {
             ..Mix::default()
         };
         assert!((fresh.next() - 0.2).abs() < 1e-6);
+        // The place the callback publishes for music_place: how far through the music.
+        assert_eq!(fresh.place(), 0.25);
     }
 
     fn stream<T: SizedSample + FromSample<f32>>(
         device: &cpal::Device,
         config: &cpal::StreamConfig,
         mix: Arc<Mutex<Mix>>,
+        place: Arc<AtomicU32>,
     ) -> Option<cpal::Stream> {
         let channels = config.channels as usize;
         device
@@ -576,6 +598,7 @@ mod backend {
                             *out = T::from_sample(s);
                         }
                     }
+                    place.store(m.place().to_bits(), Ordering::Relaxed);
                 },
                 |_| {},
                 None,
