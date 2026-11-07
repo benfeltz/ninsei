@@ -1064,24 +1064,21 @@ impl Panes<'_> {
                 let rows = [
                     (
                         "OUTPUT LEVEL",
-                        crate::vispane::db_text(level),
+                        scope::db_text(level),
                         "average (RMS)",
                         false,
                     ),
                     (
                         "PEAK",
-                        crate::vispane::db_text(pk),
+                        scope::db_text(pk),
                         "loudest sample",
-                        scope::db(pk) > -3.0,
+                        scope::clipping(pk),
                     ),
                 ];
                 form(ui, &p, "suite-vis-form", &rows);
                 heading(ui, &p, "LEVEL BY BAND (Hz)");
                 let labels: Vec<String> = (0..SUITE_BANDS)
-                    .map(|b| {
-                        let lo = scope::bar_range(b, SUITE_BANDS, rate.max(1)).0;
-                        format!("{:>5}", crate::vispane::hz_text(lo))
-                    })
+                    .map(|b| format!("{:>5}", scope::band_label(b, SUITE_BANDS, rate)))
                     .collect();
                 let rows: Vec<(&str, u32, u32, bool)> = labels
                     .iter()

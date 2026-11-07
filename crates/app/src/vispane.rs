@@ -19,7 +19,7 @@ pub fn trace(ui: &mut Ui, p: &Palette, samples: &[f32]) {
         [pos2(rect.left(), mid), pos2(rect.right(), mid)],
         Stroke::new(1.0, p.faint),
     );
-    let points = trace_points(samples, rect.width() as usize);
+    let points = scope::trace(samples, rect.width() as usize);
     if points.iter().all(|v| *v == 0.0) {
         return;
     }
@@ -32,33 +32,10 @@ pub fn trace(ui: &mut Ui, p: &Palette, samples: &[f32]) {
     painter.add(egui::Shape::line(line, Stroke::new(1.0, p.fg)));
 }
 
-/// `samples` cut to `width` points, one per pixel column (each the column's loudest swing, so
-/// a narrow pane never hides a peak). Scaled so a run tune fills the pane without clipping.
-pub fn trace_points(samples: &[f32], width: usize) -> Vec<f32> {
-    if width == 0 || samples.is_empty() {
-        return vec![0.0; width];
-    }
-    (0..width)
-        .map(|x| {
-            let a = x * samples.len() / width;
-            let b = ((x + 1) * samples.len() / width)
-                .max(a + 1)
-                .min(samples.len());
-            let s = &samples[a..b];
-            let hi = s.iter().copied().fold(0.0f32, f32::max);
-            let lo = s.iter().copied().fold(0.0f32, f32::min);
-            (if hi >= -lo { hi } else { lo }) * TRACE_GAIN
-        })
-        .collect()
-}
-
 /// Samples the pane is handed each frame: a power of two, for the spectrum.
 pub const WINDOW: usize = 2048;
 /// How often it redraws while it's on screen.
 pub const FRAME_MS: u64 = 33;
-
-/// How much a trace is magnified: run music peaks around 0.3.
-pub const TRACE_GAIN: f32 = 3.0;
 
 /// `n` spectrum bars of `samples` as a meter shows them: jumping up at once and falling slowly
 /// (`scope::ballistics`), remembered under `id` between frames. While a bar is still falling
@@ -100,41 +77,9 @@ pub fn held(ui: &Ui, id: &str, value: f32) -> f32 {
     shown
 }
 
-/// A level in dB for a readout: `-12.0 dB`, or dashes in silence.
-pub fn db_text(x: f32) -> String {
-    let d = scope::db(x);
-    if d <= scope::FLOOR_DB {
-        "  --- dB".into()
-    } else {
-        format!("{d:>5.1} dB")
-    }
-}
-
-/// A frequency for a band's label: `250`, `1.2k`.
-pub fn hz_text(hz: f32) -> String {
-    if hz >= 1000.0 {
-        format!("{:.1}k", hz / 1000.0)
-    } else {
-        format!("{hz:.0}")
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_trace_keeps_its_peaks_and_lies_flat_in_silence() {
-        assert_eq!(trace_points(&[], 4), [0.0; 4]);
-        assert_eq!(trace_points(&[0.0; 100], 4), [0.0; 4]);
-        let mut s = vec![0.0; 100];
-        s[10] = 0.1;
-        s[60] = -0.2;
-        let t = trace_points(&s, 4);
-        assert!((t[0] - 0.3).abs() < 1e-6, "{t:?}");
-        assert!((t[2] + 0.6).abs() < 1e-6, "{t:?}");
-        assert_eq!(trace_points(&s, 400).len(), 400, "wider than the samples");
-    }
 
     #[test]
     fn a_readout_holds_its_number() {
@@ -147,17 +92,6 @@ mod tests {
         h.wait(0.2);
         h.frame(Vec::new(), |ui| got.push(held(ui, "r", 0.4)));
         assert_eq!(got[3], 0.4, "a quarter second on: a new reading");
-    }
-
-    #[test]
-    fn readouts_in_the_meter_s_words() {
-        assert_eq!(db_text(0.0), "  --- dB");
-        assert_eq!(db_text(0.5), " -6.0 dB");
-        assert_eq!(db_text(1.0), "  0.0 dB");
-        assert_eq!(
-            (hz_text(60.0), hz_text(1234.0)),
-            ("60".into(), "1.2k".into())
-        );
     }
 
     #[test]
@@ -231,12 +165,5 @@ mod tests {
         assert!(quiet.find("[   --- dB ]").is_some(), "{:?}", quiet.texts());
         let loud = pane(Chrome::Suite, &tone);
         assert!(loud.find("[ -13.5 dB ]").is_some(), "{:?}", loud.texts());
-    }
-
-    #[test]
-    fn btop_lights_whole_cells() {
-        use crate::btop::vis_cells;
-        assert_eq!(vis_cells(&[0.0, 0.5, 1.0, 1.4], 8), [0, 4, 8, 8]);
-        assert_eq!(vis_cells(&[0.06], 8), [0], "under half a cell is dark");
     }
 }

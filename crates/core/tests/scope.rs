@@ -1,7 +1,8 @@
 //! The vis pane's maths: a tone peaks in its own bar, silence is empty, levels are right.
 
 use ninsei_core::scope::{
-    FALL_PER_SEC, FLOOR_DB, ballistics, bar_of, bar_range, db, height, level, peak, spectrum,
+    CLIP_DB, FALL_PER_SEC, FLOOR_DB, NOMINAL_RATE, ballistics, band_label, bar_of, bar_range,
+    cells_lit, clipping, db, db_at, db_text, height, hz_text, level, peak, spectrum, trace,
 };
 
 const RATE: u32 = 48_000;
@@ -99,4 +100,54 @@ fn bars_jump_up_and_fall_slowly() {
     }
     assert_eq!(s, [0.2]);
     assert_eq!(ballistics(&[], &[0.5], 0.1), [0.5]);
+}
+
+#[test]
+fn readouts_in_the_meter_s_words() {
+    assert_eq!(db_text(0.0), "  --- dB");
+    assert_eq!(db_text(0.5), " -6.0 dB");
+    assert_eq!(db_text(1.0), "  0.0 dB");
+    assert!(
+        [0.001, 0.2, 0.9]
+            .iter()
+            .all(|x| db_text(*x).chars().count() == 8)
+    );
+    assert_eq!(
+        (hz_text(60.0), hz_text(1234.0)),
+        ("60".into(), "1.2k".into())
+    );
+    // Close to clipping from -3 dB up.
+    assert!(clipping(1.0) && clipping(10f32.powf(CLIP_DB / 20.0)));
+    assert!(!clipping(0.5));
+    // A meter height and its dB are two views of one level.
+    assert_eq!((db_at(0.0), db_at(1.0), db_at(0.5)), (FLOOR_DB, 0.0, -30.0));
+}
+
+#[test]
+fn bands_are_labelled_the_same_with_no_output() {
+    let at = |rate| (0..8).map(|b| band_label(b, 8, rate)).collect::<Vec<_>>();
+    assert_eq!(at(0), at(NOMINAL_RATE), "sound off: the same bands");
+    let labels = at(0);
+    assert_eq!(labels[0], "60");
+    let distinct: std::collections::HashSet<_> = labels.iter().collect();
+    assert_eq!(distinct.len(), 8, "{labels:?}");
+}
+
+#[test]
+fn bars_light_whole_cells() {
+    assert_eq!(cells_lit(&[0.0, 0.5, 1.0, 1.4], 8), [0, 4, 8, 8]);
+    assert_eq!(cells_lit(&[0.06], 8), [0], "under half a cell is dark");
+}
+
+#[test]
+fn a_trace_keeps_its_peaks_and_lies_flat_in_silence() {
+    assert_eq!(trace(&[], 4), [0.0; 4]);
+    assert_eq!(trace(&[0.0; 100], 4), [0.0; 4]);
+    let mut s = vec![0.0; 100];
+    s[10] = 0.1;
+    s[60] = -0.2;
+    let t = trace(&s, 4);
+    assert!((t[0] - 0.3).abs() < 1e-6, "{t:?}");
+    assert!((t[2] + 0.6).abs() < 1e-6, "{t:?}");
+    assert_eq!(trace(&s, 400).len(), 400, "wider than the samples");
 }

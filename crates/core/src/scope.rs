@@ -12,6 +12,14 @@ pub const FLOOR_DB: f32 = -60.0;
 /// the way a VU meter's needle does, so a frame-to-frame jump never flickers.
 pub const FALL_PER_SEC: f32 = 1.5;
 
+/// A peak at or above this many dB is close to clipping: a report flags it.
+pub const CLIP_DB: f32 = -3.0;
+/// The rate band labels are worked out at when there's no output to ask (sound off, no
+/// device): the bands are the same ones either way.
+pub const NOMINAL_RATE: u32 = 48_000;
+/// How much a scope trace is magnified: run music peaks around 0.3.
+pub const TRACE_GAIN: f32 = 3.0;
+
 /// `x` in dB below full scale, floored at [`FLOOR_DB`].
 pub fn db(x: f32) -> f32 {
     if x <= 0.0 {
@@ -93,6 +101,68 @@ pub fn spectrum(samples: &[f32], rate: u32, bars: usize) -> Vec<f32> {
                 amp((((lo + hi) / 2.0 / hz).round() as usize).min(n / 2))
             };
             height(db(loudest))
+        })
+        .collect()
+}
+
+/// Whether a peak is close to clipping.
+pub fn clipping(peak: f32) -> bool {
+    db(peak) >= CLIP_DB
+}
+
+/// A level for a readout: `-12.0 dB`, or dashes in silence. Always 8 characters wide.
+pub fn db_text(x: f32) -> String {
+    let d = db(x);
+    if d <= FLOOR_DB {
+        "  --- dB".into()
+    } else {
+        format!("{d:>5.1} dB")
+    }
+}
+
+/// A frequency for a band's label: `250`, `1.2k`.
+pub fn hz_text(hz: f32) -> String {
+    if hz >= 1000.0 {
+        format!("{:.1}k", hz / 1000.0)
+    } else {
+        format!("{hz:.0}")
+    }
+}
+
+/// Bar `bar`'s label: where its band starts, at `rate` (or [`NOMINAL_RATE`] with none).
+pub fn band_label(bar: usize, bars: usize, rate: u32) -> String {
+    let rate = if rate == 0 { NOMINAL_RATE } else { rate };
+    hz_text(bar_range(bar, bars, rate).0)
+}
+
+/// How many cells each bar lights in a column `rows` tall: whole cells only.
+pub fn cells_lit(bars: &[f32], rows: usize) -> Vec<usize> {
+    bars.iter()
+        .map(|b| (b.clamp(0.0, 1.0) * rows as f32).round() as usize)
+        .collect()
+}
+
+/// The dB a meter height stands for (the inverse of [`height`]).
+pub fn db_at(height: f32) -> f32 {
+    FLOOR_DB * (1.0 - height.clamp(0.0, 1.0))
+}
+
+/// `samples` cut to `width` points for a scope trace, one per column (each the column's
+/// loudest swing, so a narrow trace never hides a peak), magnified by [`TRACE_GAIN`].
+pub fn trace(samples: &[f32], width: usize) -> Vec<f32> {
+    if width == 0 || samples.is_empty() {
+        return vec![0.0; width];
+    }
+    (0..width)
+        .map(|x| {
+            let a = x * samples.len() / width;
+            let b = ((x + 1) * samples.len() / width)
+                .max(a + 1)
+                .min(samples.len());
+            let s = &samples[a..b];
+            let hi = s.iter().copied().fold(0.0f32, f32::max);
+            let lo = s.iter().copied().fold(0.0f32, f32::min);
+            (if hi >= -lo { hi } else { lo }) * TRACE_GAIN
         })
         .collect()
 }
