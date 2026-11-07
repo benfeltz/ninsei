@@ -885,15 +885,12 @@ pub fn vis_box(ui: &mut Ui, p: &Palette, samples: &[f32], rate: u32) {
         let bars = crate::vispane::bars(ui, "btop-vis", samples, rate, n);
         let painter = ui.painter_at(area);
         let left = (c.cols - (n * 2 - 1).min(c.cols)) / 2;
-        for (i, lit) in ninsei_core::scope::cells_lit(&bars, c.rows)
-            .into_iter()
-            .enumerate()
-        {
-            for r in 0..lit {
-                let k = (r as f32 + 1.0) / c.rows as f32;
-                let cell = c.at(left + i * 2, c.rows - 1 - r, 1, 1);
-                painter.rect_filled(cell.shrink2(vec2(0.0, c.ch * 0.1)), 0.0, ramp(p, k));
-            }
+        let colours: Vec<Color32> = (0..c.rows)
+            .map(|r| ramp(p, (r as f32 + 1.0) / c.rows as f32))
+            .collect();
+        let lit = ninsei_core::scope::cells_lit(&bars, c.rows);
+        for (i, on) in lit.into_iter().enumerate() {
+            c.meter_up(&painter, left + i * 2, c.rows - 1, c.rows, on, &colours);
         }
         ui.allocate_rect(area, Sense::hover());
     });

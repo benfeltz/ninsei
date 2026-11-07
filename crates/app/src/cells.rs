@@ -215,6 +215,40 @@ impl Cells {
         }
     }
 
+    /// A btop meter standing up: `h` cells in column `c` rising from row `bottom`, `on` of
+    /// them lit along the `ramp` from the bottom, the rest drawn as empty cells, as
+    /// [`Cells::meter`] does lying down.
+    pub fn meter_up(
+        &self,
+        p: &Painter,
+        c: usize,
+        bottom: usize,
+        h: usize,
+        on: usize,
+        ramp: &[Color32],
+    ) {
+        for i in 0..h.min(bottom + 1) {
+            let cell = self
+                .at(c, bottom - i, 1, 1)
+                .shrink2(vec2(self.cw * 0.12, self.ch * 0.22));
+            if i < on {
+                let k = if h <= 1 {
+                    ramp.len() - 1
+                } else {
+                    i * (ramp.len() - 1) / (h - 1)
+                };
+                p.rect_filled(cell, 0.0, ramp[k]);
+            } else {
+                p.rect_stroke(
+                    cell,
+                    0.0,
+                    Stroke::new(1.0, self.empty),
+                    egui::StrokeKind::Inside,
+                );
+            }
+        }
+    }
+
     /// A btop meter: `w` cells, `on` of them lit along the `ramp` (faint → bright), the rest
     /// drawn as empty cells.
     pub fn meter(&self, p: &Painter, c: usize, r: usize, w: usize, on: usize, ramp: &[Color32]) {
