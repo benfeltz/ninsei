@@ -1271,33 +1271,36 @@ pub(crate) mod tests {
         crate::uitest::themed(&h.ctx, &data);
         let mut list = crate::kit::List::default();
         // One frame; returns the wheel left over once the list has drawn.
-        let frame = |h: &mut Harness, list: &mut crate::kit::List, events| {
+        let frame = |h: &mut Harness, list: &mut crate::kit::List, events, wheel_on| {
             let mut left = 0.0;
             h.frame(events, |ui| {
-                hubtools::list_box(ui, 200.0, 40, list, None, |ui, i| {
+                hubtools::list_box(ui, 200.0, 40, list, None, wheel_on, |ui, i| {
                     ui.label(format!("row {i}"));
                 });
                 left = ui.input(|i| i.smooth_scroll_delta.y);
             });
             left
         };
-        frame(
-            &mut h,
-            &mut list,
-            vec![egui::Event::PointerMoved(pos2(100.0, 50.0))],
-        );
+        let over = || vec![egui::Event::PointerMoved(pos2(100.0, 50.0))];
+        frame(&mut h, &mut list, over(), true);
         let wheel = vec![egui::Event::MouseWheel {
             unit: egui::MouseWheelUnit::Line,
             delta: vec2(0.0, -3.0),
             modifiers: egui::Modifiers::NONE,
             phase: egui::TouchPhase::Move,
         }];
-        let mut left = frame(&mut h, &mut list, wheel);
+        let mut left = frame(&mut h, &mut list, wheel.clone(), true);
         for _ in 0..10 {
             assert_eq!(left, 0.0, "the list left some wheel for the tool");
-            left = frame(&mut h, &mut list, Vec::new());
+            left = frame(&mut h, &mut list, Vec::new(), true);
         }
         assert!(list.top > 0, "and scrolled itself");
+        // A read-only list (the dialing sidebar) leaves the wheel to the tool.
+        let mut still = crate::kit::List::default();
+        frame(&mut h, &mut still, over(), false);
+        let left = frame(&mut h, &mut still, wheel, false);
+        assert!(left != 0.0, "the wheel is the tool's");
+        assert_eq!(still.top, 0);
     }
 
     /// Widgets that reach past `rect`'s sides: what it would cut. (Faces scroll, so below

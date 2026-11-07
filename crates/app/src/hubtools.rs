@@ -381,14 +381,15 @@ pub(crate) fn rows_in(height: f32, pitch: f32, gap: f32) -> usize {
 
 /// The list's box: an outline around as many whole rows as fit in `height`, so a short list
 /// still reads as a list. It scrolls a row at a time through `list` (the kit's window, by
-/// core's scroll rule), following `follow` when given; the wheel over its rows scrolls it
-/// (from the next frame). `row` draws item `i`. Returns the rows it shows.
+/// core's scroll rule), following `follow` when given; with `wheel`, the wheel over its rows
+/// scrolls it (from the next frame), and a read-only list leaves the wheel to the tool. `row` draws item `i`. Returns the rows it shows.
 pub(crate) fn list_box(
     ui: &mut Ui,
     height: f32,
     len: usize,
     list: &mut crate::kit::List,
     follow: Option<usize>,
+    wheel: bool,
     mut row: impl FnMut(&mut Ui, usize),
 ) -> usize {
     let (pitch, gap) = row_pitch(ui);
@@ -405,7 +406,7 @@ pub(crate) fn list_box(
             // The wheel, in rows, and only over the rows it drew: the card and footer under it
             // are the tool's. egui hands the wheel out smoothed over a few frames; the list
             // takes each frame's share and leaves none for the tool's own scroll area.
-            if ui.rect_contains_pointer(ui.min_rect()) {
+            if wheel && ui.rect_contains_pointer(ui.min_rect()) {
                 let delta = ui.input(|i| i.smooth_scroll_delta.y);
                 if delta != 0.0 {
                     list.wheel(delta / pitch);
@@ -541,21 +542,29 @@ pub fn carrierterm(
         // The window follows the pick when the arrows move it; otherwise it stays where the
         // wheel left it.
         let follow = if moved { at(*sel) } else { None };
-        let rows = list_box(ui, height, shown.len().max(1), view, follow, |ui, i| {
-            let Some(l) = shown.get(i) else {
-                ui.label(dim("Nothing matches."));
-                return;
-            };
-            let on = *sel == Some(l.key);
-            let r = dir_row(ui, line(&l.number, &l.name, &l.listed_as), on, true);
-            if r.clicked() {
-                *sel = Some(l.key);
-                refocus = true;
-            }
-            if r.double_clicked() {
-                go = Some(l.key);
-            }
-        });
+        let rows = list_box(
+            ui,
+            height,
+            shown.len().max(1),
+            view,
+            follow,
+            true,
+            |ui, i| {
+                let Some(l) = shown.get(i) else {
+                    ui.label(dim("Nothing matches."));
+                    return;
+                };
+                let on = *sel == Some(l.key);
+                let r = dir_row(ui, line(&l.number, &l.name, &l.listed_as), on, true);
+                if r.clicked() {
+                    *sel = Some(l.key);
+                    refocus = true;
+                }
+                if r.double_clicked() {
+                    go = Some(l.key);
+                }
+            },
+        );
         let total = directory::listings(save, data).len();
         let keys = if searching {
             "↑↓ choose  ·  Enter dial"
@@ -708,18 +717,26 @@ fn dialing_view(
                 let dialed = shown.iter().position(|l| l.key == Listed::Entry(d.entry));
                 // Read-only: the window just keeps the dialed number in view.
                 let mut view = crate::kit::List::default();
-                list_box(ui, height, shown.len(), &mut view, dialed, |ui, i| {
-                    let l = &shown[i];
-                    let name: String = l.name.chars().take(name_cols).collect();
-                    let g = " ".repeat(GUTTER);
-                    let on = l.key == Listed::Entry(d.entry);
-                    dir_row(
-                        ui,
-                        format!("{:<NUMBER_COLS$}{g}{name}", l.number),
-                        on,
-                        false,
-                    );
-                });
+                list_box(
+                    ui,
+                    height,
+                    shown.len(),
+                    &mut view,
+                    dialed,
+                    false,
+                    |ui, i| {
+                        let l = &shown[i];
+                        let name: String = l.name.chars().take(name_cols).collect();
+                        let g = " ".repeat(GUTTER);
+                        let on = l.key == Listed::Entry(d.entry);
+                        dir_row(
+                            ui,
+                            format!("{:<NUMBER_COLS$}{g}{name}", l.number),
+                            on,
+                            false,
+                        );
+                    },
+                );
             });
             ui.separator();
             ui.vertical(|ui| {
