@@ -827,6 +827,22 @@ mod minefield {
     }
 
     #[test]
+    fn a_flag_click_moves_the_cursor_like_a_click() {
+        let mut m = Minefield::new(2, 16, 16, 100);
+        m.step(Input::Flag { col: 3, row: 3 }, 0);
+        assert_eq!(m.cursor(), Some((3, 3)));
+        // Fire acts on the square just touched: here it's flagged, so it stays shut.
+        m.step(Input::Fire, 0);
+        assert!(!m.is_open(3, 3) && !m.is_open(8, 8));
+        m.step(Input::Flag { col: 99, row: 3 }, 0);
+        assert_eq!(
+            m.cursor(),
+            Some((3, 3)),
+            "a click off the field moves nothing"
+        );
+    }
+
+    #[test]
     fn the_keyboard_moves_a_cursor_that_stays_on_the_field() {
         let mut m = Minefield::new(2, 16, 16, 100);
         for _ in 0..40 {

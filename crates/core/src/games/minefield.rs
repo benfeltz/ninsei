@@ -168,13 +168,18 @@ impl Arcade for Minefield {
             Input::Right => self.cursor.0 = (x + 1).min(self.cols - 1),
             Input::Fire => self.reveal(x, y),
             Input::Alt => self.toggle_flag(x, y),
-            Input::Click { col, row } => {
-                if col < self.cols && row < self.rows {
-                    self.cursor = (col, row);
+            // A click on the field moves the cursor there too, so the keys carry on from
+            // the square you last touched.
+            Input::Click { col, row } | Input::Flag { col, row }
+                if col < self.cols && row < self.rows =>
+            {
+                self.cursor = (col, row);
+                if matches!(input, Input::Click { .. }) {
+                    self.reveal(col, row);
+                } else {
+                    self.toggle_flag(col, row);
                 }
-                self.reveal(col, row);
             }
-            Input::Flag { col, row } => self.toggle_flag(col, row),
             _ => {}
         }
         if self.laid && !self.over {
