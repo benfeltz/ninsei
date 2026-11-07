@@ -54,6 +54,9 @@ These are the numbers the kit draws to. Change them here and in `kit::workbench:
 | Bevel | a light edge top and left, a dark one bottom and right; reversed while pressed | 2px: `ink` top and left, `shadow` bottom and right; reversed while pressed or on |
 | Push button | a bevelled box, its label centred | 84×22 in requesters, `backdrop` face; pressed, an `accent` face with `shadow` text |
 | Toggle gadget (Preferences) | a bevelled box, filled when selected | the label in 13px with 9px either side and 5px above and below; `fill` face, `accent` when on |
+| Mutually exclusive choice | a row of toggle gadgets, the chosen one pressed in | the same (Preferences' decks, monitors, themes and damage glitches) |
+| Check box | a bevelled box | 16×14, raised on `fill` when off; pressed in on `accent` with a `shadow` check when on; the label 6px after |
+| Laid-out push button | | the label with 12px either side, 22px tall |
 
 ## Requester
 

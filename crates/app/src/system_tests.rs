@@ -993,3 +993,56 @@ fn disks_keys_stand_aside_while_the_panel_list_has_the_focus() {
     frame(&mut h, &d, &s, &mut st, key_at(Key::ArrowUp, over));
     assert_ne!(st.picked, first, "the arrow moved Disk's pick");
 }
+
+#[test]
+fn desktop_draws_workbench_controls_on_every_panel() {
+    let d = data();
+    let s = on_deck(&d, "hosaka");
+    assert_eq!(
+        s.firmware_def(&d).desktop,
+        ninsei_core::hardware::Desktop::Workbench
+    );
+    // Overview: no egui radio circles or check box ticks, only 1.3 gadgets.
+    let mut h = Harness::new(900.0, 700.0);
+    let mut st = SystemUi::default();
+    frame(&mut h, &d, &s, &mut st, Vec::new());
+    assert!(
+        !h.painted()
+            .iter()
+            .any(|sh| matches!(sh, egui::Shape::Circle(_))),
+        "a round radio button on Desktop"
+    );
+    // They still do their jobs.
+    let ev = press(&h, "Sound");
+    assert_eq!(frame(&mut h, &d, &s, &mut st, ev), [WbOut::Sound]);
+    for g in Glitches::ALL.into_iter().filter(|&g| g != s.glitches) {
+        let mut h = Harness::new(900.0, 700.0);
+        let mut st = SystemUi::default();
+        frame(&mut h, &d, &s, &mut st, Vec::new());
+        let ev = press(&h, g.label());
+        assert_eq!(frame(&mut h, &d, &s, &mut st, ev), [WbOut::Glitches(g)]);
+    }
+    // Disk's buttons are bevelled 1.3 push buttons.
+    let mut s = s;
+    stash(&d, &mut s, "torch", 7);
+    let mut h = Harness::new(900.0, 700.0);
+    let mut st = SystemUi {
+        panel: Panel::Disk,
+        ..SystemUi::default()
+    };
+    frame(&mut h, &d, &s, &mut st, Vec::new());
+    let ev = press(&h, &file_of(&d, &s, &Disk::Stash(7)));
+    frame(&mut h, &d, &s, &mut st, ev);
+    let install = h.find("Install ▸").expect("Install");
+    let bevelled = h.painted().iter().any(|sh| {
+        matches!(sh, egui::Shape::LineSegment { points, stroke }
+            if stroke.width == crate::kit::workbench::size::BEVEL
+                && points[0] == install.left_top())
+    });
+    assert!(bevelled, "Install is a 1.3 push button");
+    let ev = press(&h, "Install ▸");
+    assert_eq!(
+        frame(&mut h, &d, &s, &mut st, ev),
+        [WbOut::Install(Disk::Stash(7))]
+    );
+}

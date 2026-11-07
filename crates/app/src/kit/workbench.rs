@@ -52,6 +52,12 @@ pub mod size {
     pub const STRIPES_STEP: f32 = 3.0;
     /// A requester's margins: its first line down from the top, its buttons in from the sides.
     pub const REQUESTER_PAD: f32 = 6.0;
+    /// A laid-out push button's room either side of its label.
+    pub const BUTTON_PAD: f32 = 12.0;
+    /// A check box: its box (a hires square, twice as wide as a pixel is tall) and the gap to
+    /// its label.
+    pub const CHECK: [f32; 2] = [16.0, 14.0];
+    pub const CHECK_GAP: f32 = 6.0;
     /// The dithered backdrop: a dot (one hires pixel, 1 across and 2 down), every `DITHER_STEP`
     /// across and down, alternate rows offset by half a step.
     pub const DITHER_DOT: [f32; 2] = [1.0, 2.0];
@@ -323,6 +329,57 @@ pub fn requester(
     out
 }
 
+/// A push button laid out in `ui`: as wide as its label and its room, a requester button's
+/// height. Disabled when `ui` is.
+pub fn push_button(ui: &mut Ui, label: &str, look: &Look) -> Response {
+    let text = ui
+        .painter()
+        .layout_no_wrap(label.to_string(), look.font.clone(), look.ink)
+        .size()
+        .x;
+    let want = vec2((text + 2.0 * size::BUTTON_PAD).ceil(), size::BUTTON[1]);
+    let (r, _) = ui.allocate_exact_size(want, Sense::hover());
+    let id = ui.id().with(("push", label));
+    let live = ui.is_enabled();
+    button(ui, ui.painter(), r, id, label, live, look)
+}
+
+/// A check box laid out in `ui`: a bevelled box, pressed in with a check in it when on, and its
+/// label after. A click flips `on`, and the response says it changed.
+pub fn check_box(ui: &mut Ui, on: &mut bool, label: &str, look: &Look) -> Response {
+    let g = ui
+        .painter()
+        .layout_no_wrap(label.to_string(), look.font.clone(), look.ink);
+    let [bw, bh] = size::CHECK;
+    let want = vec2(bw + size::CHECK_GAP + g.size().x, g.size().y.max(bh)).ceil();
+    let (r, mut resp) = ui.allocate_exact_size(want, Sense::click());
+    if resp.clicked() {
+        *on = !*on;
+        resp.mark_changed();
+    }
+    let (enabled, now) = (ui.is_enabled(), *on);
+    resp.widget_info(|| {
+        egui::WidgetInfo::selected(egui::WidgetType::Checkbox, enabled, now, label)
+    });
+    let p = ui.painter();
+    let b = Rect::from_min_size(
+        pos2(r.left(), r.center().y - bh / 2.0).round(),
+        vec2(bw, bh),
+    );
+    p.rect_filled(b, 0.0, if now { look.accent } else { look.fill });
+    bevel(p, b, !now, look);
+    if now {
+        // The check: a short stroke down, a long one up.
+        let c = |x: f32, y: f32| pos2(b.left() + x * bw, b.top() + y * bh);
+        let tick = Stroke::new(2.0, look.shadow);
+        p.line_segment([c(0.25, 0.5), c(0.45, 0.75)], tick);
+        p.line_segment([c(0.45, 0.75), c(0.8, 0.25)], tick);
+    }
+    let at = pos2(b.right() + size::CHECK_GAP, r.center().y - g.size().y / 2.0).round();
+    p.galley(at, g, look.ink);
+    resp
+}
+
 /// A toggle gadget laid out in `ui`: a chunky bevelled box round `label`, pressed in (an
 /// `accent` face) when `on`. Returns its response; clicked is the caller's to act on.
 pub fn toggle_gadget(ui: &mut Ui, label: &str, on: bool, look: &Look) -> Response {
@@ -332,8 +389,9 @@ pub fn toggle_gadget(ui: &mut Ui, label: &str, on: bool, look: &Look) -> Respons
         .layout_no_wrap(label.to_string(), font, look.ink);
     let want = galley.size() + vec2(size::GADGET_PAD[0], size::GADGET_PAD[1]);
     let (r, resp) = ui.allocate_exact_size(want, Sense::click());
+    let enabled = ui.is_enabled();
     resp.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, label)
+        egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, enabled, on, label)
     });
     let p = ui.painter();
     p.rect_filled(r, 0.0, if on { look.accent } else { look.fill });

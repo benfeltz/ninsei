@@ -135,7 +135,7 @@ impl Workbench {
             let (pos, size) = match kind {
                 Kind::Shell => (pos2(150.0, 300.0), vec2(600.0, 280.0)),
                 Kind::Terminal => (pos2(170.0, 40.0), vec2(720.0, 440.0)),
-                Kind::System => (pos2(200.0, 40.0), vec2(700.0, 500.0)),
+                Kind::System => (pos2(200.0, 40.0), vec2(700.0, 540.0)),
                 Kind::Rig => (pos2(170.0, 30.0), book_window()),
                 Kind::HexEd => (pos2(130.0, 36.0), vec2(800.0, 500.0)),
                 Kind::Qwk => (pos2(190.0, 46.0), vec2(700.0, 470.0)),

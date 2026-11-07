@@ -336,27 +336,30 @@ fn mac() -> crate::kit::liza::Look<'static> {
     }
 }
 
-/// A check box: the Mac's on Liza, egui's (in the theme) on Desktop.
+/// A check box: the Mac's on Liza, Workbench's on Desktop.
 fn check(ui: &mut Ui, look: Look, on: &mut bool, label: &str) -> egui::Response {
     match look {
         Look::Mac => crate::kit::liza::check_box(ui, on, label, &mac()),
-        Look::Amiga => ui.checkbox(on, label),
+        Look::Amiga => crate::kit::workbench::check_box(ui, on, label, &crate::workbench::look()),
     }
 }
 
-/// A push button: the Mac's on Liza, egui's on Desktop. Disabled when `ui` is.
+/// A push button: the Mac's on Liza, Workbench's on Desktop. Disabled when `ui` is.
 fn push(ui: &mut Ui, look: Look, label: &str) -> egui::Response {
     match look {
         Look::Mac => crate::kit::liza::push_button(ui, label, false, &mac()),
-        Look::Amiga => ui.button(label),
+        Look::Amiga => crate::kit::workbench::push_button(ui, label, &crate::workbench::look()),
     }
 }
 
-/// A radio button: the Mac's on Liza, egui's on Desktop.
+/// A radio button: the Mac's on Liza, a Workbench toggle gadget on Desktop.
 fn radio(ui: &mut Ui, look: Look, on: bool, label: &str) -> egui::Response {
     match look {
         Look::Mac => crate::kit::liza::radio(ui, on, label, &mac()),
-        Look::Amiga => ui.radio(on, label),
+        // 1.3's mutually exclusive choice: a row of toggle gadgets, the chosen one pressed in.
+        Look::Amiga => {
+            crate::kit::workbench::toggle_gadget(ui, label, on, &crate::workbench::look())
+        }
     }
 }
 
