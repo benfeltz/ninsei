@@ -17,14 +17,25 @@ use ninsei_core::hardware::Desktop;
 use ninsei_core::hub::Tool;
 
 use crate::home::{Cx, DesktopView, Home, WbOut, accent, backdrop, font, hint, ink, muted, shadow};
+use crate::kit::anarchy;
 
-/// Sizes, in one place.
-pub(crate) mod size {
-    pub const BAR_H: f32 = 26.0;
-    pub const GAP: f32 = 8.0;
-    pub const TITLE_H: f32 = 18.0;
-    pub const ROUND: f32 = 6.0;
-    pub const LAUNCHER: [f32; 2] = [460.0, 320.0];
+/// Sizes, in one place: the kit's (`docs/refs/anarchyos.md`).
+pub(crate) use crate::kit::anarchy::size;
+
+/// The desktop's look for the kit: the theme's colours and the app's type.
+fn look() -> anarchy::Look {
+    let mut visuals = egui::Visuals::dark();
+    crate::hubtools::wb_visuals(&mut visuals);
+    anarchy::Look {
+        backdrop: backdrop(),
+        shadow: shadow(),
+        ink: ink(),
+        accent: accent(),
+        muted: muted(),
+        font: font(),
+        small: FontId::new(12.0, FontFamily::Monospace),
+        visuals,
+    }
 }
 
 /// What the launcher lists.
@@ -219,7 +230,8 @@ impl DesktopView for TilingDesk {
             [bar.left_bottom(), bar.right_bottom()],
             Stroke::new(1.0, muted()),
         );
-        let small = FontId::new(12.0, FontFamily::Monospace);
+        let look = look();
+        let small = look.small.clone();
         let mut x = bar.left() + 8.0;
         for w in 0..t.workspaces.len() {
             let r = Rect::from_min_size(pos2(x, bar.top() + 4.0), vec2(22.0, size::BAR_H - 8.0));
@@ -344,22 +356,7 @@ impl DesktopView for TilingDesk {
             let i = t.tiles().iter().position(|x| *x == tool).unwrap_or(t.focus);
             let r = Rect::from_min_size(pos2(x, y), vec2(w, h));
             let on = i == t.focus;
-            painter.rect_filled(r, size::ROUND, backdrop());
-            painter.rect_stroke(
-                r,
-                size::ROUND,
-                Stroke::new(
-                    if on { 2.0 } else { 1.0 },
-                    if on { accent() } else { muted() },
-                ),
-                StrokeKind::Inside,
-            );
-            let label = format!(" {} ", tool.volume().to_lowercase());
-            let g =
-                painter.layout_no_wrap(label, small.clone(), if on { accent() } else { muted() });
-            let tr = Rect::from_min_size(r.min + vec2(12.0, -7.0), g.size());
-            painter.rect_filled(tr, 0.0, shadow());
-            painter.galley(tr.min, g, ink());
+            anarchy::tile(&painter, r, &tool.volume().to_lowercase(), on, &look);
             if live && clicked.is_some_and(|p| r.contains(p)) {
                 focus_to = Some(i);
             }
@@ -560,8 +557,7 @@ pub(crate) fn work_area(screen: Rect) -> Rect {
 /// Where a tool draws inside its tile `r`: under the label cut into the top border, inside
 /// the margins.
 pub(crate) fn content_of(r: Rect) -> Rect {
-    r.shrink2(vec2(10.0, 8.0))
-        .with_min_y(r.top() + size::TITLE_H - 4.0)
+    anarchy::tile_content(r)
 }
 
 /// The key help: a key (after the leader) and what it does.

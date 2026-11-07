@@ -6,6 +6,7 @@
 //! app is drawing it, it belongs in that app's renderer. New screens use the kit, and a
 //! touched screen moves onto it.
 
+pub mod anarchy;
 pub mod cells;
 pub mod fit;
 pub mod list;
