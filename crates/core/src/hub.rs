@@ -923,6 +923,17 @@ fn default_volume() -> u8 {
     100
 }
 
+/// A level in percent as the nearest notch of a control with `steps` notches above silent.
+pub fn volume_notch(pct: u32, steps: u32) -> u32 {
+    (pct.min(100) * steps + 50) / 100
+}
+
+/// The level in percent at notch `notch` of `steps` (past the top is full).
+pub fn notch_volume(notch: u32, steps: u32) -> u32 {
+    let steps = steps.max(1);
+    (notch.min(steps) * 100 + steps / 2) / steps
+}
+
 impl Default for Save {
     fn default() -> Self {
         Self {
@@ -998,13 +1009,12 @@ impl Save {
     /// The level as a notch on a control with `steps` notches above silent (a slider of
     /// 0-7, ten meter cells): the nearest one.
     pub fn volume_notch(&self, steps: u32) -> u32 {
-        (u32::from(self.volume.min(100)) * steps + 50) / 100
+        volume_notch(u32::from(self.volume), steps)
     }
 
     /// The level at notch `notch` of `steps` (past the top is full).
     pub fn set_volume_notch(&mut self, notch: u32, steps: u32) {
-        let steps = steps.max(1);
-        self.set_volume((notch.min(steps) * 100 + steps / 2) / steps);
+        self.set_volume(notch_volume(notch, steps));
     }
 
     /// Parses a save. Anything unreadable or from another version is an error;

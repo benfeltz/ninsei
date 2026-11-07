@@ -58,8 +58,12 @@ pub struct FrameCx<'a> {
     pub game: &'a Game,
     pub pal: Palette,
     pub suite: &'a mut crate::suite::State,
-    /// No modal (BBS, talk) has the keyboard.
+    /// No modal (BBS, talk, the sound pop-out) has the keyboard.
     pub keys_free: bool,
+    /// The sound switch and level, as the save has them.
+    pub level: crate::volume::Level,
+    /// The sound pop-out: open or not.
+    pub popup: &'a mut crate::volume::Popup,
 }
 
 pub trait ChromeView {
@@ -112,8 +116,10 @@ pub trait ChromeView {
     fn status(&self, _ui: &mut Ui, _pal: &Palette, _game: &Game) -> bool {
         false
     }
-    /// Extras on the classic status line (btop's sparklines).
-    fn status_extra(&self, _ui: &mut Ui, _pal: &Palette, _game: &Game) {}
+    /// Extras on the classic status line (btop's sparklines and its speaker).
+    fn status_extra(&self, _ui: &mut Ui, _cx: &mut FrameCx) -> Vec<Request> {
+        Vec::new()
+    }
     /// Whether it has a bar under the panes (the suite's F-key legend).
     fn has_legend(&self) -> bool {
         false
@@ -129,6 +135,15 @@ pub trait ChromeView {
     /// Drawn over everything after the panes (the suite's dialogs).
     fn overlay(&self, _ctx: &egui::Context, _cx: &mut FrameCx) -> Vec<Request> {
         Vec::new()
+    }
+    /// The sound pop-out while it's open: the level and the sound switch (`volume`). It owns
+    /// the keyboard.
+    fn sound(&self, ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
+        crate::volume::classic(ctx, cx)
+    }
+    /// The menu item that opens the sound pop-out.
+    fn sound_item(&self) -> &'static str {
+        "volume..."
     }
     /// The layout a firmware starts with; `extra` are the secondary panes it has.
     fn default_layout(&self, extra: &[Tab]) -> DockState<Tab> {
@@ -208,8 +223,12 @@ impl ChromeView for Btop {
             crate::netpane::live(ui, game, &pal);
         });
     }
-    fn status_extra(&self, ui: &mut Ui, pal: &Palette, game: &Game) {
-        crate::btop::status_sparks(ui, pal, game);
+    fn status_extra(&self, ui: &mut Ui, cx: &mut FrameCx) -> Vec<Request> {
+        crate::btop::status_sparks(ui, &cx.pal, cx.game);
+        crate::btop::speaker(ui, cx)
+    }
+    fn sound(&self, ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
+        crate::btop::sound_popup(ctx, cx)
     }
 }
 

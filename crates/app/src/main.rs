@@ -35,6 +35,7 @@ mod tigerteam_view;
 mod tiling;
 #[cfg(test)]
 mod uitest;
+mod volume;
 mod workbench;
 
 use egui::{Key, RichText};
@@ -270,6 +271,8 @@ struct App {
     talk: EncounterView,
     /// The suite chrome's sheet cursor, sort and dialogs.
     suite: suite::State,
+    /// The run screen's sound pop-out.
+    sound_popup: volume::Popup,
 }
 
 impl App {
@@ -349,6 +352,7 @@ impl App {
             hex_uid: 0,
             talk: EncounterView::default(),
             suite: suite::State::default(),
+            sound_popup: volume::Popup::default(),
             last_phase: game.phase,
             game,
             dock: default_layout(Chrome::Classic, &[]),
@@ -606,6 +610,7 @@ impl App {
         self.bbs = None;
         self.hex = None;
         self.talk = EncounterView::default();
+        self.sound_popup.close();
         self.term.clear();
         self.focus_input = true;
         self.booked = None;
@@ -812,6 +817,7 @@ impl App {
     fn go_home(&mut self) {
         self.book();
         self.bbs = None;
+        self.sound_popup.close();
         self.home.focus();
         self.screen = Screen::JackOut { t: 0.0 };
     }
@@ -982,7 +988,8 @@ impl App {
     fn hotkeys(&mut self, ctx: &egui::Context) -> Vec<Request> {
         let hex_typing = ctx.memory(|m| m.has_focus(hexview::grid_id()));
         let talking = self.game.encounter.is_some();
-        if self.bbs.is_some() || talking || hex_typing || ctx.egui_wants_keyboard_input() {
+        let modal = self.bbs.is_some() || talking || self.sound_popup.is_open();
+        if modal || hex_typing || ctx.egui_wants_keyboard_input() {
             return Vec::new();
         }
         let mut out = Vec::new();
@@ -1160,11 +1167,14 @@ impl App {
         }
     }
 
-    fn status_bar(&self, ui: &mut egui::Ui, pal: &theme::Palette) {
+    fn status_bar(&mut self, ui: &mut egui::Ui, pal: &theme::Palette) -> Vec<Request> {
+        let theme_label = self.run_theme_label();
+        let level = volume::Level::of(&self.save);
         let g = &self.game;
         let v = chrome::view(self.save.firmware_def(&self.data).chrome);
+        let mut out = Vec::new();
         if v.status(ui, pal, g) {
-            return;
+            return out;
         }
         let node = &g.net.nodes[g.at];
         ui.horizontal(|ui| {
@@ -1200,12 +1210,21 @@ impl App {
                 .color(pal.dim),
             );
             ui.label(RichText::new(format!("trace {}%", g.deck.trace)).color(pal.dim));
-            v.status_extra(ui, pal, g);
+            let mut cx = FrameCx {
+                game: g,
+                pal: *pal,
+                suite: &mut self.suite,
+                keys_free: true,
+                level,
+                popup: &mut self.sound_popup,
+            };
+            out.extend(v.status_extra(ui, &mut cx));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.label(RichText::new("UTF-8  LF  RUST").color(pal.dim));
-                ui.label(RichText::new(self.run_theme_label()).color(pal.dim));
+                ui.label(RichText::new(theme_label).color(pal.dim));
             });
         });
+        out
     }
 }
 
@@ -1461,13 +1480,17 @@ impl App {
             Vec::new()
         };
         let view = chrome::view(self.save.firmware_def(&self.data).chrome);
-        let keys_free = self.bbs.is_none() && self.game.encounter.is_none();
+        let keys_free =
+            self.bbs.is_none() && self.game.encounter.is_none() && !self.sound_popup.is_open();
+        let level = volume::Level::of(&self.save);
         if self.screen == Screen::Run {
             let mut cx = FrameCx {
                 game: &self.game,
                 pal,
                 suite: &mut self.suite,
                 keys_free,
+                level,
+                popup: &mut self.sound_popup,
             };
             requests.extend(view.keys(&ctx, &mut cx));
         }
@@ -1485,7 +1508,7 @@ impl App {
                     .fill(view.status_fill(&pal))
                     .inner_margin(egui::Margin::symmetric(6, 1)),
             )
-            .show(ui, |ui| self.status_bar(ui, &pal));
+            .show(ui, |ui| requests.extend(self.status_bar(ui, &pal)));
         if view.has_legend() {
             egui::Panel::bottom("legend")
                 .frame(
@@ -1499,6 +1522,8 @@ impl App {
                         pal,
                         suite: &mut self.suite,
                         keys_free,
+                        level,
+                        popup: &mut self.sound_popup,
                     };
                     requests.extend(view.legend(ui, &mut cx));
                 });
@@ -1514,8 +1539,10 @@ impl App {
             corrupt: self.glitch.corruption(),
             term: &mut self.term,
             focus_input: &mut self.focus_input,
-            // Any modal (BBS or talk) keeps the terminal from grabbing focus.
-            bbs_open: self.bbs.is_some() || self.game.encounter.is_some(),
+            // Any modal (BBS, talk, the sound pop-out) keeps the terminal from grabbing focus.
+            bbs_open: self.bbs.is_some()
+                || self.game.encounter.is_some()
+                || self.sound_popup.is_open(),
             hex: &mut self.hex,
             keep: &mut self.keep,
             keep_room: (self.save.stash_cap(&self.data.rig) as usize)
@@ -1576,14 +1603,25 @@ impl App {
             }
         }
 
-        // The chrome's overlay (the suite's dialogs) sits over everything.
+        // The chrome's overlay (the suite's dialogs) sits over everything, and the sound
+        // pop-out over that.
         let mut cx = FrameCx {
             game: &self.game,
             pal,
             suite: &mut self.suite,
             keys_free,
+            level: volume::Level::of(&self.save),
+            popup: &mut self.sound_popup,
         };
-        for r in view.overlay(&ctx, &mut cx) {
+        let mut over = view.overlay(&ctx, &mut cx);
+        if cx.popup.is_open() {
+            over.extend(view.sound(&ctx, &mut cx));
+            if !cx.popup.is_open() {
+                // Closed: the command line has the keys again.
+                self.focus_input = true;
+            }
+        }
+        for r in over {
             self.handle(&ctx, r);
         }
 

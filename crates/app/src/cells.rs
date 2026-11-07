@@ -36,8 +36,7 @@ impl Cells {
     /// borders in `border` on `paper` and unlit meter cells in `empty`.
     pub fn fit(ui: &Ui, area: Rect, border: Color32, paper: Color32, empty: Color32) -> Cells {
         let font = egui::TextStyle::Monospace.resolve(ui.style());
-        let cw = ui.fonts_mut(|f| f.glyph_width(&font, 'M')).max(1.0);
-        let ch = (font.size * (1.0 + LEADING)).round().max(1.0);
+        let egui::Vec2 { x: cw, y: ch } = Cells::cell_size(ui.ctx());
         let cols = (area.width() / cw).floor().max(1.0) as usize;
         let rows = (area.height() / ch).floor().max(1.0) as usize;
         let size = vec2(cols as f32 * cw, rows as f32 * ch);
@@ -57,6 +56,14 @@ impl Cells {
             empty,
             vision: false,
         }
+    }
+
+    /// One cell's size in the monospace font: a grid of `cols` × `rows` of these fits
+    /// exactly.
+    pub fn cell_size(ctx: &egui::Context) -> egui::Vec2 {
+        let font = egui::TextStyle::Monospace.resolve(&ctx.global_style());
+        let cw = ctx.fonts_mut(|f| f.glyph_width(&font, 'M')).max(1.0);
+        vec2(cw, (font.size * (1.0 + LEADING)).round().max(1.0))
     }
 
     /// The pixel rect of `w` × `h` cells from column `c`, row `r`.
