@@ -9,6 +9,7 @@ use ninsei_core::data::Effect;
 use ninsei_core::{Action, Game, LogKind, Phase, tuning};
 
 use crate::chrome::{ChromeView, FrameCx, MenuPart, Menus, act};
+use crate::kit::liza;
 use crate::panes::{Panes, Request, Tab};
 use crate::patterns;
 
@@ -446,100 +447,100 @@ impl ChromeView for Stack {
     }
 
     /// A fight brings up a Mac alert over the card. It's small and off to the side of the
-    /// action, and closing it just tucks it away for this fight.
+    /// action, and closing it just tucks it away for this fight. The best move is its default
+    /// button, so Enter runs it and Esc closes it while the Message box isn't being typed in.
     fn overlay(&self, ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
         let g = cx.game;
         let mut out = Vec::new();
-        let Some(c) = &g.combat else {
+        let (Some(c), Some(closed)) = (&g.combat, alert_key(g)) else {
             return out;
         };
-        if g.phase != Phase::Combat {
+        if !alert_up(ctx, g) {
             return out;
         }
-        let key = Id::new(("stack-alert-closed", g.seed, c.node));
-        if ctx.data(|d| d.get_temp::<bool>(key)).unwrap_or(false) {
-            return out;
-        }
-        let (ink, paper) = (cx.pal.fg, cx.pal.bg);
         let def = &g.data.ice[c.ice];
         let best = best_move(g);
         let shield = shield_move(g);
+        // Left to right: Close, then a shield, then the action (the best move, else end turn).
+        let mut buttons = vec!["Close".to_string()];
+        let mut acts = vec![None];
+        if let Some(s) = shield {
+            buttons.push(format!("Shield: {}", g.hdd[s].spec.name));
+            acts.push(Some(Action::Run(s)));
+        }
+        match best {
+            Some(b) => {
+                buttons.push(format!("Run {}", g.hdd[b].spec.name));
+                acts.push(Some(Action::Run(b)));
+            }
+            None => {
+                buttons.push("End turn".to_string());
+                acts.push(Some(Action::EndTurn));
+            }
+        }
+        let labels: Vec<&str> = buttons.iter().map(String::as_str).collect();
+        let message = format!(
+            "{}, strength {} of {}. It's holding the line.",
+            def.class.label(),
+            c.strength,
+            c.strength_max
+        );
+        let title = format!("{} rezzed.", def.name);
+        let alert = liza::Alert {
+            icon: "⚠",
+            title: &title,
+            message: &message,
+            buttons: &labels,
+            default: best.map(|_| labels.len() - 1),
+            cancel: Some(0),
+            keys: cx.keys_free && !ctx.egui_wants_keyboard_input(),
+        };
+        let look = liza::Look {
+            ink: cx.pal.fg,
+            paper: cx.pal.bg,
+            font: egui::TextStyle::Monospace.resolve(&ctx.global_style()),
+            stripes: None,
+        };
         let screen = ctx.content_rect();
-        egui::Area::new(Id::new("stack-alert"))
-            .order(egui::Order::Foreground)
-            // Over the lower left, below the ICE's numbers and clear of the programs (the
-            // Stack's layout keeps them on the right).
-            .fixed_pos(egui::pos2(
-                screen.left() + look::ALERT_LEFT,
-                screen.top() + look::ALERT_TOP,
-            ))
-            .show(ctx, |ui| {
-                ui.set_width(look::ALERT_W);
-                egui::Frame::new()
-                    .fill(paper)
-                    .stroke(Stroke::new(1.0, ink))
-                    .inner_margin(egui::Margin::same(4))
-                    .show(ui, |ui| {
-                        egui::Frame::new()
-                            .stroke(Stroke::new(3.0, ink))
-                            .inner_margin(egui::Margin::same(12))
-                            .show(ui, |ui| {
-                                ui.horizontal(|ui| {
-                                    ui.label(RichText::new("⚠").size(28.0).color(ink));
-                                    ui.vertical(|ui| {
-                                        ui.label(
-                                            RichText::new(format!("{} rezzed.", def.name))
-                                                .strong()
-                                                .color(ink),
-                                        );
-                                        ui.label(
-                                            RichText::new(format!(
-                                                "{}, strength {} of {}. It's holding the line.",
-                                                def.class.label(),
-                                                c.strength,
-                                                c.strength_max
-                                            ))
-                                            .color(ink),
-                                        );
-                                    });
-                                });
-                                ui.add_space(8.0);
-                                ui.horizontal(|ui| {
-                                    if ui.button("Close").clicked() {
-                                        ctx.data_mut(|d| d.insert_temp(key, true));
-                                    }
-                                    if let Some(s) = shield
-                                        && ui
-                                            .button(format!("Shield: {}", g.hdd[s].spec.name))
-                                            .clicked()
-                                    {
-                                        out.push(act(Action::Run(s)));
-                                    }
-                                    if let Some(b) = best {
-                                        let text =
-                                            RichText::new(format!("Run {}", g.hdd[b].spec.name))
-                                                .strong()
-                                                .color(ink);
-                                        let r = ui.button(text);
-                                        // The default button's heavy ring.
-                                        ui.painter().rect_stroke(
-                                            r.rect.expand(3.0),
-                                            4.0,
-                                            Stroke::new(2.0, ink),
-                                            StrokeKind::Outside,
-                                        );
-                                        if r.clicked() {
-                                            out.push(act(Action::Run(b)));
-                                        }
-                                    } else if ui.button("End turn").clicked() {
-                                        out.push(act(Action::EndTurn));
-                                    }
-                                });
-                            });
-                    });
-            });
+        // Over the lower left, below the ICE's numbers and clear of the programs (the Stack's
+        // layout keeps them on the right).
+        let at = egui::pos2(
+            screen.left() + look::ALERT_LEFT,
+            screen.top() + look::ALERT_TOP,
+        );
+        match liza::alert(
+            ctx,
+            Id::new("stack-alert"),
+            at,
+            look::ALERT_W,
+            &alert,
+            &look,
+        ) {
+            Some(0) => {
+                ctx.data_mut(|d| d.insert_temp(closed, true));
+            }
+            Some(i) => out.extend(acts[i].map(act)),
+            None => {}
+        }
         out
     }
+
+    fn takes_enter(&self, ctx: &egui::Context, game: &Game) -> bool {
+        alert_up(ctx, game) && best_move(game).is_some()
+    }
+}
+
+/// Where a fight's "closed" flag is kept: per run and per node.
+fn alert_key(g: &Game) -> Option<Id> {
+    g.combat
+        .as_ref()
+        .map(|c| Id::new(("stack-alert-closed", g.seed, c.node)))
+}
+
+/// The fight's alert is showing: a fight is on and it hasn't been closed.
+fn alert_up(ctx: &egui::Context, g: &Game) -> bool {
+    g.phase == Phase::Combat
+        && alert_key(g).is_some_and(|k| !ctx.data(|d| d.get_temp::<bool>(k)).unwrap_or(false))
 }
 
 #[cfg(test)]
@@ -562,16 +563,9 @@ mod tests {
         assert!(cover(0.5) < cover(0.9));
     }
 
-    #[test]
-    fn the_alert_offers_the_hardest_hit() {
-        let d = Data::builtin().unwrap();
-        assert_eq!(
-            best_move(&Game::new(d.clone(), 3)),
-            None,
-            "nothing to hit out of a fight"
-        );
-        // The first ICE ahead, on the first seed whose opening route has some.
-        let g = (0..50)
+    /// The first fight on the first seed whose opening route meets ICE.
+    fn a_fight(d: &Data) -> Game {
+        (0..50)
             .find_map(|seed| {
                 let mut g = Game::new(d.clone(), seed);
                 for _ in 0..20 {
@@ -583,7 +577,94 @@ mod tests {
                 }
                 None
             })
-            .expect("some run meets ICE");
+            .expect("some run meets ICE")
+    }
+
+    /// A frame of the Stack's overlay; returns what it asked for.
+    fn overlay(
+        h: &mut crate::uitest::Harness,
+        g: &Game,
+        keys_free: bool,
+        ev: Vec<egui::Event>,
+    ) -> Vec<Request> {
+        let mut suite = crate::suite::State::default();
+        let mut out = Vec::new();
+        h.frame(ev, |ui| {
+            let mut cx = FrameCx {
+                game: g,
+                pal: crate::theme::Palette::from_def(&g.data.themes[0]),
+                suite: &mut suite,
+                keys_free,
+            };
+            out = Stack.overlay(ui.ctx(), &mut cx);
+        });
+        out
+    }
+
+    fn runs(out: &[Request], i: usize) -> bool {
+        out.iter().any(
+            |r| matches!(r, Request::Cmd(ninsei_core::Command::Game(Action::Run(n))) if *n == i),
+        )
+    }
+
+    #[test]
+    fn enter_runs_the_best_move_and_esc_tucks_the_alert_away() {
+        let d = Data::builtin().unwrap();
+        let g = a_fight(&d);
+        let best = best_move(&g).expect("a breaker is loaded");
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        overlay(&mut h, &g, true, vec![]);
+        assert!(
+            Stack.takes_enter(&h.ctx, &g),
+            "Enter is the alert's, not the Message box's"
+        );
+        let out = overlay(&mut h, &g, true, crate::uitest::key(egui::Key::Enter));
+        assert!(runs(&out, best), "Enter ran the best move");
+        overlay(&mut h, &g, true, crate::uitest::key(egui::Key::Escape));
+        assert!(!alert_up(&h.ctx, &g), "Esc closed it");
+        assert!(!Stack.takes_enter(&h.ctx, &g), "and gave Enter back");
+    }
+
+    #[test]
+    fn the_alert_leaves_enter_alone_while_a_modal_has_the_keys() {
+        let d = Data::builtin().unwrap();
+        let g = a_fight(&d);
+        let best = best_move(&g).unwrap();
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        overlay(&mut h, &g, false, vec![]);
+        let out = overlay(&mut h, &g, false, crate::uitest::key(egui::Key::Enter));
+        assert!(!runs(&out, best));
+        overlay(&mut h, &g, false, crate::uitest::key(egui::Key::Escape));
+        assert!(alert_up(&h.ctx, &g));
+    }
+
+    #[test]
+    fn the_alerts_buttons_click_through() {
+        let d = Data::builtin().unwrap();
+        let g = a_fight(&d);
+        let best = best_move(&g).unwrap();
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        overlay(&mut h, &g, true, vec![]);
+        overlay(&mut h, &g, true, vec![]);
+        let run = h
+            .find(&format!("Run {}", g.hdd[best].spec.name))
+            .unwrap_or_else(|| panic!("{:?}", h.texts()));
+        let out = overlay(&mut h, &g, true, crate::uitest::click(run.center()));
+        assert!(runs(&out, best));
+        let close = h.find("Close").unwrap();
+        overlay(&mut h, &g, true, crate::uitest::click(close.center()));
+        assert!(!alert_up(&h.ctx, &g));
+    }
+
+    #[test]
+    fn the_alert_offers_the_hardest_hit() {
+        let d = Data::builtin().unwrap();
+        assert_eq!(
+            best_move(&Game::new(d.clone(), 3)),
+            None,
+            "nothing to hit out of a fight"
+        );
+        let g = a_fight(&d);
         let b = best_move(&g).expect("a breaker is loaded");
         let hit = g.preview(b).unwrap().hit();
         assert!(hit > 0);

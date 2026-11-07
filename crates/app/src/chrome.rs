@@ -130,6 +130,11 @@ pub trait ChromeView {
     fn overlay(&self, _ctx: &egui::Context, _cx: &mut FrameCx) -> Vec<Request> {
         Vec::new()
     }
+    /// The overlay answers Enter this frame (an alert's default button), so the run's Enter
+    /// hotkey (to the Message box) stands aside.
+    fn takes_enter(&self, _ctx: &egui::Context, _game: &Game) -> bool {
+        false
+    }
     /// The layout a firmware starts with; `extra` are the secondary panes it has.
     fn default_layout(&self, extra: &[Tab]) -> DockState<Tab> {
         base_layout(extra)

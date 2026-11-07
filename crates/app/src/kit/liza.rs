@@ -1,10 +1,11 @@
 //! The Liza kit: the widgets of a 1-bit desktop after the first Mac's System 1. Windows with a
-//! striped title bar and a close box, the menu bar and its menus. It draws and reports clicks
-//! and picks; what the menus hold and what a window shows are the caller's. The numbers are the
+//! striped title bar and a close box, the menu bar and its menus, push buttons, check boxes and
+//! radio buttons, and the alert. It draws and reports clicks and picks; what the menus hold, what
+//! a window shows and what a button does are the caller's. The numbers are the
 //! spec sheet's (`docs/refs/liza.md`). Nothing here names a tool or a deck.
 
-use egui::{Align2, Color32, FontId, Id, Painter, Rect, Sense, Stroke, StrokeKind, Ui, Vec2};
-use egui::{pos2, vec2};
+use egui::{Align2, Color32, FontId, Id, Key, Painter, Pos2, Rect, Response, Sense, Stroke};
+use egui::{StrokeKind, Ui, Vec2, pos2, vec2};
 use ninsei_core::pattern::PatternDef;
 
 use crate::patterns;
@@ -22,6 +23,24 @@ pub mod size {
     pub const CLOSE_BOX: f32 = 12.0;
     /// The 1-bit drop shadow under windows and menus.
     pub const SHADOW: f32 = 2.0;
+    pub const BUTTON_H: f32 = 22.0;
+    pub const BUTTON_R: f32 = 8.0;
+    pub const BUTTON_MIN_W: f32 = 60.0;
+    /// A button's room either side of its text.
+    pub const BUTTON_PAD: f32 = 12.0;
+    /// How far outside its button the default ring sits, and how thick it is.
+    pub const RING_OUT: f32 = 4.0;
+    pub const RING_W: f32 = 3.0;
+    /// A check box's or radio button's square, and the gap to its label.
+    pub const CHECK: f32 = 12.0;
+    pub const CHECK_GAP: f32 = 5.0;
+    /// The alert: its inner frame's inset and weight, the margin inside it, the icon's size,
+    /// and the gap between buttons.
+    pub const ALERT_INSET: f32 = 4.0;
+    pub const ALERT_FRAME: f32 = 3.0;
+    pub const ALERT_MARGIN: f32 = 12.0;
+    pub const ALERT_ICON: f32 = 28.0;
+    pub const BUTTON_GAP: f32 = 10.0;
 }
 
 /// Liza's two colours and her type, from the theme, and the patterns she fills with.
@@ -187,6 +206,237 @@ pub fn menu_bar_rect(screen: Rect) -> Rect {
     Rect::from_min_size(screen.min, vec2(screen.width(), size::MENU_H))
 }
 
+/// A push button's width for `label`: its text and the room either side, at least the minimum,
+/// on a whole pixel.
+pub fn button_width(ctx: &egui::Context, label: &str, look: &Look) -> f32 {
+    let text = ctx.fonts_mut(|f| {
+        f.layout_no_wrap(label.to_string(), look.font.clone(), look.ink)
+            .size()
+            .x
+    });
+    (text + 2.0 * size::BUTTON_PAD)
+        .max(size::BUTTON_MIN_W)
+        .ceil()
+}
+
+/// A push button in `r`: a round-rect with its label centred, inverted while it's pressed, and
+/// the heavy ring outside it when it's the `default`. Disabled, its label is at half strength and
+/// it takes no clicks.
+#[allow(clippy::too_many_arguments)]
+pub fn button(
+    ui: &Ui,
+    p: &Painter,
+    r: Rect,
+    id: Id,
+    label: &str,
+    default: bool,
+    enabled: bool,
+    look: &Look,
+) -> Response {
+    let r = Rect::from_min_size(r.min.round(), r.size().round());
+    let resp = ui.interact(
+        r,
+        id,
+        if enabled {
+            Sense::click()
+        } else {
+            Sense::hover()
+        },
+    );
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, label));
+    let pressed = enabled && resp.is_pointer_button_down_on();
+    let (fg, bg) = if pressed {
+        (look.paper, look.ink)
+    } else {
+        (look.ink, look.paper)
+    };
+    p.rect_filled(r, size::BUTTON_R, bg);
+    p.rect_stroke(
+        r,
+        size::BUTTON_R,
+        Stroke::new(1.0, look.ink),
+        StrokeKind::Inside,
+    );
+    if default {
+        p.rect_stroke(
+            r.expand(size::RING_OUT),
+            size::BUTTON_R + size::RING_OUT,
+            Stroke::new(size::RING_W, look.ink),
+            StrokeKind::Inside,
+        );
+    }
+    p.text(
+        r.center(),
+        Align2::CENTER_CENTER,
+        label,
+        look.font.clone(),
+        if enabled { fg } else { fg.gamma_multiply(0.5) },
+    );
+    resp
+}
+
+/// A check box (`round` false) or radio button (true) with its label, laid out in `ui`: the
+/// square or circle, an X or a dot when `on`, thicker while pressed. Returns its response;
+/// clicked is the caller's to act on.
+fn toggle(ui: &mut Ui, on: bool, label: &str, round: bool, look: &Look) -> Response {
+    let g = ui
+        .painter()
+        .layout_no_wrap(label.to_string(), look.font.clone(), look.ink);
+    let want = vec2(
+        size::CHECK + size::CHECK_GAP + g.size().x,
+        g.size().y.max(size::CHECK),
+    )
+    .ceil();
+    let (r, resp) = ui.allocate_exact_size(want, Sense::click());
+    let kind = if round {
+        egui::WidgetType::RadioButton
+    } else {
+        egui::WidgetType::Checkbox
+    };
+    resp.widget_info(|| egui::WidgetInfo::selected(kind, ui.is_enabled(), on, label));
+    let p = ui.painter();
+    let b = Rect::from_min_size(
+        pos2(r.left(), r.center().y - size::CHECK / 2.0).round(),
+        Vec2::splat(size::CHECK),
+    );
+    let line = Stroke::new(
+        if resp.is_pointer_button_down_on() {
+            2.0
+        } else {
+            1.0
+        },
+        look.ink,
+    );
+    if round {
+        let c = b.center();
+        p.circle_filled(c, size::CHECK / 2.0, look.paper);
+        p.circle_stroke(c, size::CHECK / 2.0 - 0.5, line);
+        if on {
+            p.circle_filled(c, size::CHECK / 4.0, look.ink);
+        }
+    } else {
+        p.rect_filled(b, 0.0, look.paper);
+        p.rect_stroke(b, 0.0, line, StrokeKind::Inside);
+        if on {
+            let x = Stroke::new(1.0, look.ink);
+            let i = b.shrink(1.0);
+            p.line_segment([i.left_top(), i.right_bottom()], x);
+            p.line_segment([i.right_top(), i.left_bottom()], x);
+        }
+    }
+    let at = pos2(b.right() + size::CHECK_GAP, r.center().y - g.size().y / 2.0).round();
+    p.galley(at, g, look.ink);
+    resp
+}
+
+/// A check box: a click flips `on`, and the response says it changed.
+pub fn check_box(ui: &mut Ui, on: &mut bool, label: &str, look: &Look) -> Response {
+    let mut resp = toggle(ui, *on, label, false, look);
+    if resp.clicked() {
+        *on = !*on;
+        resp.mark_changed();
+    }
+    resp
+}
+
+/// A radio button, `on` when it's the one chosen; clicked chooses it.
+pub fn radio(ui: &mut Ui, on: bool, label: &str, look: &Look) -> Response {
+    toggle(ui, on, label, true, look)
+}
+
+/// What an alert says and offers.
+pub struct Alert<'a> {
+    /// The icon's glyph, top left.
+    pub icon: &'a str,
+    pub title: &'a str,
+    pub message: &'a str,
+    /// Left to right; the action goes last.
+    pub buttons: &'a [&'a str],
+    /// The button Enter presses, ringed.
+    pub default: Option<usize>,
+    /// The button Esc presses.
+    pub cancel: Option<usize>,
+    /// Enter and Esc answer only while this holds (nothing else is taking the keyboard).
+    pub keys: bool,
+}
+
+/// An alert at `at`, `width` wide, over everything: the double frame, the icon, the title and
+/// the message wrapped beside it, and the buttons along the bottom right. Returns the button
+/// pressed, by a click or (when `keys`) Enter for the default and Esc for the cancel button.
+pub fn alert(
+    ctx: &egui::Context,
+    id: Id,
+    at: Pos2,
+    width: f32,
+    a: &Alert,
+    look: &Look,
+) -> Option<usize> {
+    let (ink, paper) = (look.ink, look.paper);
+    let pad = size::ALERT_INSET + size::ALERT_FRAME + size::ALERT_MARGIN;
+    let text_x = pad + size::ALERT_ICON + size::ALERT_MARGIN;
+    let wrap = width - text_x - pad;
+    let (title, message) = ctx.fonts_mut(|f| {
+        (
+            f.layout(a.title.to_string(), look.font.clone(), ink, wrap),
+            f.layout(a.message.to_string(), look.font.clone(), ink, wrap),
+        )
+    });
+    let text_h = title.size().y + 4.0 + message.size().y;
+    let body_h = text_h.max(size::ALERT_ICON).ceil();
+    let height = pad + body_h + size::ALERT_MARGIN + size::BUTTON_H + pad;
+    let r = Rect::from_min_size(at.round(), vec2(width, height).round());
+    let mut pressed = None;
+    egui::Area::new(id)
+        .order(egui::Order::Foreground)
+        .fade_in(false)
+        .fixed_pos(r.min)
+        .show(ctx, |ui| {
+            ui.allocate_rect(r, Sense::hover());
+            let p = ui.painter();
+            p.rect_filled(r, 0.0, paper);
+            p.rect_stroke(r, 0.0, Stroke::new(1.0, ink), StrokeKind::Inside);
+            p.rect_stroke(
+                r.shrink(size::ALERT_INSET),
+                0.0,
+                Stroke::new(size::ALERT_FRAME, ink),
+                StrokeKind::Inside,
+            );
+            p.text(
+                r.min + Vec2::splat(pad),
+                Align2::LEFT_TOP,
+                a.icon,
+                FontId::proportional(size::ALERT_ICON),
+                ink,
+            );
+            let tx = pos2(r.left() + text_x, r.top() + pad);
+            let below = tx + vec2(0.0, (title.size().y + 4.0).round());
+            p.galley(tx, title, ink);
+            p.galley(below, message, ink);
+            // The buttons, right to left from the corner.
+            let mut x = r.right() - pad;
+            let y = r.bottom() - pad - size::BUTTON_H;
+            for (i, label) in a.buttons.iter().enumerate().rev() {
+                let w = button_width(ctx, label, look);
+                x -= w;
+                let b = Rect::from_min_size(pos2(x, y), vec2(w, size::BUTTON_H));
+                let def = a.default == Some(i);
+                if button(ui, p, b, id.with(i), label, def, true, look).clicked() {
+                    pressed = Some(i);
+                }
+                x -= size::BUTTON_GAP;
+            }
+        });
+    if a.keys && pressed.is_none() {
+        let (enter, esc) = ctx.input(|i| (i.key_pressed(Key::Enter), i.key_pressed(Key::Escape)));
+        if enter {
+            pressed = a.default;
+        } else if esc {
+            pressed = a.cancel;
+        }
+    }
+    pressed
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -293,5 +543,139 @@ mod tests {
         assert_eq!(close.min, close.min.round(), "on whole pixels");
         let content = window_content(win);
         assert!(content.top() > title_bar(win).bottom() && win.contains_rect(content));
+    }
+
+    #[test]
+    fn a_check_box_flips_and_says_so_and_a_radio_leaves_it_to_the_caller() {
+        let mut h = Harness::new(400.0, 200.0);
+        // (on, changed, radio clicked)
+        let mut st = (false, false, false);
+        let frame = |h: &mut Harness, st: &mut (bool, bool, bool), ev| {
+            h.frame(ev, |ui| {
+                st.1 |= check_box(ui, &mut st.0, "Sound", &look()).changed();
+                st.2 |= radio(ui, false, "Off", &look()).clicked();
+            })
+        };
+        frame(&mut h, &mut st, vec![]);
+        let at = h.find("Sound").expect("labelled");
+        frame(&mut h, &mut st, click(at.center()));
+        assert!(st.0 && st.1);
+        let r = h.find("Off").unwrap();
+        frame(&mut h, &mut st, click(r.center()));
+        assert!(st.2);
+        // The box is the spec's square, on whole pixels.
+        let boxes: Vec<Rect> = h
+            .rects()
+            .into_iter()
+            .map(|(r, _, _)| r)
+            .filter(|r| r.size() == Vec2::splat(size::CHECK))
+            .collect();
+        assert!(!boxes.is_empty() && boxes.iter().all(|b| b.min == b.min.round()));
+    }
+
+    #[test]
+    fn a_disabled_button_takes_no_click() {
+        let mut h = Harness::new(400.0, 200.0);
+        let r = Rect::from_min_size(pos2(20.0, 20.0), vec2(80.0, size::BUTTON_H));
+        let mut clicked = false;
+        for ev in [vec![], click(r.center())] {
+            h.frame(ev, |ui| {
+                clicked |= button(
+                    ui,
+                    ui.painter(),
+                    r,
+                    Id::new("b"),
+                    "OK",
+                    false,
+                    false,
+                    &look(),
+                )
+                .clicked();
+            });
+        }
+        assert!(!clicked);
+    }
+
+    /// Frames of an alert offering Close and Run; returns the last frame's answer.
+    fn ask(
+        h: &mut Harness,
+        keys: bool,
+        default: Option<usize>,
+        ev: Vec<egui::Event>,
+    ) -> Option<usize> {
+        let mut got = None;
+        h.frame(ev, |ui| {
+            let a = Alert {
+                icon: "!",
+                title: "Black ICE rezzed.",
+                message: "Killer, strength 9 of 9. It's holding the line, and this message is long enough to wrap.",
+                buttons: &["Close", "Run icebreaker.exe"],
+                default,
+                cancel: Some(0),
+                keys,
+            };
+            got = alert(ui.ctx(), Id::new("a"), pos2(40.5, 30.3), 460.0, &a, &look());
+        });
+        got
+    }
+
+    #[test]
+    fn the_alert_answers_clicks_enter_and_esc() {
+        let mut h = Harness::new(800.0, 600.0);
+        ask(&mut h, true, Some(1), vec![]);
+        ask(&mut h, true, Some(1), vec![]);
+        let close = h.find("Close").unwrap();
+        let run = h.find("Run icebreaker.exe").unwrap();
+        assert!(
+            close.right() < run.left(),
+            "the action is at the right, Close left of it"
+        );
+        assert_eq!(close.min, close.min.round(), "on whole pixels");
+        assert_eq!(ask(&mut h, true, Some(1), click(run.center())), Some(1));
+        assert_eq!(
+            ask(&mut h, true, Some(1), crate::uitest::key(Key::Enter)),
+            Some(1)
+        );
+        assert_eq!(
+            ask(&mut h, true, Some(1), crate::uitest::key(Key::Escape)),
+            Some(0)
+        );
+        // No default: Enter does nothing.
+        assert_eq!(
+            ask(&mut h, true, None, crate::uitest::key(Key::Enter)),
+            None
+        );
+    }
+
+    #[test]
+    fn the_alert_leaves_the_keys_alone_while_something_else_has_them() {
+        let mut h = Harness::new(800.0, 600.0);
+        ask(&mut h, false, Some(1), vec![]);
+        assert_eq!(
+            ask(&mut h, false, Some(1), crate::uitest::key(Key::Enter)),
+            None
+        );
+        assert_eq!(
+            ask(&mut h, false, Some(1), crate::uitest::key(Key::Escape)),
+            None
+        );
+    }
+
+    #[test]
+    fn the_alert_wraps_its_message_inside_its_frame() {
+        let mut h = Harness::new(800.0, 600.0);
+        ask(&mut h, true, Some(1), vec![]);
+        ask(&mut h, true, Some(1), vec![]);
+        let frame = Rect::from_min_size(pos2(41.0, 30.0), vec2(460.0, 1000.0));
+        for s in h.painted() {
+            if let egui::Shape::Text(t) = s {
+                let r = Rect::from_min_size(t.pos, t.galley.size());
+                assert!(
+                    r.right() <= frame.right(),
+                    "{:?} runs past the alert",
+                    t.galley.text()
+                );
+            }
+        }
     }
 }

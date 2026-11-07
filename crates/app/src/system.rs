@@ -78,8 +78,8 @@ fn panel_body(
 ) {
     let panel = st.panel;
     ui.vertical(|ui| match panel {
-        Panel::Overview => overview(ui, data, save, out),
-        Panel::Monitor => monitor(ui, data, save, out),
+        Panel::Overview => overview(ui, data, save, look, out),
+        Panel::Monitor => monitor(ui, data, save, look, out),
         Panel::Theme => theme(ui, data, save, out),
         Panel::Disk => disk_panel(ui, data, save, look, st, out),
     });
@@ -291,7 +291,7 @@ fn dim(t: impl Into<String>) -> RichText {
 }
 
 /// About This Deck: the OS and deck, the specs, the software you own, and the switches.
-fn overview(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
+fn overview(ui: &mut Ui, data: &Data, save: &Save, look: Look, out: &mut Vec<WbOut>) {
     let o = system::overview(save, data);
     head(ui, &o.deck);
     ui.label(RichText::new(format!("{}  ·  {}", o.os, o.firmware)).color(ink()));
@@ -301,8 +301,7 @@ fn overview(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
     if save.decks.len() > 1 {
         for id in &save.decks {
             if let Some(d) = data.hardware.deck(id)
-                && ui
-                    .radio(save.deck == d.id, d.title())
+                && radio(ui, look, save.deck == d.id, &d.title())
                     .on_hover_text(&d.blurb)
                     .clicked()
             {
@@ -316,7 +315,7 @@ fn overview(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
         ui.horizontal_wrapped(|ui| {
             ui.label(dim("Firmware"));
             for f in &deck.firmware {
-                if ui.radio(fw.id == f.id, &f.label).clicked() {
+                if radio(ui, look, fw.id == f.id, &f.label).clicked() {
                     out.push(WbOut::Firmware(f.id.clone()));
                 }
             }
@@ -352,12 +351,11 @@ fn overview(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
 
     ui.label(RichText::new("Sound and screen").color(ink()).strong());
     let mut sound = save.sound;
-    if ui.checkbox(&mut sound, "Sound").changed() {
+    if check(ui, look, &mut sound, "Sound").changed() {
         out.push(WbOut::Sound);
     }
     let mut intros = save.intros;
-    if ui
-        .checkbox(&mut intros, "Cracktros")
+    if check(ui, look, &mut intros, "Cracktros")
         .on_hover_text("Programs from the boards open with their crew's intro.")
         .changed()
     {
@@ -366,7 +364,7 @@ fn overview(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
     ui.horizontal(|ui| {
         ui.label(RichText::new("Damage glitches").color(ink()));
         for g in ninsei_core::glitch::Glitches::ALL {
-            if ui.radio(save.glitches == g, g.label()).clicked() {
+            if radio(ui, look, save.glitches == g, g.label()).clicked() {
                 out.push(WbOut::Glitches(g));
             }
         }
@@ -374,7 +372,7 @@ fn overview(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
 }
 
 /// The monitors you own, the one plugged in, and the CRT.
-fn monitor(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
+fn monitor(ui: &mut Ui, data: &Data, save: &Save, look: Look, out: &mut Vec<WbOut>) {
     let m = save.monitor_def(data);
     head(ui, "Monitor");
     for id in &save.monitors {
@@ -382,8 +380,7 @@ fn monitor(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
             continue;
         };
         ui.horizontal(|ui| {
-            if ui
-                .radio(save.monitor == m.id, m.title())
+            if radio(ui, look, save.monitor == m.id, &m.title())
                 .on_hover_text(&m.blurb)
                 .clicked()
             {
@@ -396,13 +393,39 @@ fn monitor(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
     ui.label(dim(&m.blurb));
     ui.add_space(6.0);
     let mut crt = save.crt;
-    if ui.checkbox(&mut crt, "CRT effects").changed() {
+    if check(ui, look, &mut crt, "CRT effects").changed() {
         out.push(WbOut::Crt);
     }
     if let Some(t) = m.locked_theme(data) {
         let label = data.theme(t).map_or(t, |d| d.label.as_str());
         ui.add_space(6.0);
         ui.label(dim(format!("Mono tube: shows {label} only.")));
+    }
+}
+
+/// Liza's controls in her two colours.
+fn mac() -> crate::kit::liza::Look<'static> {
+    crate::kit::liza::Look {
+        ink: ink(),
+        paper: backdrop(),
+        font: font(),
+        stripes: None,
+    }
+}
+
+/// A check box: the Mac's on Liza, egui's (in the theme) on Desktop.
+fn check(ui: &mut Ui, look: Look, on: &mut bool, label: &str) -> egui::Response {
+    match look {
+        Look::Mac => crate::kit::liza::check_box(ui, on, label, &mac()),
+        Look::Amiga => ui.checkbox(on, label),
+    }
+}
+
+/// A radio button: the Mac's on Liza, egui's on Desktop.
+fn radio(ui: &mut Ui, look: Look, on: bool, label: &str) -> egui::Response {
+    match look {
+        Look::Mac => crate::kit::liza::radio(ui, on, label, &mac()),
+        Look::Amiga => ui.radio(on, label),
     }
 }
 

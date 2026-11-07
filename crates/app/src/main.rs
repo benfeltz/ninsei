@@ -962,8 +962,9 @@ impl App {
         }
     }
 
-    /// Hotkeys work whenever the terminal isn't taking typing.
-    fn hotkeys(&mut self, ctx: &egui::Context) -> Vec<Request> {
+    /// Hotkeys work whenever the terminal isn't taking typing. Enter goes to the Message box
+    /// unless the chrome's overlay answers it (`enter_taken`).
+    fn hotkeys(&mut self, ctx: &egui::Context, enter_taken: bool) -> Vec<Request> {
         let hex_typing = ctx.memory(|m| m.has_focus(hexview::grid_id()));
         let talking = self.game.encounter.is_some();
         if self.bbs.is_some() || talking || hex_typing || ctx.egui_wants_keyboard_input() {
@@ -991,7 +992,7 @@ impl App {
                     out.push(Request::Cmd(Command::Game(Action::Run(n))));
                 }
             }
-            if i.key_pressed(Key::Enter) || i.key_pressed(Key::Slash) {
+            if (i.key_pressed(Key::Enter) && !enter_taken) || i.key_pressed(Key::Slash) {
                 self.focus_input = true;
             }
         });
@@ -1423,12 +1424,13 @@ impl App {
         let pal = *pal;
         let ctx = ctx.clone();
         // Keys only drive the run once it's fully on screen.
+        let view = chrome::view(self.save.firmware_def(&self.data).chrome);
         let mut requests = if self.screen == Screen::Run {
-            self.hotkeys(&ctx)
+            let enter_taken = view.takes_enter(&ctx, &self.game);
+            self.hotkeys(&ctx, enter_taken)
         } else {
             Vec::new()
         };
-        let view = chrome::view(self.save.firmware_def(&self.data).chrome);
         let keys_free = self.bbs.is_none() && self.game.encounter.is_none();
         if self.screen == Screen::Run {
             let mut cx = FrameCx {
