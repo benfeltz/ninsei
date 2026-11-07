@@ -283,6 +283,9 @@ pub struct Directory {
     want_focus: bool,
     /// Where the list is scrolled to, in whole rows.
     pub(crate) list: crate::kit::List,
+    /// The pick and its place in the list as last drawn: when either changes, the window
+    /// goes to it.
+    last_pick: Option<(Listed, usize)>,
 }
 
 /// Width of the directory card beside the list.
@@ -528,6 +531,11 @@ pub fn carrierterm(
         }
     };
     let at = |sel: Option<Listed>| sel.and_then(|s| shown.iter().position(|l| l.key == s));
+    // The window goes to the pick when the arrows move it, and whenever the pick or its place
+    // changes (a search, a filter); otherwise it stays where the wheel left it.
+    let pick = dir.sel.and_then(|s| at(Some(s)).map(|i| (s, i)));
+    let follow_pick = moved || pick != dir.last_pick;
+    dir.last_pick = pick;
     let mut list = |ui: &mut Ui, sel: &mut Option<Listed>, view: &mut crate::kit::List| {
         ui.label(
             RichText::new(line("NUMBER", "NAME", "LISTED AS"))
@@ -539,9 +547,7 @@ pub fn carrierterm(
         } else {
             whole_rows(ui, NARROW_ROWS)
         };
-        // The window follows the pick when the arrows move it; otherwise it stays where the
-        // wheel left it.
-        let follow = if moved { at(*sel) } else { None };
+        let follow = if follow_pick { at(*sel) } else { None };
         let rows = list_box(
             ui,
             height,

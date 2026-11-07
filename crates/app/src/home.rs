@@ -1265,6 +1265,57 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn a_search_brings_carrierterms_pick_into_view() {
+        let data = Data::builtin().unwrap();
+        let mut save = anarchy_deck(&data);
+        save.add_starters(&data);
+        let mut rng = ninsei_core::rng::Rng::new(7);
+        while save.phonebook.len() < 14 {
+            save.add_number(&data, &mut rng, 1)
+                .expect("a company to list");
+        }
+        let mut h = Harness::new(1280.0, 800.0);
+        crate::uitest::themed(&h.ctx, &data);
+        let mut home = Home::new(Vec::new());
+        let rect = Rect::from_min_size(pos2(10.0, 10.0), vec2(508.0, 700.0));
+        let run = |h: &mut Harness, home: &mut Home, events| {
+            frame_at(h, home, &data, &save, Tool::Terminal, rect, events);
+            frame_at(h, home, &data, &save, Tool::Terminal, rect, Vec::new());
+        };
+        run(&mut h, &mut home, Vec::new());
+        for _ in 0..11 {
+            run(&mut h, &mut home, crate::uitest::key(Key::ArrowDown));
+        }
+        assert!(home.directory.list.top > 0, "scrolled down");
+        // A search that drops the pick but keeps more numbers than the box shows: the pick
+        // goes back to the first, and the window must go with it.
+        let picked = home.directory.sel;
+        let query = ('a'..='z')
+            .map(|c| c.to_string())
+            .find(|q| {
+                let shown = ninsei_core::directory::search(&save, &data, q, home.directory.filter);
+                shown.len() >= 8 && !shown.iter().any(|l| Some(l.key) == picked)
+            })
+            .expect("a letter most names have and the pick hasn't");
+        run(&mut h, &mut home, text(&query));
+        let shown = ninsei_core::directory::search(
+            &save,
+            &data,
+            &home.directory.query,
+            home.directory.filter,
+        );
+        let at = shown
+            .iter()
+            .position(|l| Some(l.key) == home.directory.sel)
+            .expect("a pick");
+        assert!(
+            home.directory.list.shows(at),
+            "the pick ({at}) is in the window from {}",
+            home.directory.list.top
+        );
+    }
+
+    #[test]
     fn a_list_box_takes_the_wheel_over_its_rows_and_leaves_none_for_the_tool() {
         let data = Data::builtin().unwrap();
         let mut h = Harness::new(600.0, 400.0);
