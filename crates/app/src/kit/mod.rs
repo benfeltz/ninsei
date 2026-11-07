@@ -12,6 +12,7 @@ pub mod cells;
 pub mod fit;
 pub mod list;
 pub mod liza;
+pub mod scrollbar;
 pub mod sheet;
 pub mod workbench;
 

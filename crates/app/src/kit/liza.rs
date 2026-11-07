@@ -9,6 +9,7 @@ use egui::{StrokeKind, Ui, Vec2, pos2, vec2};
 use ninsei_core::pattern::PatternDef;
 
 use super::List;
+use super::scrollbar::{self, Scroll};
 use crate::patterns;
 
 /// Sizes, in one place (the spec sheet's).
@@ -234,28 +235,6 @@ pub fn menu_bar_rect(screen: Rect) -> Rect {
     Rect::from_min_size(screen.min, vec2(screen.width(), size::MENU_H))
 }
 
-/// Where a scrolling view stands, in points: how far down it is, how much shows, how much
-/// there is, and how far an arrow moves it.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Scroll {
-    pub offset: f32,
-    pub view: f32,
-    pub content: f32,
-    pub line: f32,
-}
-
-impl Scroll {
-    /// How far down it can go.
-    fn max(&self) -> f32 {
-        (self.content - self.view).max(0.0)
-    }
-
-    /// There's more than shows.
-    pub fn active(&self) -> bool {
-        self.max() > 0.5
-    }
-}
-
 /// A scroll bar's parts in `r`: the up arrow's box, the down arrow's, the track between them
 /// and, when there's anything to scroll, the thumb on it.
 fn bar_parts(r: Rect, s: &Scroll) -> (Rect, Rect, Rect, Option<Rect>) {
@@ -263,12 +242,7 @@ fn bar_parts(r: Rect, s: &Scroll) -> (Rect, Rect, Rect, Option<Rect>) {
     let up = Rect::from_min_size(r.min, vec2(w, w));
     let down = Rect::from_min_max(pos2(r.left(), r.bottom() - w), r.max);
     let track = Rect::from_min_max(up.left_bottom(), down.right_top());
-    let travel = (track.height() - w).max(0.0);
-    let thumb = (s.active() && travel > 0.0).then(|| {
-        let y = (track.top() + travel * (s.offset / s.max()).clamp(0.0, 1.0)).round();
-        Rect::from_min_size(pos2(r.left(), y), vec2(w, w))
-    });
-    (up, down, track, thumb)
+    (up, down, track, scrollbar::thumb(track, s, w))
 }
 
 /// What the scroll bar in `r` does to `s` this frame: an arrow scrolls a line, a click on the
@@ -280,66 +254,17 @@ fn bar_input(ui: &Ui, r: Rect, id: Id, s: &Scroll) -> Option<f32> {
     }
     let (up, down, track, thumb) = bar_parts(r, s);
     let mut to = s.offset;
-    let (up_r, down_r) = (
-        ui.interact(up, id.with("up"), Sense::click()),
-        ui.interact(down, id.with("down"), Sense::click()),
-    );
-    if up_r.clicked() {
+    if ui.interact(up, id.with("up"), Sense::click()).clicked() {
         to -= s.line;
     }
-    if down_r.clicked() {
+    if ui.interact(down, id.with("down"), Sense::click()).clicked() {
         to += s.line;
     }
-    let t = ui.interact(track, id.with("track"), Sense::click_and_drag());
-    let grab = id.with("grab");
-    // A drag holds the thumb only if it started on it (egui starts it a few points later).
-    if t.drag_started()
-        && let (Some(th), Some(p)) = (thumb, ui.input(|i| i.pointer.press_origin()))
-        && th.contains(p)
-    {
-        ui.data_mut(|d| d.insert_temp(grab, (s.offset, p.y)));
-    }
-    let held = ui.data(|d| d.get_temp::<(f32, f32)>(grab));
-    match held {
-        Some((from, y)) if t.dragged() => {
-            let travel = (track.height() - size::SCROLL_W).max(1.0);
-            if let Some(p) = t.interact_pointer_pos() {
-                to = from + (p.y - y) * s.max() / travel;
-            }
-        }
-        Some(_) if !t.dragged() => ui.data_mut(|d| d.remove::<(f32, f32)>(grab)),
-        _ => {}
-    }
-    if t.clicked()
-        && let (Some(th), Some(p)) = (thumb, t.interact_pointer_pos())
-    {
-        let page = (s.view - s.line).max(s.line);
-        if p.y < th.top() {
-            to -= page;
-        } else if p.y > th.bottom() {
-            to += page;
-        }
-    }
-    if let Some(wheel) = take_wheel(ui, r, id) {
+    scrollbar::track_input(ui, track, thumb, id, s, &mut to);
+    if let Some(wheel) = scrollbar::take_wheel(ui, r, id) {
         to -= wheel;
     }
-    let to = to.clamp(0.0, s.max()).round();
-    (to != s.offset).then_some(to)
-}
-
-/// The wheel's travel over `r` this frame, taken so nothing under it scrolls too: only while
-/// `ui` takes input, nothing is being dragged, and nothing drawn since (a window in front)
-/// covers `r` where the pointer is. Register it after the widgets inside `r`: egui hovers a
-/// hover-only widget only when no clickable or draggable one lies above it.
-fn take_wheel(ui: &Ui, r: Rect, id: Id) -> Option<f32> {
-    let over = ui.interact(r, id.with("wheel"), Sense::hover()).hovered();
-    let free = ui.is_enabled() && ui.ctx().dragged_id().is_none();
-    let wheel = ui.input(|i| i.smooth_scroll_delta.y);
-    if !(free && wheel != 0.0 && over) {
-        return None;
-    }
-    ui.ctx().input_mut(|i| i.smooth_scroll_delta.y = 0.0);
-    Some(wheel)
+    s.settle(to)
 }
 
 /// Paints the scroll bar in `r` for `s`: its frame, the arrow boxes, and the gray track with the
@@ -397,43 +322,22 @@ pub fn scroll_bar(ui: &Ui, p: &Painter, r: Rect, id: Id, s: Scroll, look: &Look)
 /// the right edge, only while there's more than shows (a tool that fits has no dead control
 /// beside it). The wheel over either scrolls it.
 pub fn scrolled(ui: &mut Ui, id: Id, look: &Look, body: impl FnOnce(&mut Ui)) {
-    let rect = ui.max_rect();
-    let bar = Rect::from_min_max(pos2(rect.right() - size::SCROLL_W, rect.top()), rect.max);
-    let key = id.with("kit-scroll");
     let line = ui.fonts_mut(|f| f.row_height(&look.font)).ceil();
-    // The bar acts on last frame's numbers, so this frame's view already shows the move.
-    let last = ui.data(|d| d.get_temp::<Scroll>(key));
-    let set = last.and_then(|s| bar_input(ui, bar, key, &s));
-    let view_rect = Rect::from_min_max(
-        rect.min + vec2(0.0, size::PAD_Y),
-        pos2(bar.left() - size::PAD_X, rect.bottom() - size::PAD_Y),
-    );
-    let mut view = ui.new_child(
-        egui::UiBuilder::new()
-            .max_rect(view_rect)
-            .layout(egui::Layout::top_down(egui::Align::Min)),
-    );
-    // A vertical scroll area clips only top and bottom; the view's sides are its edges too.
-    view.set_clip_rect(view_rect.intersect(ui.clip_rect()));
-    let mut area = egui::ScrollArea::vertical()
-        .id_salt(key)
-        .auto_shrink([false, false])
-        .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysHidden);
-    if let Some(o) = set {
-        area = area.vertical_scroll_offset(o);
-    }
-    let out = area.show(&mut view, body);
-    let now = Scroll {
-        offset: out.state.offset.y,
-        view: out.inner_rect.height(),
-        content: out.content_size.y,
-        line,
+    let pad = scrollbar::Pad {
+        top: size::PAD_Y,
+        gap: size::PAD_X,
+        bottom: size::PAD_Y,
     };
-    ui.data_mut(|d| d.insert_temp(key, now));
-    if now.active() {
-        bar_paint(ui.painter(), bar, &now, look);
-    }
-    ui.advance_cursor_after_rect(rect);
+    scrollbar::view(
+        ui,
+        id,
+        line,
+        size::SCROLL_W,
+        pad,
+        body,
+        bar_input,
+        |p, bar, s| bar_paint(p, bar, s, look),
+    );
 }
 
 /// The room [`scrolled`] keeps beside its view: the bar and the gap before it.
@@ -520,7 +424,7 @@ pub fn list_box(
     // The wheel over the cells, for the next frame (the cells are registered, so it's known
     // whether anything covers them).
     if s.active()
-        && let Some(wheel) = take_wheel(ui, rect.with_max_x(bar.left()), id)
+        && let Some(wheel) = scrollbar::take_wheel(ui, rect.with_max_x(bar.left()), id)
     {
         list.wheel(wheel / cell_h);
         ui.ctx().request_repaint();

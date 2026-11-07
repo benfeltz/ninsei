@@ -1007,7 +1007,10 @@ mod tests {
             frame(&ctx, &mut liza, &mut home, &data, Vec::new(), t);
         }
         let key = Id::new(("liza-scroll", Tool::System)).with("kit-scroll");
-        let at = |ctx: &egui::Context| ctx.data(|d| d.get_temp::<kit::Scroll>(key)).unwrap();
+        let at = |ctx: &egui::Context| {
+            ctx.data(|d| d.get_temp::<crate::kit::scrollbar::Scroll>(key))
+                .unwrap()
+        };
         let s = at(&ctx);
         assert!(s.active(), "it scrolls: {s:?}");
         let w = liza.wins.last().unwrap();
@@ -1076,7 +1079,9 @@ mod tests {
                 frame(&ctx, &mut liza, &mut home, &data, Vec::new(), t);
             }
             let key = Id::new(("liza-scroll", tool)).with("kit-scroll");
-            let s = ctx.data(|d| d.get_temp::<kit::Scroll>(key)).unwrap();
+            let s = ctx
+                .data(|d| d.get_temp::<crate::kit::scrollbar::Scroll>(key))
+                .unwrap();
             assert!(!s.active(), "{tool:?}'s page fits its window: {s:?}");
         }
     }
@@ -1102,7 +1107,10 @@ mod tests {
             run(&mut liza, &mut home, Vec::new());
         }
         let key = Id::new(("liza-scroll", Tool::System)).with("kit-scroll");
-        let at = |ctx: &egui::Context| ctx.data(|d| d.get_temp::<kit::Scroll>(key)).unwrap();
+        let at = |ctx: &egui::Context| {
+            ctx.data(|d| d.get_temp::<crate::kit::scrollbar::Scroll>(key))
+                .unwrap()
+        };
         assert!(at(&ctx).active());
         let sys = &liza.wins[liza.wins.len() - 2];
         let over_bar = pos2(sys.pos.x + sys.size.x - 8.0, 760.0);
