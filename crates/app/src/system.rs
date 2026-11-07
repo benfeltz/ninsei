@@ -186,11 +186,10 @@ fn software_grid(ui: &mut Ui, software: &[(String, String)]) {
 /// panel; the open one fills the window under it. Settings take at once, so there's no
 /// Use/Cancel pair: every gadget is a live switch.
 fn preferences(ui: &mut Ui, data: &Data, save: &Save, st: &mut SystemUi, out: &mut Vec<WbOut>) {
+    let look = crate::workbench::look();
     ui.horizontal(|ui| {
         for p in Panel::ALL {
-            if crate::kit::workbench::toggle_gadget(ui, p.label(), st.panel == p, &amiga())
-                .clicked()
-            {
+            if crate::kit::workbench::toggle_gadget(ui, p.label(), st.panel == p, &look).clicked() {
                 st.panel = p;
             }
             ui.add_space(4.0);
@@ -202,18 +201,6 @@ fn preferences(ui: &mut Ui, data: &Data, save: &Save, st: &mut SystemUi, out: &m
         .hline(r.x_range(), r.top(), egui::Stroke::new(2.0, ink()));
     ui.add_space(8.0);
     panel_body(ui, data, save, Look::Amiga, st, out);
-}
-
-/// Desktop's controls in the theme's colours.
-fn amiga() -> crate::kit::workbench::Look {
-    crate::kit::workbench::Look {
-        ink: ink(),
-        backdrop: backdrop(),
-        shadow: shadow(),
-        accent: accent(),
-        fill: fill(),
-        font: font(),
-    }
 }
 
 fn head(ui: &mut Ui, t: &str) {

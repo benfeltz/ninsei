@@ -80,8 +80,9 @@ impl Win {
     }
 }
 
-/// Desktop's look, from the theme.
-fn look() -> Look {
+/// Desktop's look, from the theme: the one place the theme maps onto the Workbench kit (System's
+/// Preferences takes it too).
+pub(crate) fn look() -> Look {
     Look {
         ink: ink(),
         backdrop: backdrop(),
