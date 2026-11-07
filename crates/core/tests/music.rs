@@ -110,3 +110,85 @@ fn the_arrangement_changes_the_loop() {
         "a faster tempo is a shorter loop"
     );
 }
+
+mod in_a_run {
+    use ninsei_core::hub::{Save, Screen};
+    use ninsei_core::music::{Arrangement, RunTune, wanted};
+    use ninsei_core::tuning::MUSIC_DROP_AT;
+    use ninsei_core::{Data, Game, Phase};
+
+    /// The built-in data with a tune on every tier of the Ono-Sendai's pack.
+    fn data() -> Data {
+        let mut d = Data::builtin().unwrap();
+        let tune: ninsei_core::intro::TuneDef = ron::from_str("(bpm: 120, tracks: [(wave: Square, vol: 0.2, pattern: \"C4 E4\"), (wave: Noise, vol: 0.1, pattern: \"x .\")])").unwrap();
+        let ono = d.sounds.iter_mut().find(|p| p.id == "ono").unwrap();
+        ono.music = (1..=3)
+            .map(|tier| RunTune {
+                tier,
+                drop: Some(1),
+                tune: tune.clone(),
+            })
+            .collect();
+        d
+    }
+
+    /// A save on `deck`, dialed into its first number.
+    fn dialed(d: &Data, deck: &str) -> (Save, Game) {
+        let mut s = Save::default();
+        s.ensure_key(1);
+        s.ensure_phonebook(d, 1);
+        s.ensure_hardware(d);
+        s.deck = deck.into();
+        s.firmware = s.deck_def(d).firmware[0].id.clone();
+        let entry = s.phonebook[0].id;
+        let g = s.dial(d, entry, 7).unwrap();
+        (s, g)
+    }
+
+    #[test]
+    fn the_run_plays_its_tier_until_it_ends() {
+        let d = data();
+        let (s, mut g) = dialed(&d, "onosendai");
+        let tier = g.tier();
+        let key = |screen, crashed, g: &Game| wanted(screen, crashed, &s, g, &d);
+        assert_eq!(key(Screen::Hub, false, &g), None, "quiet at home");
+        let playing = Some(("ono".to_string(), tier, Arrangement::PLAIN));
+        assert_eq!(key(Screen::JackIn { t: 0.1 }, false, &g), playing);
+        assert_eq!(key(Screen::Run, false, &g), playing);
+        for phase in [Phase::Combat, Phase::Encounter] {
+            g.phase = phase;
+            assert_eq!(key(Screen::Run, false, &g), playing, "{phase:?}");
+        }
+        g.phase = Phase::Exploring;
+        // The key changes once as trace crosses the drop step, then holds.
+        g.deck.trace = MUSIC_DROP_AT - 1;
+        assert_eq!(key(Screen::Run, false, &g), playing);
+        let dropped = Some((
+            "ono".to_string(),
+            tier,
+            Arrangement {
+                drop: Some(1),
+                tempo: 0,
+            },
+        ));
+        for t in MUSIC_DROP_AT..MUSIC_DROP_AT + 5 {
+            g.deck.trace = t;
+            assert_eq!(key(Screen::Run, false, &g), dropped);
+        }
+        g.phase = Phase::Flatlined;
+        assert_eq!(key(Screen::Run, false, &g), None, "a flatline stops it");
+        assert_eq!(key(Screen::Crash, true, &g), None);
+        g.phase = Phase::JackedOut;
+        assert_eq!(key(Screen::Run, false, &g), None, "so does jacking out");
+        assert_eq!(key(Screen::JackOut { t: 0.1 }, false, &g), None);
+    }
+
+    #[test]
+    fn a_deck_without_music_plays_nothing() {
+        let d = data();
+        let (s, g) = dialed(&d, "hosaka");
+        assert_eq!(s.firmware_def(&d).sounds, "hosaka");
+        assert_eq!(g.phase, Phase::Exploring);
+        assert_eq!(wanted(Screen::Run, false, &s, &g, &d), None);
+    }
+}

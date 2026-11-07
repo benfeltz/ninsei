@@ -6,8 +6,11 @@
 
 use serde::Deserialize;
 
+use crate::data::Data;
+use crate::game::{Game, Phase};
+use crate::hub::{Save, Screen};
 use crate::intro::TuneDef;
-use crate::tuning::{MUSIC_DROP_AT, MUSIC_TEMPO_AT, MUSIC_TEMPO_BPM};
+use crate::tuning::{MUSIC_DROP_AT, MUSIC_TEMPO_AT, MUSIC_TEMPO_BPM, TRACE_MAX};
 
 /// Network tiers run 1 to this.
 pub const TIERS: u32 = 3;
@@ -53,6 +56,32 @@ pub fn arrangement(trace_pct: u32, drop: Option<usize>) -> Arrangement {
             0
         },
     }
+}
+
+/// What the run should be playing: a tune while you're jacking in or in the run and it's live
+/// (moving, fighting or talking); nothing at home, on the crash screen or once the run is
+/// over. The deck's firmware picks the pack, and a pack with no tune for the tier is silent.
+pub fn wanted(
+    screen: Screen,
+    crashed: bool,
+    save: &Save,
+    game: &Game,
+    data: &Data,
+) -> Option<MusicKey> {
+    if !matches!(screen, Screen::JackIn { .. } | Screen::Run) || crashed {
+        return None;
+    }
+    if !matches!(
+        game.phase,
+        Phase::Exploring | Phase::Combat | Phase::Encounter
+    ) {
+        return None;
+    }
+    let pack = &save.firmware_def(data).sounds;
+    let tier = game.tier();
+    let tune = data.run_tune(pack, tier)?;
+    let pct = game.deck.trace.min(TRACE_MAX) * 100 / TRACE_MAX.max(1);
+    Some((pack.clone(), tier, arrangement(pct, tune.drop)))
 }
 
 /// A pack's music: tiers 1-3, each at most once, every tune sound, every drop a real track.
