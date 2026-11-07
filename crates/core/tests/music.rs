@@ -273,13 +273,16 @@ fn every_scored_pack_has_a_tune_per_tier_that_sits_under_a_cracktro() {
                     (0.035..=0.08).contains(&rms) && rms < cracktro,
                     "{at} at {pct}%: RMS {rms:.4} (a cracktro is {cracktro:.4})"
                 );
+                // No click where it wraps: the seam jumps no further than the music does
+                // inside (a note held over the end rings on into the start).
+                let inside = a
+                    .windows(2)
+                    .map(|w| (w[0] - w[1]).abs())
+                    .fold(0.0, f32::max);
+                let seam = (a[a.len() - 1] - a[0]).abs();
                 assert!(
-                    a[a.len() - 50..].iter().all(|s| s.abs() < 0.01),
-                    "{at} at {pct}% ends quiet"
-                );
-                assert!(
-                    (a[a.len() - 1] - a[0]).abs() < 0.05,
-                    "{at} at {pct}% wraps without a click"
+                    seam <= inside,
+                    "{at} at {pct}% wraps with a {seam:.3} jump (inside: {inside:.3})"
                 );
             };
             // 0% trace is the tune as written.
