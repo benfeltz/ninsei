@@ -191,6 +191,48 @@ fn graph(
     );
 }
 
+/// A program's name in the warez table: its 8.3 file, and `+On` when it's optimized.
+fn warez_name(w: &ninsei_core::binary::Spec) -> String {
+    if w.opt > 0 {
+        format!("{}+O{}", w.file(), w.opt)
+    } else {
+        w.file()
+    }
+}
+
+/// The warez table's columns: ID, NAME as wide as the widest name, then RAM and CPU while
+/// there's room for them. Names are never sliced: the numbers go first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct WarezCols {
+    name: usize,
+    ram: bool,
+    cpu: bool,
+}
+
+impl WarezCols {
+    /// The columns for names up to `name` cells wide in a row of `room` cells.
+    fn fit(name: usize, room: usize) -> Self {
+        let name = name.max(4);
+        let base = 3 + name + 1;
+        WarezCols {
+            name,
+            ram: room >= base + 3,
+            cpu: room >= base + 3 + 4,
+        }
+    }
+
+    fn line(&self, id: &str, name: &str, ram: &str, cpu: &str) -> String {
+        let mut s = format!("{id:<3}{name:<w$} ", w = self.name);
+        if self.ram {
+            s.push_str(&format!("{ram:>3}"));
+        }
+        if self.cpu {
+            s.push_str(&format!("{cpu:>4}"));
+        }
+        s
+    }
+}
+
 /// One meter line in deck.sys.
 struct MeterRow {
     label: &'static str,
@@ -351,10 +393,20 @@ impl Panes<'_> {
         let mut acts = Vec::new();
         let mut hex = None;
         boxed(ui, &p, "warez/", &note, |ui| {
-            ui.label(text(
-                format!("{:<3}{:<11}{:>3}{:>4}", "ID", "NAME", "RAM", "CPU"),
-                p.dim,
-            ));
+            // NAME is as wide as the widest real name; a narrow box drops CPU, then RAM,
+            // before it would slice a name.
+            let name_w = g
+                .hdd
+                .iter()
+                .map(|s| warez_name(&s.spec).chars().count())
+                .max()
+                .unwrap_or(0);
+            let cw = ui.fonts_mut(|f| f.glyph_width(&mono(MONO), 'M'));
+            // What the row's buttons and activity graph take on its right.
+            let controls = 24.0 + 3.0 * (2.0 * cw + 2.0 * ui.spacing().button_padding.x) + 15.0;
+            let room = ((ui.available_width() - controls) / cw).floor().max(0.0) as usize;
+            let cols = WarezCols::fit(name_w, room);
+            ui.label(text(cols.line("ID", "NAME", "RAM", "CPU"), p.dim));
             let mut order: Vec<usize> = (0..g.hdd.len()).collect();
             order.sort_by_key(|&i| !g.hdd[i].loaded);
             ScrollArea::vertical()
@@ -431,28 +483,19 @@ impl Panes<'_> {
                                     ui.with_layout(
                                         egui::Layout::left_to_right(egui::Align::Center),
                                         |ui| {
-                                            // Ten cells for the name, marked where it's cut.
-                                            let name: String = if w.opt > 0 {
-                                                format!("{}+O{}", cut(&w.file(), 7), w.opt)
-                                            } else {
-                                                cut(&w.file(), 10)
-                                            };
-                                            ui.add(
-                                                egui::Label::new(text(
-                                                    format!(
-                                                        "{:<3}{:<11}{:>3}{:>4}",
-                                                        i, name, w.ram, w.cpu
-                                                    ),
-                                                    col,
-                                                ))
-                                                .truncate(),
-                                            )
-                                            .on_hover_text(format!(
-                                                "{}\n{}\n{}",
-                                                w.name,
-                                                g.data.warez[s.warez].blurb,
-                                                w.effect.describe()
-                                            ));
+                                            let line = cols.line(
+                                                &i.to_string(),
+                                                &warez_name(w),
+                                                &w.ram.to_string(),
+                                                &w.cpu.to_string(),
+                                            );
+                                            ui.add(egui::Label::new(text(line, col)).truncate())
+                                                .on_hover_text(format!(
+                                                    "{}\n{}\n{}",
+                                                    w.name,
+                                                    g.data.warez[s.warez].blurb,
+                                                    w.effect.describe()
+                                                ));
                                         },
                                     );
                                 },
@@ -840,5 +883,27 @@ mod tests {
             boxed(&mut child, &p, "terminal", "help", |_| ran = true);
         });
         assert!(ran);
+    }
+
+    #[test]
+    fn the_warez_table_drops_numbers_before_it_slices_a_name() {
+        let cols = WarezCols::fit("firewall.exe+O2".len(), 40);
+        assert_eq!((cols.ram, cols.cpu), (true, true));
+        let row = cols.line("0", "firewall.exe+O2", "2", "1");
+        assert!(row.contains("firewall.exe+O2"), "{row}");
+        assert_eq!(
+            cols.line("ID", "NAME", "RAM", "CPU").len(),
+            row.len(),
+            "header on the row"
+        );
+        // Narrower: CPU goes, then RAM; the name stays whole.
+        let cols = WarezCols::fit(15, 3 + 16 + 3);
+        assert_eq!((cols.ram, cols.cpu), (true, false));
+        let cols = WarezCols::fit(15, 3 + 16);
+        assert_eq!((cols.ram, cols.cpu), (false, false));
+        assert!(
+            cols.line("0", "firewall.exe+O2", "2", "1")
+                .contains("firewall.exe+O2")
+        );
     }
 }
