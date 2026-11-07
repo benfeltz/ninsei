@@ -922,4 +922,56 @@ mod tests {
         frame_with(&mut h, &mut home, &data, &save, t, true, Vec::new());
         assert!(home.game(t).is_some());
     }
+
+    /// Acceptance (47.4): a cracked copy opens with its crew's cracktro, a boxed one with its
+    /// publisher's splash, for every game; with intros off, neither plays.
+    #[test]
+    fn acceptance_every_copy_opens_with_its_own_intro_or_none_with_intros_off() {
+        use crate::home::TuneCue;
+        let data = Data::builtin().unwrap();
+        for intros in [true, false] {
+            let save = Save {
+                intros,
+                ..gamer(&data)
+            };
+            for t in Tool::games(&data, &save) {
+                let (def, copy) = t.game_def(&data).unwrap();
+                let want = match copy {
+                    GameCopy::Cracked => &def.crack,
+                    GameCopy::Boxed => &def.splash,
+                };
+                let mut h = Harness::new(1280.0, 800.0);
+                let mut home = Home::new(Vec::new());
+                frame(&mut h, &mut home, &data, &save, t, Vec::new());
+                if intros {
+                    assert_eq!(home.tune, Some(TuneCue::Play(want.clone())), "{t:?}");
+                    assert!(home.game(t).is_none(), "{t:?}: its intro first");
+                } else {
+                    assert_eq!(home.tune, None, "{t:?}: no intro, no tune");
+                    assert!(home.game(t).is_some(), "{t:?}: straight to the game");
+                }
+            }
+        }
+    }
+
+    /// Acceptance (47.4): every game plays from the keyboard: what the arrows and Space do
+    /// changes its field.
+    #[test]
+    fn acceptance_every_game_plays_from_the_keyboard() {
+        let data = Data::builtin().unwrap();
+        for g in &data.games {
+            let (mut h, mut home, data, save, _) = open(&g.id);
+            let t = tool(&g.id);
+            let before = home.game(t).unwrap().cells();
+            for k in [Key::ArrowUp, Key::ArrowLeft, Key::Space, Key::Space] {
+                frame(&mut h, &mut home, &data, &save, t, key(k));
+            }
+            assert_ne!(
+                home.game(t).unwrap().cells(),
+                before,
+                "{}: the keys did nothing",
+                g.id
+            );
+        }
+    }
 }
