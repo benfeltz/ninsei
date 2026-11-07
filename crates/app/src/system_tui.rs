@@ -135,6 +135,7 @@ impl Grid {
 pub const NEED: crate::kit::fit::Need = crate::kit::fit::Need {
     grids: &[crate::kit::Fit { cols: 40, rows: 8 }],
     cells: cells_in,
+    scrolls: true,
 };
 
 /// The cells of this face's own font that fit in `rect`.

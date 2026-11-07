@@ -36,6 +36,9 @@ impl Fit {
 pub struct Need {
     pub grids: &'static [Fit],
     pub cells: fn(&Ui, Rect) -> (usize, usize),
+    /// The face's height scrolls (its rows are a floor, not a fit): it lays out beside the
+    /// scroll bar, so the bar's width isn't its to count.
+    pub scrolls: bool,
 }
 
 impl Need {
@@ -44,6 +47,7 @@ impl Need {
         Need {
             grids,
             cells: cells_in,
+            scrolls: false,
         }
     }
 }
@@ -53,9 +57,15 @@ pub fn fits(need: &[Fit], have: (usize, usize)) -> bool {
     need.iter().any(|f| f.fits(have))
 }
 
-/// The cells `rect` holds, counted the way `need` counts them, and whether that's enough.
-pub fn check(ui: &Ui, rect: Rect, need: Need) -> ((usize, usize), bool) {
-    let have = (need.cells)(ui, rect);
+/// The cells `rect` holds, counted the way `need` counts them, and whether that's enough. A
+/// face that scrolls gets `rect` less a scroll bar `bar` wide.
+pub fn check(ui: &Ui, rect: Rect, need: Need, bar: f32) -> ((usize, usize), bool) {
+    let room = if need.scrolls {
+        rect.with_max_x(rect.max.x - bar)
+    } else {
+        rect
+    };
+    let have = (need.cells)(ui, room);
     (have, fits(need.grids, have))
 }
 
@@ -180,7 +190,12 @@ mod tests {
             let font = egui::TextStyle::Monospace.resolve(ui.style());
             let cw = ui.fonts_mut(|f| f.glyph_width(&font, 'M'));
             let rect = Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(cw * 40.5, 1000.0));
-            got = Some(check(ui, rect, Need::cells(&[Fit { cols: 40, rows: 12 }])));
+            got = Some(check(
+                ui,
+                rect,
+                Need::cells(&[Fit { cols: 40, rows: 12 }]),
+                10.0,
+            ));
         });
         let ((cols, rows), ok) = got.unwrap();
         assert_eq!(cols, 40, "half a cell doesn't count");

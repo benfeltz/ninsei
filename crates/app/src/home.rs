@@ -669,7 +669,7 @@ impl Home {
         let desktop = save.firmware_def(data).desktop;
         let need = Self::fit(tool, desktop);
         if let Some(need) = need
-            && let (have, false) = fit::check(ui, rect, need)
+            && let (have, false) = fit::check(ui, rect, need, scroll_bar())
         {
             #[cfg(test)]
             self.notices.push(tool);
@@ -989,6 +989,11 @@ pub(crate) fn drag_hint(top: f32, highest: f32) -> Option<&'static str> {
 }
 
 /// A dim line for an empty tile or slot.
+/// The room `scrolled`'s bar takes beside a face that scrolls.
+pub(crate) fn scroll_bar() -> f32 {
+    crate::theme::visible_scroll().allocated_width()
+}
+
 /// A tool's body in a window or tile that may be shorter than it: it scrolls, with a solid bar
 /// drawn in the text colour so every theme shows it.
 pub(crate) fn scrolled(
@@ -1174,8 +1179,9 @@ pub(crate) mod tests {
             home.notices.clear();
             h.frame(Vec::new(), |ui| {
                 let mut child = ui.new_child(UiBuilder::new().max_rect(rect));
-                have = Home::fit(tool, Desktop::Tiling)
-                    .map_or((0, 0), |need| (need.cells)(&child, rect));
+                have = Home::fit(tool, Desktop::Tiling).map_or((0, 0), |need| {
+                    fit::check(&child, rect, need, scroll_bar()).0
+                });
                 drawn = home.tool_in(&mut child, tool, data, save, &mut Vec::new(), None, "t");
             });
         }
@@ -1361,12 +1367,14 @@ pub(crate) mod tests {
         assert_eq!(still.top, 0);
     }
 
-    /// Widgets that reach past `rect`'s sides: what it would cut. (Faces scroll, so below
-    /// the bottom is fine.)
-    fn cut_at_the_sides(h: &Harness, rect: Rect) -> Vec<(String, Rect)> {
+    /// Widgets `rect` would cut: anything outside it for a face laid out to fill it, and
+    /// anything past its sides for a face whose height scrolls.
+    fn cut(h: &Harness, rect: Rect, need: fit::Need) -> Vec<(String, Rect)> {
         h.outside(rect)
             .into_iter()
-            .filter(|(_, r)| r.left() < rect.left() - 0.5 || r.right() > rect.right() + 0.5)
+            .filter(|(_, r)| {
+                !need.scrolls || r.left() < rect.left() - 0.5 || r.right() > rect.right() + 0.5
+            })
             .collect()
     }
 
@@ -1410,9 +1418,9 @@ pub(crate) mod tests {
                     );
                     if drawn {
                         assert!(
-                            cut_at_the_sides(&h, *rect).is_empty(),
+                            cut(&h, *rect, need).is_empty(),
                             "{tool:?} page {page} as {what} is cut: {:?}",
-                            cut_at_the_sides(&h, *rect)
+                            cut(&h, *rect, need)
                         );
                     }
                 }
@@ -1428,16 +1436,25 @@ pub(crate) mod tests {
         crate::uitest::themed(&h.ctx, &data);
         for tool in Home::TEXT_TOOLS {
             let need = Home::fit(tool, Desktop::Tiling).unwrap();
-            // The smallest rect holding `cols` x `rows` of the face's own cells.
+            // The smallest rect holding `cols` x `rows` of the face's own cells, counted the
+            // way the desktops count them (beside the scroll bar, for a face that scrolls).
             let mut at = |cols: usize, rows: usize| {
                 let mut size = vec2(0.0, 2000.0);
                 h.frame(Vec::new(), |ui| {
-                    let r = |s| Rect::from_min_size(pos2(10.0, 10.0), s);
-                    while (need.cells)(ui, r(size)).0 < cols {
+                    let have = |s| {
+                        fit::check(
+                            ui,
+                            Rect::from_min_size(pos2(10.0, 10.0), s),
+                            need,
+                            scroll_bar(),
+                        )
+                        .0
+                    };
+                    while have(size).0 < cols {
                         size.x += 0.25;
                     }
                     size.y = 0.0;
-                    while (need.cells)(ui, r(size)).1 < rows {
+                    while have(size).1 < rows {
                         size.y += 0.25;
                     }
                 });
@@ -1446,9 +1463,14 @@ pub(crate) mod tests {
             for page in 0..Home::pages(tool) {
                 for grid in need.grids {
                     let exact = at(grid.cols, grid.rows);
-                    let (have, drawn, _) = draw_at(&data, &save, tool, exact, page);
+                    let (have, drawn, h) = draw_at(&data, &save, tool, exact, page);
                     assert_eq!(have, (grid.cols, grid.rows));
                     assert!(drawn, "{tool:?} page {page} at exactly {grid:?} is drawn");
+                    assert!(
+                        cut(&h, exact, need).is_empty(),
+                        "{tool:?} page {page} at exactly {grid:?} is cut: {:?}",
+                        cut(&h, exact, need)
+                    );
                     // A cell short either way: the notice, unless another grid it declared fits.
                     for short in [(grid.cols - 1, grid.rows), (grid.cols, grid.rows - 1)] {
                         let drawn = draw_at(&data, &save, tool, at(short.0, short.1), page).1;
