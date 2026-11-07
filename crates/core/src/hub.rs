@@ -1826,6 +1826,7 @@ impl Save {
             jobs: Vec::new(),
             trust: self.trust.clone(),
             tools: self.tools.clone(),
+            games: self.games.iter().map(|g| g.id.clone()).collect(),
             free: self.free(data).to_vec(),
             texts: self
                 .texts
@@ -1895,6 +1896,13 @@ impl Save {
             .iter()
             .filter(|t| self.learn_tool(t))
             .map(|t| game.data.tool(t).map_or(t.clone(), |d| d.name.clone()))
+            .collect();
+        // A game pulled off a board is a cracked copy, and it comes home even on a flatline.
+        let games: Vec<String> = game
+            .games
+            .iter()
+            .filter(|g| self.learn_game(g, GameCopy::Cracked))
+            .map(|g| game.data.game(g).map_or(g.clone(), |d| d.name.clone()))
             .collect();
         for (b, t) in &game.texts {
             self.keep_text(b, t);
@@ -2002,6 +2010,7 @@ impl Save {
             learned,
             boards,
             tools,
+            games,
         })
     }
 }
@@ -2029,6 +2038,8 @@ pub struct RunReport {
     pub boards: Vec<String>,
     /// Desktop tools downloaded on the run, by name.
     pub tools: Vec<String>,
+    /// Games downloaded on the run (cracked copies), by name.
+    pub games: Vec<String>,
 }
 
 /// Which machine is on screen, and the drags between them.

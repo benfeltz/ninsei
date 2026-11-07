@@ -25,6 +25,8 @@ pub struct HomeCall {
     bank: u32,
     stash_free: u32,
     tools: Vec<String>,
+    /// Games you own, in either copy (ids in `hub/games.ron`).
+    games: Vec<String>,
     /// Textfiles from this board already on your disk (text ids).
     texts: Vec<String>,
     defs: Vec<crate::data::ToolDef>,
@@ -59,6 +61,10 @@ impl Line for HomeCall {
         self.texts.iter().any(|t| t == id)
     }
 
+    fn has_game(&self, id: &str) -> bool {
+        self.games.iter().any(|g| g == id)
+    }
+
     fn buy_blocker(&self, area: usize, file: usize) -> Option<String> {
         let s = self.stock.get(area).and_then(|a| a.get(file))?;
         let f = &self.def.areas[area].files[s.def];
@@ -79,6 +85,7 @@ impl Line for HomeCall {
             &f.item,
             |t| self.has_tool(t),
             |t| self.has_text(t),
+            |t| self.has_game(t),
         ) {
             return Some(why);
         }
@@ -183,6 +190,7 @@ impl Save {
             bank: self.bank,
             stash_free,
             tools: self.tools.clone(),
+            games: self.games.iter().map(|g| g.id.clone()).collect(),
             texts: self
                 .texts
                 .iter()
@@ -283,6 +291,11 @@ impl Save {
                 self.learn_tool(id);
                 let name = data.tool(id).map_or(id.as_str(), |t| t.name.as_str());
                 format!("{name} is on your desktop")
+            }
+            Drop::Game(id) => {
+                self.learn_game(id, crate::hub::GameCopy::Cracked);
+                let name = data.game(id).map_or(id.as_str(), |g| g.name.as_str());
+                format!("{name} is on your disk")
             }
             _ => return Err("deck mods go on a live deck. download it in a run.".into()),
         };

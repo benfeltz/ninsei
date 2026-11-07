@@ -77,6 +77,8 @@ pub struct Kit {
     pub trust: Vec<(String, u32)>,
     /// Desktop tools you own (ids in `hub/tools.ron`): HexEd lets you patch on a board.
     pub tools: Vec<String>,
+    /// Games you own, in either copy (ids in `hub/games.ron`): a board won't sell you one twice.
+    pub games: Vec<String>,
     /// Textfiles already on your disk, as (board id, text id).
     pub texts: Vec<(String, String)>,
     /// For each of `programs`, the stash id it came from (`None` for a free program). The run
@@ -337,6 +339,9 @@ pub struct Game {
     /// Desktop tools you own, the kit's plus any downloaded this run. They come home even on
     /// a flatline.
     pub tools: Vec<String>,
+    /// Games you own, the kit's plus any downloaded this run (cracked copies). They come home
+    /// even on a flatline.
+    pub games: Vec<String>,
     /// Textfiles on your disk, as (board id, text id): the kit's plus any downloaded this run.
     /// They come home even on a flatline, for the QWK reader.
     pub texts: Vec<(String, String)>,
@@ -408,6 +413,7 @@ impl Game {
             trust: kit.trust.clone(),
             sold_out: 0,
             tools: kit.tools.clone(),
+            games: kit.games.clone(),
             texts: kit.texts.clone(),
             from_stash: Vec::new(),
         };
@@ -1530,6 +1536,7 @@ impl Game {
             &def.item,
             |t| self.has_tool(t),
             |t| self.has_text(t),
+            |t| self.has_game(t),
         ) {
             return Some(why);
         }
@@ -1539,6 +1546,11 @@ impl Game {
     /// Whether you own a desktop tool (an id in `hub/tools.ron`).
     pub fn has_tool(&self, id: &str) -> bool {
         self.tools.iter().any(|t| t == id)
+    }
+
+    /// Whether you own a game, in either copy (an id in `hub/games.ron`).
+    pub fn has_game(&self, id: &str) -> bool {
+        self.games.iter().any(|g| g == id)
     }
 
     /// Whether a textfile on this run's board is already on your disk.
@@ -1753,6 +1765,13 @@ impl Game {
                 }
                 self.say(LogKind::Loot, format!("+ tool: {name}"));
             }
+            Drop::Game(id) => {
+                let name = self.data.game(&id).map_or(id.clone(), |g| g.name.clone());
+                if !self.has_game(&id) {
+                    self.games.push(id);
+                }
+                self.say(LogKind::Loot, format!("+ game: {name}"));
+            }
             Drop::Text(id) => {
                 if !self.has_text(&id) {
                     let board = self.bbs().id.clone();
@@ -1765,12 +1784,13 @@ impl Game {
     }
 }
 
-/// Why a tool or textfile can't be downloaded, wherever you are: it's already yours.
+/// Why a tool, game or textfile can't be downloaded, wherever you are: it's already yours.
 pub fn tool_blocker(
     tools: &[crate::data::ToolDef],
     item: &Drop,
     has: impl Fn(&str) -> bool,
     has_text: impl Fn(&str) -> bool,
+    has_game: impl Fn(&str) -> bool,
 ) -> Option<String> {
     match item {
         Drop::Tool(id) if has(id) => Some(format!(
@@ -1781,6 +1801,7 @@ pub fn tool_blocker(
                 .map_or(id.as_str(), |t| t.name.as_str())
         )),
         Drop::Text(id) if has_text(id) => Some("that textfile's already on your disk.".into()),
+        Drop::Game(id) if has_game(id) => Some("you already have that game.".into()),
         _ => None,
     }
 }

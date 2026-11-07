@@ -7,6 +7,7 @@
 //   desktop add-ons   hub/desktops.ron (only for desktops your decks run)
 //   run panes         hub/panes.ron
 //   software          hub/tools.ron, any tool with `shop: Some((price, vendor, review))`
+//   games             hub/games.ron, any game with `shop: Some((price))`, sold by its publisher
 // An item without an ad here is a dot-leader line in its section's price list. Write an ad to
 // promote it to a boxed ad; delete the ad and it falls back to a line, never disappears.
 //
@@ -14,7 +15,7 @@
 //   sections  every section exactly once: its title, the printed page it starts on, and the
 //             vendor for its items that don't name one
 //   vendors   advertisers. `hotline` is 1-800 decoration, never a dialable 555 number
-//   ads       item: Upgrade(Ram) | Monitor(id) | Deck(id) | Addon(id) | Pane(id) | Tool(id)
+//   ads       item: Upgrade(Ram) | Monitor(id) | Deck(id) | Addon(id) | Pane(id) | Tool(id) | Game(id)
 //             size: Full (a page to itself) | Half | Box (four to a page)
 //             optional: vendor, headline, bullets (★ points), note (small print), callout
 //             (shown instead of the price, e.g. "CALL for SPECIAL PRICE!"; it still orders)
@@ -43,6 +44,7 @@
         (section: Addons,   title: "Desktop add-ons",     page: 512, vendor: "deskacc"),
         (section: Panes,    title: "Run panes",           page: 600, vendor: "chiba"),
         (section: Software, title: "Mail-order software", page: 790, vendor: "d1rge"),
+        (section: Games,    title: "Games",               page: 836, vendor: "papertiger"),
     ],
     vendors: [
         (id: "onosendai", name: "Ono-Sendai Direct", hotline: Some("1-800-ONO-DECK"), slogan: Some("JACK IN TODAY"),

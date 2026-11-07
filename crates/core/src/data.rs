@@ -117,6 +117,8 @@ pub enum Drop {
     Hint(String),
     /// A desktop tool (id in `hub/tools.ron`): yours for good once downloaded, even on a flatline.
     Tool(String),
+    /// A cracked copy of a game (id in `hub/games.ron`): yours for good, even on a flatline.
+    Game(String),
     /// A textfile on a board (id in the board's `texts`): you read it there, free.
     Text(String),
     Nothing,
@@ -1075,6 +1077,11 @@ impl Data {
                 && !self.exchanges.iter().any(|x| &x.id == r)
             {
                 return Err(format!("{place} hints at unknown range `{r}`"));
+            }
+            if let Drop::Game(id) = d
+                && self.game(id).is_none()
+            {
+                return Err(format!("{place} names unknown game `{id}`"));
             }
         }
         if self.contracts.is_empty() {
