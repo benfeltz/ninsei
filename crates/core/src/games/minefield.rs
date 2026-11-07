@@ -1,0 +1,272 @@
+//! MINEFIELD: mines under covered squares. Open a square and it says how many mines touch it;
+//! an empty one opens its neighbours. The first square you open is never a mine. Open every
+//! safe square to win; open a mine and it's over.
+
+use super::{Arcade, Cell, Input, unpaused};
+use crate::rng::Rng;
+use crate::tuning::MINEFIELD_MINE_PCT;
+
+#[derive(Clone, Debug)]
+pub struct Minefield {
+    cols: usize,
+    rows: usize,
+    rng: Rng,
+    mines: usize,
+    /// Laid on the first open, so it can't be under your first square.
+    mine: Vec<bool>,
+    /// Each square's mines around it, worked out once when the mines are laid.
+    counts: Vec<u8>,
+    open: Vec<bool>,
+    /// Safe squares opened.
+    opened: usize,
+    flag: Vec<bool>,
+    laid: bool,
+    cursor: (usize, usize),
+    /// The clock: ticks played since the first open, and how long a tick is.
+    ticks: u64,
+    tick_ms: u32,
+    over: bool,
+    won: bool,
+    paused: bool,
+}
+
+impl Minefield {
+    /// A field of `cols` x `rows` whose clock ticks every `tick_ms`.
+    pub fn new(seed: u64, cols: usize, rows: usize, tick_ms: u32) -> Self {
+        let (cols, rows) = super::Engine::Minefield.field(cols, rows);
+        let n = cols * rows;
+        Self {
+            cols,
+            rows,
+            rng: Rng::new(seed),
+            mines: (n * MINEFIELD_MINE_PCT / 100).clamp(1, n - 1),
+            mine: vec![false; n],
+            counts: vec![0; n],
+            open: vec![false; n],
+            opened: 0,
+            flag: vec![false; n],
+            laid: false,
+            cursor: (cols / 2, rows / 2),
+            ticks: 0,
+            tick_ms,
+            over: false,
+            won: false,
+            paused: false,
+        }
+    }
+
+    /// Seconds on the clock: it starts on the first open, holds while paused, and stops when
+    /// the game ends (at most 999, like the counter it's drawn on).
+    pub fn seconds(&self) -> u64 {
+        (self.ticks * u64::from(self.tick_ms) / 1000).min(999)
+    }
+
+    pub fn mines(&self) -> usize {
+        self.mines
+    }
+
+    /// Mines not yet flagged (a wrong guess can take it below zero, shown as 0). A cleared
+    /// field has every mine flagged.
+    pub fn mines_left(&self) -> usize {
+        if self.won {
+            return 0;
+        }
+        self.mines
+            .saturating_sub(self.flag.iter().filter(|f| **f).count())
+    }
+
+    /// Whether (col, row) hides a mine. Before the first open, nothing does yet.
+    pub fn is_mine(&self, col: usize, row: usize) -> bool {
+        col < self.cols && row < self.rows && self.mine[row * self.cols + col]
+    }
+
+    pub fn is_open(&self, col: usize, row: usize) -> bool {
+        col < self.cols && row < self.rows && self.open[row * self.cols + col]
+    }
+
+    fn neighbours(&self, i: usize) -> impl Iterator<Item = usize> + '_ {
+        let (x, y) = ((i % self.cols) as i32, (i / self.cols) as i32);
+        (-1..=1)
+            .flat_map(move |dy| (-1..=1).map(move |dx| (x + dx, y + dy)))
+            .filter(move |&(nx, ny)| {
+                (nx, ny) != (x, y)
+                    && nx >= 0
+                    && ny >= 0
+                    && (nx as usize) < self.cols
+                    && (ny as usize) < self.rows
+            })
+            .map(move |(nx, ny)| ny as usize * self.cols + nx as usize)
+    }
+
+    fn count(&self, i: usize) -> u8 {
+        self.counts[i]
+    }
+
+    /// Lays the mines anywhere but `first` and, if there's room, its neighbours.
+    fn lay(&mut self, first: usize) {
+        let near: Vec<usize> = self.neighbours(first).collect();
+        let n = self.cols * self.rows;
+        let room = n - 1 - near.len();
+        let mut pool: Vec<usize> = (0..n)
+            .filter(|&i| i != first && (room < self.mines || !near.contains(&i)))
+            .collect();
+        for _ in 0..self.mines.min(pool.len()) {
+            let i = pool.swap_remove(self.rng.below(pool.len()));
+            self.mine[i] = true;
+        }
+        self.counts = (0..n)
+            .map(|i| self.neighbours(i).filter(|&j| self.mine[j]).count() as u8)
+            .collect();
+        self.laid = true;
+    }
+
+    fn reveal(&mut self, col: usize, row: usize) {
+        if col >= self.cols || row >= self.rows {
+            return;
+        }
+        let i = row * self.cols + col;
+        if self.open[i] || self.flag[i] {
+            return;
+        }
+        if !self.laid {
+            self.lay(i);
+        }
+        if self.mine[i] {
+            self.open[i] = true;
+            self.over = true;
+            return;
+        }
+        // Flood: an empty square opens everything around it.
+        let mut todo = vec![i];
+        while let Some(j) = todo.pop() {
+            if self.open[j] || self.flag[j] {
+                continue;
+            }
+            self.open[j] = true;
+            self.opened += 1;
+            if self.count(j) == 0 {
+                todo.extend(self.neighbours(j).filter(|&n| !self.open[n]));
+            }
+        }
+        if self.opened == self.cols * self.rows - self.mines {
+            self.won = true;
+            self.over = true;
+        }
+    }
+
+    fn toggle_flag(&mut self, col: usize, row: usize) {
+        if col < self.cols && row < self.rows {
+            let i = row * self.cols + col;
+            if !self.open[i] {
+                self.flag[i] = !self.flag[i];
+            }
+        }
+    }
+}
+
+impl Arcade for Minefield {
+    fn step(&mut self, input: Input, ticks: u32) {
+        if !unpaused(&mut self.paused, self.over, input) {
+            return;
+        }
+        let (x, y) = self.cursor;
+        match input {
+            Input::Up => self.cursor.1 = y.saturating_sub(1),
+            Input::Down => self.cursor.1 = (y + 1).min(self.rows - 1),
+            Input::Left => self.cursor.0 = x.saturating_sub(1),
+            Input::Right => self.cursor.0 = (x + 1).min(self.cols - 1),
+            Input::Fire => self.reveal(x, y),
+            Input::Alt => self.toggle_flag(x, y),
+            // A click on the field moves the cursor there too, so the keys carry on from
+            // the square you last touched.
+            Input::Click { col, row } | Input::Flag { col, row }
+                if col < self.cols && row < self.rows =>
+            {
+                self.cursor = (col, row);
+                if matches!(input, Input::Click { .. }) {
+                    self.reveal(col, row);
+                } else {
+                    self.toggle_flag(col, row);
+                }
+            }
+            _ => {}
+        }
+        if self.laid && !self.over {
+            self.ticks += u64::from(ticks);
+        }
+    }
+
+    fn cols(&self) -> usize {
+        self.cols
+    }
+
+    fn rows(&self) -> usize {
+        self.rows
+    }
+
+    fn cells(&self) -> Vec<Cell> {
+        let lost = self.over && !self.won;
+        (0..self.cols * self.rows)
+            .map(|i| {
+                let (mine, flag) = (self.mine[i], self.flag[i]);
+                if self.open[i] {
+                    return if mine {
+                        Cell::Mine
+                    } else {
+                        match self.count(i) {
+                            0 => Cell::Empty,
+                            n => Cell::Number(n),
+                        }
+                    };
+                }
+                match (mine, flag) {
+                    // A cleared field flags every mine; a lost one shows the rest of them and
+                    // marks the flags that were wrong.
+                    (true, _) if self.won => Cell::Flag,
+                    (true, false) if lost => Cell::Mine,
+                    (false, true) if lost => Cell::WrongFlag,
+                    (_, true) => Cell::Flag,
+                    (_, false) => Cell::Covered,
+                }
+            })
+            .collect()
+    }
+
+    fn cursor(&self) -> Option<(usize, usize)> {
+        Some(self.cursor)
+    }
+
+    fn over(&self) -> bool {
+        self.over
+    }
+
+    fn won(&self) -> bool {
+        self.won
+    }
+
+    fn paused(&self) -> bool {
+        self.paused
+    }
+
+    /// The safe squares opened.
+    fn score(&self) -> u32 {
+        self.opened as u32
+    }
+
+    fn status(&self) -> String {
+        let state = if self.won {
+            "  FIELD CLEARED"
+        } else if self.over {
+            "  BOOM"
+        } else if self.paused {
+            "  PAUSED"
+        } else {
+            ""
+        };
+        format!(
+            "MINES {}  TIME {}{state}",
+            self.mines_left(),
+            self.seconds()
+        )
+    }
+}

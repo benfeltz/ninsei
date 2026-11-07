@@ -16,6 +16,7 @@ pub mod disk;
 pub mod display;
 pub mod fight;
 pub mod game;
+pub mod games;
 pub mod glitch;
 pub mod hardware;
 pub mod hexedit;
