@@ -841,7 +841,10 @@ mod tests {
             frame(&mut h, &mut home, &data, &save, Tool::Rig, Vec::new());
         }
         let headline = headline.expect("Paper Tiger's BLOX ad is in the issue");
-        assert!(painted(&h, "PAPER TIGER SOFTWARE").is_some(), "the vendor signs it");
+        assert!(
+            painted(&h, "PAPER TIGER SOFTWARE").is_some(),
+            "the vendor signs it"
+        );
         assert!(h.cut_text().is_empty(), "cut: {:?}", h.cut_text());
         // The ORDER button in the ad's box, the one nearest its headline.
         let order = h
