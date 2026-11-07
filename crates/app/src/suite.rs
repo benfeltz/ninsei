@@ -1076,16 +1076,16 @@ impl Panes<'_> {
                     ),
                 ];
                 form(ui, &p, "suite-vis-form", &rows);
-                heading(ui, &p, "LEVEL BY BAND (Hz)");
-                let labels: Vec<String> = (0..SUITE_BANDS)
-                    .map(|b| format!("{:>5}", scope::band_label(b, SUITE_BANDS, rate)))
-                    .collect();
-                let rows: Vec<(&str, u32, u32, bool)> = labels
+                heading(ui, &p, "LEVEL BY BAND");
+                let rows: Vec<(String, f32)> = bands
                     .iter()
-                    .zip(&bands)
-                    .map(|(l, v)| (l.as_str(), (v * 100.0).round() as u32, 100, false))
+                    .enumerate()
+                    .map(|(b, h)| {
+                        let label = format!("{:>5} Hz", scope::band_label(b, SUITE_BANDS, rate));
+                        (label, scope::db_at(*h))
+                    })
                     .collect();
-                bar_chart(ui, &p, &rows);
+                db_chart(ui, &p, &rows);
             });
         });
     }
@@ -1396,6 +1396,58 @@ impl ChromeView for Suite {
 
 /// Bands in the sound level report.
 const SUITE_BANDS: usize = 8;
+
+/// A bar chart of levels in dB, from the floor (-60) to full scale, ticked every 20 dB, each
+/// row labelled at the left and its reading at the right: the sound report's chart.
+fn db_chart(ui: &mut Ui, p: &Palette, rows: &[(String, f32)]) {
+    use ninsei_core::scope::{FLOOR_DB, height};
+    let h = rows.len() as f32 * 15.0 + 16.0;
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), h), Sense::hover());
+    let painter = ui.painter_at(rect);
+    let plot = Rect::from_min_max(rect.min + vec2(64.0, 2.0), rect.max - vec2(56.0, 14.0));
+    let ticks = [FLOOR_DB, -40.0, -20.0, 0.0];
+    for (k, db) in ticks.iter().enumerate() {
+        let x = plot.left() + plot.width() * height(*db);
+        painter.line_segment(
+            [pos2(x, plot.top()), pos2(x, plot.bottom())],
+            Stroke::new(1.0, if k == 0 { p.dim } else { p.faint }),
+        );
+        painter.text(
+            pos2(x, plot.bottom() + 2.0),
+            Align2::CENTER_TOP,
+            format!("{db:.0}"),
+            mono(size::SMALL),
+            p.dim,
+        );
+    }
+    for (i, (label, db)) in rows.iter().enumerate() {
+        let y = plot.top() + i as f32 * 15.0 + 7.0;
+        painter.text(
+            pos2(rect.left(), y),
+            Align2::LEFT_CENTER,
+            label,
+            mono(size::SMALL),
+            p.dim,
+        );
+        let bar = Rect::from_min_size(
+            pos2(plot.left(), y - 4.0),
+            vec2(plot.width() * height(*db), 8.0),
+        );
+        painter.rect_filled(bar, 0.0, p.fg);
+        let reading = if *db <= FLOOR_DB {
+            "--- dB".to_string()
+        } else {
+            format!("{db:.0} dB")
+        };
+        painter.text(
+            pos2(plot.right() + 4.0, y),
+            Align2::LEFT_CENTER,
+            reading,
+            mono(size::SMALL),
+            p.fg,
+        );
+    }
+}
 
 /// The volume bar's cells in the Sound dialog: 10% apiece.
 const SOUND_NOTCHES: u32 = 10;
