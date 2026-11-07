@@ -633,13 +633,14 @@ pub struct Alert<'a> {
     pub default: Option<usize>,
     /// The button Esc presses.
     pub cancel: Option<usize>,
-    /// Enter and Esc answer only while this holds (nothing else is taking the keyboard).
+    /// Enter and Esc answer ([`alert_keys`]) only while this holds (nothing else is taking the
+    /// keyboard).
     pub keys: bool,
 }
 
 /// An alert at `at`, `width` wide, over everything: the double frame, the icon, the title and
 /// the message wrapped beside it, and the buttons along the bottom right. Returns the button
-/// pressed, by a click or (when `keys`) Enter for the default and Esc for the cancel button.
+/// clicked; its keys are [`alert_keys`].
 pub fn alert(
     ctx: &egui::Context,
     id: Id,
@@ -703,15 +704,20 @@ pub fn alert(
                 x -= size::BUTTON_GAP;
             }
         });
-    if a.keys && pressed.is_none() {
-        let (enter, esc) = ctx.input(|i| (i.key_pressed(Key::Enter), i.key_pressed(Key::Escape)));
-        if enter {
-            pressed = a.default;
-        } else if esc {
-            pressed = a.cancel;
-        }
-    }
     pressed
+}
+
+/// The alert's keys: Enter presses the default button and Esc the cancel button, when `keys`.
+/// It takes the key it acts on, so nothing that reads keys after it sees it too. Call it before
+/// anything else that reads Enter or Esc this frame. Returns the button pressed.
+pub fn alert_keys(ctx: &egui::Context, a: &Alert) -> Option<usize> {
+    if !a.keys {
+        return None;
+    }
+    let take = |key, button: Option<usize>| {
+        button.filter(|_| ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, key)))
+    };
+    take(Key::Enter, a.default).or_else(|| take(Key::Escape, a.cancel))
 }
 
 #[cfg(test)]
@@ -892,7 +898,8 @@ mod tests {
                 cancel: Some(0),
                 keys,
             };
-            got = alert(ui.ctx(), Id::new("a"), pos2(40.5, 30.3), 460.0, &a, &look());
+            got = alert_keys(ui.ctx(), &a)
+                .or(alert(ui.ctx(), Id::new("a"), pos2(40.5, 30.3), 460.0, &a, &look()));
         });
         got
     }

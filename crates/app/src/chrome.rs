@@ -122,7 +122,8 @@ pub trait ChromeView {
     fn legend(&self, _ui: &mut Ui, _cx: &mut FrameCx) -> Vec<Request> {
         Vec::new()
     }
-    /// Keys of its own, read every frame the run is on screen (on top of the shared hotkeys).
+    /// Keys of its own, read every frame the run is on screen, before the shared hotkeys: a key
+    /// it consumes (an alert's Enter) never reaches them.
     fn keys(&self, _ctx: &egui::Context, _cx: &mut FrameCx) -> Vec<Request> {
         Vec::new()
     }
@@ -130,11 +131,7 @@ pub trait ChromeView {
     fn overlay(&self, _ctx: &egui::Context, _cx: &mut FrameCx) -> Vec<Request> {
         Vec::new()
     }
-    /// The overlay answers Enter this frame (an alert's default button), so the run's Enter
-    /// hotkey (to the Message box) stands aside.
-    fn takes_enter(&self, _ctx: &egui::Context, _game: &Game) -> bool {
-        false
-    }
+
     /// The layout a firmware starts with; `extra` are the secondary panes it has.
     fn default_layout(&self, extra: &[Tab]) -> DockState<Tab> {
         base_layout(extra)

@@ -447,53 +447,10 @@ impl ChromeView for Stack {
     }
 
     /// A fight brings up a Mac alert over the card. It's small and off to the side of the
-    /// action, and closing it just tucks it away for this fight. The best move is its default
-    /// button, so Enter runs it and Esc closes it while the Message box isn't being typed in.
+    /// action, and closing it just tucks it away for this fight.
     fn overlay(&self, ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
-        let g = cx.game;
-        let mut out = Vec::new();
-        let (Some(c), Some(closed)) = (&g.combat, alert_key(g)) else {
-            return out;
-        };
-        if !alert_up(ctx, g) {
-            return out;
-        }
-        let def = &g.data.ice[c.ice];
-        let best = best_move(g);
-        let shield = shield_move(g);
-        // Left to right: Close, then a shield, then the action (the best move, else end turn).
-        let mut buttons = vec!["Close".to_string()];
-        let mut acts = vec![None];
-        if let Some(s) = shield {
-            buttons.push(format!("Shield: {}", g.hdd[s].spec.name));
-            acts.push(Some(Action::Run(s)));
-        }
-        match best {
-            Some(b) => {
-                buttons.push(format!("Run {}", g.hdd[b].spec.name));
-                acts.push(Some(Action::Run(b)));
-            }
-            None => {
-                buttons.push("End turn".to_string());
-                acts.push(Some(Action::EndTurn));
-            }
-        }
-        let labels: Vec<&str> = buttons.iter().map(String::as_str).collect();
-        let message = format!(
-            "{}, strength {} of {}. It's holding the line.",
-            def.class.label(),
-            c.strength,
-            c.strength_max
-        );
-        let title = format!("{} rezzed.", def.name);
-        let alert = liza::Alert {
-            icon: "⚠",
-            title: &title,
-            message: &message,
-            buttons: &labels,
-            default: best.map(|_| labels.len() - 1),
-            cancel: Some(0),
-            keys: cx.keys_free && !ctx.egui_wants_keyboard_input(),
+        let Some(f) = Fight::of(ctx, cx) else {
+            return Vec::new();
         };
         let look = liza::Look {
             ink: cx.pal.fg,
@@ -509,25 +466,102 @@ impl ChromeView for Stack {
             screen.left() + look::ALERT_LEFT,
             screen.top() + look::ALERT_TOP,
         );
-        match liza::alert(
-            ctx,
-            Id::new("stack-alert"),
-            at,
-            look::ALERT_W,
-            &alert,
-            &look,
-        ) {
-            Some(0) => {
-                ctx.data_mut(|d| d.insert_temp(closed, true));
-            }
-            Some(i) => out.extend(acts[i].map(act)),
-            None => {}
-        }
-        out
+        let id = Id::new("stack-alert");
+        let pressed = f.with(|a| liza::alert(ctx, id, at, look::ALERT_W, a, &look));
+        f.press(ctx, pressed)
     }
 
-    fn takes_enter(&self, ctx: &egui::Context, game: &Game) -> bool {
-        alert_up(ctx, game) && best_move(game).is_some()
+    /// The fight's alert takes Enter (its default, the best move) and Esc (Close) while the
+    /// Message box isn't being typed in, before the run's own hotkeys see them.
+    fn keys(&self, ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
+        let Some(f) = Fight::of(ctx, cx) else {
+            return Vec::new();
+        };
+        let pressed = f.with(|a| liza::alert_keys(ctx, a));
+        f.press(ctx, pressed)
+    }
+}
+
+/// The fight's alert: what it says and what each button does, left to right: Close, then a
+/// shield, then the action (the best move, its default, else end turn).
+struct Fight {
+    title: String,
+    message: String,
+    buttons: Vec<String>,
+    acts: Vec<Option<Action>>,
+    default: Option<usize>,
+    keys: bool,
+    closed: Id,
+}
+
+impl Fight {
+    /// The alert, while it's up.
+    fn of(ctx: &egui::Context, cx: &FrameCx) -> Option<Fight> {
+        let g = cx.game;
+        let (Some(c), Some(closed)) = (&g.combat, alert_key(g)) else {
+            return None;
+        };
+        if !alert_up(ctx, g) {
+            return None;
+        }
+        let def = &g.data.ice[c.ice];
+        let best = best_move(g);
+        let mut buttons = vec!["Close".to_string()];
+        let mut acts = vec![None];
+        if let Some(s) = shield_move(g) {
+            buttons.push(format!("Shield: {}", g.hdd[s].spec.name));
+            acts.push(Some(Action::Run(s)));
+        }
+        match best {
+            Some(b) => {
+                buttons.push(format!("Run {}", g.hdd[b].spec.name));
+                acts.push(Some(Action::Run(b)));
+            }
+            None => {
+                buttons.push("End turn".to_string());
+                acts.push(Some(Action::EndTurn));
+            }
+        }
+        Some(Fight {
+            title: format!("{} rezzed.", def.name),
+            message: format!(
+                "{}, strength {} of {}. It's holding the line.",
+                def.class.label(),
+                c.strength,
+                c.strength_max
+            ),
+            default: best.map(|_| buttons.len() - 1),
+            buttons,
+            acts,
+            keys: cx.keys_free && !ctx.egui_wants_keyboard_input(),
+            closed,
+        })
+    }
+
+    /// Runs `f` on the alert as the kit takes it.
+    fn with<R>(&self, f: impl FnOnce(&liza::Alert) -> R) -> R {
+        let labels: Vec<&str> = self.buttons.iter().map(String::as_str).collect();
+        f(&liza::Alert {
+            icon: "⚠",
+            title: &self.title,
+            message: &self.message,
+            buttons: &labels,
+            default: self.default,
+            cancel: Some(0),
+            keys: self.keys,
+        })
+    }
+
+    /// What pressing button `i` does: Close tucks the alert away, the rest act.
+    fn press(&self, ctx: &egui::Context, i: Option<usize>) -> Vec<Request> {
+        match i {
+            Some(0) => {
+                ctx.data_mut(|d| d.insert_temp(self.closed, true));
+                Vec::new()
+            }
+            Some(i) => self.acts[i].map(act).into_iter().collect(),
+            None => Vec::new(),
+        }
     }
 }
 
@@ -545,7 +579,7 @@ fn alert_up(ctx: &egui::Context, g: &Game) -> bool {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use ninsei_core::Data;
 
@@ -565,7 +599,7 @@ mod tests {
     }
 
     /// The first fight on the first seed whose opening route meets ICE.
-    fn a_fight(d: &Data) -> Game {
+    pub(crate) fn a_fight(d: &Data) -> Game {
         (0..50)
             .find_map(|seed| {
                 let mut g = Game::new(d.clone(), seed);
@@ -597,7 +631,9 @@ mod tests {
                 suite: &mut suite,
                 keys_free,
             };
-            out = Stack.overlay(ui.ctx(), &mut cx);
+            // As the run does: the chrome's keys first, then the overlay.
+            out = Stack.keys(ui.ctx(), &mut cx);
+            out.extend(Stack.overlay(ui.ctx(), &mut cx));
         });
         out
     }
@@ -615,15 +651,10 @@ mod tests {
         let best = best_move(&g).expect("a breaker is loaded");
         let mut h = crate::uitest::Harness::new(1280.0, 800.0);
         overlay(&mut h, &g, true, vec![]);
-        assert!(
-            Stack.takes_enter(&h.ctx, &g),
-            "Enter is the alert's, not the Message box's"
-        );
         let out = overlay(&mut h, &g, true, crate::uitest::key(egui::Key::Enter));
         assert!(runs(&out, best), "Enter ran the best move");
         overlay(&mut h, &g, true, crate::uitest::key(egui::Key::Escape));
         assert!(!alert_up(&h.ctx, &g), "Esc closed it");
-        assert!(!Stack.takes_enter(&h.ctx, &g), "and gave Enter back");
     }
 
     #[test]
