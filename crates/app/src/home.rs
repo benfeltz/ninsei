@@ -1151,6 +1151,35 @@ fn intro_frame(
     IntroFrame::Showing
 }
 
+/// Where a game's window opens on a desktop of windows: the crack's at `origin`, the box's
+/// down and to the right of it, so both copies show when both are open.
+pub(crate) fn game_spot(copy: GameCopy, origin: Pos2) -> Pos2 {
+    match copy {
+        GameCopy::Cracked => origin,
+        GameCopy::Boxed => origin + vec2(50.0, 30.0),
+    }
+}
+
+/// A window of games' size, worked out the first time it's drawn (zero until then: the room
+/// it needs is counted in `ui`'s cells). The desktop's window puts its tool in
+/// `scrolled(rect)`, beside a scroll bar `bar_w` wide with `pad` around it.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn size_game_window(
+    size: &mut Vec2,
+    ui: &Ui,
+    data: &Data,
+    tool: Tool,
+    scrolled: fn(Rect) -> Rect,
+    bar_w: f32,
+    pad: crate::kit::scrollbar::Pad,
+) {
+    if *size != Vec2::ZERO {
+        return;
+    }
+    let view = |r: Rect| crate::kit::scrollbar::view_rect(scrolled(r), bar_w, pad);
+    *size = game_window(ui, data, tool, view).unwrap_or(vec2(400.0, 300.0));
+}
+
 /// How big a window must open for a game: the room its first (square-ish) grid needs in the
 /// kit's cells, or its intro's 80x24 screen if that's bigger, plus what the window's frame
 /// takes around its `view` (the rect its tool is drawn in, from the window's rect). `None`

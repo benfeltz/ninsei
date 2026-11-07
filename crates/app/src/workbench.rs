@@ -142,21 +142,18 @@ impl Workbench {
                     Tool::NightComm => (pos2(150.0, 50.0), vec2(880.0, 500.0)),
                     Tool::TigerTeam => (pos2(140.0, 44.0), vec2(900.0, 540.0)),
                     Tool::Guide => (pos2(200.0, 30.0), book_window()),
-                    Tool::Shell => (pos2(150.0, 300.0), vec2(600.0, 280.0)),
-                    // Sized to the game's field when it's first drawn (`Win::size` zero);
-                    // a crack and a box of the same game open side by side.
+                    // Sized when it's first drawn (`home::size_game_window`).
                     Tool::Game(_, copy) => {
-                        let at = match copy {
-                            ninsei_core::hub::GameCopy::Cracked => pos2(180.0, 40.0),
-                            ninsei_core::hub::GameCopy::Boxed => pos2(230.0, 70.0),
-                        };
+                        let pos = crate::home::game_spot(copy, pos2(180.0, 40.0));
                         self.wins.push(Win {
                             kind,
-                            pos: at,
+                            pos,
                             size: Vec2::ZERO,
                         });
                         return;
                     }
+                    // The Shell is `Kind::Shell`, above.
+                    Tool::Shell => unreachable!("the Shell's window is Kind::Shell"),
                 },
             };
             // A tool's window has the proportional gadget down its right side, beside the
@@ -314,19 +311,10 @@ impl DesktopView for Workbench {
         });
         for i in 0..n {
             let top = i + 1 == n;
-            // A game's window opens exactly big enough for its field.
-            if let Kind::Tool(t) = self.wins[i].kind
-                && self.wins[i].size == Vec2::ZERO
-            {
-                let view = |r: Rect| {
-                    crate::kit::scrollbar::view_rect(
-                        kit::window_scrolled(r),
-                        kit::size::PROP_W,
-                        kit::SCROLL_PAD,
-                    )
-                };
-                self.wins[i].size =
-                    crate::home::game_window(ui, data, t, view).unwrap_or(vec2(400.0, 300.0));
+            if let Kind::Tool(t) = self.wins[i].kind {
+                let size = &mut self.wins[i].size;
+                let (bar, pad) = (kit::size::PROP_W, kit::SCROLL_PAD);
+                crate::home::size_game_window(size, ui, data, t, kit::window_scrolled, bar, pad);
             }
             let (kind, pos, size) = (self.wins[i].kind, self.wins[i].pos, self.wins[i].size);
             // A window never runs off the bottom of the screen: it gets shorter and scrolls.

@@ -212,13 +212,9 @@ impl Liza {
             Tool::TigerTeam => (pos2(50.0, 40.0), vec2(900.0, 540.0)),
             Tool::IceDb => (pos2(100.0, 60.0), vec2(700.0, 470.0)),
             Tool::Guide => (pos2(120.0, 30.0), book_window()),
-            // Sized to the game's field when it's first drawn (`Win::size` zero); a crack and
-            // a box of the same game open side by side.
+            // Sized when it's first drawn (`home::size_game_window`).
             Tool::Game(_, copy) => {
-                let pos = match copy {
-                    ninsei_core::hub::GameCopy::Cracked => pos2(90.0, 40.0),
-                    ninsei_core::hub::GameCopy::Boxed => pos2(140.0, 70.0),
-                };
+                let pos = home::game_spot(copy, pos2(90.0, 40.0));
                 self.wins.push(Win {
                     tool,
                     pos,
@@ -380,18 +376,9 @@ impl DesktopView for Liza {
         let mut rects = Vec::with_capacity(n);
         for i in 0..n {
             let front = i + 1 == n;
-            // A game's window opens exactly big enough for its field.
-            if self.wins[i].size == Vec2::ZERO {
-                let view = |r: Rect| {
-                    crate::kit::scrollbar::view_rect(
-                        kit::window_scrolled(r),
-                        kit::size::SCROLL_W,
-                        kit::SCROLL_PAD,
-                    )
-                };
-                self.wins[i].size = home::game_window(ui, data, self.wins[i].tool, view)
-                    .unwrap_or(vec2(400.0, 300.0));
-            }
+            let (tool, size) = (self.wins[i].tool, &mut self.wins[i].size);
+            let (bar, pad) = (kit::size::SCROLL_W, kit::SCROLL_PAD);
+            home::size_game_window(size, ui, data, tool, kit::window_scrolled, bar, pad);
             let (tool, pos, size) = (self.wins[i].tool, self.wins[i].pos, self.wins[i].size);
             let room = (screen.height() - pos.y - look::WIN_MARGIN).max(look::WIN_MIN_H);
             let rect = Rect::from_min_size(at(pos), vec2(size.x, size.y.min(room)));
