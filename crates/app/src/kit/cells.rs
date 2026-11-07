@@ -364,6 +364,18 @@ impl Cells {
     /// A title cut into a border at (`c`, `r`), modern-TUI style: `┐title┌`, the border under it
     /// painted out. Returns the cells used.
     pub fn title(&self, p: &Painter, c: usize, r: usize, s: &str, color: Color32) -> usize {
+        self.turned(p, c, r, s, color, false)
+    }
+
+    /// A note cut into a bottom border at (`c`, `r`), btop style: `┘note└`, the border turning
+    /// up into the box either side. Returns the cells used.
+    pub fn note(&self, p: &Painter, c: usize, r: usize, s: &str, color: Color32) -> usize {
+        self.turned(p, c, r, s, color, true)
+    }
+
+    /// Text set into a border, the border turning down (a top edge) or `up` (a bottom one)
+    /// into the box at either end.
+    fn turned(&self, p: &Painter, c: usize, r: usize, s: &str, color: Color32, up: bool) -> usize {
         let (border, bg) = (self.border, self.paper);
         let n = s.chars().count();
         if c + n + 2 > self.cols {
@@ -374,15 +386,15 @@ impl Cells {
             self.text(p, c + 1, r, s, color);
             return n + 2;
         }
-        // The ┐ and ┌ either side: the border turns down into the title's row.
-        let half = self.ch * 0.5;
+        // The ┐ and ┌ (or ┘ and └) either side: the border turns into the box.
+        let tick = vec2(0.0, self.ch * 0.5 * 0.6 * if up { -1.0 } else { 1.0 });
         let left = self.mid(c, r);
         let right = self.mid(c + n + 1, r);
         let stroke = Stroke::new(1.0, border);
         p.line_segment([left - vec2(self.cw * 0.5, 0.0), left], stroke);
-        p.line_segment([left, left + vec2(0.0, half * 0.6)], stroke);
+        p.line_segment([left, left + tick], stroke);
         p.line_segment([right, right + vec2(self.cw * 0.5, 0.0)], stroke);
-        p.line_segment([right, right + vec2(0.0, half * 0.6)], stroke);
+        p.line_segment([right, right + tick], stroke);
         self.text(p, c + 1, r, s, color);
         n + 2
     }
@@ -407,9 +419,9 @@ impl Cells {
         self.meter_in(p, c, r, w, on, ramp, self.empty);
     }
 
-    /// A gauge: `w` cells from (`c`, `r`) lit to `frac` (0..1) of their length, the cell at
-    /// the edge lit in part; each lit cell takes `color(k)`, `k` its place along the gauge
-    /// (0..1), and the rest are drawn as `unlit`.
+    /// A gauge: `w` cells from (`c`, `r`), `lit` of them lit (a part of a cell at the edge
+    /// when it isn't whole); lit cell `i` takes `color(i)`, and the rest are drawn as `unlit`.
+    /// A whole number of lit cells lights them whole, exactly.
     #[allow(clippy::too_many_arguments)]
     pub fn gauge(
         &self,
@@ -417,11 +429,11 @@ impl Cells {
         c: usize,
         r: usize,
         w: usize,
-        frac: f32,
-        color: impl Fn(f32) -> Color32,
+        lit: f32,
+        color: impl Fn(usize) -> Color32,
         unlit: Unlit,
     ) {
-        let on = frac.clamp(0.0, 1.0) * w as f32;
+        let on = lit.clamp(0.0, w as f32);
         for i in 0..w {
             let cell = self
                 .at(c + i, r, 1, 1)
@@ -429,7 +441,7 @@ impl Cells {
             let fill = (on - i as f32).clamp(0.0, 1.0);
             if fill > 0.0 {
                 let part = Rect::from_min_size(cell.min, vec2(cell.width() * fill, cell.height()));
-                p.rect_filled(part, 0.0, color((i as f32 + 0.5) / w as f32));
+                p.rect_filled(part, 0.0, color(i));
             }
             if fill < 1.0 {
                 match unlit {
@@ -457,9 +469,7 @@ impl Cells {
         ramp: &[Color32],
         empty: Color32,
     ) {
-        // Cell `i` of `w` is at k = (i + 0.5) / w: back to `i`, then along the ramp.
-        let color = |k: f32| {
-            let i = ((k * w as f32) - 0.5).round().max(0.0) as usize;
+        let color = |i: usize| {
             let at = if w <= 1 {
                 ramp.len() - 1
             } else {
@@ -467,8 +477,7 @@ impl Cells {
             };
             ramp[at.min(ramp.len() - 1)]
         };
-        let frac = if w == 0 { 0.0 } else { on as f32 / w as f32 };
-        self.gauge(p, c, r, w, frac, color, Unlit::Outline(empty));
+        self.gauge(p, c, r, w, on as f32, color, Unlit::Outline(empty));
     }
 }
 
@@ -513,8 +522,8 @@ mod tests {
                 0,
                 0,
                 10,
-                0.35,
-                |k| Color32::from_gray((k * 255.0) as u8),
+                3.5,
+                |i| Color32::from_gray(20 * i as u8 + 40),
                 Unlit::Dot(Color32::RED),
             );
         });
@@ -557,5 +566,65 @@ mod tests {
         assert_eq!(cut("icepick.exe", 10), "icepick.e…");
         assert_eq!(cut("abc", 1), "…");
         assert_eq!(cut("abc", 0), "");
+    }
+
+    #[test]
+    fn a_whole_count_of_lit_cells_lights_them_whole_at_any_width() {
+        let mut h = crate::uitest::Harness::new(900.0, 100.0);
+        for (on, w) in [(13usize, 22usize), (7, 23), (15, 29), (3, 37), (1, 41)] {
+            h.frame(Vec::new(), |ui| {
+                let g = Cells::sized(
+                    ui,
+                    pos2(0.0, 0.0),
+                    FontId::monospace(12.0),
+                    Some(14.0),
+                    (w, 1),
+                );
+                g.meter_in(ui.painter(), 0, 0, w, on, &[Color32::WHITE], Color32::RED);
+            });
+            let outlines = h
+                .painted()
+                .iter()
+                .filter(|s| matches!(s, egui::Shape::Rect(r) if r.stroke.color == Color32::RED))
+                .count();
+            assert_eq!(
+                outlines,
+                w - on,
+                "{on} of {w}: only the unlit cells are outlined"
+            );
+        }
+    }
+
+    #[test]
+    fn a_note_turns_up_into_its_box() {
+        let mut h = crate::uitest::Harness::new(400.0, 100.0);
+        let mut row = 0.0;
+        h.frame(Vec::new(), |ui| {
+            let mut g = Cells::sized(
+                ui,
+                pos2(0.0, 0.0),
+                FontId::monospace(12.0),
+                Some(14.0),
+                (20, 3),
+            );
+            g.border = Color32::RED;
+            g.note(ui.painter(), 2, 2, "seed", Color32::WHITE);
+            row = g.at(0, 2, 1, 1).center().y;
+        });
+        let ticks: Vec<f32> = h
+            .painted()
+            .iter()
+            .filter_map(|s| match s {
+                egui::Shape::LineSegment { points, .. } if points[0].x == points[1].x => {
+                    Some(points[1].y)
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(ticks.len(), 2);
+        assert!(
+            ticks.iter().all(|y| *y < row),
+            "both ticks go up from the bottom edge"
+        );
     }
 }

@@ -89,14 +89,18 @@ fn meter(ui: &mut Ui, p: &Palette, id: &str, value: u32, max: u32, cells: usize)
         egui::Vec2::ZERO,
         Sense::hover(),
     );
-    let frac = if max == 0 { 0.0 } else { shown / max as f32 };
+    let lit = if max == 0 {
+        0.0
+    } else {
+        (shown / max as f32).clamp(0.0, 1.0) * cells as f32
+    };
     g.gauge(
         &ui.painter_at(resp.rect),
         0,
         0,
         cells,
-        frac,
-        |k| ramp(p, k),
+        lit,
+        |i| ramp(p, (i as f32 + 0.5) / cells as f32),
         Unlit::Dot(p.faint),
     );
 }
