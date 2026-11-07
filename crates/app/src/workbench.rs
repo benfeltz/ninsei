@@ -10,7 +10,7 @@ use ninsei_core::hub::{IconDef, Tool};
 
 use crate::home::{Cx, DesktopView, Home, WbOut, accent, backdrop, fill, font, ink, shadow};
 use crate::hubtools;
-use crate::kit::workbench::{self as kit, Look, size};
+use crate::kit::workbench::{self as kit, Look};
 
 /// Gap kept between a window's bottom and the screen's.
 const WIN_MARGIN: f32 = 8.0;
@@ -25,7 +25,7 @@ const ICON_COL_W: f32 = 92.0;
 /// Where the `n`th icon sits on a screen `size`: down the left; once that column is full, the
 /// rest go down the right edge, where Workbench keeps its disks, clear of the windows.
 fn icon_pos(n: usize, size: Vec2) -> Pos2 {
-    let top = size::SCREEN_BAR_H + 16.0;
+    let top = kit::size::SCREEN_BAR_H + 16.0;
     let per_col = (((size.y - top) / ICON_PITCH).floor() as usize).max(1);
     let (col, row) = (n / per_col, n % per_col);
     let x = if col == 0 {
@@ -180,7 +180,7 @@ impl DesktopView for Workbench {
         let addon = |e| save.has_effect(data, Desktop::Workbench, e);
         if addon(AddonEffect::Pattern) {
             // The classic dithered backdrop: every other pixel, every other row.
-            let mut y = screen.top() + size::SCREEN_BAR_H;
+            let mut y = screen.top() + kit::size::SCREEN_BAR_H;
             let mut row = 0;
             while y < screen.bottom() {
                 let mut x = screen.left() + if row % 2 == 0 { 0.0 } else { 3.0 };
@@ -338,8 +338,10 @@ impl DesktopView for Workbench {
                 let p = &mut self.wins[i].pos;
                 *p += d;
                 p.x = p.x.clamp(-size.x + 60.0, screen.width() - 60.0);
-                p.y =
-                    p.y.clamp(size::SCREEN_BAR_H, screen.height() - size::TITLE_H);
+                p.y = p.y.clamp(
+                    kit::size::SCREEN_BAR_H,
+                    screen.height() - kit::size::TITLE_H,
+                );
                 // On whole pixels, where its frame is drawn.
                 *p = p.round();
             }
@@ -407,7 +409,7 @@ impl DesktopView for Workbench {
                         Kind::Guide => Tool::Guide,
                         _ => Tool::HexEd,
                     };
-                    let hint = crate::home::drag_hint(pos.y, size::SCREEN_BAR_H);
+                    let hint = crate::home::drag_hint(pos.y, kit::size::SCREEN_BAR_H);
                     home.tool_in(
                         &mut child,
                         tool,
@@ -484,8 +486,8 @@ fn draw_icon(painter: &egui::Painter, icon: &IconDef, at: Pos2, selected: bool) 
 fn book_window() -> egui::Vec2 {
     crate::pager::SIZE
         + vec2(
-            2.0 * (size::BORDER + 4.0) + 2.0,
-            size::TITLE_H + 4.0 + size::BORDER + 4.0 + 2.0,
+            2.0 * (kit::size::BORDER + 4.0) + 2.0,
+            kit::size::TITLE_H + 4.0 + kit::size::BORDER + 4.0 + 2.0,
         )
 }
 
