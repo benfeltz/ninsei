@@ -14,7 +14,8 @@ use ninsei_core::suite::{self as rules, Notice, SheetCol, Watch};
 use ninsei_core::{Action, Command, ContractStatus, Effect, Game, LogKind, Phase, tuning};
 
 use crate::chrome::{ChromeView, FrameCx, MenuPart, Menus, act};
-use crate::kit::Cells;
+use crate::kit::cells::cut;
+use crate::kit::{Cells, Sheet};
 use crate::panes::{Panes, Request, Tab};
 use crate::theme::Palette;
 
@@ -23,8 +24,6 @@ pub mod size {
     pub const MONO: f32 = 12.0;
     pub const SMALL: f32 = 10.0;
     pub const TITLE_H: f32 = 18.0;
-    /// How far a window's shadow falls.
-    pub const SHADOW: f32 = 5.0;
     pub const ROW_H: f32 = 17.0;
     /// Report charts take this share of a window's height, within these bounds.
     pub const CHART_SHARE: f32 = 0.3;
@@ -82,72 +81,59 @@ fn small(s: impl Into<String>, c: Color32) -> RichText {
     RichText::new(s).font(mono(size::SMALL)).color(c)
 }
 
-/// A document window filling the pane: shadow, double border, a title bar with the window's
-/// number, and `body` inside.
+/// A document window filling the pane, on the suite's cells: a shadow a cell down and right,
+/// a double border, a title row with the close box, the name and the window's number, and
+/// `body` inside.
 pub fn window(ui: &mut Ui, p: &Palette, num: usize, title: &str, body: impl FnOnce(&mut Ui)) {
     let full = ui.available_rect_before_wrap();
     let painter = ui.painter().clone();
     painter.rect_filled(full, 0.0, p.panel);
-    let win = Rect::from_min_max(
+    // Room for the window and its shadow, a cell down and right.
+    let probe = Cells::sized(ui, full.min, mono(size::MONO), Some(size::ROW_H), (1, 1));
+    let area = Rect::from_min_max(
         full.min + vec2(4.0, 4.0),
-        full.max - vec2(4.0 + size::SHADOW, 4.0 + size::SHADOW),
+        full.max - vec2(4.0 + probe.cw, 4.0 + probe.ch),
     );
-    painter.rect_filled(win.translate(vec2(size::SHADOW, size::SHADOW)), 0.0, p.bg);
-    painter.rect_filled(win, 0.0, p.bg);
-    painter.rect_stroke(win, 0.0, Stroke::new(1.0, p.fg), StrokeKind::Inside);
-    painter.rect_stroke(
-        win.shrink(3.0),
-        0.0,
-        Stroke::new(1.0, p.dim),
-        StrokeKind::Inside,
-    );
-    let bar = Rect::from_min_size(
-        win.min + vec2(4.0, 4.0),
-        vec2(win.width() - 8.0, size::TITLE_H),
-    );
-    painter.rect_filled(bar, 0.0, p.panel);
-    let clip = painter.with_clip_rect(bar);
-    clip.text(
-        bar.left_center() + vec2(4.0, 0.0),
-        Align2::LEFT_CENTER,
-        "[■]",
-        mono(size::SMALL),
-        p.dim,
-    );
-    clip.text(
-        bar.center(),
-        Align2::CENTER_CENTER,
-        title,
-        mono(size::MONO),
-        p.bright,
-    );
-    clip.text(
-        bar.right_center() - vec2(4.0, 0.0),
-        Align2::RIGHT_CENTER,
-        format!("[{num}]"),
-        mono(size::SMALL),
-        p.dim,
-    );
-    let inner = Rect::from_min_max(
-        pos2(win.left() + 9.0, bar.bottom() + 6.0),
-        win.max - vec2(9.0, 7.0),
-    );
-    if inner.width() > 8.0 && inner.height() > 8.0 {
-        ui.scope_builder(
-            UiBuilder::new()
-                .max_rect(inner)
-                .layout(egui::Layout::top_down(egui::Align::Min)),
-            |ui| {
-                ui.set_clip_rect(inner.intersect(ui.clip_rect()));
-                // Solid scroll bars, always there, like any document window.
-                // The thumb in the text colour on a `panel` track: visible on the window's `bg`.
-                ui.spacing_mut().scroll = crate::theme::visible_scroll();
-                ui.visuals_mut().extreme_bg_color = p.panel;
-                body(ui);
-            },
-        );
+    let mut g = Cells::fit_font(ui, area, mono(size::MONO), Some(size::ROW_H));
+    g.border = p.fg;
+    painter.rect_filled(g.rect.translate(vec2(g.cw, g.ch)), 0.0, p.bg);
+    painter.rect_filled(g.rect, 0.0, p.bg);
+    g.frame_double(&painter, 0, 0, g.cols, g.rows);
+    if g.cols < 10 || g.rows < 5 {
+        ui.allocate_rect(full, Sense::hover());
+        return;
     }
+    // The title row: [■] on the left, the name in the middle, [n] on the right.
+    let w = g.cols - 2;
+    g.fill(&painter, 1, 1, w, 1, p.panel);
+    g.text(&painter, 2, 1, "[■]", p.dim);
+    let number = format!("[{num}]");
+    g.text_right(&painter, g.cols - 2, 1, &number, p.dim);
+    let room = w.saturating_sub(6 + number.chars().count() + 2);
+    let name = cut(title, room);
+    let n = name.chars().count();
+    g.text(&painter, 1 + (w - n) / 2, 1, &name, p.bright);
+    let inner = g.at(1, 2, g.cols - 2, g.rows - 3).shrink2(vec2(2.0, 2.0));
+    ui.scope_builder(
+        UiBuilder::new()
+            .max_rect(inner)
+            .layout(egui::Layout::top_down(egui::Align::Min)),
+        |ui| {
+            ui.set_clip_rect(inner.intersect(ui.clip_rect()));
+            // Solid scroll bars, always there, like any document window.
+            // The thumb in the text colour on a `panel` track: visible on the window's `bg`.
+            ui.spacing_mut().scroll = crate::theme::visible_scroll();
+            ui.visuals_mut().extreme_bg_color = p.panel;
+            body(ui);
+        },
+    );
     ui.allocate_rect(full, Sense::hover());
+}
+
+/// How many of the suite's cells fit across `ui`.
+fn cols_across(ui: &Ui) -> usize {
+    let area = Rect::from_min_size(ui.cursor().min, vec2(ui.available_width(), size::ROW_H));
+    Cells::fit_font(ui, area, mono(size::MONO), Some(size::ROW_H)).cols
 }
 
 /// A scrolling document body with its scroll bar always shown.
@@ -1200,36 +1186,36 @@ impl ChromeView for Suite {
             Phase::JackedOut => ("LOGGED OFF", false),
         };
         let n = g.net.nodes.len();
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 0.0;
-            ui.label(t(format!(" {mode} "), p.bg).background_color(if hot {
-                p.bright
-            } else {
-                p.fg
-            }));
-            let sep = |ui: &mut Ui| {
-                ui.label(t("  │  ", p.dim));
-            };
-            ui.label(t(
-                format!("  {}  HOP {}", rules::date(g.seed), g.hops),
-                p.fg,
-            ));
-            sep(ui);
-            ui.label(t(format!("USER {}", rules::user_id(g.seed)), p.fg));
-            sep(ui);
-            ui.label(t(
+        // One row of cells: the mode in inverse, then the fields between rules.
+        let mut line: Sheet<()> = Sheet::new(cols_across(ui));
+        let mut c = line.inv(
+            0,
+            0,
+            &format!(" {mode} "),
+            p.bg,
+            if hot { p.bright } else { p.fg },
+        );
+        let trace_hot = g.deck.trace * 4 >= tuning::TRACE_MAX * 3;
+        let fields = [
+            (format!("  {}  HOP {}", rules::date(g.seed), g.hops), p.fg),
+            (format!("USER {}", rules::user_id(g.seed)), p.fg),
+            (
                 rules::doc_name(g.site.as_ref().map(|s| s.name.as_str())),
                 p.bright,
-            ));
-            sep(ui);
-            ui.label(t(format!("NODE {} OF {n}", g.at + 1), p.fg));
-            sep(ui);
-            let trace_hot = g.deck.trace * 4 >= tuning::TRACE_MAX * 3;
-            ui.label(t(
+            ),
+            (format!("NODE {} OF {n}", g.at + 1), p.fg),
+            (
                 format!("TRACE {}%", g.deck.trace),
                 if trace_hot { p.bright } else { p.fg },
-            ));
-        });
+            ),
+        ];
+        for (i, (text, col)) in fields.iter().enumerate() {
+            if i > 0 {
+                c = line.put(c, 0, "  │  ", p.dim);
+            }
+            c = line.put(c, 0, text, *col);
+        }
+        line.paint(ui, mono(size::MONO), Some(size::ROW_H));
         true
     }
 
@@ -1238,26 +1224,23 @@ impl ChromeView for Suite {
     }
     fn legend(&self, ui: &mut Ui, cx: &mut FrameCx) -> Vec<Request> {
         let p = cx.pal;
-        let mut out = Vec::new();
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 4.0;
-            for (k, cap, label) in FKEYS {
-                if k == Key::F4 && !cx.game.has_tool("hexed") {
-                    continue;
-                }
-                let r = ui.add(
-                    egui::Label::new(t(cap, p.bg).background_color(p.fg)).sense(Sense::click()),
-                );
-                let l =
-                    ui.add(egui::Label::new(t(format!("{label}  "), p.fg)).sense(Sense::click()));
-                if (r.clicked() || l.clicked())
-                    && let Some(req) = fkey(k, cx.suite, cx.game)
-                {
-                    out.push(req);
-                }
+        // One row of cells: each key's cap in inverse and what it does, both clickable.
+        let mut line: Sheet<Key> = Sheet::new(cols_across(ui));
+        let mut c = 0;
+        for (k, cap, label) in FKEYS {
+            if k == Key::F4 && !cx.game.has_tool("hexed") {
+                continue;
             }
-        });
-        out
+            let start = c;
+            c = line.inv(c, 0, cap, p.bg, p.fg);
+            c = line.put(c + 1, 0, label, p.fg);
+            line.hit(start, 0, c - start, k);
+            c += 2;
+        }
+        line.paint(ui, mono(size::MONO), Some(size::ROW_H))
+            .into_iter()
+            .filter_map(|k| fkey(k, cx.suite, cx.game))
+            .collect()
     }
 
     fn keys(&self, ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
@@ -1386,6 +1369,7 @@ impl ChromeView for Suite {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::chrome::FrameCx;
     use crate::uitest::{Harness, click};
     use ninsei_core::Data;
     use ninsei_core::hardware::Chrome;
@@ -1488,5 +1472,67 @@ mod tests {
         let ram = head[joined[..joined.find("RAM").unwrap()].chars().count()].0;
         sheet(&mut h, &d, &g, &mut st, click(ram.center()));
         assert_eq!(st.sort, SheetCol::Ram);
+    }
+
+    #[test]
+    fn the_legends_keys_click_through_to_their_requests() {
+        let d = Data::builtin().unwrap();
+        let mut s = Save::default();
+        s.ensure_hardware(&d);
+        let g = s.jack_in(&d, &d.rig, 1);
+        let mut st = State::default();
+        let mut h = Harness::new(900.0, 100.0);
+        let mut got = Vec::new();
+        let mut draw = |h: &mut Harness, st: &mut State, events| {
+            h.frame(events, |ui| {
+                let mut cx = FrameCx {
+                    game: &g,
+                    pal: Palette::from_def(&d.themes[0]),
+                    suite: st,
+                    keys_free: true,
+                };
+                got = Suite.legend(ui, &mut cx);
+            });
+        };
+        draw(&mut h, &mut st, Vec::new());
+        let load = h
+            .find("F2 Load")
+            .unwrap_or_else(|| panic!("{:?}", h.texts()));
+        draw(&mut h, &mut st, click(load.center()));
+        let slot = st.picked(&g).unwrap();
+        assert!(
+            matches!(got.as_slice(), [Request::Cmd(Command::Game(Action::Load(s)))] if *s == slot),
+            "{:?}",
+            got.len()
+        );
+    }
+
+    #[test]
+    fn a_window_keeps_to_its_pane_with_its_body_inside_the_frame() {
+        let d = Data::builtin().unwrap();
+        let p = Palette::from_def(&d.themes[0]);
+        let mut h = Harness::new(900.0, 600.0);
+        let pane = Rect::from_min_size(egui::pos2(20.0, 30.0), vec2(401.0, 233.0));
+        let mut body = Rect::NOTHING;
+        h.frame(Vec::new(), |ui| {
+            let mut child = ui.new_child(UiBuilder::new().max_rect(pane));
+            window(&mut child, &p, 3, "WAREZ.WK1", |ui| body = ui.max_rect());
+        });
+        for s in h.painted() {
+            let r = s.visual_bounding_rect();
+            assert!(pane.expand(0.5).contains_rect(r), "{r:?} outside {pane:?}");
+        }
+        assert!(pane.contains_rect(body) && body.height() > 120.0);
+        let painted: String = h
+            .painted()
+            .iter()
+            .filter_map(|s| match s {
+                egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+                _ => None,
+            })
+            .collect();
+        for part in ["[■]", "WAREZ.WK1", "[3]"] {
+            assert!(painted.contains(part), "{part} in the title row: {painted}");
+        }
     }
 }
