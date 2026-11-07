@@ -150,7 +150,9 @@ mod in_a_run {
         let d = data();
         let (s, mut g) = dialed(&d, "onosendai");
         let tier = g.tier();
-        let key = |screen, crashed, g: &Game| wanted(screen, crashed, &s, g, &d);
+        let key = |screen, crashed, g: &Game| {
+            wanted(screen, crashed, &s, g, &d).map(|w| (w.pack.to_string(), w.tier, w.arrangement))
+        };
         assert_eq!(key(Screen::Hub, false, &g), None, "quiet at home");
         let playing = Some(("ono".to_string(), tier, Arrangement::PLAIN));
         assert_eq!(key(Screen::JackIn { t: 0.1 }, false, &g), playing);
@@ -189,7 +191,7 @@ mod in_a_run {
         let (s, g) = dialed(&d, "hosaka");
         assert_eq!(s.firmware_def(&d).sounds, "hosaka");
         assert_eq!(g.phase, Phase::Exploring);
-        assert_eq!(wanted(Screen::Run, false, &s, &g, &d), None);
+        assert!(wanted(Screen::Run, false, &s, &g, &d).is_none());
     }
 }
 
@@ -216,4 +218,43 @@ fn the_ono_sendai_scores_every_tier_and_the_others_stay_silent() {
     for pack in ["hosaka", "sensenet"] {
         assert!((1..=3).all(|t| d.run_tune(pack, t).is_none()), "{pack}");
     }
+}
+
+#[test]
+fn a_loop_renders_the_same_however_it_is_sliced() {
+    let t = two_tracks();
+    let whole = {
+        let mut job = t.loop_render(RATE, 0, Some(1));
+        assert!(job.work(usize::MAX));
+        job.finish()
+    };
+    let mut job = t.loop_render(RATE, 0, Some(1));
+    let mut frames = 1;
+    while !job.work(777) {
+        frames += 1;
+    }
+    assert!(frames > 5, "it took slices");
+    assert_eq!(job.finish(), whole);
+    // The bed is the tune without the stem; together they're the whole tune.
+    let (bed, stem) = whole;
+    assert_eq!(bed.len(), stem.len());
+    let dropped = t.render_loop(
+        RATE,
+        &Arrangement {
+            drop: Some(1),
+            tempo: 0,
+        },
+    );
+    assert_eq!(bed, dropped);
+    let all = t.render_loop(RATE, &Arrangement::PLAIN);
+    assert!(
+        bed.iter()
+            .zip(&stem)
+            .zip(&all)
+            .all(|((b, s), a)| (b + s - a).abs() < 1e-5)
+    );
+    // No stem, nothing to hold.
+    let mut job = t.loop_render(RATE, 0, None);
+    while !job.work(usize::MAX) {}
+    assert!(job.finish().1.is_empty());
 }

@@ -120,8 +120,14 @@ fn bad_music_is_caught() {
         assert!(err.starts_with("sounds/ono.ron: "), "{err}");
         assert!(err.contains(says), "{music}: {err}");
     };
-    bad(format!("(tier: 4, tune: {TUNE})"), "tier 4");
-    bad(format!("(tier: 0, tune: {TUNE})"), "tier 0");
+    bad(format!("(tier: 4, tune: {TUNE})"), "unknown tier 4");
+    bad(format!("(tier: 0, tune: {TUNE})"), "unknown tier 0");
+    // Tracks that only line up after thousands of steps (9009 here: 17 minutes).
+    let primes = "(bpm: 132, tracks: [(wave: Square, vol: 0.2, pattern: \"C4 . . . . . .\"), \
+        (wave: Square, vol: 0.2, pattern: \"E4 . . . . . . . .\"), \
+        (wave: Saw, vol: 0.2, pattern: \"C2 . . . . . . . . . .\"), \
+        (wave: Noise, vol: 0.1, pattern: \"x . . . . . . . . . . . .\")])";
+    bad(format!("(tier: 1, tune: {primes})"), "loops after 1024 s");
     bad(
         format!("(tier: 1, tune: {TUNE}), (tier: 1, tune: {TUNE})"),
         "two tunes",

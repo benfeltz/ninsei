@@ -804,17 +804,6 @@ impl App {
         }
     }
 
-    /// What the run's music should be now (none at home, after the run or on the crash screen).
-    fn music_key(&self) -> Option<ninsei_core::music::MusicKey> {
-        ninsei_core::music::wanted(
-            self.screen,
-            self.crashed,
-            &self.save,
-            &self.game,
-            &self.data,
-        )
-    }
-
     /// Back to the desktop: it drags up over the run.
     fn go_home(&mut self) {
         self.book();
@@ -1226,12 +1215,20 @@ impl eframe::App for App {
         for cue in std::mem::take(&mut self.game.cues) {
             self.speaker.cue(cue, &pack, sounds);
         }
-        // The run's tune: core says what should be on, the speaker re-renders only on a change.
-        let tune = self
-            .music_key()
-            .and_then(|k| Some((self.data.run_tune(&k.0, k.1)?, k)));
-        match tune {
-            Some((t, key)) => self.speaker.run_music(key, &t.tune),
+        // The run's tune: core says what should be on; the speaker renders a new loop a slice a
+        // frame (keep frames coming until it's ready) and only rearranges on a trace step.
+        match ninsei_core::music::wanted(
+            self.screen,
+            self.crashed,
+            &self.save,
+            &self.game,
+            &self.data,
+        ) {
+            Some(w) => {
+                if self.speaker.run_music(&w) {
+                    ctx.request_repaint();
+                }
+            }
             None => self.speaker.stop_music(),
         }
 

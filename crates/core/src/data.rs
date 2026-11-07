@@ -990,7 +990,7 @@ impl Data {
         }
         for p in &self.sounds {
             crate::cue::SoundDef::validate(&p.sounds)
-                .and_then(|()| crate::music::validate(&p.music))
+                .and_then(|()| crate::music::validate(&p.music, &self.networks))
                 .map_err(|e| format!("sounds/{}.ron: {e}", p.id))?;
         }
         crate::hub::RangeDef::validate(&self.exchanges, &self.networks)
