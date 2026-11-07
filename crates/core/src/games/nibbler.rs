@@ -64,7 +64,7 @@ pub struct Nibbler {
 impl Nibbler {
     /// A snake heading right from the middle of a `cols` x `rows` field (walls included).
     pub fn new(seed: u64, cols: usize, rows: usize) -> Self {
-        let (cols, rows) = (cols.max(8), rows.max(6));
+        let (cols, rows) = super::Engine::Nibbler.field(cols, rows);
         let (x, y) = (cols / 2, rows / 2);
         let body = (0..START_LEN).map(|i| (x - i, y)).collect();
         let mut n = Self {

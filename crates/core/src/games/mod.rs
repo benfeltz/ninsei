@@ -76,9 +76,24 @@ pub trait Arcade {
     fn status(&self) -> String;
 }
 
-/// Which rules a game runs (`engine` in `games.ron`).
-#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Engine {
+/// Declares [`Engine`] and [`Engine::ALL`] from one list, so a new engine can't be left out
+/// of `ALL` (and so out of the rule that every engine has a row in `games.ron`).
+macro_rules! engines {
+    ($($(#[$doc:meta])* $name:ident),+ $(,)?) => {
+        /// Which rules a game runs (`engine` in `games.ron`).
+        #[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+        pub enum Engine {
+            $($(#[$doc])* $name,)+
+        }
+
+        impl Engine {
+            /// Every engine, in declaration order.
+            pub const ALL: &'static [Engine] = &[$(Engine::$name),+];
+        }
+    };
+}
+
+engines! {
     /// A snake on a walled field.
     Nibbler,
     /// Falling tetrominoes.
@@ -88,15 +103,20 @@ pub enum Engine {
 }
 
 impl Engine {
-    pub const ALL: [Engine; 3] = [Engine::Nibbler, Engine::Blox, Engine::Minefield];
-
-    /// The smallest field the engine plays on, (cols, rows).
+    /// The smallest field the engine plays on, (cols, rows). The engines clamp to it, so a
+    /// field validation lets through is exactly the field the game plays on.
     pub fn min_size(self) -> (u32, u32) {
         match self {
             Engine::Nibbler => (8, 6),
             Engine::Blox => (6, 8),
             Engine::Minefield => (4, 4),
         }
+    }
+
+    /// `cols` x `rows`, grown to at least [`Self::min_size`].
+    pub(crate) fn field(self, cols: usize, rows: usize) -> (usize, usize) {
+        let (c, r) = self.min_size();
+        (cols.max(c as usize), rows.max(r as usize))
     }
 }
 

@@ -27,7 +27,7 @@ pub struct Minefield {
 
 impl Minefield {
     pub fn new(seed: u64, cols: usize, rows: usize) -> Self {
-        let (cols, rows) = (cols.max(4), rows.max(4));
+        let (cols, rows) = super::Engine::Minefield.field(cols, rows);
         let n = cols * rows;
         Self {
             cols,

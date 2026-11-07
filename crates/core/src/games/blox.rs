@@ -62,7 +62,7 @@ pub struct Blox {
 
 impl Blox {
     pub fn new(seed: u64, cols: usize, rows: usize) -> Self {
-        let (cols, rows) = (cols.max(6), rows.max(8));
+        let (cols, rows) = super::Engine::Blox.field(cols, rows);
         let mut b = Self {
             cols,
             rows,

@@ -14,7 +14,7 @@ fn data() -> Data {
 fn every_game_validates() {
     let d = data();
     for e in games::Engine::ALL {
-        assert!(d.games.iter().any(|g| g.engine == e), "a game runs {e:?}");
+        assert!(d.games.iter().any(|g| g.engine == *e), "a game runs {e:?}");
     }
     for g in &d.games {
         assert!(!g.name.is_empty() && !g.blurb.is_empty() && !g.version.is_empty());
@@ -71,6 +71,13 @@ fn a_bad_game_is_rejected() {
     // NIBBLER needs room for its walls and a snake.
     assert!(check(|g| g.cols = 7).contains("Nibbler plays on 8-78"));
     assert!(check(|g| g.tick_ms = 0).contains("tick_ms"));
+    let mut d = data();
+    d.games.retain(|g| g.engine != games::Engine::Blox);
+    assert!(
+        d.validate()
+            .unwrap_err()
+            .contains("no game runs the Blox engine")
+    );
     assert!(check(|g| g.tick_ms = 5000).contains("tick_ms"));
     assert!(check(|g| g.shop = Some(data::GameShop { price: 0 })).contains("for nothing"));
     let mut d = data();
@@ -766,6 +773,20 @@ mod minefield {
         };
         assert_eq!(field(8), field(8));
         assert_ne!(field(8), field(9));
+    }
+}
+
+#[test]
+fn an_engine_plays_on_exactly_the_field_validation_allows() {
+    // The smallest field validation lets through is the field the engine plays on.
+    for &e in games::Engine::ALL {
+        let mut d = data();
+        let g = d.games.iter_mut().find(|g| g.engine == e).unwrap();
+        (g.cols, g.rows) = e.min_size();
+        let g = g.clone();
+        d.validate().unwrap();
+        let a = games::new_game(&g, 1);
+        assert_eq!((a.cols() as u32, a.rows() as u32), e.min_size(), "{e:?}");
     }
 }
 

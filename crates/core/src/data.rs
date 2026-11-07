@@ -1300,7 +1300,8 @@ impl Data {
         Ok(())
     }
 
-    /// Every game's field fits its engine and a screen, its tick is sane, its crack is a crack and
+    /// Every engine has a game, every game's field fits its engine and a screen, its tick is
+    /// sane, its crack is a crack and
     /// its splash a splash, and its publisher advertises in CPU Shopper.
     fn validate_games(&self) -> Result<(), String> {
         for (i, g) in self.games.iter().enumerate() {
@@ -1356,6 +1357,12 @@ impl Data {
             if g.shop.as_ref().is_some_and(|s| s.price == 0) {
                 return err("sold for nothing".into());
             }
+        }
+        if let Some(e) = crate::games::Engine::ALL
+            .iter()
+            .find(|e| !self.games.iter().any(|g| g.engine == **e))
+        {
+            return Err(format!("no game runs the {e:?} engine"));
         }
         Ok(())
     }
