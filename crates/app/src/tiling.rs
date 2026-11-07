@@ -389,7 +389,7 @@ impl DesktopView for TilingDesk {
                 data,
                 save,
                 out,
-                Some("Esc f: full screen"),
+                full_screen_hint(t.shape().full, t.tiles().len()),
                 ("tile-scroll", tool),
             );
         }
@@ -543,6 +543,13 @@ impl TilingDesk {
             self.launcher = None;
         }
     }
+}
+
+/// The "too small" notice's hint: full screen, when it would give the tile more room (not
+/// when the workspace is full screen already, where Esc f would shrink it, nor for a tile
+/// that's alone).
+fn full_screen_hint(full: bool, tiles: usize) -> Option<&'static str> {
+    (!full && tiles > 1).then_some("Esc f: full screen")
 }
 
 /// Where tiles go on `screen`: everything under the bar.
@@ -995,5 +1002,20 @@ mod tests {
         // Without the leader, [ and ] are System's again.
         r.key_text(egui::Key::CloseBracket, "]");
         assert_eq!(r.home.system.panel, ninsei_core::system::Panel::Monitor);
+    }
+
+    #[test]
+    fn the_notice_offers_full_screen_only_when_it_would_help() {
+        assert_eq!(full_screen_hint(false, 3), Some("Esc f: full screen"));
+        assert_eq!(
+            full_screen_hint(true, 3),
+            None,
+            "already full: Esc f would shrink it"
+        );
+        assert_eq!(
+            full_screen_hint(false, 1),
+            None,
+            "alone, it has the whole workspace"
+        );
     }
 }
