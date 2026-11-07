@@ -409,12 +409,13 @@ fn intel(
     // Columns, sized from their widest real value.
     let heat_w = HEAT_MAX as usize + 5;
     let listing_w = if narrow { 0 } else { 14 };
-    // The last results; a narrow window leaves them to the box under the list, so the names
-    // keep their room.
-    let last_w = if narrow {
-        0
-    } else {
+    // The last results; a narrow window with the box under the list leaves them to it, so
+    // the names keep their room.
+    let show_last = !(narrow && detail);
+    let last_w = if show_last {
         ninsei_core::tuning::RESULTS_KEPT + 1
+    } else {
+        0
     };
     // Everything but the name: margins, number, listing, heat, runs and the last results.
     let others = 1 + 10 + 2 + if narrow { 0 } else { listing_w + 2 } + heat_w + 2 + 6 + last_w;
@@ -452,7 +453,7 @@ fn intel(
         },
         muted(),
     );
-    if !narrow {
+    if show_last {
         g.text(p, x_last, r0, "LAST", muted());
     }
     let visible = list_h.saturating_sub(1);
@@ -498,7 +499,7 @@ fn intel(
         };
         g.text(p, x_heat + HEAT_MAX as usize + 1, r, word, word_col);
         g.text_right(p, x_runs + 4, r, &e.runs.to_string(), fg);
-        if !narrow {
+        if show_last {
             let last: String = e.last.iter().map(|x| result_glyph(*x)).collect();
             g.text(p, x_last, r, if last.is_empty() { "-" } else { &last }, dim);
         }
@@ -553,18 +554,20 @@ fn intel(
     );
     let exits = e.last.iter().filter(|x| **x == RunEnd::Exit).count();
     let flats = e.last.len() - exits;
+    let last: String = e.last.iter().map(|x| result_glyph(*x)).collect();
     g.text(p, x, top + 3, "runs", muted());
-    g.text(
+    g.text_max(
         p,
         v,
         top + 3,
         &match e.runs {
             0 => "never run".to_string(),
             n => format!(
-                "{n}  ·  last {}: {exits} out, {flats} flatlined",
+                "{n}  ·  last {}: {last}  {exits} out, {flats} flatlined",
                 e.last.len()
             ),
         },
+        dw.saturating_sub(12),
         ink(),
     );
     g.text(p, x, top + 4, "listed", muted());
@@ -1485,5 +1488,72 @@ mod tests {
                 "{rows} rows: something painted over the mark ({mark}): {under:?}"
             );
         }
+    }
+
+    /// iNTEL drawn `cols` x `rows` cells big, its numbers with runs behind them: each row of
+    /// painted glyphs, joined left to right.
+    fn intel_rows(cols: usize, rows: usize) -> Vec<String> {
+        let data = Data::builtin().unwrap();
+        let mut save = nightcomm_deck(&data);
+        for e in &mut save.phonebook {
+            e.runs = 2;
+            e.last = vec![RunEnd::Exit, RunEnd::Flatline];
+        }
+        let mut h = Harness::new(1280.0, 800.0);
+        crate::uitest::themed(&h.ctx, &data);
+        let mut home = Home::new(Vec::new());
+        let rect = egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(cols as f32 * 8.5, rows as f32 * 17.0 + 1.0),
+        );
+        for _ in 0..2 {
+            crate::home::tests::frame_at(
+                &mut h,
+                &mut home,
+                &data,
+                &save,
+                Tool::NightComm,
+                rect,
+                Vec::new(),
+            );
+        }
+        let mut glyphs: Vec<(i32, f32, String)> = h
+            .painted()
+            .iter()
+            .filter_map(|s| match s {
+                egui::Shape::Text(t) => {
+                    let r = t.visual_bounding_rect();
+                    Some((
+                        (r.center().y / 17.0) as i32,
+                        r.center().x,
+                        t.galley.text().to_string(),
+                    ))
+                }
+                _ => None,
+            })
+            .collect();
+        glyphs.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
+        glyphs
+            .chunk_by(|a, b| a.0 == b.0)
+            .map(|row| row.iter().map(|g| g.2.as_str()).collect())
+            .collect()
+    }
+
+    #[test]
+    fn a_narrow_intel_shows_the_last_results_somewhere() {
+        // No box under the list: the column stays.
+        let short = intel_rows(56, 12);
+        assert!(short.iter().any(|r| r.contains("LAST")), "{short:?}");
+        assert!(
+            short.iter().any(|r| r.ends_with("EF")),
+            "the results: {short:?}"
+        );
+        // With the box: the column goes and the box has them.
+        let tall = intel_rows(56, DETAIL_ROWS + 7);
+        assert!(!tall.iter().any(|r| r.contains("LAST")), "{tall:?}");
+        assert!(
+            tall.iter().any(|r| r.contains("last2:EF")),
+            "in the box: {tall:?}"
+        );
     }
 }
