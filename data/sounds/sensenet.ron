@@ -42,7 +42,7 @@
                                 (wave: Triangle, from: 1046, to: 1046, ms: 260, vol: 0.22)]),
     ],
     music: [
-        // Tier 1: C major at 108 bpm, the home stack. A square tune over a triangle bass, with
+        // Tier 1: C major at 108 bpm, the home stack. A 16-bar square tune over a triangle bass, with
         // a triangle countermelody under it. No drums. The countermelody drops out when the
         // trace runs high.
         (tier: 1, drop: Some(2), tune: (bpm: 108, tracks: [
@@ -58,7 +58,11 @@
                 C6 - - - B5 - A5 - G5 - - - E5 - - .
                 A5 - - - G5 - E5 - C5 - - - E5 - - .
                 F5 - E5 - D5 - C5 - A4 - - - C5 - F5 -
-                D5 - - - B4 - - - G4 - - - B4 - D5 -
+                D5 - - - G5 - - - B5 - - - D6 - - -
+                E6 - - - D6 - C6 - G5 - - - E5 - G5 -
+                A5 - - - C6 - - - E5 - - - - - . .
+                F5 - - . A5 - G5 - F5 - E5 - D5 - C5 -
+                D5 - - - - - . . G4 - - . B4 - D5 -
             "),
             (wave: Triangle, vol: 0.13, pattern: "
                 C3 - - . G3 - - . C3 - - . G3 - E3 .
