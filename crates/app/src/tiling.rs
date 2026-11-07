@@ -884,4 +884,134 @@ mod tests {
         assert_eq!(v.widgets.inactive.corner_radius, egui::CornerRadius::ZERO);
         assert_eq!(v.widgets.hovered.expansion, 0.0);
     }
+
+    /// A rig with every tool and the fzf add-on, so the launcher runs past a screenful.
+    fn with_fzf() -> Rig {
+        let mut r = Rig::new(true);
+        r.save.tools = ninsei_core::data::TOOLS
+            .iter()
+            .map(|t| t.to_string())
+            .collect();
+        let fzf = r
+            .data
+            .addons
+            .iter()
+            .find(|a| a.effect == AddonEffect::Fuzzy)
+            .unwrap()
+            .id
+            .clone();
+        r.save.addons.push(fzf);
+        r
+    }
+
+    #[test]
+    fn a_workspace_pill_click_switches_to_it() {
+        let mut r = Rig::new(true);
+        // The second pill: 8px in, a pill and a step along, in the middle of the bar.
+        let at = pos2(
+            8.0 + size::PILL_STEP + size::PILL[0] / 2.0,
+            size::BAR_H / 2.0,
+        );
+        r.send(crate::uitest::click(at));
+        assert_eq!(r.save.tiling.current, 1);
+    }
+
+    #[test]
+    fn typing_filters_the_launcher_and_a_click_opens_the_row() {
+        let mut r = with_fzf();
+        r.key(egui::Key::Escape);
+        r.key(egui::Key::Space);
+        r.key(egui::Key::ArrowDown);
+        assert_eq!(r.desk.launcher.as_ref().unwrap().sel, 1);
+        r.type_text("ice");
+        assert_eq!(
+            r.desk.launcher.as_ref().unwrap().sel,
+            0,
+            "typing starts the pick over"
+        );
+        let row =
+            r.h.find("ICE DB")
+                .unwrap_or_else(|| panic!("{:?}", r.h.texts()));
+        assert!(r.h.find("CarrierTerm").is_none(), "filtered out");
+        r.send(crate::uitest::click(row.center()));
+        assert!(r.desk.launcher.is_none());
+        assert_eq!(r.save.tiling.focused(), Some(Tool::IceDb));
+    }
+
+    #[test]
+    fn esc_closes_the_launcher_without_the_leader() {
+        let mut r = Rig::new(true);
+        r.key(egui::Key::Escape);
+        r.key(egui::Key::Space);
+        assert!(r.desk.launcher.is_some());
+        r.key(egui::Key::Escape);
+        assert!(r.desk.launcher.is_none());
+        assert!(!r.desk.leader, "closing it isn't the leader");
+    }
+
+    #[test]
+    fn the_wheel_scrolls_the_launcher_and_its_mark_says_where() {
+        let mut r = with_fzf();
+        r.key(egui::Key::Escape);
+        r.key(egui::Key::Space);
+        let n = entries(true, &r.save).len();
+        let painted = |r: &Rig| -> String {
+            r.h.painted()
+                .iter()
+                .filter_map(|s| match s {
+                    egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("|")
+        };
+        assert!(painted(&r).contains(&format!("1/{n}")), "{}", painted(&r));
+        let over = r.h.find("CarrierTerm").unwrap().center();
+        let wheel = vec![
+            egui::Event::PointerMoved(over),
+            egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Line,
+                delta: vec2(0.0, -3.0),
+                modifiers: egui::Modifiers::NONE,
+                phase: egui::TouchPhase::Move,
+            },
+        ];
+        r.send(wheel);
+        r.frame(Vec::new());
+        assert!(
+            r.desk.launcher.as_ref().unwrap().list.top > 0,
+            "the wheel scrolled it"
+        );
+    }
+
+    #[test]
+    fn the_launcher_and_help_sit_on_whole_pixels() {
+        let data = ninsei_core::Data::builtin().unwrap();
+        let mut h = crate::uitest::Harness::new(1366.0, 768.0);
+        crate::uitest::themed(&h.ctx, &data);
+        let mut l = anarchy::Launcher::default();
+        let labels = vec!["one".to_string(), "two".to_string()];
+        h.frame(Vec::new(), |ui| {
+            let look = look(ui);
+            let screen = Rect::from_min_size(egui::Pos2::ZERO, vec2(1366.0, 768.0));
+            anarchy::launcher(ui.ctx(), screen, &mut l, &labels, |_| vec![0, 1], "", &look);
+            let odd = Rect::from_min_size(egui::Pos2::ZERO, vec2(1365.0, 767.0));
+            anarchy::help(ui, odd, &HELP, &look);
+        });
+        h.frame(Vec::new(), |ui| {
+            let look = look(ui);
+            let screen = Rect::from_min_size(egui::Pos2::ZERO, vec2(1366.0, 768.0));
+            anarchy::launcher(ui.ctx(), screen, &mut l, &labels, |_| vec![0, 1], "", &look);
+            let odd = Rect::from_min_size(egui::Pos2::ZERO, vec2(1365.0, 767.0));
+            anarchy::help(ui, odd, &HELP, &look);
+        });
+        // Every box (the frames and their fills) starts on a whole pixel.
+        for (r, fill, stroke) in h.rects() {
+            if r.width() > 300.0
+                && (fill != egui::Color32::TRANSPARENT || stroke != egui::Color32::TRANSPARENT)
+            {
+                assert_eq!(r.min, r.min.round(), "{r:?}");
+            }
+        }
+    }
 }

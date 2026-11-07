@@ -156,6 +156,8 @@ pub struct Launcher {
     pub sel: usize,
     pub list: List,
     focused: bool,
+    /// The pick the window last went to: it follows a new pick, not the wheel's every turn.
+    followed: Option<usize>,
 }
 
 /// The launcher over `screen`: a search box over `labels`, filtered by `search` (indices of
@@ -170,10 +172,12 @@ pub fn launcher(
     hint: &str,
     look: &Look,
 ) -> Option<usize> {
+    // On whole pixels, so its border and rows stay sharp.
     let r = Rect::from_center_size(
         pos2(screen.center().x, screen.top() + screen.height() * 0.35),
         vec2(size::LAUNCHER[0], size::LAUNCHER[1]),
     );
+    let r = Rect::from_min_size(r.min.round(), r.size());
     let mut chosen = None;
     // The box is painted inside the Area, on its own layer, so the widgets draw on top.
     egui::Area::new(Id::new("launcher-area"))
@@ -231,13 +235,18 @@ pub fn launcher(
                 }
                 l.sel = l.sel.min(hits.len() - 1);
             }
-            ui.add_space(6.0);
-            // As many whole rows as fit, the window following the pick.
+            // The list starts on a whole pixel, under the box.
+            let y = ui.cursor().top() + 6.0;
+            ui.add_space(6.0 + y.ceil() - y);
+            // As many whole rows as fit (the last one no longer runs past the box), the window
+            // going to a new pick and otherwise staying where the wheel left it.
             let gap = ui.spacing().item_spacing.y;
-            let rows = ((ui.available_height() + gap) / (size::LAUNCHER_ROW + gap))
-                .floor()
-                .max(1.0) as usize;
-            for k in l.list.view(hits.len(), Some(l.sel), rows) {
+            let pitch = size::LAUNCHER_ROW + gap;
+            let rows = ((ui.available_height() + gap) / pitch).floor().max(1.0) as usize;
+            let follow = (l.followed != Some(l.sel)).then_some(l.sel);
+            l.followed = Some(l.sel);
+            let top = ui.cursor().top();
+            for k in l.list.view(hits.len(), follow, rows) {
                 let i = hits[k];
                 let on = k == l.sel;
                 let txt = egui::RichText::new(&labels[i])
@@ -252,6 +261,27 @@ pub fn launcher(
                 {
                     chosen = Some(i);
                 }
+            }
+            // The wheel over the rows scrolls them, a row at a time; the box keeps the wheel.
+            let rows_rect = Rect::from_min_max(pos2(inner.left(), top), inner.max);
+            if ui.rect_contains_pointer(rows_rect) {
+                let delta = ui.input(|i| i.smooth_scroll_delta.y);
+                if delta != 0.0 {
+                    l.list.wheel(delta / pitch);
+                    ui.ctx().input_mut(|i| i.smooth_scroll_delta.y = 0.0);
+                }
+            }
+            // Where you are, when the list runs past the box.
+            if let Some(at) =
+                ninsei_core::scroll::position(hits.len(), Some(l.sel), l.list.top, rows)
+            {
+                ui.painter().text(
+                    pos2(r.right() - 10.0, r.bottom() - 4.0),
+                    Align2::RIGHT_BOTTOM,
+                    at,
+                    look.small.clone(),
+                    look.muted,
+                );
             }
             if hits.is_empty() {
                 ui.label(
@@ -274,6 +304,7 @@ pub fn help(ui: &Ui, screen: Rect, lines: &[(&str, &str)], look: &Look) -> bool 
         screen.center(),
         vec2(size::HELP_W, size::HELP_LINE * lines.len() as f32 + 24.0),
     );
+    let r = Rect::from_min_size(r.min.round(), r.size());
     let p = ui.ctx().layer_painter(egui::LayerId::new(
         egui::Order::Foreground,
         Id::new("tiling-help"),
