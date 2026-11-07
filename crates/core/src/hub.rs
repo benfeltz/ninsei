@@ -205,9 +205,15 @@ pub struct IconDef {
     pub pixels: Vec<String>,
 }
 
+/// How wide a piece of pixel art is: its first row's length (every row is as wide, checked
+/// by [`IconDef::check_art`]).
+fn art_width(pixels: &[String]) -> usize {
+    pixels.first().map_or(0, |r| r.chars().count())
+}
+
 impl IconDef {
     pub fn width(&self) -> usize {
-        self.pixels.first().map_or(0, |r| r.chars().count())
+        art_width(&self.pixels)
     }
 
     pub fn validate(icons: &[IconDef]) -> Result<(), String> {
@@ -231,7 +237,7 @@ impl IconDef {
     /// One icon's pixels: not empty, every row as wide as the first, every pixel in the 1.3
     /// palette.
     pub fn check_art(label: &str, pixels: &[String]) -> Result<(), String> {
-        let w = pixels.first().map_or(0, |r| r.chars().count());
+        let w = art_width(pixels);
         if w == 0 {
             return Err(format!("icon `{label}` is empty"));
         }
@@ -258,7 +264,7 @@ pub struct Icon<'a> {
 
 impl Icon<'_> {
     pub fn width(&self) -> usize {
-        self.pixels.first().map_or(0, |r| r.chars().count())
+        art_width(self.pixels)
     }
 }
 
