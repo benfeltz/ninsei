@@ -923,7 +923,8 @@ fn default_volume() -> u8 {
     100
 }
 
-/// A level in percent as the nearest notch of a control with `steps` notches above silent.
+/// A level in percent as the nearest notch of a control with `steps` notches above silent (a
+/// slider of 0-7, ten meter cells).
 pub fn volume_notch(pct: u32, steps: u32) -> u32 {
     (pct.min(100) * steps + 50) / 100
 }
@@ -1004,17 +1005,6 @@ impl Save {
     /// The level as a gain for the speaker: 0 (silent) to 1 (full).
     pub fn volume_gain(&self) -> f32 {
         f32::from(self.volume.min(100)) / 100.0
-    }
-
-    /// The level as a notch on a control with `steps` notches above silent (a slider of
-    /// 0-7, ten meter cells): the nearest one.
-    pub fn volume_notch(&self, steps: u32) -> u32 {
-        volume_notch(u32::from(self.volume), steps)
-    }
-
-    /// The level at notch `notch` of `steps` (past the top is full).
-    pub fn set_volume_notch(&mut self, notch: u32, steps: u32) {
-        self.set_volume(notch_volume(notch, steps));
     }
 
     /// Parses a save. Anything unreadable or from another version is an error;

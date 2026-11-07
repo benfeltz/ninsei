@@ -168,17 +168,20 @@ fn the_volume_starts_full_stays_in_range_and_comes_back() {
     s.set_volume(300);
     assert_eq!(s.volume, 100);
     // A control with notches: seven on a Mac slider, ten meter cells.
-    s.set_volume_notch(5, 7);
-    assert_eq!((s.volume, s.volume_notch(7)), (71, 5));
-    assert_eq!(s.volume_notch(10), 7);
-    s.set_volume_notch(9, 7);
-    assert_eq!((s.volume, s.volume_notch(7)), (100, 7));
-    s.set_volume_notch(0, 10);
-    assert_eq!((s.volume, s.volume_notch(10)), (0, 0));
-    for steps in [7, 10] {
+    assert_eq!(hub::notch_volume(5, 7), 71);
+    assert_eq!(hub::volume_notch(71, 7), 5);
+    assert_eq!(hub::volume_notch(71, 10), 7);
+    assert_eq!(hub::notch_volume(9, 7), 100, "past the top is full");
+    assert_eq!(hub::volume_notch(300, 7), 7);
+    assert_eq!(hub::notch_volume(0, 10), 0);
+    for steps in [7, 10, 20] {
         for n in 0..=steps {
-            s.set_volume_notch(n, steps);
-            assert_eq!(s.volume_notch(steps), n, "notch {n} of {steps} round-trips");
+            let pct = hub::notch_volume(n, steps);
+            assert_eq!(
+                hub::volume_notch(pct, steps),
+                n,
+                "notch {n} of {steps} round-trips"
+            );
         }
     }
     // It comes back with the save.
