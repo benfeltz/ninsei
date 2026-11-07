@@ -222,6 +222,25 @@ impl Cells {
         used
     }
 
+    /// A run of ordinary glyphs from cell (`c`, `r`) as one piece of text: cheaper than a glyph
+    /// a cell, for a screen that repaints every frame. Only for text the font holds in its
+    /// monospace advance (one cell a glyph); [`Cells::text`] keeps each glyph in its own cell
+    /// whatever it is. Cut at the grid's edge.
+    pub fn run(&self, p: &Painter, c: usize, r: usize, s: &str, color: Color32) {
+        let room = self.cols.saturating_sub(c);
+        if room == 0 || s.is_empty() {
+            return;
+        }
+        let s: String = s.chars().take(room).collect();
+        p.text(
+            self.at(c, r, 1, 1).left_center(),
+            Align2::LEFT_CENTER,
+            s,
+            self.font.clone(),
+            color,
+        );
+    }
+
     /// Text ending at column `end` (exclusive), for numbers in right-aligned columns.
     pub fn text_right(&self, p: &Painter, end: usize, r: usize, s: &str, color: Color32) {
         let n = s.chars().count();

@@ -185,16 +185,23 @@ pub fn paint_screen(ui: &mut egui::Ui, lines: &[String], color: bool, p: &Palett
                 g.fill(&painter, col, row, n.min(COLS.saturating_sub(col)), 1, bgc);
             }
             // Block elements are painted as solid parts of their cells so art joins up with
-            // no font gaps; every other glyph sits in its own cell.
+            // no font gaps; runs of other glyphs go out as one piece of text from their first
+            // cell (the screen repaints every frame). Nothing past the 80th column.
+            let mut run = String::new();
+            let mut from = col;
             for ch in span.text.chars() {
                 if col >= COLS {
                     break;
                 }
-                if ch != ' ' && !g.block(&painter, col, row, ch, fg) {
-                    g.text(&painter, col, row, &ch.to_string(), fg);
+                if g.block(&painter, col, row, ch, fg) {
+                    g.run(&painter, from, row, &std::mem::take(&mut run), fg);
+                    from = col + 1;
+                } else {
+                    run.push(ch);
                 }
                 col += 1;
             }
+            g.run(&painter, from, row, &run, fg);
         }
     }
 }
