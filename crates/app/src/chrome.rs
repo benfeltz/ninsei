@@ -237,6 +237,9 @@ impl ChromeView for Btop {
     fn sound(&self, ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
         crate::btop::sound_popup(ctx, cx)
     }
+    fn vis(&self, p: &mut Panes, ui: &mut Ui) {
+        crate::btop::vis_box(ui, &p.pal, p.scope, p.scope_rate);
+    }
 }
 
 /// The renderer for a chrome.

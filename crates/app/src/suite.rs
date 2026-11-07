@@ -1044,6 +1044,55 @@ impl Panes<'_> {
         });
     }
 
+    /// SOUNDLVL.RPT: the speaker's output as a report: level and peak on a form, and the
+    /// level by band as a bar chart.
+    fn suite_vis(&mut self, ui: &mut Ui) {
+        use ninsei_core::scope;
+        let p = self.pal;
+        let (samples, rate) = (self.scope, self.scope_rate);
+        // A report's figures are read, not watched: the bands take a new reading a few times a
+        // second, like the level.
+        let bands: Vec<f32> = crate::vispane::bars(ui, "suite-vis", samples, rate, SUITE_BANDS)
+            .iter()
+            .enumerate()
+            .map(|(i, v)| crate::vispane::held(ui, &format!("suite-vis-band{i}"), *v))
+            .collect();
+        window(ui, &p, Tab::Vis.number(), "SOUND LEVEL REPORT", |ui| {
+            page(ui, "suite-vis", |ui| {
+                let pk = crate::vispane::held(ui, "suite-vis-peak", scope::peak(samples));
+                let level = crate::vispane::held(ui, "suite-vis-level", scope::level(samples));
+                let rows = [
+                    (
+                        "OUTPUT LEVEL",
+                        crate::vispane::db_text(level),
+                        "average (RMS)",
+                        false,
+                    ),
+                    (
+                        "PEAK",
+                        crate::vispane::db_text(pk),
+                        "loudest sample",
+                        scope::db(pk) > -3.0,
+                    ),
+                ];
+                form(ui, &p, "suite-vis-form", &rows);
+                heading(ui, &p, "LEVEL BY BAND (Hz)");
+                let labels: Vec<String> = (0..SUITE_BANDS)
+                    .map(|b| {
+                        let lo = scope::bar_range(b, SUITE_BANDS, rate.max(1)).0;
+                        format!("{:>5}", crate::vispane::hz_text(lo))
+                    })
+                    .collect();
+                let rows: Vec<(&str, u32, u32, bool)> = labels
+                    .iter()
+                    .zip(&bands)
+                    .map(|(l, v)| (l.as_str(), (v * 100.0).round() as u32, 100, false))
+                    .collect();
+                bar_chart(ui, &p, &rows);
+            });
+        });
+    }
+
     fn suite_net(&mut self, ui: &mut Ui) {
         let g = self.game;
         let p = self.pal;
@@ -1161,6 +1210,9 @@ impl ChromeView for Suite {
     }
     fn net(&self, p: &mut Panes, ui: &mut Ui) {
         p.suite_net(ui);
+    }
+    fn vis(&self, p: &mut Panes, ui: &mut Ui) {
+        p.suite_vis(ui);
     }
 
     fn title(&self, tab: Tab) -> Option<&'static str> {
@@ -1344,6 +1396,9 @@ impl ChromeView for Suite {
         Vec::new()
     }
 }
+
+/// Bands in the sound level report.
+const SUITE_BANDS: usize = 8;
 
 /// The volume bar's cells in the Sound dialog: 10% apiece.
 const SOUND_NOTCHES: u32 = 10;

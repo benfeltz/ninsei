@@ -466,6 +466,17 @@ impl ChromeView for Stack {
         p.todo(ui);
     }
 
+    /// The Scope card: a 1-bit oscilloscope in a field, ink on paper.
+    fn vis(&self, p: &mut Panes, ui: &mut Ui) {
+        let ink = p.pal.fg;
+        ui.label(RichText::new("Speaker").strong().color(ink));
+        ui.add_space(4.0);
+        egui::Frame::new()
+            .stroke(Stroke::new(1.0, ink))
+            .inner_margin(egui::Margin::same(4))
+            .show(ui, |ui| crate::vispane::trace(ui, &p.pal, p.scope));
+    }
+
     /// A fight brings up a Mac alert over the card. It's small and off to the side of the
     /// action, and closing it just tucks it away for this fight.
     fn overlay(&self, ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {

@@ -871,3 +871,34 @@ pub fn sound_popup(
         });
     now.to(to)
 }
+
+/// The vis box: the spectrum as columns of whole cells, one cell wide with a cell between,
+/// lit bottom up along the ramp; the level cut into the bottom edge.
+pub fn vis_box(ui: &mut Ui, p: &Palette, samples: &[f32], rate: u32) {
+    use crate::cells::Cells;
+    let level = crate::vispane::held(ui, "btop-vis", ninsei_core::scope::level(samples));
+    let note = crate::vispane::db_text(level);
+    boxed(ui, p, "vis", note.trim(), |ui| {
+        let area = ui.available_rect_before_wrap();
+        let c = Cells::fit(ui, area, p.dim, p.bg, p.faint);
+        let n = (c.cols / 2).max(1);
+        let bars = crate::vispane::bars(ui, "btop-vis", samples, rate, n);
+        let painter = ui.painter_at(area);
+        let left = (c.cols - (n * 2 - 1).min(c.cols)) / 2;
+        for (i, lit) in vis_cells(&bars, c.rows).into_iter().enumerate() {
+            for r in 0..lit {
+                let k = (r as f32 + 1.0) / c.rows as f32;
+                let cell = c.at(left + i * 2, c.rows - 1 - r, 1, 1);
+                painter.rect_filled(cell.shrink2(vec2(0.0, c.ch * 0.1)), 0.0, ramp(p, k));
+            }
+        }
+        ui.allocate_rect(area, Sense::hover());
+    });
+}
+
+/// How many cells each bar lights in a column `rows` tall: whole cells only.
+pub fn vis_cells(bars: &[f32], rows: usize) -> Vec<usize> {
+    bars.iter()
+        .map(|b| (b.clamp(0.0, 1.0) * rows as f32).round() as usize)
+        .collect()
+}
