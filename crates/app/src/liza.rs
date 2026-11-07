@@ -112,8 +112,8 @@ fn icon_cell(screen: Rect, n: usize) -> Rect {
     )
 }
 
-fn title(tool: Tool) -> &'static str {
-    match tool {
+fn title(tool: Tool, data: &Data) -> String {
+    let name = match tool {
         Tool::Qwk => "QWK Reader",
         Tool::NightComm => "NiGHTCOMM",
         Tool::TigerTeam => "Tiger Team Pro",
@@ -124,8 +124,38 @@ fn title(tool: Tool) -> &'static str {
         Tool::System => "System",
         Tool::Rig => "CPU Shopper",
         Tool::HexEd => "HexEd",
-        Tool::Game(..) => "Game",
+        // A game by its copy's label (`Nibbler`, `NIBBLER [2K4]`).
+        Tool::Game(..) => return tool.name(data),
+    };
+    name.to_string()
+}
+
+/// The Games menu's title: it's on the bar only while you own a game.
+const GAMES_MENU: &str = "Games";
+
+/// The menus as the bar shows them: a tool you haven't downloaded isn't on one, and the Games
+/// menu (before Special) lists each copy of a game you own, by its label.
+fn menus(data: &Data, save: &ninsei_core::hub::Save) -> Vec<(&'static str, Vec<(String, Act)>)> {
+    let mut out: Vec<(&'static str, Vec<(String, Act)>)> = MENUS
+        .iter()
+        .map(|(title, items)| {
+            let items = items
+                .iter()
+                .filter(|(_, a)| !matches!(a, Act::Open(t) if !save.opens(*t)))
+                .map(|(l, a)| (l.to_string(), *a))
+                .collect();
+            (*title, items)
+        })
+        .collect();
+    let games: Vec<(String, Act)> = Tool::games(data, save)
+        .into_iter()
+        .map(|t| (t.name(data), Act::Open(t)))
+        .collect();
+    if !games.is_empty() {
+        let at = out.len().saturating_sub(1);
+        out.insert(at, (GAMES_MENU, games));
     }
+    out
 }
 
 /// The Liza desktop.
@@ -182,8 +212,21 @@ impl Liza {
             Tool::TigerTeam => (pos2(50.0, 40.0), vec2(900.0, 540.0)),
             Tool::IceDb => (pos2(100.0, 60.0), vec2(700.0, 470.0)),
             Tool::Guide => (pos2(120.0, 30.0), book_window()),
-            // Games open on the desktops in the next step.
-            Tool::Game(..) => return,
+            // Sized to the game's field when it's first drawn (`Win::size` zero); a crack and
+            // a box of the same game open side by side.
+            Tool::Game(_, copy) => {
+                let pos = match copy {
+                    ninsei_core::hub::GameCopy::Cracked => pos2(90.0, 40.0),
+                    ninsei_core::hub::GameCopy::Boxed => pos2(140.0, 70.0),
+                };
+                self.wins.push(Win {
+                    tool,
+                    pos,
+                    size: Vec2::ZERO,
+                });
+                self.keep_window_limit();
+                return;
+            }
         };
         // A tool's window has the scroll bar down its right side, beside the tool's room.
         let size = if tool == Tool::Shell {
@@ -192,7 +235,11 @@ impl Liza {
             size + vec2(kit::size::SCROLL_W, 0.0)
         };
         self.wins.push(Win { tool, pos, size });
-        // Without MultiFinder, Liza keeps a few windows: the oldest goes.
+        self.keep_window_limit();
+    }
+
+    /// Without MultiFinder, Liza keeps a few windows: the oldest goes.
+    fn keep_window_limit(&mut self) {
         while !self.multifinder && self.wins.len() > look::WINDOW_LIMIT {
             self.wins.remove(0);
         }
@@ -274,7 +321,7 @@ impl DesktopView for Liza {
         }
 
         // Icons down the right, then the Trash in the corner.
-        for (n, icon) in data.icons.iter().filter(|i| save.opens(i.tool)).enumerate() {
+        for (n, icon) in save.icons(data).iter().enumerate() {
             let cell = icon_cell(screen, n);
             let picked = self.selected == Some(icon.tool);
             let hit = draw_icon(&painter, icon, cell, picked, &c);
@@ -332,6 +379,18 @@ impl DesktopView for Liza {
         let mut rects = Vec::with_capacity(n);
         for i in 0..n {
             let front = i + 1 == n;
+            // A game's window opens exactly big enough for its field.
+            if self.wins[i].size == Vec2::ZERO {
+                let view = |r: Rect| {
+                    crate::kit::scrollbar::view_rect(
+                        kit::window_scrolled(r),
+                        kit::size::SCROLL_W,
+                        kit::SCROLL_PAD,
+                    )
+                };
+                self.wins[i].size = home::game_window(ui.ctx(), data, self.wins[i].tool, view)
+                    .unwrap_or(vec2(400.0, 300.0));
+            }
             let (tool, pos, size) = (self.wins[i].tool, self.wins[i].pos, self.wins[i].size);
             let room = (screen.height() - pos.y - look::WIN_MARGIN).max(look::WIN_MIN_H);
             let rect = Rect::from_min_size(at(pos), vec2(size.x, size.y.min(room)));
@@ -341,7 +400,7 @@ impl DesktopView for Liza {
                 raise = Some(i);
             }
             rects.push(rect);
-            let close_r = kit::window_frame(&painter, rect, title(tool), front, &c);
+            let close_r = kit::window_frame(&painter, rect, &title(tool, data), front, &c);
             let bar = kit::title_bar(rect);
             let drag = ui.interact(bar, wid.with("bar"), sense(Sense::click_and_drag()));
             if drag.dragged() {
@@ -375,6 +434,8 @@ impl DesktopView for Liza {
                 if !live {
                     child.disable();
                 }
+                // The front window has the keyboard, unless a menu is down.
+                home.focused = live && front && self.menu.is_none();
                 home.tool_in(
                     &mut child,
                     tool,
@@ -446,22 +507,12 @@ impl Liza {
         c: &Look,
     ) -> Option<Act> {
         let (ink, paper) = (c.ink, c.paper);
-        // A tool you haven't downloaded isn't on the menu.
-        let shown: Vec<Vec<&(&str, Act)>> = MENUS
+        let shown = menus(cx.data, cx.save);
+        let menus: Vec<kit::Menu> = shown
             .iter()
-            .map(|(_, items)| {
-                items
-                    .iter()
-                    .filter(|(_, a)| !matches!(a, Act::Open(t) if !cx.save.opens(*t)))
-                    .collect()
-            })
-            .collect();
-        let menus: Vec<kit::Menu> = MENUS
-            .iter()
-            .zip(&shown)
-            .map(|((title, _), items)| kit::Menu {
+            .map(|(title, items)| kit::Menu {
                 title,
-                items: items.iter().map(|(l, _)| *l).collect(),
+                items: items.iter().map(|(l, _)| l.as_str()).collect(),
             })
             .collect();
         // The bank on the right, and the time with the Alarm Clock.
@@ -489,7 +540,7 @@ impl Liza {
             c,
             cx.live,
         )
-        .map(|(m, k)| shown[m][k].1);
+        .map(|(m, k)| shown[m].1[k].1);
         // Sense/Net's mark: an eye. With the Calculator it opens the desk accessory.
         let eye = kit::menu_bar_rect(screen).left_center() + vec2(18.0, 0.0);
         let calc = cx
@@ -741,6 +792,19 @@ mod tests {
             guide_seen: true,
             ..Save::default()
         };
+        frame_with(ctx, liza, home, data, &save, events, t);
+    }
+
+    /// One frame of Liza on `save`.
+    fn frame_with(
+        ctx: &egui::Context,
+        liza: &mut Liza,
+        home: &mut Home,
+        data: &Data,
+        save: &Save,
+        events: Vec<Event>,
+        t: f64,
+    ) {
         let raw = RawInput {
             screen_rect: Some(Rect::from_min_size(Pos2::ZERO, vec2(1280.0, 800.0))),
             time: Some(t),
@@ -750,7 +814,7 @@ mod tests {
         let mut output = ctx.run_ui(raw, |ui| {
             let cx = Cx {
                 data,
-                save: &save,
+                save,
                 offset: 0.0,
                 live: true,
             };
@@ -1228,5 +1292,151 @@ mod tests {
                 "a drag of {step:?} a frame moved it {from:?} to {to:?}"
             );
         }
+    }
+
+    /// A save past the first boot with no intros to wait through, owning both copies of every
+    /// game.
+    fn gamer(data: &Data) -> Save {
+        let mut s = Save {
+            guide_seen: true,
+            intros: false,
+            ..Save::default()
+        };
+        for g in &data.games {
+            s.learn_game(&g.id, ninsei_core::hub::GameCopy::Cracked);
+            s.learn_game(&g.id, ninsei_core::hub::GameCopy::Boxed);
+        }
+        s
+    }
+
+    fn game(id: &str, copy: ninsei_core::hub::GameCopy) -> Tool {
+        Tool::game(id, copy).unwrap()
+    }
+
+    #[test]
+    fn the_games_menu_is_there_only_with_a_game_and_lists_each_copy() {
+        use ninsei_core::hub::GameCopy::{Boxed, Cracked};
+        let data = Data::builtin().unwrap();
+        let none = menus(&data, &Save::default());
+        assert!(none.iter().all(|(t, _)| *t != GAMES_MENU), "no Games menu");
+        let mut save = Save::default();
+        save.learn_game("nibbler", Cracked);
+        save.learn_game("nibbler", Boxed);
+        let all = menus(&data, &save);
+        let at = all.iter().position(|(t, _)| *t == GAMES_MENU).unwrap();
+        assert_eq!(all[at + 1].0, "Special", "Games comes before Special");
+        let items: Vec<(&str, Act)> = all[at].1.iter().map(|(l, a)| (l.as_str(), *a)).collect();
+        assert_eq!(
+            items,
+            [
+                ("NIBBLER [2K4]", Act::Open(game("nibbler", Cracked))),
+                ("Nibbler", Act::Open(game("nibbler", Boxed))),
+            ]
+        );
+    }
+
+    #[test]
+    fn double_clicking_a_games_icon_opens_its_window_by_its_label() {
+        let data = Data::builtin().unwrap();
+        let save = gamer(&data);
+        let ctx = egui::Context::default();
+        let (mut liza, mut home) = (Liza::new(), Home::new(Vec::new()));
+        let mut t = 0.0;
+        let mut run = |liza: &mut Liza, home: &mut Home, ev| {
+            t += 0.1;
+            frame_with(&ctx, liza, home, &data, &save, ev, t);
+        };
+        run(&mut liza, &mut home, Vec::new());
+        frame_with(
+            &ctx,
+            &mut liza,
+            &mut home,
+            &data,
+            &save,
+            Vec::new(),
+            look::BOOT_SECS + 0.1,
+        );
+        let screen = ctx.content_rect();
+        let icons = save.icons(&data);
+        let n = icons
+            .iter()
+            .position(|i| i.tool == game("blox", ninsei_core::hub::GameCopy::Boxed))
+            .expect("the box has an icon");
+        let cell = icon_cell(screen, n);
+        let at = pos2(cell.center().x, cell.top() + 20.0);
+        let t0 = 20.0;
+        frame_with(&ctx, &mut liza, &mut home, &data, &save, click(at), t0);
+        frame_with(
+            &ctx,
+            &mut liza,
+            &mut home,
+            &data,
+            &save,
+            click(at),
+            t0 + 0.1,
+        );
+        frame_with(
+            &ctx,
+            &mut liza,
+            &mut home,
+            &data,
+            &save,
+            Vec::new(),
+            t0 + 0.2,
+        );
+        let top = liza.wins.last().unwrap();
+        assert_eq!(top.tool, icons[n].tool);
+        assert_eq!(title(top.tool, &data), "Blox");
+    }
+
+    #[test]
+    fn every_games_window_opens_big_enough_and_plays_while_in_front() {
+        let data = Data::builtin().unwrap();
+        let save = gamer(&data);
+        let ctx = egui::Context::default();
+        crate::uitest::themed(&ctx, &data);
+        let (mut liza, mut home) = (Liza::new(), Home::new(Vec::new()));
+        liza.multifinder = true;
+        frame_with(&ctx, &mut liza, &mut home, &data, &save, Vec::new(), 0.0);
+        let mut t = look::BOOT_SECS + 0.2;
+        for g in Tool::games(&data, &save) {
+            liza.open(g);
+            for _ in 0..2 {
+                t += 0.1;
+                frame_with(&ctx, &mut liza, &mut home, &data, &save, Vec::new(), t);
+            }
+            assert!(
+                home.notices.is_empty(),
+                "{g:?} too small: {:?}",
+                home.notices
+            );
+            assert!(
+                home.game(g).is_some_and(|g| !g.paused()),
+                "{g:?} plays in front"
+            );
+        }
+        // The one in front has the keys; the others wait, paused.
+        let front = liza.wins.last().unwrap().tool;
+        assert!(
+            liza.wins[..liza.wins.len() - 1]
+                .iter()
+                .all(|w| home.game(w.tool).unwrap().paused())
+        );
+        let minefield = game("minefield", ninsei_core::hub::GameCopy::Boxed);
+        assert_eq!(front, minefield);
+        let at = home.game(minefield).unwrap().cursor().unwrap();
+        frame_with(
+            &ctx,
+            &mut liza,
+            &mut home,
+            &data,
+            &save,
+            crate::uitest::key(egui::Key::ArrowRight),
+            t + 0.1,
+        );
+        assert_eq!(
+            home.game(minefield).unwrap().cursor(),
+            Some((at.0 + 1, at.1))
+        );
     }
 }

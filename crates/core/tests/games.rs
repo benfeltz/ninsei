@@ -289,22 +289,25 @@ fn shop_sells_games() -> Data {
 }
 
 #[test]
-fn no_game_is_for_sale_until_it_plays() {
+fn every_game_is_sold_boxed_now_it_plays() {
     let d = data();
-    assert!(d.games.iter().all(|g| g.shop.is_none()));
+    assert!(d.games.iter().all(|g| g.shop.is_some()));
     let cat = Save::default().catalog(&d);
-    assert!(!cat.iter().any(|l| l.section == Section::Games));
+    assert_eq!(
+        cat.iter().filter(|l| l.section == Section::Games).count(),
+        d.games.len()
+    );
     let pages = shopper::layout(&d.shopper, &cat);
     assert!(
-        !shopper::contents(&pages)
+        shopper::contents(&pages)
             .iter()
             .any(|(s, ..)| *s == Section::Games),
-        "IN THIS ISSUE has no Games line"
+        "IN THIS ISSUE has a Games line"
     );
     let index = shopper::advertisers(&d.shopper, &cat, &pages);
     assert!(
-        !index.iter().any(|(v, _)| v == "papertiger"),
-        "no Paper Tiger in the index"
+        index.iter().any(|(v, _)| v == "papertiger"),
+        "Paper Tiger in the index"
     );
 }
 

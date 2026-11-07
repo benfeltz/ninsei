@@ -39,7 +39,7 @@ fn look(ui: &Ui) -> anarchy::Look {
 /// What the launcher lists.
 #[derive(Clone, Debug)]
 enum Entry {
-    Tool(Tool, &'static str),
+    Tool(Tool, String),
     WarDial,
     Command(&'static str),
 }
@@ -47,7 +47,7 @@ enum Entry {
 impl Entry {
     fn label(&self) -> String {
         match self {
-            Entry::Tool(_, name) => (*name).to_string(),
+            Entry::Tool(_, name) => name.clone(),
             Entry::WarDial => "WarDial".into(),
             Entry::Command(c) => format!("$ {c}"),
         }
@@ -68,20 +68,27 @@ const COMMANDS: [&str; 10] = [
     "clear",
 ];
 
-/// The launcher's entries: the tools you have, and with fzf the Shell's commands.
-fn entries(fuzzy: bool, save: &ninsei_core::hub::Save) -> Vec<Entry> {
+/// The launcher's entries: the tools you have, each copy of a game you own by its label, and
+/// with fzf the Shell's commands.
+fn entries(fuzzy: bool, save: &ninsei_core::hub::Save, data: &ninsei_core::Data) -> Vec<Entry> {
+    let tool = |t, name: &str| Entry::Tool(t, name.to_string());
     let mut v = vec![
-        Entry::Tool(Tool::Terminal, "CarrierTerm"),
+        tool(Tool::Terminal, "CarrierTerm"),
         Entry::WarDial,
-        Entry::Tool(Tool::Rig, "CPU Shopper"),
-        Entry::Tool(Tool::HexEd, "HexEd"),
-        Entry::Tool(Tool::Qwk, "QWK Reader"),
-        Entry::Tool(Tool::IceDb, "ICE DB"),
-        Entry::Tool(Tool::NightComm, "NiGHTCOMM"),
-        Entry::Tool(Tool::TigerTeam, "Tiger Team Pro"),
-        Entry::Tool(Tool::Shell, "Shell"),
-        Entry::Tool(Tool::System, "System"),
+        tool(Tool::Rig, "CPU Shopper"),
+        tool(Tool::HexEd, "HexEd"),
+        tool(Tool::Qwk, "QWK Reader"),
+        tool(Tool::IceDb, "ICE DB"),
+        tool(Tool::NightComm, "NiGHTCOMM"),
+        tool(Tool::TigerTeam, "Tiger Team Pro"),
+        tool(Tool::Shell, "Shell"),
+        tool(Tool::System, "System"),
     ];
+    v.extend(
+        Tool::games(data, save)
+            .into_iter()
+            .map(|t| Entry::Tool(t, t.name(data))),
+    );
     v.retain(|e| match e {
         Entry::Tool(t, _) => save.opens(*t),
         Entry::WarDial => save.has_tool("wardial") && !save.has_dialer(),
@@ -329,6 +336,8 @@ impl DesktopView for TilingDesk {
             if tool == Tool::System {
                 home.system.keys = typing;
             }
+            // The focused tile has the keyboard while nothing's over it.
+            home.focused = typing;
             home.tool_in(
                 &mut child,
                 tool,
@@ -378,7 +387,7 @@ impl TilingDesk {
         let fuzzy = cx
             .save
             .has_effect(cx.data, Desktop::Tiling, AddonEffect::Fuzzy);
-        let items = entries(fuzzy, cx.save);
+        let items = entries(fuzzy, cx.save, cx.data);
         let labels: Vec<String> = items.iter().map(Entry::label).collect();
         let hint = if fuzzy {
             "open a tool or run a command"
@@ -853,7 +862,10 @@ mod tests {
             .id
             .clone();
         r.save.addons.push(fzf);
-        let labels: Vec<String> = entries(true, &r.save).iter().map(Entry::label).collect();
+        let labels: Vec<String> = entries(true, &r.save, &r.data)
+            .iter()
+            .map(Entry::label)
+            .collect();
         assert!(labels.len() > 12, "more than a screenful: {labels:?}");
         r.key(egui::Key::Escape);
         r.key(egui::Key::Space);
@@ -955,7 +967,7 @@ mod tests {
         let mut r = with_fzf();
         r.key(egui::Key::Escape);
         r.key(egui::Key::Space);
-        let n = entries(true, &r.save).len();
+        let n = entries(true, &r.save, &r.data).len();
         let painted = |r: &Rig| -> String {
             r.h.painted()
                 .iter()
@@ -1014,5 +1026,47 @@ mod tests {
                 assert_eq!(r.min, r.min.round(), "{r:?}");
             }
         }
+    }
+
+    #[test]
+    fn the_launcher_lists_each_copy_of_a_game_only_once_owned() {
+        let data = ninsei_core::Data::builtin().unwrap();
+        let mut save = ninsei_core::hub::Save::default();
+        let games = |save: &ninsei_core::hub::Save| -> Vec<String> {
+            entries(false, save, &data)
+                .iter()
+                .filter(|e| matches!(e, Entry::Tool(Tool::Game(..), _)))
+                .map(Entry::label)
+                .collect()
+        };
+        assert!(games(&save).is_empty(), "no game, no entry");
+        save.learn_game("nibbler", ninsei_core::hub::GameCopy::Cracked);
+        save.learn_game("nibbler", ninsei_core::hub::GameCopy::Boxed);
+        assert_eq!(games(&save), ["NIBBLER [2K4]", "Nibbler"]);
+    }
+
+    #[test]
+    fn a_game_from_the_launcher_tiles_and_takes_the_keys_but_never_the_leaders() {
+        let mut r = Rig::new(true);
+        r.save.intros = false;
+        r.save
+            .learn_game("minefield", ninsei_core::hub::GameCopy::Cracked);
+        let mine = Tool::game("minefield", ninsei_core::hub::GameCopy::Cracked).unwrap();
+        r.key(egui::Key::Escape);
+        r.key(egui::Key::Space);
+        r.type_text("minefield");
+        r.key(egui::Key::Enter);
+        assert_eq!(r.save.tiling.focused(), Some(mine));
+        r.frame(Vec::new());
+        let at = r.home.game(mine).unwrap().cursor().unwrap();
+        r.key(egui::Key::ArrowRight);
+        assert_eq!(r.home.game(mine).unwrap().cursor(), Some((at.0 + 1, at.1)));
+        // The leader's keys are the desktop's: Esc, then an arrow moves the focus, never the
+        // cursor, and the game waits while the leader's up.
+        r.key(egui::Key::Escape);
+        assert!(r.home.game(mine).unwrap().paused());
+        r.key(egui::Key::ArrowLeft);
+        assert_eq!(r.home.game(mine).unwrap().cursor(), Some((at.0 + 1, at.1)));
+        assert_eq!(r.save.tiling.focused(), Some(Tool::Shell));
     }
 }

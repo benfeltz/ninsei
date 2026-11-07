@@ -3,7 +3,7 @@
 //! draws each tool's contents. A desktop (Workbench, tiling, ...) is only a front-end on this:
 //! it implements [`DesktopView`] and lives in the registry ([`Desktops`]).
 
-use egui::{Align2, Color32, FontFamily, FontId, Id, Rect, Ui, pos2, vec2};
+use egui::{Align2, Color32, FontFamily, FontId, Id, Pos2, Rect, Ui, Vec2, pos2, vec2};
 use ninsei_core::Data;
 use ninsei_core::binary::Bin;
 use ninsei_core::data::ThemeDef;
@@ -1041,6 +1041,25 @@ impl Home {
             }
         }
     }
+}
+
+/// How big a window of games must open for a game's face: the room its first (square-ish)
+/// grid needs in the kit's cells, plus what the window's frame takes around its `view` (the
+/// rect its tool is drawn in, from the window's rect). `None` for anything but a game.
+pub(crate) fn game_window(
+    ctx: &egui::Context,
+    data: &Data,
+    tool: Tool,
+    view: impl Fn(Rect) -> Rect,
+) -> Option<Vec2> {
+    let (def, _) = tool.game_def(data)?;
+    let grid = crate::games_view::grids(def)[0];
+    let cell = crate::kit::Cells::cell_size(ctx);
+    let room = vec2(grid.cols as f32 * cell.x, grid.rows as f32 * cell.y);
+    let probe = Rect::from_min_size(Pos2::ZERO, vec2(2000.0, 2000.0));
+    let frame = probe.size() - view(probe).size();
+    // A point of slack either way, so rounding never costs a cell.
+    Some((room + frame + vec2(2.0, 2.0)).ceil())
 }
 
 /// The "too small" hint on a desktop of windows (Liza, Desktop): a window dragged low is cut

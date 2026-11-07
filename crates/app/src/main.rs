@@ -658,8 +658,8 @@ impl App {
                 self.home
                     .say(format!("New BBS in CarrierTerm: {}", r.boards.join(", ")));
             }
-            if !r.tools.is_empty() {
-                self.home.say(format!("Unpacked: {}", r.tools.join(", ")));
+            if let Some(line) = unpacked(&r) {
+                self.home.say(line);
             }
             self.booked = Some(r);
         }
@@ -1692,9 +1692,37 @@ impl App {
     }
 }
 
+/// The Shell's line for what came home off a run's boards: the tools by name, then the games
+/// by their crack's label (`Unpacked: HexEd, BLOX [PHS]`).
+fn unpacked(r: &ninsei_core::hub::RunReport) -> Option<String> {
+    let all: Vec<&str> = r.tools.iter().chain(&r.games).map(String::as_str).collect();
+    (!all.is_empty()).then(|| format!("Unpacked: {}", all.join(", ")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn games_downloaded_on_a_run_are_unpacked_with_the_tools() {
+        let mut r = ninsei_core::hub::RunReport {
+            end: RunEnd::Exit,
+            credits: 0,
+            banked: 0,
+            hops: 1,
+            seed: 0,
+            kept: Vec::new(),
+            learned: Vec::new(),
+            boards: Vec::new(),
+            tools: Vec::new(),
+            games: Vec::new(),
+        };
+        assert_eq!(unpacked(&r), None);
+        r.games = vec!["BLOX [PHS]".into()];
+        assert_eq!(unpacked(&r).as_deref(), Some("Unpacked: BLOX [PHS]"));
+        r.tools = vec!["HexEd".into()];
+        assert_eq!(unpacked(&r).as_deref(), Some("Unpacked: HexEd, BLOX [PHS]"));
+    }
 
     mod sound_pop_out {
         use super::*;

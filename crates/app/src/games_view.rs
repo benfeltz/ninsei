@@ -559,4 +559,19 @@ mod tests {
             ["SCORE 0  LENGTH 3"]
         );
     }
+
+    #[test]
+    fn the_shell_runs_a_game_you_own_and_no_other() {
+        let data = Data::builtin().unwrap();
+        let mut home = Home::new(Vec::new());
+        home.take_opens();
+        home.run("run blox", &data, &deck(&data), &mut Vec::new());
+        assert!(home.take_opens().is_empty());
+        assert!(home.shell_has("blox: object not found"));
+        home.run("run blox", &data, &gamer(&data), &mut Vec::new());
+        assert_eq!(
+            home.take_opens(),
+            [Tool::game("blox", GameCopy::Boxed).unwrap()]
+        );
+    }
 }

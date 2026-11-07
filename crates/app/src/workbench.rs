@@ -41,18 +41,31 @@ const DOUBLE_CLICK_SECS: f64 = 0.45;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Kind {
     Shell,
-    /// CarrierTerm: the phonebook.
-    Terminal,
-    System,
-    Rig,
-    HexEd,
-    Qwk,
-    IceDb,
-    NightComm,
-    TigerTeam,
-    Guide,
+    /// A tool's window (any tool but the Shell, a game's copy included).
+    Tool(Tool),
     /// "Please insert volume X in any drive".
     Requester(Tool),
+}
+
+/// A tool window's title bar.
+fn title(tool: Tool, data: &ninsei_core::Data) -> String {
+    match tool {
+        Tool::Shell => "NinShell".into(),
+        Tool::System => "System".into(),
+        Tool::Terminal => "CarrierTerm 1.0: Dialing Directory".into(),
+        Tool::Rig => "CPU Shopper".into(),
+        Tool::HexEd => "HexEd".into(),
+        Tool::Qwk => "OLX QWK Reader".into(),
+        Tool::IceDb => "ICE DB".into(),
+        Tool::NightComm => "NiGHTCOMM 3.1".into(),
+        Tool::TigerTeam => "Tiger Team Pro 3.0".into(),
+        Tool::Guide => "Welcome to the Net".into(),
+        // A game by the copy's label, with its version, as its own title screen says it.
+        Tool::Game(..) => match tool.game_def(data) {
+            Some((g, _)) => format!("{} {}", tool.name(data), g.version),
+            None => tool.name(data),
+        },
+    }
 }
 
 struct Win {
@@ -63,18 +76,10 @@ struct Win {
 }
 
 impl Win {
-    fn title(&self) -> String {
+    fn title(&self, data: &ninsei_core::Data) -> String {
         match self.kind {
-            Kind::Shell => "NinShell".into(),
-            Kind::System => "System".into(),
-            Kind::Terminal => "CarrierTerm 1.0: Dialing Directory".into(),
-            Kind::Rig => "CPU Shopper".into(),
-            Kind::HexEd => "HexEd".into(),
-            Kind::Qwk => "OLX QWK Reader".into(),
-            Kind::IceDb => "ICE DB".into(),
-            Kind::NightComm => "NiGHTCOMM 3.1".into(),
-            Kind::TigerTeam => "Tiger Team Pro 3.0".into(),
-            Kind::Guide => "Welcome to the Net".into(),
+            Kind::Shell => title(Tool::Shell, data),
+            Kind::Tool(t) => title(t, data),
             Kind::Requester(_) => "System Request".into(),
         }
     }
@@ -117,18 +122,8 @@ impl Workbench {
     fn open(&mut self, tool: Tool) {
         let kind = match tool {
             t if !t.installed() => Kind::Requester(t),
-            Tool::Terminal => Kind::Terminal,
-            Tool::System => Kind::System,
             Tool::Shell => Kind::Shell,
-            Tool::Rig => Kind::Rig,
-            Tool::HexEd => Kind::HexEd,
-            Tool::Qwk => Kind::Qwk,
-            Tool::IceDb => Kind::IceDb,
-            Tool::NightComm => Kind::NightComm,
-            Tool::TigerTeam => Kind::TigerTeam,
-            Tool::Guide => Kind::Guide,
-            // Games open on the desktops in the next step.
-            Tool::Game(..) => return,
+            t => Kind::Tool(t),
         };
         if let Some(i) = self.wins.iter().position(|w| w.kind == kind) {
             let w = self.wins.remove(i);
@@ -136,22 +131,39 @@ impl Workbench {
         } else {
             let (pos, size) = match kind {
                 Kind::Shell => (pos2(150.0, 300.0), vec2(600.0, 280.0)),
-                Kind::Terminal => (pos2(170.0, 40.0), vec2(720.0, 440.0)),
-                Kind::System => (pos2(200.0, 40.0), vec2(700.0, 540.0)),
-                Kind::Rig => (pos2(170.0, 30.0), book_window()),
-                Kind::HexEd => (pos2(130.0, 36.0), vec2(800.0, 500.0)),
-                Kind::Qwk => (pos2(190.0, 46.0), vec2(700.0, 470.0)),
-                Kind::IceDb => (pos2(220.0, 60.0), vec2(700.0, 470.0)),
-                Kind::NightComm => (pos2(150.0, 50.0), vec2(880.0, 500.0)),
-                Kind::TigerTeam => (pos2(140.0, 44.0), vec2(900.0, 540.0)),
-                Kind::Guide => (pos2(200.0, 30.0), book_window()),
                 Kind::Requester(_) => (pos2(260.0, 150.0), vec2(330.0, 150.0)),
+                Kind::Tool(t) => match t {
+                    Tool::Terminal => (pos2(170.0, 40.0), vec2(720.0, 440.0)),
+                    Tool::System => (pos2(200.0, 40.0), vec2(700.0, 540.0)),
+                    Tool::Rig => (pos2(170.0, 30.0), book_window()),
+                    Tool::HexEd => (pos2(130.0, 36.0), vec2(800.0, 500.0)),
+                    Tool::Qwk => (pos2(190.0, 46.0), vec2(700.0, 470.0)),
+                    Tool::IceDb => (pos2(220.0, 60.0), vec2(700.0, 470.0)),
+                    Tool::NightComm => (pos2(150.0, 50.0), vec2(880.0, 500.0)),
+                    Tool::TigerTeam => (pos2(140.0, 44.0), vec2(900.0, 540.0)),
+                    Tool::Guide => (pos2(200.0, 30.0), book_window()),
+                    Tool::Shell => (pos2(150.0, 300.0), vec2(600.0, 280.0)),
+                    // Sized to the game's field when it's first drawn (`Win::size` zero);
+                    // a crack and a box of the same game open side by side.
+                    Tool::Game(_, copy) => {
+                        let at = match copy {
+                            ninsei_core::hub::GameCopy::Cracked => pos2(180.0, 40.0),
+                            ninsei_core::hub::GameCopy::Boxed => pos2(230.0, 70.0),
+                        };
+                        self.wins.push(Win {
+                            kind,
+                            pos: at,
+                            size: Vec2::ZERO,
+                        });
+                        return;
+                    }
+                },
             };
             // A tool's window has the proportional gadget down its right side, beside the
             // tool's room (not the Shell's, which scrolls its own lines, or a requester's).
             let size = match kind {
                 Kind::Shell | Kind::Requester(_) => size,
-                _ => size + vec2(kit::size::PROP_W, 0.0),
+                Kind::Tool(_) => size + vec2(kit::size::PROP_W, 0.0),
             };
             self.wins.push(Win { kind, pos, size });
         }
@@ -168,10 +180,10 @@ impl DesktopView for Workbench {
             self.open(t);
         }
         // The Welcome stack is the Sense/Net's: this desktop reaches it with `help net`.
-        let icons: Vec<_> = data
-            .icons
-            .iter()
-            .filter(|i| save.opens(i.tool) && i.tool != Tool::Guide)
+        let icons: Vec<_> = save
+            .icons(data)
+            .into_iter()
+            .filter(|i| i.tool != Tool::Guide)
             .collect();
         let screen = ui.ctx().content_rect().translate(vec2(0.0, offset));
         let painter = ui.painter_at(screen);
@@ -298,11 +310,25 @@ impl DesktopView for Workbench {
         });
         for i in 0..n {
             let top = i + 1 == n;
+            // A game's window opens exactly big enough for its field.
+            if let Kind::Tool(t) = self.wins[i].kind
+                && self.wins[i].size == Vec2::ZERO
+            {
+                let view = |r: Rect| {
+                    crate::kit::scrollbar::view_rect(
+                        kit::window_scrolled(r),
+                        kit::size::PROP_W,
+                        kit::SCROLL_PAD,
+                    )
+                };
+                self.wins[i].size =
+                    crate::home::game_window(ui.ctx(), data, t, view).unwrap_or(vec2(400.0, 300.0));
+            }
             let (kind, pos, size) = (self.wins[i].kind, self.wins[i].pos, self.wins[i].size);
             // A window never runs off the bottom of the screen: it gets shorter and scrolls.
             let room = (screen.height() - pos.y - WIN_MARGIN).max(WIN_MIN_H);
             let rect = Rect::from_min_size(at(pos), vec2(size.x, size.y.min(room)));
-            let title = self.wins[i].title();
+            let title = self.wins[i].title(data);
             let wid = Id::new(("wb-win", format!("{kind:?}")));
             // The whole window swallows clicks so icons under it don't fire.
             let body = ui.interact(
@@ -364,15 +390,7 @@ impl DesktopView for Workbench {
             let content = kit::window_content(rect);
             match kind {
                 Kind::Shell => home.shell(ui, content, data, save, live && top, out),
-                Kind::Rig
-                | Kind::HexEd
-                | Kind::Qwk
-                | Kind::IceDb
-                | Kind::NightComm
-                | Kind::TigerTeam
-                | Kind::Guide
-                | Kind::Terminal
-                | Kind::System => {
+                Kind::Tool(tool) => {
                     // To the border, so the proportional gadget sits on it.
                     let body = kit::window_scrolled(rect);
                     let mut child = ui.new_child(
@@ -385,17 +403,8 @@ impl DesktopView for Workbench {
                     if !live {
                         child.disable();
                     }
-                    let tool = match kind {
-                        Kind::Terminal => Tool::Terminal,
-                        Kind::Rig => Tool::Rig,
-                        Kind::System => Tool::System,
-                        Kind::Qwk => Tool::Qwk,
-                        Kind::IceDb => Tool::IceDb,
-                        Kind::NightComm => Tool::NightComm,
-                        Kind::TigerTeam => Tool::TigerTeam,
-                        Kind::Guide => Tool::Guide,
-                        _ => Tool::HexEd,
-                    };
+                    // The window on top has the keyboard.
+                    home.focused = live && top;
                     let hint = crate::home::drag_hint(pos.y, kit::size::SCREEN_BAR_H);
                     home.tool_in(
                         &mut child,
@@ -608,17 +617,8 @@ mod tests {
 
     fn wb_kind(t: Tool) -> Kind {
         match t {
-            Tool::Terminal => Kind::Terminal,
-            Tool::System => Kind::System,
             Tool::Shell => Kind::Shell,
-            Tool::Rig => Kind::Rig,
-            Tool::HexEd => Kind::HexEd,
-            Tool::Qwk => Kind::Qwk,
-            Tool::IceDb => Kind::IceDb,
-            Tool::NightComm => Kind::NightComm,
-            Tool::TigerTeam => Kind::TigerTeam,
-            Tool::Guide => Kind::Guide,
-            Tool::Game(..) => unreachable!("games open in the next step"),
+            t => Kind::Tool(t),
         }
     }
 
@@ -783,7 +783,11 @@ mod tests {
             run(&mut wb, &mut home, Vec::new());
         }
         assert!(scroll_of(&ctx, Tool::System).active());
-        let sys = wb.wins.iter().find(|w| w.kind == Kind::System).unwrap();
+        let sys = wb
+            .wins
+            .iter()
+            .find(|w| w.kind == Kind::Tool(Tool::System))
+            .unwrap();
         let over = pos2(sys.pos.x + sys.size.x - 10.0, 760.0);
         let wheel = vec![
             Event::PointerMoved(over),
@@ -816,7 +820,7 @@ mod tests {
             let nc = |wb: &Workbench| -> usize {
                 wb.wins
                     .iter()
-                    .position(|w| w.kind == Kind::NightComm)
+                    .position(|w| w.kind == Kind::Tool(Tool::NightComm))
                     .unwrap()
             };
             let i = nc(&wb);
@@ -948,5 +952,94 @@ mod tests {
                 "a drag of {step:?} a frame moved it {from:?} to {to:?}"
             );
         }
+    }
+
+    /// `desk`, owning both copies of every game, with no intros to wait through.
+    fn gamer(data: &Data) -> Save {
+        let mut s = desk(data);
+        for g in &data.games {
+            s.learn_game(&g.id, ninsei_core::hub::GameCopy::Cracked);
+            s.learn_game(&g.id, ninsei_core::hub::GameCopy::Boxed);
+        }
+        s
+    }
+
+    #[test]
+    fn a_game_maps_to_its_own_window_never_another_tools() {
+        let data = Data::builtin().unwrap();
+        let save = gamer(&data);
+        let ctx = egui::Context::default();
+        let (mut wb, mut home) = (Workbench::new(), Home::new(Vec::new()));
+        let nibbler = Tool::game("nibbler", ninsei_core::hub::GameCopy::Cracked).unwrap();
+        frame(&ctx, &mut wb, &mut home, &data, &save, Vec::new(), 0.0);
+        wb.open(nibbler);
+        frame(&ctx, &mut wb, &mut home, &data, &save, Vec::new(), 0.1);
+        let w = wb.wins.last().unwrap();
+        assert_eq!(w.kind, Kind::Tool(nibbler));
+        assert_eq!(w.title(&data), "NIBBLER [2K4] 1.0");
+        assert!(
+            home.game(nibbler).is_some(),
+            "the game runs in it, not HexEd"
+        );
+        assert!(home.hex.is_none());
+    }
+
+    #[test]
+    fn double_clicking_a_games_icon_opens_it_and_unowned_games_have_none() {
+        let data = Data::builtin().unwrap();
+        let ctx = egui::Context::default();
+        let none = desk(&data);
+        assert!(
+            !none
+                .icons(&data)
+                .iter()
+                .any(|i| matches!(i.tool, Tool::Game(..))),
+            "no game, no icon"
+        );
+        let save = gamer(&data);
+        let (mut wb, mut home) = (Workbench::new(), Home::new(Vec::new()));
+        let icons: Vec<_> = save
+            .icons(&data)
+            .into_iter()
+            .filter(|i| i.tool != Tool::Guide)
+            .collect();
+        let boxed = Tool::game("blox", ninsei_core::hub::GameCopy::Boxed).unwrap();
+        let n = icons.iter().position(|i| i.tool == boxed).unwrap();
+        frame(&ctx, &mut wb, &mut home, &data, &save, Vec::new(), 0.0);
+        let at = icon_pos(n, ctx.content_rect().size()) + vec2(42.0, 20.0);
+        frame(&ctx, &mut wb, &mut home, &data, &save, click(at), 1.0);
+        frame(&ctx, &mut wb, &mut home, &data, &save, click(at), 1.1);
+        frame(&ctx, &mut wb, &mut home, &data, &save, Vec::new(), 1.2);
+        assert_eq!(wb.wins.last().map(|w| w.kind), Some(Kind::Tool(boxed)));
+    }
+
+    #[test]
+    fn every_games_window_opens_big_enough_and_the_top_one_has_the_keys() {
+        let data = Data::builtin().unwrap();
+        let save = gamer(&data);
+        let ctx = egui::Context::default();
+        crate::uitest::themed(&ctx, &data);
+        let (mut wb, mut home) = (Workbench::new(), Home::new(Vec::new()));
+        let mut t = 0.0;
+        for g in Tool::games(&data, &save) {
+            wb.open(g);
+            for _ in 0..2 {
+                t += 0.1;
+                frame(&ctx, &mut wb, &mut home, &data, &save, Vec::new(), t);
+            }
+            assert!(
+                home.notices.is_empty(),
+                "{g:?} too small: {:?}",
+                home.notices
+            );
+        }
+        let top = Tool::game("minefield", ninsei_core::hub::GameCopy::Boxed).unwrap();
+        assert_eq!(wb.wins.last().map(|w| w.kind), Some(Kind::Tool(top)));
+        let at = home.game(top).unwrap().cursor().unwrap();
+        let right = crate::uitest::key(egui::Key::ArrowDown);
+        frame(&ctx, &mut wb, &mut home, &data, &save, right, t + 0.1);
+        assert_eq!(home.game(top).unwrap().cursor(), Some((at.0, at.1 + 1)));
+        let behind = Tool::game("nibbler", ninsei_core::hub::GameCopy::Cracked).unwrap();
+        assert!(home.game(behind).unwrap().paused(), "a window behind waits");
     }
 }

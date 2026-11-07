@@ -21,7 +21,7 @@
 [
     (id: "nibbler", name: "Nibbler", blurb: "Steer the snake, eat the dots, and don't bite your own tail.",
      publisher: "papertiger", version: "1.0", engine: Nibbler, cols: 32, rows: 20, tick_ms: 50,
-     crack: "nibbler-crack", splash: "nibbler-splash",
+     crack: "nibbler-crack", splash: "nibbler-splash", shop: Some((price: 40)),
      icon: [
          "................",
          "................",
@@ -42,7 +42,7 @@
      ]),
     (id: "blox", name: "Blox", blurb: "Falling blocks: turn them, drop them, clear the lines.",
      publisher: "papertiger", version: "2.0", engine: Blox, cols: 10, rows: 20, tick_ms: 50,
-     crack: "blox-crack", splash: "blox-splash",
+     crack: "blox-crack", splash: "blox-splash", shop: Some((price: 60)),
      icon: [
          "................",
          "......kkkk......",
@@ -63,7 +63,7 @@
      ]),
     (id: "minefield", name: "Minefield", blurb: "Clear the field square by square. The numbers say how close the mines are.",
      publisher: "papertiger", version: "1.1", engine: Minefield, cols: 16, rows: 16, tick_ms: 100,
-     crack: "minefield-crack", splash: "minefield-splash",
+     crack: "minefield-crack", splash: "minefield-splash", shop: Some((price: 30)),
      icon: [
          "................",
          ".kkkkkkkkkkkkkk.",
