@@ -1134,12 +1134,9 @@ impl Game {
     /// The HDD slot a program name in a `RUN` or `HAVE` means: the program's name, its file
     /// name or its factory id, in any case. The first match wins.
     pub fn slot_named(&self, name: &str) -> Option<usize> {
-        let file = name.to_ascii_lowercase();
-        self.hdd.iter().position(|s| {
-            s.spec.name.eq_ignore_ascii_case(name)
-                || s.spec.file() == file
-                || self.data.warez[s.warez].id.eq_ignore_ascii_case(name)
-        })
+        self.hdd
+            .iter()
+            .position(|s| crate::basic::names(name, &s.spec.name, &self.data.warez[s.warez].id))
     }
 
     /// What an `IF` finds right now. Lagged ICE has no next move.

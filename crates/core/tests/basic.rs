@@ -371,6 +371,16 @@ fn every_kit_ships_a_program_that_reads() {
         assert_eq!(hub::program_fault(&k.program, &d), None, "{}", k.id);
     }
     assert!(hub::program_fault("10 RUN nosuch", &d).is_some());
+    // What a fight can run, validation accepts: name, file name or id, any case.
+    let mut g = fight("bulwark", "");
+    for typed in ["IcePick", "ICEPICK.EXE", "icepick"] {
+        assert!(g.slot_named(typed).is_some(), "{typed}");
+        let text = format!("10 RUN {typed}\n20 IF HAVE {typed}");
+        assert_eq!(hub::program_fault(&text, &d), None, "{typed}");
+    }
+    g.apply(Action::Program("10 RUN icepick.exe".into()));
+    g.apply(Action::Step);
+    assert_eq!(ran(&g), 1);
     assert!(hub::program_fault("10 GOTO 20", &d).is_some());
 }
 

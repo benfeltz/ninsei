@@ -404,10 +404,10 @@ pub fn program_fault(text: &str, data: &Data) -> Option<String> {
     if let Some(s) = p.stray.first() {
         return Some(format!("`{s}`: {}", crate::basic::NO_NUMBER));
     }
-    let known = |name: &str| {
+    let known = |typed: &str| {
         data.warez
             .iter()
-            .any(|w| w.id.eq_ignore_ascii_case(name) || w.name.eq_ignore_ascii_case(name))
+            .any(|w| crate::basic::names(typed, &w.name, &w.id))
     };
     p.lines.iter().find_map(|l| {
         if let Some(why) = p.fault(l.no) {

@@ -23,6 +23,18 @@ pub const CLASSES: [&str; 3] = ["BARRIER", "CODEGATE", "SENTRY"];
 /// The moves `IF NEXT <intent>` reads.
 pub const INTENTS: [&str; 3] = ["ATTACK", "TRACE", "FORTIFY"];
 
+/// Whether `typed`, a program name in a `RUN` or `HAVE`, means the program called `name`
+/// whose factory id is `id`: its name, its file name (`name.exe`) or its id, in any case.
+/// Fights and `Data::validate` both ask this, so they agree on what a name means.
+pub fn names(typed: &str, name: &str, id: &str) -> bool {
+    typed.eq_ignore_ascii_case(name)
+        || typed.eq_ignore_ascii_case(id)
+        || typed
+            .to_ascii_lowercase()
+            .strip_suffix(".exe")
+            .is_some_and(|stem| stem.eq_ignore_ascii_case(name))
+}
+
 /// A whole program: its lines, sorted by number, no number twice.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Program {
