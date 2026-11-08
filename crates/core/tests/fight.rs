@@ -57,7 +57,7 @@ fn breakers_match_their_class() {
     let data = Data::builtin().unwrap();
     let g = fighting(3, 0);
     let class = data.ice[g.combat.as_ref().unwrap().ice].class;
-    for (slot, s) in g.hdd.iter().enumerate().filter(|(_, s)| s.loaded) {
+    for (slot, s) in g.hdd.iter().enumerate() {
         if let (Ok(p), Effect::Break { power, vs }) = (g.preview(slot), s.spec.effect) {
             let want = match vs {
                 None => (power, Match::Plain),

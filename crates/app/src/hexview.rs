@@ -24,10 +24,10 @@ pub fn grid_id() -> Id {
 
 fn field_color(f: Field, p: &Palette) -> Color32 {
     match f {
-        Field::Magic | Field::Reserved => p.faint.gamma_multiply(2.0),
+        Field::Magic | Field::Reserved | Field::Spare => p.faint.gamma_multiply(2.0),
         Field::Signature | Field::Opt => p.dim,
         Field::Name => p.fg,
-        Field::Opcode | Field::Power | Field::Vs | Field::Cpu | Field::Ram => p.bright,
+        Field::Opcode | Field::Power | Field::Vs | Field::Cpu => p.bright,
         Field::Checksum => p.bright,
     }
 }
@@ -122,10 +122,9 @@ pub fn editor(ui: &mut Ui, h: &mut HexBuffer, cx: &HexCtx, p: &Palette) -> Vec<H
             };
             ui.label(
                 RichText::new(format!(
-                    "{st}: {}  cpu {}  ram {}",
+                    "{st}: {}  cpu {}",
                     spec.effect.describe(),
-                    spec.cpu,
-                    spec.ram
+                    spec.cpu
                 ))
                 .color(p.fg),
             );
@@ -376,9 +375,9 @@ fn inspector(ui: &mut Ui, key: u64, h: &mut HexBuffer, p: &Palette) {
             format!("{}", b[binary::OFF_CPU]),
         ),
         (
-            binary::OFF_RAM,
-            "ram cost",
-            format!("{}", b[binary::OFF_RAM]),
+            binary::OFF_SPARE,
+            "reserved",
+            format!("{:02X}", b[binary::OFF_SPARE]),
         ),
         (
             binary::OFF_OPT,
@@ -429,7 +428,7 @@ fn inspector(ui: &mut Ui, key: u64, h: &mut HexBuffer, p: &Palette) {
         h.ascii = Field::at(off) == Field::Name;
     }
 
-    // Budget: what the effect costs against what cpu/ram/opt allow.
+    // Budget: what the effect costs against what cpu/opt allow.
     let power = u32::from(b[binary::OFF_POWER]);
     let effect = match b[binary::OFF_OPCODE] {
         1 => Some(Effect::Break { power, vs: None }),
@@ -439,11 +438,7 @@ fn inspector(ui: &mut Ui, key: u64, h: &mut HexBuffer, p: &Palette) {
         5 => Some(Effect::Stun),
         _ => None,
     };
-    let budget = binary::budget(
-        u32::from(b[binary::OFF_CPU]),
-        u32::from(b[binary::OFF_RAM]),
-        u32::from(b[binary::OFF_OPT]),
-    );
+    let budget = binary::budget(u32::from(b[binary::OFF_CPU]), u32::from(b[binary::OFF_OPT]));
     if let Some(e) = effect {
         let cost = binary::cost(e);
         let cells = 20usize;
@@ -476,9 +471,8 @@ fn inspector(ui: &mut Ui, key: u64, h: &mut HexBuffer, p: &Palette) {
         });
         ui.label(
             RichText::new(format!(
-                "budget = {}×cpu + ram/{} + {}×opt",
+                "budget = {}×cpu + {}×opt",
                 tuning::BUDGET_PER_CPU,
-                tuning::BUDGET_RAM_DIV,
                 tuning::BUDGET_PER_OPT
             ))
             .small()

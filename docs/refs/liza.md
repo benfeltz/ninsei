@@ -4,7 +4,7 @@ The Sense/Net deck's desktop. Reference: the first Macintosh's System 1.x on a 5
 with the Lisa's name (see `docs/design.md`, the Sense/Net's point of view), and the 1992 Human
 Interface Guidelines as the review bar (`.claude/skills/fake-app-craft/references/`). The kit that
 draws it is `crates/app/src/kit/liza.rs`, shared by the Liza desktop (`liza.rs`), System's
-Control Panel (`system.rs`) and the Stack chrome's alert (`stack.rs`).
+Control Panel (`system.rs`) and the Stack chrome's Script pane (`stack.rs`).
 
 These are the numbers the kit draws to. Change them here and in `kit::liza::size` together.
 
@@ -61,17 +61,15 @@ These are the numbers the kit draws to. Change them here and in `kit::liza::size
 | | System 1 | Liza |
 |---|---|---|
 | Push button | 20px, round-rect, 1px frame, text centred; inverted while pressed | 22px, 8px corners, at least 60px wide, 12px either side of the text |
-| Default button | a 3px ring 4px outside the button | the same; Enter presses it |
+| Default button | a 3px ring 4px outside the button | the same; Enter presses it (the Script card's Run) |
 | Cancel | Esc or ⌘. | Esc (no ⌘: keys are browser-safe) |
 | Check box | 12×12, an X corner to corner when on, label 5px after | the same; radio buttons a 12px circle with a dot; disabled, drawn at half strength |
 | Disabled | gray text | the text at half strength |
 
-## Alert
+## Fields, pop-up menus and drop slots (HyperCard 1.2)
 
-| | System 1 | Liza |
+| | HyperCard 1.2 / System 6 | Liza |
 |---|---|---|
-| Frame | a thin outer line and a thick inner one | 1px outer, 3px inner 4px inside it, 12px in to the content |
-| Icon | 32×32 (note, caution, stop), top left | the glyph at 28px, top left |
-| Text | the message beside the icon, wrapped | the title in bold, then the message, wrapped to the box |
-| Buttons | along the bottom, the action at the right, Cancel left of it | the same, 10px apart, right-aligned under the text |
-| Keys | Enter for the default, Esc to cancel | the same, on a fresh press (a held key goes once), while no text field held the keyboard last frame either (the run's Message box keeps its Enter, and the Esc that leaves it doesn't cancel); the alert takes the key, so nothing after it sees it |
+| Text field | a rectangle field, 1px frame, a blinking insertion point | 20px tall, 1px ink frame on paper, the text 4px in, an ink insertion point; Enter, Tab or a click elsewhere commits, Esc puts the old value back; while it has the keyboard nothing else takes keys |
+| Pop-up menu | the value in a box with a 1px drop shadow and a ▼, the menu dropping from it | 20px tall, the shadowed box, the value 4px in and ▾ in a 16px column on the right; the list opens under it, 22px items, the one under the pointer or picked with ↑↓ inverted; a click or Enter picks, Esc or a click outside closes |
+| Drop slot | (HyperCard's button tool dragged a dotted outline) | a 1px dotted outline, 2px dashes and gaps |

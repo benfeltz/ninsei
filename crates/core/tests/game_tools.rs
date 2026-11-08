@@ -166,5 +166,5 @@ fn each_round_of_a_game_is_counted_on_the_save() {
     let back = Save::load(&save.to_text()).unwrap();
     assert_eq!(back.game_round("blox"), 2);
     // An older save has played none.
-    assert_eq!(Save::load("(version: 1)").unwrap().game_round("blox"), 0);
+    assert_eq!(Save::load("(version: 2)").unwrap().game_round("blox"), 0);
 }

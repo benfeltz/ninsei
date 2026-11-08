@@ -70,7 +70,7 @@ fn the_bezel_and_tube_corners_are_not_screen() {
 #[test]
 fn saves_start_on_the_white_monitor() {
     let d = data();
-    let mut s = Save::load("(version: 1)").unwrap();
+    let mut s = Save::load("(version: 2)").unwrap();
     s.ensure_hardware(&d);
     assert_eq!((s.display_id(&d), s.crt), ("paperwhite", true));
     // Crisp glass for 1-bit pictures: no colour fringing, a gentle curve.

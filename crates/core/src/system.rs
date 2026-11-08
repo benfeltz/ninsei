@@ -4,7 +4,6 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::binary;
 use crate::data::Data;
 use crate::hub::{Save, Upgrade};
 
@@ -186,15 +185,7 @@ pub fn overview(save: &Save, data: &Data) -> Overview {
         None => with_unit(base(u), u),
     };
 
-    // What the loadout will load: its programs' RAM, from their binaries.
     let kit = save.kit(data);
-    let ram = base(Upgrade::Ram);
-    let ram_used: u32 = kit
-        .programs
-        .iter()
-        .filter_map(|(_, bin)| binary::check(bin, save.key).ok())
-        .map(|s| s.ram)
-        .sum();
     let hdd = save.hdd_cap(data);
     let filled = kit.programs.len() as u32;
     let stash_cap = save.stash_cap(defs);
@@ -210,11 +201,7 @@ pub fn overview(save: &Save, data: &Data) -> Overview {
         Spec {
             label: "RAM".into(),
             value: value(Upgrade::Ram),
-            use_note: format!(
-                "{} in use, {} free",
-                with_unit(ram_used.min(ram), Upgrade::Ram),
-                with_unit(ram.saturating_sub(ram_used), Upgrade::Ram)
-            ),
+            use_note: "decisions a turn".into(),
             level: level(Upgrade::Ram),
             next: next(Upgrade::Ram),
         },

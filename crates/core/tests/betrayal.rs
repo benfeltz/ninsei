@@ -77,7 +77,7 @@ fn fell(mut g: Game, reward: u32) -> Game {
     let i = g
         .hdd
         .iter()
-        .position(|s| s.loaded && matches!(s.spec.effect, Effect::Break { .. }))
+        .position(|s| matches!(s.spec.effect, Effect::Break { .. }))
         .unwrap();
     g.apply(Action::Run(i));
     assert_ne!(g.contracts[0].status, ContractStatus::Active);

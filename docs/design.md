@@ -37,7 +37,7 @@ deck ─> firmware ─────┘
 | `sounds` | `sensenet`: square beeps, a warm chord, a gentle "boing", and a run soundtrack per network tier like a 1980s Mac adventure game: square tunes over triangle basses in major keys, gentle at tier 1 and uneasy at tier 3. As the trace climbs, a quiet triangle part drops out (the countermelody, the offbeat chords or the held line in thirds) and then the tempo rises ✅ | `ono`: harsh squares, noise bursts, chiptune arpeggios, and a looping chiptune soundtrack per network tier that thins out and speeds up as the trace climbs ✅ | `hosaka`: soft sine chimes, a polite ding, a tidy shutdown tune, and hold music for the runs: a tune per network tier in what an office plays while you wait (sine tunes over a bossa or walking bass, major sevenths, a polite tempo). Tier 1 is the lobby, tier 2 the department and tier 3 the executive floor, still polite but colder. As the trace climbs, the calm goes wrong while staying polite: the chords or the tune drop out and it turns hollow, then the hold music hurries ✅ |
 | volume | View > Control Panel...: the Mac's Speaker Volume slider (0 to 7) and a Sound check box, in a striped window with a close box ✅ | a speaker on the status line, as a bar module shows it, that opens a btop box over it: a meter, `- 70% +` cut into the edge, `[x] mute` ✅ | Edit > Sound...: a dialog with a Volume bar, a Mute box, OK and Cancel ✅ |
 | vis pane | a Scope card: a 1-bit oscilloscope in a field ✅ | a btop box: the spectrum in columns of cells along the gradient, the level in its edge ✅ | SOUNDLVL.RPT: a sound level report, level and peak on a form, the level by band as a bar chart ✅ |
-| fights | a Mac alert beside the card: the hardest hit as the ringed default button, a shield ✅ | the map dives into the node: the ICE as a wireframe over a horizon grid, a program hotbar with previews ✅ | an incident report with a strength chart and an agenda ✅ |
+| fights | the ICE card (the ICE, its hotbar, End Turn) in the centre, and the deck's program as a stack of blocks with Step, Run, Pause in the Script pane beside it ✅ (see *Fights*) | the map dives into the node: the ICE as a wireframe over a horizon grid, a program hotbar with previews ✅; next: `ice.bas` and a `gdb` box under the wireframe | an incident report with a strength chart and an agenda ✅; next: a Turbo Debugger Module window and Watches |
 | damage | 1-bit glitches: tearing and noise, never an RGB split ✅ (pattern smears and inverted rows: an idea) | screen glitches: tearing, RGB split, corrupted text ✅ | the same, plus corporate error dialogs (idea below) |
 | add-ons | Alarm Clock, a Calculator desk accessory under the eye, a desktop pattern, MultiFinder ✅ |  |  |
 | games | a window like any program's, titled by the copy's label (`Nibbler`, `NIBBLER [2K4]`), in Liza's two colours: the field in its frame, walls and covered squares in the 50% gray pattern, blocks outlined; a **Games** menu before Special lists each copy you own ✅ | a tile, labelled in lower case like the others (`blox [phs]`), from the launcher or `run blox`; the leader's keys stay the desktop's ✅ | a window titled with its version (`Minefield 1.1`), its icon among the others ✅ |
@@ -149,6 +149,59 @@ The two decks are a start. Each new one should be a new point of view, not a pal
 2. Add it to `data/hub/hardware.ron` with firmware that reuses existing parts where they fit.
 3. Build any new parts it needs (a `map`, `chrome` or `desktop` variant and its renderer). The part must work in every theme, on mono monitors too.
 4. Give it a price and a blurb that sells the point of view.
+
+## Fights: the deck runs a program
+
+*Designed 2026-11-07 (task 141.1, dossier at the task note). Built by 141.2 (core), 141.4–141.6 (one screen per deck) and 141.3 (ICE that answers back). Until a deck has its screen, its chrome keeps the hotbar fight. ✅ marks what's built: the Sense/Net's Script card (141.4).*
+
+**The Script is a pane, not part of the fight.** It is on screen for the whole run, in its own box, so the program is something you look after between fights as well as during one; Step, Run and Pause only press with ICE in front. Every chrome dresses the one Script pane (until a deck designs its own, it's the terminal's `prog` listing); 141.5 and 141.6 design its dress, not where it lives. The Stack's default layout is three columns over the Message box: the Deck over the Programs on the left (narrow), the Card with ICE and Hex in the centre (widest), the Script in front of To Do on the right (medium; To Do is the least used pane, so it sits behind).
+
+**The idea.** You don't fight ICE by hand. You wrote something that does, and you watch it work. Each deck holds **one program**, kept between runs like the loadout, and every fight opens with it loaded and the cursor on Run. The run screen is already an IDE, so the fight runs like a debugger: Run plays until a STOP, Step plays one pass, Pause hands you the turn (the hotbar is the manual override), Continue gives it back. The program is edited in place, mid-fight if you like; what you leave is what the deck keeps. No window opens, nothing is saved by hand, and there is no library in version 1.
+
+**The language is BASIC**, line-numbered, with four keywords. Everything else is a program you own, so **the warez are the verbs**: a shield is `RUN firewall`, a class match is `IF ICE CODEGATE` / `RUN decoder`. Nothing in code knows what a shield is.
+
+```
+10 RUN icepick
+20 IF INTEG < 10
+30 RUN patch
+40 GOTO 10
+```
+
+| Line | Does |
+|---|---|
+| `RUN <program>` | runs a program on the HDD, exactly as the hotbar would; spends one cycle; resolves through `Game::preview`, so it does what the preview says or nothing |
+| `IF <condition>` | guards the next line only (true: it runs; false: it's skipped) |
+| `GOTO <line>` | jumps; the only loop |
+| `STOP` | breaks to the debugger and hands you the turn; the breakpoint, and the only one |
+
+Conditions read what is already on screen: `INTEG`, `TRACE`, `CPU` (cycles left), `TURN`, `ICE` (its strength), `ICE <class>` (`BARRIER`, `CODEGATE`, `SENTRY`), `NEXT <intent>` (`ATTACK`, `TRACE`, `FORTIFY`: the telegraphed move), `HAVE <program>`. Comparisons `< > =` against a number; no `AND`, `OR` or variables (two IFs in a row are an AND, two guarded lines an OR).
+
+**The deck's stats are the program's limits**, and each is a different kind of decision:
+
+| Stat | Is | Rule | On the deck |
+|---|---|---|---|
+| CPU | tempo | each `RUN` spends one; at 0 the pass ends and the ICE acts | "3 cycles a turn" |
+| RAM | cleverness | each `IF` evaluated spends one GB for the turn, true or false; `GOTO` and `STOP` are free; program length never matters | "6 decisions a turn" |
+| HDD | vocabulary | the programs you carry are the verbs you can write | "6 programs carried" |
+
+One pass through the program is one turn: start at the first line and run until the program ends, a `STOP`, or a budget is empty (CPU at 0, or no GB for another IF); then the ICE acts. A `GOTO` back to the top does not end the pass: `40 GOTO 10` keeps looping while cycles remain, so a three-cycle deck fires three programs from a one-RUN program, and a program that ends with cycles left wastes them. **Loading goes away:** every program on the HDD is a verb. Three rules keep it honest: a `RUN` that can't run is skipped and the line shows the preview's reason (a typo never halts a fight); a pass that passes a line twice without a `RUN` is a hang and the deck prints `?BREAK IN <line>` and drops to the debugger; running out of CPU or RAM is not an error, just the end of the turn.
+
+**Where the first program comes from.** A fresh deck ships with one: the Security Suite's `SAFE` (`20 IF INTEG < 7` / `30 RUN patch` / `40 IF NEXT ATTACK` / `50 RUN firewall` / `60 GOTO 20`). **SAFE is defensive only.** Sense/Net sells decks to customers, and its Security Suite exists to keep hackers out of them, so SAFE patches and firewalls and never attacks. It names only what the deck ships, so it never prints "no program called …" lines, and with nothing to defend against it comes round to line 20 having run nothing and hands over the turn. The player's first edit, adding `RUN icepick` to the loop, is the first lesson. The world teaches more as text you type in: the Gutter's G-FILES print the crews' autos, CorpLink prints Hosaka's procedure with a STOP at every severity. Programs as downloadable files, and several per deck, are a later version.
+
+**Who speaks.** The trace of a pass is the deck's OS (a sentence per line in the Sense/Net's Message box, a terminal line on the Ono-Sendai, an activity-log row with a reference number on the Hosaka). `?BREAK IN 20` is the interpreter's, the one line every deck shares, as every BASIC did. A RUN that can't run uses the preview's words. A printed program sounds like its author: Sense/Net's is short and carries its copyright in a REM line, a crew's is terse and greets somebody in a REM line, Hosaka's has a header block.
+
+**The probe.** The careful bot's strategy is written in the game's BASIC (`probe::CAREFUL`: defend first, then the breaker made for the ICE, then the strongest it carries), and the probe plays through the same interpreter. It is the bot's own program, not the kit's: it buys the specialists, so it names them. If the bot can't say it in the language, players can't either. The dumb bot is `10 RUN icepick` / `20 GOTO 10`, which is also the program that should start losing once the ICE's intents demand answers (141.3).
+
+**Per deck.** Same program, three computers; each screen names the one real program it imitates and keeps the hotbar as the override.
+
+| | Sense/Net | Ono-Sendai | Hosaka |
+|---|---|---|---|
+| reference | HyperCard 1.2's button script editor and the Home stack, 1-bit | gdb's TUI in a btop box, with the C64 screen editor's way of retyping a line | Turbo Debugger 2.0: the Module window, Watches, F-keys |
+| the program | ✅ a **stack of operator blocks** (RUN, IF, GOTO, STOP) dragged in from a palette row, each with fields for its parameters; a program menu lists only the disk; the ▶ in the gutter is the line about to run; a click selects a block (a dotted marquee) and the palette's ▲ ▼ X move or clear it, as HyperCard's Objects did, so a row is only the block and fits a ~340px column | `ice.bas`: the listing in a box, the current line lit, a STOP marked with a dot in the gutter, the budgets cut into the bottom edge | `PROC-7.BAS` in a Module window: the current line in inverse, a STOP marked with a block in the gutter, the budgets in the bottom edge |
+| the debugger | the button row under the palette row: Step, Run, Pause, as rounded Mac buttons | a `gdb` box with this pass's trace and a prompt; `r` run, `s` step, `c` continue, `p` pause, `e` edit a line, space hotbar | a Watches window (turn, CPU, IFs, integrity, NEXT, the ICE, the last line's effect); F1 Help, F2 Edit, F4 Run to STOP, F7 Step, F8 Pause, F9 Run, F10 Hotbar (never F5, F6, F11, F12) |
+| the trace | the Message box, a sentence per line | a terminal line | an activity-log row with a reference number |
+
+**Set aside.** `SHIELD`, `SCRUB` and `BEST BREAKER` as keywords (the warez are the verbs); a breakpoints pane (STOP is a line; a gutter mark is a view of it, never a second mechanism); downloaded editor and debugger (they are the deck's own software, dressed per chrome; "tools are downloaded" stays about the desktop's apps); a program library (deferred); a pure deckbuilder or puzzle fights without automation.
 
 ## Shared rules for every part
 

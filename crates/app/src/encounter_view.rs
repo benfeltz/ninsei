@@ -137,8 +137,8 @@ impl EncounterView {
                     ui.label(RichText::new("which program? [0-9]  [esc] back").color(p.bright));
                     for (i, s) in game.hdd.iter().enumerate() {
                         let note = match effect {
-                            ChoiceEffect::Sell { per_ram } => {
-                                format!("sells for {}¢", game.sale_price(i, *per_ram))
+                            ChoiceEffect::Sell { per_cpu } => {
+                                format!("sells for {}¢", game.sale_price(i, *per_cpu))
                             }
                             ChoiceEffect::Trade { .. } => {
                                 let got = e.offer.map_or(String::new(), |w| {
@@ -149,12 +149,7 @@ impl EncounterView {
                             _ => String::new(),
                         };
                         let blocked = game.choice_blocker(c, Some(i));
-                        let label = format!(
-                            "[{i}] {:<16} r{} c{}  {note}",
-                            s.spec.file(),
-                            s.spec.ram,
-                            s.spec.cpu
-                        );
+                        let label = format!("[{i}] {:<16} c{}  {note}", s.spec.file(), s.spec.cpu);
                         let btn = ui.add_enabled(
                             blocked.is_none(),
                             egui::Button::new(RichText::new(label).monospace()),

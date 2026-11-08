@@ -1,10 +1,11 @@
 //! The Liza kit: the widgets of a 1-bit desktop after the first Mac's System 1. Windows with a
 //! striped title bar and a close box, the menu bar and its menus, the scroll bar and the list
-//! box, push buttons, check boxes and radio buttons, and the alert. It draws and reports clicks and picks; what the menus hold, what
+//! box, push buttons, check boxes and radio buttons, and HyperCard's text field,
+//! pop-up menu and dotted drop slot. It draws and reports clicks and picks; what the menus hold, what
 //! a window shows and what a button does are the caller's. The numbers are the
 //! spec sheet's (`docs/refs/liza.md`). Nothing here names a tool or a deck.
 
-use egui::{Align2, Color32, FontId, Id, Key, Painter, Pos2, Rect, Response, Sense, Stroke};
+use egui::{Align2, Color32, FontId, Id, Key, Painter, Rect, Response, Sense, Stroke};
 use egui::{StrokeKind, Ui, Vec2, pos2, vec2};
 use ninsei_core::pattern::PatternDef;
 
@@ -39,15 +40,15 @@ pub mod size {
     /// A check box's or radio button's square, and the gap to its label.
     pub const CHECK: f32 = 12.0;
     pub const CHECK_GAP: f32 = 5.0;
-    /// The alert: its inner frame's inset and weight, the margin inside it, the icon's size,
-    /// and the gap between buttons.
-    pub const ALERT_INSET: f32 = 4.0;
-    pub const ALERT_FRAME: f32 = 3.0;
-    pub const ALERT_MARGIN: f32 = 12.0;
-    pub const ALERT_ICON: f32 = 28.0;
-    pub const BUTTON_GAP: f32 = 10.0;
     /// A scroll bar's width, and the side of its arrow boxes and its thumb.
     pub const SCROLL_W: f32 = 16.0;
+    /// A text field's or pop-up menu's height, and the room either side of its text.
+    pub const FIELD_H: f32 = 20.0;
+    pub const FIELD_PAD: f32 = 4.0;
+    /// A pop-up menu's arrow: its width at the right of the box.
+    pub const POPUP_ARROW: f32 = 16.0;
+    /// The dotted line round a drop slot: dash and gap.
+    pub const DOT: f32 = 2.0;
 }
 
 /// Liza's two colours and her type, from the theme, and the patterns she fills with.
@@ -436,14 +437,19 @@ pub fn list_box(
     picked
 }
 
+/// How wide `text` sets in `font`, unrounded: what every width in the kit is measured from.
+pub fn text_width(ctx: &egui::Context, text: &str, font: &FontId) -> f32 {
+    ctx.fonts_mut(|f| {
+        f.layout_no_wrap(text.to_string(), font.clone(), Color32::WHITE)
+            .size()
+            .x
+    })
+}
+
 /// A push button's width for `label`: its text and the room either side, at least the minimum,
 /// on a whole pixel.
 pub fn button_width(ctx: &egui::Context, label: &str, look: &Look) -> f32 {
-    let text = ctx.fonts_mut(|f| {
-        f.layout_no_wrap(label.to_string(), look.font.clone(), look.ink)
-            .size()
-            .x
-    });
+    let text = text_width(ctx, label, &look.font);
     (text + 2.0 * size::BUTTON_PAD)
         .max(size::BUTTON_MIN_W)
         .ceil()
@@ -529,6 +535,246 @@ pub fn push_button(ui: &mut Ui, label: &str, default: bool, look: &Look) -> Resp
     button(ui, ui.painter(), face, id, label, default, enabled, look)
 }
 
+/// A text field in `r`: paper in a 1px ink frame, the text in Liza's type and an insertion
+/// point while it has the keyboard (and the run's keys stand back meanwhile, as egui's text
+/// input does). Enter, Tab or a click elsewhere commits; Esc puts `value` back. Returns the new
+/// text when it was committed changed.
+pub fn text_field(ui: &mut Ui, r: Rect, id: Id, value: &str, look: &Look) -> Option<String> {
+    let r = snap(r);
+    let p = ui.painter();
+    p.rect_filled(r, 0.0, look.paper);
+    p.rect_stroke(r, 0.0, Stroke::new(1.0, look.ink), StrokeKind::Inside);
+    let buf_id = id.with("buf");
+    let mut buf = recent::<String>(ui.ctx(), buf_id).unwrap_or_else(|| value.to_string());
+    let inner = r.shrink2(vec2(size::FIELD_PAD, 1.0));
+    let resp = ui
+        .scope(|ui| {
+            let v = ui.visuals_mut();
+            v.text_cursor.stroke = Stroke::new(1.0, look.ink);
+            v.selection.bg_fill = look.ink;
+            v.selection.stroke = Stroke::new(1.0, look.paper);
+            v.override_text_color = Some(look.ink);
+            ui.put(
+                inner,
+                egui::TextEdit::singleline(&mut buf)
+                    .id(id)
+                    .frame(egui::Frame::NONE)
+                    .font(look.font.clone())
+                    .text_color(look.ink)
+                    .margin(egui::Margin::ZERO)
+                    .desired_width(inner.width()),
+            )
+        })
+        .inner;
+    if resp.has_focus() {
+        keep(ui.ctx(), buf_id, Some(buf));
+        return None;
+    }
+    keep::<String>(ui.ctx(), buf_id, None);
+    let cancelled = ui.input(|i| i.key_pressed(Key::Escape));
+    (resp.lost_focus() && !cancelled && buf != value).then_some(buf)
+}
+
+/// What a control kept under `id` last frame, if it was drawn last frame: a menu or field that
+/// stopped being drawn (scrolled away, the fight over) doesn't come back open or half-typed.
+fn recent<T: Clone + Send + Sync + 'static>(ctx: &egui::Context, id: Id) -> Option<T> {
+    let now = ctx.cumulative_pass_nr();
+    ctx.data(|d| d.get_temp::<(T, u64)>(id))
+        .filter(|(_, at)| at + 1 >= now)
+        .map(|(v, _)| v)
+}
+
+/// Keeps `v` under `id` for [`recent`], stamped with this frame (`None` forgets it).
+fn keep<T: Clone + Send + Sync + 'static>(ctx: &egui::Context, id: Id, v: Option<T>) {
+    let now = ctx.cumulative_pass_nr();
+    ctx.data_mut(|d| match v {
+        Some(v) => {
+            d.insert_temp(id, (v, now));
+        }
+        None => d.remove::<(T, u64)>(id),
+    });
+}
+
+/// A pop-up menu's width for its longest option: the text, its room and the arrow.
+pub fn popup_width(ctx: &egui::Context, options: &[String], value: &str, look: &Look) -> f32 {
+    let widest = options
+        .iter()
+        .map(String::as_str)
+        .chain([value])
+        .map(|o| text_width(ctx, o, &look.font))
+        .fold(0.0, f32::max);
+    (widest + 2.0 * size::FIELD_PAD + size::POPUP_ARROW).ceil()
+}
+
+/// A pop-up menu in `r`, System 1's: the value in a shadowed box with a ▾, and on a click its
+/// options in a shadowed list under it, the one under the pointer (or picked with ↑↓)
+/// inverted. A click or Enter picks; Esc or a click outside closes it. While it's open it has
+/// the keyboard (`egui_wants_keyboard_input`), so nothing else takes those keys. Returns the
+/// option picked.
+pub fn popup_menu(
+    ui: &mut Ui,
+    r: Rect,
+    id: Id,
+    value: &str,
+    options: &[String],
+    look: &Look,
+) -> Option<usize> {
+    let r = snap(r);
+    let open_id = id.with("open");
+    let resp = ui.interact(r, id, Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, value));
+    let p = ui.painter();
+    shadowed(p, r, look);
+    let font = look.font.clone();
+    p.text(
+        pos2(r.left() + size::FIELD_PAD, r.center().y).round(),
+        Align2::LEFT_CENTER,
+        value,
+        font.clone(),
+        look.ink,
+    );
+    p.text(
+        pos2(r.right() - size::POPUP_ARROW / 2.0, r.center().y).round(),
+        Align2::CENTER_CENTER,
+        "▾",
+        font.clone(),
+        look.ink,
+    );
+    let ctx = ui.ctx().clone();
+    let mut open: Option<usize> = recent(&ctx, open_id);
+    // Only the mouse opens and closes it: egui turns Enter on a focused widget into a click,
+    // and that Enter is the open menu's pick.
+    let clicked = resp.clicked() && ctx.input(|i| i.pointer.any_released());
+    if clicked {
+        open = match open {
+            Some(_) => None,
+            None => Some(options.iter().position(|o| o == value).unwrap_or(0)),
+        };
+    }
+    let mut picked = None;
+    if open.is_some() {
+        // Open, it owns the keyboard: ↑↓, Enter and Esc are its, and nothing else that asks
+        // whether the keys are free takes them.
+        resp.request_focus();
+        ctx.memory_mut(|m| {
+            m.set_focus_lock_filter(
+                id,
+                egui::EventFilter {
+                    vertical_arrows: true,
+                    escape: true,
+                    ..Default::default()
+                },
+            )
+        });
+    }
+    if let Some(mut hi) = open {
+        let row = size::MENU_ITEM_H;
+        let w = r
+            .width()
+            .max(popup_width(&ctx, options, value, look) - size::POPUP_ARROW);
+        // Under the box, or over it when that would run off the screen: placed here and drawn
+        // here, so the clicks land where the items are.
+        let size = vec2(w, row * options.len() as f32);
+        let screen = ctx.content_rect();
+        let below = Rect::from_min_size(r.left_bottom(), size);
+        let list = if below.bottom() > screen.bottom() && r.top() - size.y >= screen.top() {
+            Rect::from_min_size(pos2(r.left(), r.top() - size.y), size)
+        } else {
+            below
+        };
+        // The keys while it's open: ↑↓ move, Enter picks, Esc closes.
+        let (up, down, enter, esc) = ctx.input_mut(|i| {
+            (
+                i.consume_key(egui::Modifiers::NONE, Key::ArrowUp),
+                i.consume_key(egui::Modifiers::NONE, Key::ArrowDown),
+                i.consume_key(egui::Modifiers::NONE, Key::Enter),
+                i.consume_key(egui::Modifiers::NONE, Key::Escape),
+            )
+        });
+        if up {
+            hi = hi.saturating_sub(1);
+        }
+        if down {
+            hi = (hi + 1).min(options.len().saturating_sub(1));
+        }
+        egui::Area::new(id.with("list"))
+            .order(egui::Order::Foreground)
+            .constrain(false)
+            .fixed_pos(list.min)
+            .show(&ctx, |ui| {
+                let (list, _) = ui.allocate_exact_size(list.size(), Sense::hover());
+                let p = ui.painter();
+                shadowed(p, list, look);
+                for (k, o) in options.iter().enumerate() {
+                    let cell = Rect::from_min_size(
+                        list.min + vec2(0.0, row * k as f32),
+                        vec2(list.width(), row),
+                    );
+                    let item = ui.interact(cell, id.with(("item", k)), Sense::click());
+                    item.widget_info(|| {
+                        egui::WidgetInfo::labeled(egui::WidgetType::Button, true, o)
+                    });
+                    if item.hovered() {
+                        hi = k;
+                    }
+                    if item.clicked() {
+                        picked = Some(k);
+                    }
+                    let (fg, bg) = if k == hi {
+                        (look.paper, look.ink)
+                    } else {
+                        (look.ink, look.paper)
+                    };
+                    p.rect_filled(cell.shrink(1.0), 0.0, bg);
+                    p.text(
+                        pos2(cell.left() + size::FIELD_PAD, cell.center().y).round(),
+                        Align2::LEFT_CENTER,
+                        o,
+                        font.clone(),
+                        fg,
+                    );
+                }
+            });
+        if enter && hi < options.len() {
+            picked = Some(hi);
+        }
+        let outside = ctx.input(|i| i.pointer.any_pressed())
+            && !clicked
+            && ctx
+                .pointer_interact_pos()
+                .is_some_and(|q| !list.contains(q) && !r.contains(q));
+        open = (picked.is_none() && !esc && !outside).then_some(hi);
+    }
+    if open.is_none() && resp.has_focus() {
+        resp.surrender_focus();
+    }
+    keep(&ctx, open_id, open);
+    picked
+}
+
+/// A dotted 1px outline round `r`: where something can be dropped.
+pub fn dotted(p: &Painter, r: Rect, ink: Color32) {
+    let r = snap(r);
+    let step = size::DOT * 2.0;
+    let stroke = Stroke::new(1.0, ink);
+    let mut x = r.left();
+    while x < r.right() {
+        let to = (x + size::DOT).min(r.right());
+        for y in [r.top() + 0.5, r.bottom() - 0.5] {
+            p.line_segment([pos2(x, y), pos2(to, y)], stroke);
+        }
+        x += step;
+    }
+    let mut y = r.top();
+    while y < r.bottom() {
+        let to = (y + size::DOT).min(r.bottom());
+        for x in [r.left() + 0.5, r.right() - 0.5] {
+            p.line_segment([pos2(x, y), pos2(x, to)], stroke);
+        }
+        y += step;
+    }
+}
+
 /// A check box (`round` false) or radio button (true) with its label, laid out in `ui`: the
 /// square or circle, an X or a dot when `on`, thicker while pressed. Returns its response;
 /// clicked is the caller's to act on.
@@ -598,125 +844,10 @@ pub fn radio(ui: &mut Ui, on: bool, label: &str, look: &Look) -> Response {
     toggle(ui, on, label, true, look)
 }
 
-/// What an alert says and offers.
-pub struct Alert<'a> {
-    /// The icon's glyph, top left.
-    pub icon: &'a str,
-    pub title: &'a str,
-    pub message: &'a str,
-    /// Left to right; the action goes last.
-    pub buttons: &'a [&'a str],
-    /// The button Enter presses, ringed.
-    pub default: Option<usize>,
-    /// The button Esc presses.
-    pub cancel: Option<usize>,
-    /// Enter and Esc answer ([`alert_keys`]) only while this holds (nothing else is taking the
-    /// keyboard).
-    pub keys: bool,
-}
-
-/// An alert at `at`, `width` wide, over everything: the double frame, the icon, the title and
-/// the message wrapped beside it, and the buttons along the bottom right. Returns the button
-/// clicked; its keys are [`alert_keys`].
-pub fn alert(
-    ctx: &egui::Context,
-    id: Id,
-    at: Pos2,
-    width: f32,
-    a: &Alert,
-    look: &Look,
-) -> Option<usize> {
-    let (ink, paper) = (look.ink, look.paper);
-    let pad = size::ALERT_INSET + size::ALERT_FRAME + size::ALERT_MARGIN;
-    let text_x = pad + size::ALERT_ICON + size::ALERT_MARGIN;
-    let wrap = width - text_x - pad;
-    let (title, message) = ctx.fonts_mut(|f| {
-        (
-            f.layout(a.title.to_string(), look.font.clone(), ink, wrap),
-            f.layout(a.message.to_string(), look.font.clone(), ink, wrap),
-        )
-    });
-    let text_h = title.size().y + 4.0 + message.size().y;
-    let body_h = text_h.max(size::ALERT_ICON).ceil();
-    let height = pad + body_h + size::ALERT_MARGIN + size::BUTTON_H + pad;
-    let r = Rect::from_min_size(at.round(), vec2(width, height).round());
-    let mut pressed = None;
-    egui::Area::new(id)
-        .order(egui::Order::Foreground)
-        .fade_in(false)
-        .fixed_pos(r.min)
-        .show(ctx, |ui| {
-            ui.allocate_rect(r, Sense::hover());
-            let p = ui.painter();
-            p.rect_filled(r, 0.0, paper);
-            p.rect_stroke(r, 0.0, Stroke::new(1.0, ink), StrokeKind::Inside);
-            p.rect_stroke(
-                r.shrink(size::ALERT_INSET),
-                0.0,
-                Stroke::new(size::ALERT_FRAME, ink),
-                StrokeKind::Inside,
-            );
-            p.text(
-                r.min + Vec2::splat(pad),
-                Align2::LEFT_TOP,
-                a.icon,
-                FontId::proportional(size::ALERT_ICON),
-                ink,
-            );
-            let tx = pos2(r.left() + text_x, r.top() + pad);
-            let below = tx + vec2(0.0, (title.size().y + 4.0).round());
-            p.galley(tx, title, ink);
-            p.galley(below, message, ink);
-            // The buttons, right to left from the corner.
-            let mut x = r.right() - pad;
-            let y = r.bottom() - pad - size::BUTTON_H;
-            for (i, label) in a.buttons.iter().enumerate().rev() {
-                let w = button_width(ctx, label, look);
-                x -= w;
-                let b = Rect::from_min_size(pos2(x, y), vec2(w, size::BUTTON_H));
-                let def = a.default == Some(i);
-                if button(ui, p, b, id.with(i), label, def, true, look).clicked() {
-                    pressed = Some(i);
-                }
-                x -= size::BUTTON_GAP;
-            }
-        });
-    pressed
-}
-
-/// The alert's keys: Enter presses the default button and Esc the cancel button, when `keys`
-/// held last frame too (so the Esc that lets go of a text field, which egui drops before this
-/// frame draws, doesn't also cancel). It takes the key it acts on, so nothing that reads keys
-/// after it sees it too. Call it before anything else that reads Enter or Esc this frame.
-/// Returns the button pressed.
-pub fn alert_keys(ctx: &egui::Context, id: Id, a: &Alert) -> Option<usize> {
-    let was = id.with("keys");
-    let before = ctx.data(|d| d.get_temp::<bool>(was)).unwrap_or(false);
-    ctx.data_mut(|d| d.insert_temp(was, a.keys));
-    if !(a.keys && before) {
-        return None;
-    }
-    // Only a fresh press: a held key repeats, and a Mac alert's button goes once. A repeat is
-    // still taken, so it doesn't reach anything after.
-    let take = |key, button: Option<usize>| {
-        button.filter(|_| {
-            let fresh = ctx.input(|i| {
-                i.events.iter().any(|e| {
-                    matches!(e, egui::Event::Key { key: k, pressed: true, repeat: false, modifiers, .. }
-                        if *k == key && modifiers.is_none())
-                })
-            });
-            let taken = ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, key));
-            fresh && taken
-        })
-    };
-    take(Key::Enter, a.default).or_else(|| take(Key::Escape, a.cancel))
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::uitest::{Harness, click};
+    use crate::uitest::{Harness, click, key};
     use egui::Pos2;
 
     fn look() -> Look<'static> {
@@ -871,90 +1002,6 @@ mod tests {
             });
         }
         assert!(!clicked);
-    }
-
-    /// Frames of an alert offering Close and Run; returns the last frame's answer.
-    fn ask(
-        h: &mut Harness,
-        keys: bool,
-        default: Option<usize>,
-        ev: Vec<egui::Event>,
-    ) -> Option<usize> {
-        let mut got = None;
-        h.frame(ev, |ui| {
-            let a = Alert {
-                icon: "!",
-                title: "Black ICE rezzed.",
-                message: "Killer, strength 9 of 9. It's holding the line, and this message is long enough to wrap.",
-                buttons: &["Close", "Run icebreaker.exe"],
-                default,
-                cancel: Some(0),
-                keys,
-            };
-            got = alert_keys(ui.ctx(), Id::new("a"), &a)
-                .or(alert(ui.ctx(), Id::new("a"), pos2(40.5, 30.3), 460.0, &a, &look()));
-        });
-        got
-    }
-
-    #[test]
-    fn the_alert_answers_clicks_enter_and_esc() {
-        let mut h = Harness::new(800.0, 600.0);
-        ask(&mut h, true, Some(1), vec![]);
-        ask(&mut h, true, Some(1), vec![]);
-        let close = h.find("Close").unwrap();
-        let run = h.find("Run icebreaker.exe").unwrap();
-        assert!(
-            close.right() < run.left(),
-            "the action is at the right, Close left of it"
-        );
-        assert_eq!(close.min, close.min.round(), "on whole pixels");
-        assert_eq!(ask(&mut h, true, Some(1), click(run.center())), Some(1));
-        assert_eq!(
-            ask(&mut h, true, Some(1), crate::uitest::key(Key::Enter)),
-            Some(1)
-        );
-        assert_eq!(
-            ask(&mut h, true, Some(1), crate::uitest::key(Key::Escape)),
-            Some(0)
-        );
-        // No default: Enter does nothing.
-        assert_eq!(
-            ask(&mut h, true, None, crate::uitest::key(Key::Enter)),
-            None
-        );
-    }
-
-    #[test]
-    fn the_alert_leaves_the_keys_alone_while_something_else_has_them() {
-        let mut h = Harness::new(800.0, 600.0);
-        ask(&mut h, false, Some(1), vec![]);
-        assert_eq!(
-            ask(&mut h, false, Some(1), crate::uitest::key(Key::Enter)),
-            None
-        );
-        assert_eq!(
-            ask(&mut h, false, Some(1), crate::uitest::key(Key::Escape)),
-            None
-        );
-    }
-
-    #[test]
-    fn the_alert_wraps_its_message_inside_its_frame() {
-        let mut h = Harness::new(800.0, 600.0);
-        ask(&mut h, true, Some(1), vec![]);
-        ask(&mut h, true, Some(1), vec![]);
-        let frame = Rect::from_min_size(pos2(41.0, 30.0), vec2(460.0, 1000.0));
-        for s in h.painted() {
-            if let egui::Shape::Text(t) = s {
-                let r = Rect::from_min_size(t.pos, t.galley.size());
-                assert!(
-                    r.right() <= frame.right(),
-                    "{:?} runs past the alert",
-                    t.galley.text()
-                );
-            }
-        }
     }
 
     /// A frame of a 200x300 view of a body `tall` high; returns where it stands after.
@@ -1130,48 +1177,6 @@ mod tests {
         assert!(h.find("cell 2").is_none());
     }
 
-    #[test]
-    fn the_alert_ignores_the_key_that_freed_the_keyboard() {
-        let mut h = Harness::new(800.0, 600.0);
-        // A text field had the keys; this frame's Esc let go of it.
-        ask(&mut h, false, Some(1), vec![]);
-        assert_eq!(
-            ask(&mut h, true, Some(1), crate::uitest::key(Key::Escape)),
-            None
-        );
-        // The next Esc is the alert's.
-        assert_eq!(
-            ask(&mut h, true, Some(1), crate::uitest::key(Key::Escape)),
-            Some(0)
-        );
-    }
-
-    #[test]
-    fn a_held_enter_presses_the_default_once() {
-        let mut h = Harness::new(800.0, 600.0);
-        ask(&mut h, true, Some(1), vec![]);
-        // Held down: the press, then the key's repeats.
-        let down = |repeat| {
-            vec![egui::Event::Key {
-                key: Key::Enter,
-                physical_key: None,
-                pressed: true,
-                repeat,
-                modifiers: egui::Modifiers::NONE,
-            }]
-        };
-        assert_eq!(
-            ask(&mut h, true, Some(1), down(false)),
-            Some(1),
-            "the press"
-        );
-        assert_eq!(
-            ask(&mut h, true, Some(1), down(true)),
-            None,
-            "a repeat isn't a press"
-        );
-    }
-
     /// The wheel turned down by `dy` points with the pointer at `at`.
     fn wheel_at(at: Pos2, dy: f32) -> Vec<egui::Event> {
         vec![
@@ -1267,5 +1272,110 @@ mod tests {
         let ring = ring.expect("a ring");
         assert_eq!(ring.rect, face.expand(4.0));
         assert_eq!(ring.stroke.width, 3.0);
+    }
+
+    /// One frame of a number field and a pop-up menu side by side; returns what each gave.
+    fn controls(
+        h: &mut Harness,
+        value: &str,
+        pick: &str,
+        events: Vec<egui::Event>,
+    ) -> (Option<String>, Option<usize>, bool) {
+        let mut out = (None, None, false);
+        h.frame(events, |ui| {
+            let field = Rect::from_min_size(pos2(20.0, 20.0), vec2(60.0, size::FIELD_H));
+            out.0 = text_field(ui, field, Id::new("n"), value, &look());
+            let opts: Vec<String> = ["INTEG", "TRACE", "CPU"].map(String::from).to_vec();
+            let menu = Rect::from_min_size(pos2(120.0, 20.0), vec2(90.0, size::FIELD_H));
+            out.1 = popup_menu(ui, menu, Id::new("m"), pick, &opts, &look());
+            out.2 = ui.ctx().egui_wants_keyboard_input();
+        });
+        out
+    }
+
+    #[test]
+    fn text_field_commits_on_enter_and_stops_text_input() {
+        let mut h = Harness::new(400.0, 300.0);
+        controls(&mut h, "10", "INTEG", vec![]);
+        let at = pos2(40.0, 30.0);
+        let (_, _, typing) = controls(&mut h, "10", "INTEG", click(at));
+        assert!(typing, "a focused field has the keyboard");
+        controls(&mut h, "10", "INTEG", key(Key::Backspace));
+        controls(&mut h, "10", "INTEG", key(Key::Backspace));
+        controls(&mut h, "10", "INTEG", crate::uitest::text("7"));
+        let (got, _, typing) = controls(&mut h, "10", "INTEG", key(Key::Enter));
+        assert_eq!(got.as_deref(), Some("7"));
+        assert!(!typing, "Enter gives the keyboard back");
+        // Esc puts the value back: nothing is committed.
+        controls(&mut h, "7", "INTEG", click(at));
+        controls(&mut h, "7", "INTEG", crate::uitest::text("9"));
+        let (got, ..) = controls(&mut h, "7", "INTEG", key(Key::Escape));
+        assert_eq!(got, None);
+    }
+
+    #[test]
+    fn a_menu_that_stops_being_drawn_while_open_comes_back_closed() {
+        let mut h = Harness::new(400.0, 300.0);
+        controls(&mut h, "10", "INTEG", vec![]);
+        controls(&mut h, "10", "INTEG", click(pos2(160.0, 30.0)));
+        controls(&mut h, "10", "INTEG", vec![]);
+        assert!(h.find("TRACE").is_some(), "open");
+        // Scrolled away for a while, then back.
+        h.frame(vec![], |_| {});
+        h.frame(vec![], |_| {});
+        let (_, _, typing) = controls(&mut h, "10", "INTEG", vec![]);
+        controls(&mut h, "10", "INTEG", vec![]);
+        assert!(h.find("TRACE").is_none(), "it came back closed");
+        assert!(!typing, "and doesn't hold the keyboard");
+    }
+
+    #[test]
+    fn a_popup_near_the_bottom_opens_upward_and_still_picks() {
+        let mut h = Harness::new(400.0, 300.0);
+        let opts: Vec<String> = ["INTEG", "TRACE", "CPU"].map(String::from).to_vec();
+        let mut got = None;
+        let mut frame = |h: &mut Harness, ev| {
+            h.frame(ev, |ui| {
+                let r = Rect::from_min_size(pos2(20.0, 270.0), vec2(90.0, size::FIELD_H));
+                got = popup_menu(ui, r, Id::new("m"), "INTEG", &opts, &look()).or(got);
+            });
+        };
+        frame(&mut h, vec![]);
+        frame(&mut h, click(pos2(40.0, 280.0)));
+        frame(&mut h, vec![]);
+        let trace = h.find("TRACE").unwrap();
+        assert!(
+            trace.bottom() <= 270.0,
+            "it opened above the box: {trace:?}"
+        );
+        frame(&mut h, click(trace.center()));
+        assert_eq!(got, Some(1));
+    }
+
+    #[test]
+    fn popup_menu_picks_with_the_mouse_and_the_keys() {
+        let mut h = Harness::new(400.0, 300.0);
+        controls(&mut h, "10", "INTEG", vec![]);
+        let menu = pos2(160.0, 30.0);
+        controls(&mut h, "10", "INTEG", click(menu));
+        // A new Area shows from its second frame, as egui lays it out first.
+        controls(&mut h, "10", "INTEG", vec![]);
+        let trace = h.find("TRACE").unwrap_or_else(|| panic!("{:?}", h.texts()));
+        let (_, got, _) = controls(&mut h, "10", "INTEG", click(trace.center()));
+        assert_eq!(got, Some(1));
+        controls(&mut h, "10", "INTEG", vec![]);
+        assert!(h.find("CPU").is_none(), "picking closes it");
+        // ↓ ↓ Enter from INTEG picks CPU.
+        controls(&mut h, "10", "INTEG", click(menu));
+        controls(&mut h, "10", "INTEG", key(Key::ArrowDown));
+        controls(&mut h, "10", "INTEG", key(Key::ArrowDown));
+        let (_, got, _) = controls(&mut h, "10", "INTEG", key(Key::Enter));
+        assert_eq!(got, Some(2));
+        // Esc closes it without a pick.
+        controls(&mut h, "10", "INTEG", click(menu));
+        let (_, got, _) = controls(&mut h, "10", "INTEG", key(Key::Escape));
+        assert_eq!(got, None);
+        controls(&mut h, "10", "INTEG", vec![]);
+        assert!(h.find("TRACE").is_none());
     }
 }

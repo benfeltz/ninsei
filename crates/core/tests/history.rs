@@ -57,8 +57,8 @@ fn fights_track_strength_turns_and_programs() {
         let start = g.combat.as_ref().unwrap().strength;
         assert_eq!(g.history.ice, vec![start], "seed {seed}");
         assert!(g.history.turns.is_empty());
-        // Run whatever's loaded, then end the turn.
-        let slot = g.hdd.iter().position(|s| s.loaded).unwrap();
+        // Run the first program, then end the turn.
+        let slot = 0;
         let uid = g.hdd[slot].uid;
         g.apply(Action::Run(slot));
         if g.phase == Phase::Combat {
@@ -89,7 +89,7 @@ fn history_never_changes_the_game() {
 fn series_are_capped() {
     let mut g = Game::new(data(), 3);
     for _ in 0..HISTORY_LEN * 2 {
-        g.apply(Action::Load(99));
+        g.apply(Action::Run(99));
     }
     assert_eq!(g.history.samples.len(), HISTORY_LEN);
     assert!(g.log.len() <= tuning::LOG_LIMIT);

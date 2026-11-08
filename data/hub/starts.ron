@@ -12,6 +12,8 @@
 //   ranges   number ranges already known (the local exchange always is)
 //   bank     credits in the bank
 //   games    games already on the desktop, (id, Cracked or Boxed)
+//   program  the deck's program (BASIC, see docs/design.md "Fights"): every fight opens with it.
+//            A kit without one ships the default kit's.
 (
     always: [
         // The college's network: lightly watched, little worth taking, wide open. Its board
@@ -24,9 +26,19 @@
         (id: "nothing", free: ["firewall", "patch"]),
         // The start players get: the suite and a generic breaker in the box; the specialists
         // (Decoder, Garrote, Crowbar) are found on the boards. The shop that sold the deck threw
-        // in a dubbed disk: a crack whose intro advertises the board it came from.
+        // in a dubbed disk: a crack whose intro advertises the board it came from. Its program is
+        // SAFE, the Security Suite's own: it looks after the deck and never attacks, and names
+        // only what the deck ships, so the first thing a player writes is a RUN of a breaker.
         (id: "pick", default: true, free: ["firewall", "patch", "icepick"],
-         games: [("nibbler", Cracked)]),
+         games: [("nibbler", Cracked)],
+         program: r#"
+10 REM SAFE 1.0  (c) Sense/Net
+20 IF INTEG < 7
+30 RUN patch
+40 IF NEXT ATTACK
+50 RUN firewall
+60 GOTO 20
+"#),
         // The start before #103 and #105.
         (id: "classic", free: ["icepick", "firewall", "patch", "decoder"], boards: ["gutter"],
          numbers: true, tools: ["wardial", "hexed", "nightcomm"], games: [("nibbler", Cracked)]),

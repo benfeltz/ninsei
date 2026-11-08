@@ -21,6 +21,8 @@ pub enum Tab {
     Hex,
     Terminal,
     Todo,
+    /// The deck's program: on screen from the first frame of a run, played in a fight.
+    Script,
     /// Secondary: network traffic, btop's net box.
     Net,
     /// Secondary: what the speaker is playing (a spectrum, a level, a scope).
@@ -29,7 +31,7 @@ pub enum Tab {
 
 impl Tab {
     /// Panes every layout must have.
-    pub const CORE: [Tab; 7] = [
+    pub const CORE: [Tab; 8] = [
         Tab::Deck,
         Tab::Warez,
         Tab::Network,
@@ -37,6 +39,7 @@ impl Tab {
         Tab::Hex,
         Tab::Terminal,
         Tab::Todo,
+        Tab::Script,
     ];
     /// Panes you add yourself, each with its id in `data/hub/panes.ron` (bought in RIG or
     /// bundled with a firmware).
@@ -66,6 +69,7 @@ impl Tab {
             Tab::Todo => 7,
             Tab::Net => 8,
             Tab::Vis => 9,
+            Tab::Script => 10,
         }
     }
 }
@@ -164,6 +168,7 @@ impl egui_dock::TabViewer for Panes<'_> {
             Tab::Terminal => " terminal ",
             Tab::Net => " net ",
             Tab::Vis => " vis ",
+            Tab::Script => " script ",
             Tab::Todo => {
                 let open = self
                     .game
@@ -206,6 +211,7 @@ impl egui_dock::TabViewer for Panes<'_> {
             Tab::Todo => v.todo(self, ui),
             Tab::Net => v.net(self, ui),
             Tab::Vis => v.vis(self, ui),
+            Tab::Script => v.script(self, ui),
         }
     }
 }
@@ -268,14 +274,14 @@ impl Panes<'_> {
             format!("{cpu}/{} cyc", d.cpu_max),
             false,
         );
-        let ram = g.ram_used();
+        let ifs = g.ifs_left();
         self.meter(
             ui,
             "RAM",
-            ram,
+            ifs,
             d.ram_max,
-            format!("{ram}/{} GB", d.ram_max),
-            ram == d.ram_max,
+            format!("{ifs}/{} GB", d.ram_max),
+            false,
         );
         let hdd = g.hdd.len() as u32;
         self.meter(
@@ -327,105 +333,69 @@ impl Panes<'_> {
         let p = self.pal;
         let fighting = g.phase == Phase::Combat;
         let cpu = g.combat.as_ref().map_or(0, |c| c.cpu);
-        for (heading, loaded) in [("▾ ram/", true), ("▾ hdd/", false)] {
-            let note = if loaded {
-                format!("{}/{} GB", g.ram_used(), g.deck.ram_max)
-            } else {
-                format!("{}/{} slots", g.hdd.len(), g.deck.hdd_max)
-            };
+        let note = format!("{}/{} slots", g.hdd.len(), g.deck.hdd_max);
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("▾ hdd/").color(p.bright));
+            ui.label(RichText::new(note).small().color(p.dim));
+        });
+        for (i, s) in g.hdd.iter().enumerate() {
+            let w = &s.spec;
+            let blurb = &g.data.warez[s.warez].blurb;
             ui.horizontal(|ui| {
-                ui.label(RichText::new(heading).color(p.bright));
-                ui.label(RichText::new(note).small().color(p.dim));
-            });
-            let mut any = false;
-            for (i, s) in g.hdd.iter().enumerate().filter(|(_, s)| s.loaded == loaded) {
-                any = true;
-                let w = &s.spec;
-                let blurb = &g.data.warez[s.warez].blurb;
-                ui.horizontal(|ui| {
-                    ui.add_space(12.0);
-                    let icon = match w.effect {
-                        Effect::Break { .. } => "⚔",
-                        Effect::Shield(_) => "◘",
-                        _ => "⚙",
-                    };
-                    let opt = if w.opt > 0 {
-                        format!(" O{}", w.opt)
-                    } else {
-                        String::new()
-                    };
-                    let name = RichText::new(format!("[{i}] {icon} {}{opt}", w.file()))
-                        .color(if loaded { p.fg } else { p.dim });
-                    let hover = format!(
-                        "{}\n{}\nram {}  cpu {}  {}",
-                        w.name,
-                        blurb,
-                        w.ram,
-                        w.cpu,
-                        w.effect.describe()
-                    );
-                    // Buttons first, from the right; the name and stats get what's left and
-                    // shorten rather than run under the buttons.
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if self.game.has_tool("hexed")
-                            && ui
-                                .small_button("hex")
-                                .on_hover_text("open in hexedit")
-                                .clicked()
+                ui.add_space(12.0);
+                let icon = match w.effect {
+                    Effect::Break { .. } => "⚔",
+                    Effect::Shield(_) => "◘",
+                    _ => "⚙",
+                };
+                let opt = if w.opt > 0 {
+                    format!(" O{}", w.opt)
+                } else {
+                    String::new()
+                };
+                let name = RichText::new(format!("[{i}] {icon} {}{opt}", w.file())).color(p.fg);
+                let hover = format!(
+                    "{}\n{}\ncpu {}  {}",
+                    w.name,
+                    blurb,
+                    w.cpu,
+                    w.effect.describe()
+                );
+                // Buttons first, from the right; the name and stats get what's left and
+                // shorten rather than run under the buttons.
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if self.game.has_tool("hexed")
+                        && ui
+                            .small_button("hex")
+                            .on_hover_text("open in hexedit")
+                            .clicked()
+                    {
+                        self.out.push(Request::OpenHex(i));
+                    }
+                    if fighting {
+                        let ok = cpu >= w.cpu;
+                        if ui
+                            .add_enabled(ok, egui::Button::new("run").small())
+                            .clicked()
                         {
-                            self.out.push(Request::OpenHex(i));
+                            self.act(Action::Run(i));
                         }
-                        if loaded {
-                            if ui.small_button("unload").clicked() {
-                                self.act(Action::Unload(i));
-                            }
-                            if fighting {
-                                let ok = cpu >= w.cpu;
-                                if ui
-                                    .add_enabled(ok, egui::Button::new("run").small())
-                                    .clicked()
-                                {
-                                    self.act(Action::Run(i));
-                                }
-                            }
-                        } else {
-                            let fits = g.ram_used() + w.ram <= g.deck.ram_max;
-                            if ui
-                                .add_enabled(fits, egui::Button::new("load").small())
-                                .clicked()
-                            {
-                                self.act(Action::Load(i));
-                            }
-                        }
-                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                            ui.add(egui::Label::new(name).truncate())
-                                .on_hover_text(hover);
-                            ui.add(
-                                egui::Label::new(
-                                    RichText::new(format!("r{} c{}", w.ram, w.cpu))
-                                        .small()
-                                        .color(p.dim),
-                                )
-                                .truncate(),
-                            );
-                        });
+                    }
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        ui.add(egui::Label::new(name).truncate())
+                            .on_hover_text(hover);
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(format!("c{}", w.cpu)).small().color(p.dim),
+                            )
+                            .truncate(),
+                        );
                     });
                 });
-            }
-            if !any {
-                ui.label(RichText::new("    (empty)").color(p.faint));
-            }
-            ui.add_space(6.0);
+            });
         }
-        if fighting {
-            ui.label(
-                RichText::new(format!(
-                    "loading mid-fight costs {} cpu",
-                    tuning::COMBAT_LOAD_CPU
-                ))
-                .small()
-                .color(p.dim),
-            );
+        if g.hdd.is_empty() {
+            ui.label(RichText::new("    (empty)").color(p.faint));
         }
     }
 
@@ -548,7 +518,7 @@ impl Panes<'_> {
         });
         ui.separator();
         ui.horizontal_wrapped(|ui| {
-            for (i, s) in g.hdd.iter().enumerate().filter(|(_, s)| s.loaded) {
+            for (i, s) in g.hdd.iter().enumerate() {
                 let w = &s.spec;
                 let class_hit =
                     matches!(w.effect, Effect::Break { vs: Some(v), .. } if v == ice.class);
@@ -626,6 +596,19 @@ impl Panes<'_> {
                 .color(p.dim),
         );
         ui.add_space(6.0);
+    }
+
+    /// The deck's program as the terminal lists it (`prog`): the stand-in dress until a deck
+    /// designs its own. It scrolls itself.
+    pub(crate) fn script(&mut self, ui: &mut Ui) {
+        let p = self.pal;
+        ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                for line in ninsei_core::command::listing(self.game) {
+                    ui.label(RichText::new(line).monospace().color(p.fg));
+                }
+            });
     }
 
     /// Contracts as an IDE TODO list.

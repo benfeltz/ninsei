@@ -85,8 +85,8 @@
             "|07- A busy signal means the system is in use. Be patient!",
         ]),
         (id: "tips", title: "TIPS & TRICKS", lines: [
-            "|07- Your Security Suite is free and yours to keep: load it before",
-            "|07  every session.",
+            "|07- Your Security Suite is free and yours to keep: keep it on your",
+            "|07  disk for every session.",
             "|07- The Welcome stack lives on your desktop. Read it any time.",
             "|07- Write down every number you're given. A number is the only",
             "|07  way back.",

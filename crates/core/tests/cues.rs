@@ -184,7 +184,7 @@ fn a_fight_sounds_like_a_fight() {
             if g.phase != Phase::Combat {
                 break;
             }
-            let slots: Vec<usize> = (0..g.hdd.len()).filter(|&i| g.hdd[i].loaded).collect();
+            let slots: Vec<usize> = (0..g.hdd.len()).collect();
             for i in slots {
                 g.apply(Action::Run(i));
             }

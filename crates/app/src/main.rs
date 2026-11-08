@@ -43,6 +43,7 @@ mod workbench;
 use egui::{Key, RichText};
 use egui_dock::{DockArea, DockState};
 use ninsei_core::bbs::Outcome;
+use ninsei_core::game::ExecState;
 use ninsei_core::hexedit::HexBuffer;
 use ninsei_core::hub::{
     Answer, DEFAULT_RUN_THEME, RunEnd, RunReport, SAVE_KEY, Save, Screen, Tool,
@@ -223,7 +224,29 @@ fn parse_layout(text: &str, has: impl Fn(Tab) -> bool) -> Option<DockState<Tab>>
 /// How often the run screen's layout is checked for changes to save, in seconds.
 const LAYOUT_CHECK_SECS: f64 = 2.0;
 
+/// Seconds between a running program's passes, so a fight can be watched and paused.
+const PASS_SECS: f64 = 0.8;
+
+/// Plays the deck's program while it's `Running`: a pass every `PASS_SECS` (`Action::Play` ran
+/// the first). `next` is when the next one is due. Returns the seconds until then, or `None`
+/// once the program has stopped running.
+fn drive_program(game: &mut Game, now: f64, next: &mut Option<f64>) -> Option<f64> {
+    if game.exec.state != ExecState::Running || game.phase != Phase::Combat {
+        *next = None;
+        return None;
+    }
+    let due = *next.get_or_insert(now + PASS_SECS);
+    if now < due {
+        return Some(due - now);
+    }
+    game.apply(Action::Step);
+    *next = Some(now + PASS_SECS);
+    drive_program(game, now, next)
+}
+
 struct App {
+    /// When a running program's next pass is due (`drive_program`).
+    next_pass: Option<f64>,
     data: Data,
     save: Save,
     /// The save changed and should be written this frame.
@@ -346,6 +369,7 @@ impl App {
             desktops: Desktops::new(),
             booked: None,
             crashed: false,
+            next_pass: None,
             first_seed,
             last_at: game.at,
             bbs: None,
@@ -920,6 +944,11 @@ impl App {
                 }
             }
             Command::Game(a) => self.game.apply(a),
+            Command::Print(lines) => {
+                for l in lines {
+                    self.game.say(LogKind::Sys, l);
+                }
+            }
             Command::Hex(slot) => self.open_hex(slot),
             Command::Help => {
                 let lines: Vec<&str> = ninsei_core::command::help(&self.game).collect();
@@ -1246,6 +1275,12 @@ impl eframe::App for App {
         }
 
         let live = self.screen == Screen::Run && !self.crashed;
+        if live
+            && let Some(wait) =
+                drive_program(&mut self.game, ctx.input(|i| i.time), &mut self.next_pass)
+        {
+            ctx.request_repaint_after(std::time::Duration::from_secs_f64(wait));
+        }
         self.glitch = glitch::Glitch::frame(&ctx, &self.game, self.save.glitches, live);
         if self.glitch.busy() {
             ctx.request_repaint();
@@ -1724,6 +1759,36 @@ mod tests {
     use super::*;
 
     #[test]
+    fn a_running_program_plays_a_pass_a_beat_and_pause_stops_it() {
+        let mut g = Game::new(Data::builtin().unwrap(), 7);
+        let target = g.net.nodes[g.at].links[0];
+        g.net.nodes[target].kind = ninsei_core::NodeKind::Ice;
+        g.net.nodes[target].ice = Some(1);
+        g.net.nodes[target].cleared = false;
+        g.apply(Action::Move(target));
+        let c = g.combat.as_mut().unwrap();
+        (c.strength, c.strength_max) = (500, 500);
+        g.apply(Action::Program("10 RUN icepick\n20 GOTO 10".into()));
+        let turn = |g: &Game| g.combat.as_ref().unwrap().turn;
+        let mut next = None;
+        assert_eq!(
+            drive_program(&mut g, 0.0, &mut next),
+            None,
+            "paused: nothing runs"
+        );
+        g.apply(Action::Play);
+        assert_eq!(turn(&g), 2, "play runs the first pass");
+        assert!(drive_program(&mut g, 0.0, &mut next).is_some());
+        assert!(drive_program(&mut g, PASS_SECS / 2.0, &mut next).is_some());
+        assert_eq!(turn(&g), 2, "not yet: a pass a beat");
+        drive_program(&mut g, PASS_SECS, &mut next);
+        assert_eq!(turn(&g), 3);
+        g.apply(Action::Pause);
+        assert_eq!(drive_program(&mut g, PASS_SECS * 5.0, &mut next), None);
+        assert_eq!(turn(&g), 3, "paused between passes");
+    }
+
+    #[test]
     fn a_board_called_from_home_takes_the_keyboard_from_a_game() {
         use crate::uitest::{Harness, key};
         use ninsei_core::hub::GameCopy;
@@ -2041,6 +2106,41 @@ mod tests {
     }
 
     #[test]
+    fn the_script_is_in_every_chromes_layout_and_in_front_on_the_stack() {
+        for chrome in Chrome::ALL {
+            assert!(
+                default_layout(chrome, &[]).find_tab(&Tab::Script).is_some(),
+                "{chrome:?}"
+            );
+        }
+        let dock = default_layout(Chrome::Stack, &[]);
+        let at = |t: Tab| dock.find_tab(&t).unwrap();
+        let script = at(Tab::Script);
+        assert_eq!(script.tab.0, 0, "Script is the front tab");
+        assert_eq!(at(Tab::Todo).node, script.node, "To Do behind it");
+        // Its own column: not with the card, the deck, the programs or the Message box.
+        for t in [
+            Tab::Network,
+            Tab::Target,
+            Tab::Deck,
+            Tab::Warez,
+            Tab::Terminal,
+        ] {
+            assert_ne!(at(t).node, script.node, "{t:?}");
+        }
+        assert_eq!(
+            at(Tab::Target).node,
+            at(Tab::Network).node,
+            "ICE is a card of the centre"
+        );
+        assert_ne!(
+            at(Tab::Deck).node,
+            at(Tab::Warez).node,
+            "Deck over Programs"
+        );
+    }
+
+    #[test]
     fn a_bought_pane_joins_a_saved_layout_once() {
         for chrome in Chrome::ALL {
             // A layout saved before the pane was bought.
@@ -2155,17 +2255,16 @@ mod tests {
     }
 
     #[test]
-    fn enter_in_a_stack_fight_runs_the_best_move_and_leaves_the_message_box_alone() {
+    fn enter_in_a_stack_fight_presses_run_and_leaves_the_message_box_alone() {
         let d = Data::builtin().unwrap();
         let g = crate::stack::tests::a_fight(&d);
-        let best = crate::stack::best_move(&g).unwrap();
         let mut h = crate::uitest::Harness::new(1280.0, 800.0);
         stack_keys(&mut h, &g, Vec::new());
         let (out, focus) = stack_keys(&mut h, &g, crate::uitest::key(Key::Enter));
         assert!(
             out.iter()
-                .any(|r| matches!(r, Request::Cmd(Command::Game(Action::Run(n))) if *n == best)),
-            "Enter ran the best move"
+                .any(|r| matches!(r, Request::Cmd(Command::Game(Action::Play)))),
+            "Enter pressed Run"
         );
         assert!(!focus, "and didn't also go to the Message box");
         // Out of a fight, Enter goes to the Message box as before.

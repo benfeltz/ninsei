@@ -14,6 +14,7 @@ pub struct Sample {
     pub integrity: u32,
     /// CPU left this turn (the deck's max outside a fight).
     pub cpu: u32,
+    /// GB left for IFs this turn (the deck's RAM outside a fight).
     pub ram: u32,
     pub credits: u32,
     pub hops: u32,
@@ -218,7 +219,7 @@ fn sample(g: &Game) -> Sample {
         trace: g.deck.trace,
         integrity: g.deck.integrity,
         cpu: g.combat.as_ref().map_or(g.deck.cpu_max, |c| c.cpu),
-        ram: g.ram_used(),
+        ram: g.ifs_left(),
         credits: g.deck.credits,
         hops: g.hops,
     }

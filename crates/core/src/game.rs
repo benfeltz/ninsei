@@ -1,5 +1,6 @@
 //! Run state and the rules that change it. The app only ever calls [`Game::apply`].
 
+use crate::basic::{Cond, Program, Stmt, Var};
 use crate::binary::{self, Bin, Spec};
 use crate::data::{BetrayalEffect, ChoiceEffect, Data, Drop, Intent, LootTable, Penalty};
 use crate::network::{NetParams, Network, NodeKind};
@@ -48,14 +49,13 @@ impl Deck {
     }
 }
 
-/// One program on the HDD. Loaded programs occupy RAM and can be run.
+/// One program on the HDD. Every program on the HDD can run.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Slot {
     /// Unique per run, so the UI can tell programs apart after the HDD reshuffles.
     pub uid: u32,
     /// The factory program this binary started as (index into `Data::warez`), for its blurb.
     pub warez: usize,
-    pub loaded: bool,
     /// The program itself. Edit it in the hex editor with [`Action::Patch`].
     pub bin: Bin,
     /// What `bin` decodes to. Kept in step with `bin`; a slot never holds an invalid binary.
@@ -77,6 +77,8 @@ pub struct Combat {
     /// ICE that just shook off a stun can't be stunned again this turn.
     pub stun_immune: bool,
     pub turn: u32,
+    /// IFs the program may still evaluate this turn: one GB of the deck's RAM each.
+    pub ifs: u32,
     /// Extra rewards for winning (encounter fights).
     pub bonus: Vec<Drop>,
     /// Speaks l33t (it came from a l33t encounter).
@@ -95,6 +97,8 @@ pub struct Kit {
     /// Programs to install: (factory origin, binary). Re-signed with the run's key on the way in.
     /// Empty means the starter programs.
     pub programs: Vec<(usize, Bin)>,
+    /// The deck's program (BASIC text), loaded into every fight.
+    pub program: String,
     /// Network shape: tier size and trait biases.
     pub net: NetParams,
     pub mods: RunMods,
@@ -133,6 +137,7 @@ impl Default for Kit {
             integrity: Upgrade::Integrity.fallback(),
             caps: Caps::default(),
             programs: Vec::new(),
+            program: String::new(),
             net: NetParams::default(),
             mods: RunMods::default(),
             site: None,
@@ -285,7 +290,7 @@ pub struct StockFile {
     pub bought: bool,
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Action {
     /// Write an edited binary over the program in HDD slot `slot`. Refused unless it checks out.
     Patch {
@@ -303,12 +308,17 @@ pub enum Action {
     },
     /// Jack into a linked node.
     Move(usize),
-    /// Run the loaded program in HDD slot `n`.
+    /// Run the program in HDD slot `n`: the hotbar, the manual override.
     Run(usize),
-    /// Load the program in HDD slot `n` into RAM.
-    Load(usize),
-    /// Unload the program in HDD slot `n`.
-    Unload(usize),
+    /// The deck's program: run one pass (one turn, unless it STOPs or hangs).
+    Step,
+    /// The deck's program: keep running passes (the driver applies `Step` while
+    /// `ExecState::Running`); runs the first one now.
+    Play,
+    /// The deck's program: stop running passes and hand the turn to the hotbar.
+    Pause,
+    /// Replace the deck's program with this text. Allowed any time, mid-fight too.
+    Program(String),
     EndTurn,
     NewRun(u64),
     /// Pick choice `choice` in the current encounter; `slot` names the program for trades and sales.
@@ -406,6 +416,74 @@ pub struct Game {
     /// Programs that came from the stash's loadout: (slot uid, stash id). At the exit they're
     /// ticked to keep, and a kept one goes home under its old id, installed again.
     pub from_stash: Vec<(u32, u32)>,
+    /// The deck's program, edited in place. `Save::record` takes it home.
+    pub program: Program,
+    /// Where the program is in this fight.
+    pub exec: Exec,
+}
+
+/// Whether the deck's program has the turn.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum ExecState {
+    /// The debugger has the turn: the hotbar plays, Step or Play hands it back.
+    #[default]
+    Paused,
+    /// Playing: the driver steps a pass at a time until a STOP, a hang or the fight's end.
+    Running,
+    /// A STOP on this line handed over the turn; the next pass carries on after it.
+    Stopped(u32),
+}
+
+/// What the program is doing in this fight: the line about to run and this turn's pass.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Exec {
+    pub state: ExecState,
+    /// The line about to run: the program's first at the start of a turn, or the one after a
+    /// STOP (`ExecState::Stopped`), where the next pass carries on.
+    pub pc: Option<u32>,
+    /// This turn's pass so far, or the last one: a step per line executed.
+    pub trace: Vec<Step>,
+}
+
+/// One line executed in a pass.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Step {
+    pub line: u32,
+    pub what: StepWhat,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StepWhat {
+    /// A RUN ran the program with this uid.
+    Ran {
+        uid: u32,
+        outcome: crate::fight::Outcome,
+    },
+    /// A line that couldn't run, and why: the preview's words, or the interpreter's.
+    Skipped(String),
+    /// An IF, and what it found.
+    If(bool),
+    Goto(u32),
+    /// A STOP: the turn is the hotbar's.
+    Stop,
+    /// The pass went round without running anything: `?BREAK IN <line>`.
+    Break,
+    /// The pass ended: no cycles left.
+    OutOfCpu,
+    /// The pass ended: no GB left for another IF.
+    OutOfRam,
+    /// The pass ran off the end of the program.
+    End,
+}
+
+impl StepWhat {
+    /// Whether this step ended the turn (the ICE acted after it).
+    pub fn ends_turn(&self) -> bool {
+        matches!(
+            self,
+            StepWhat::OutOfCpu | StepWhat::OutOfRam | StepWhat::End
+        )
+    }
 }
 
 impl Game {
@@ -475,6 +553,8 @@ impl Game {
             games: kit.games.clone(),
             texts: kit.texts.clone(),
             from_stash: Vec::new(),
+            program: crate::basic::parse(&kit.program),
+            exec: Exec::default(),
         };
         let classic: Vec<String> = CLASSIC_WAREZ.iter().map(|s| s.to_string()).collect();
         let free = if kit.free.is_empty() {
@@ -498,11 +578,9 @@ impl Game {
             // Home binaries carry home's signature; the run signs its own.
             binary::seal(&mut bin, game.key());
             if let Ok(spec) = binary::check(&bin, game.key()) {
-                let loaded = game.ram_used() + spec.ram <= game.deck.ram_max;
                 game.add_slot(Slot {
                     uid: 0,
                     warez: w,
-                    loaded,
                     bin,
                     spec,
                 });
@@ -552,14 +630,6 @@ impl Game {
         }
     }
 
-    pub fn ram_used(&self) -> u32 {
-        self.hdd
-            .iter()
-            .filter(|s| s.loaded)
-            .map(|s| s.spec.ram)
-            .sum()
-    }
-
     /// The key binaries are signed with this run.
     pub fn key(&self) -> u64 {
         self.seed
@@ -581,7 +651,6 @@ impl Game {
         Some(Slot {
             uid: 0,
             warez: w,
-            loaded: false,
             bin,
             spec,
         })
@@ -674,13 +743,21 @@ impl Game {
 
     /// Applies one player action. Illegal actions change nothing but a log line.
     pub fn apply(&mut self, action: Action) {
+        // A pass is made of actions (each RUN, then the end of the turn), applied one by one
+        // so history and cues hear each of them; the pass itself adds nothing on top.
+        if matches!(action, Action::Step | Action::Play) {
+            if let Err(e) = self.try_apply(action) {
+                self.say(LogKind::Sys, format!("err: {e}"));
+            }
+            return;
+        }
         let was = crate::history::Snap::of(self);
         let heard = crate::cue::Snap::of(self);
         let uid = match action {
             Action::Run(slot) => self.hdd.get(slot).map(|s| s.uid),
             _ => None,
         };
-        let ok = match self.try_apply(action) {
+        let ok = match self.try_apply(action.clone()) {
             Ok(()) => true,
             Err(e) => {
                 self.say(LogKind::Sys, format!("err: {e}"));
@@ -723,8 +800,18 @@ impl Game {
             Action::TakeJob { job } => self.take_job(job),
             Action::Read(r) => self.read(r),
             Action::Run(slot) => self.run(slot),
-            Action::Load(slot) => self.load(slot),
-            Action::Unload(slot) => self.unload(slot),
+            Action::Step => self.pass(false),
+            Action::Play => self.pass(true),
+            Action::Pause => {
+                if self.exec.state == ExecState::Running {
+                    self.exec.state = ExecState::Paused;
+                }
+                Ok(())
+            }
+            Action::Program(text) => {
+                self.edit_program(&text);
+                Ok(())
+            }
             Action::EndTurn => self.end_turn(),
             Action::Buy { area, file } => self.buy(area, file),
             Action::Patch { slot, bin } => self.patch(slot, bin),
@@ -851,10 +938,16 @@ impl Game {
             stunned: false,
             stun_immune: false,
             turn: 1,
+            ifs: self.deck.ram_max,
             bonus: Vec::new(),
             leet: false,
         });
         self.phase = Phase::Combat;
+        // Every fight opens with the program loaded and the cursor on its first line.
+        self.exec = Exec {
+            pc: self.program.first(),
+            ..Exec::default()
+        };
         self.say(
             LogKind::Bad,
             format!("!! {name} rezzed [{class}] strength {strength}"),
@@ -1008,7 +1101,12 @@ impl Game {
         c.intent_ix += 1;
         c.shield = 0;
         c.cpu = self.deck.cpu_max;
+        c.ifs = self.deck.ram_max;
         c.turn += 1;
+        self.exec.pc = self.program.first();
+        if let ExecState::Stopped(_) = self.exec.state {
+            self.exec.state = ExecState::Paused;
+        }
         self.deck.trace += mods.trace(TRACE_PER_COMBAT_TURN);
         for (k, t) in lines {
             self.say(k, t);
@@ -1020,6 +1118,182 @@ impl Game {
             return Ok(());
         }
         self.check_trace();
+        Ok(())
+    }
+
+    // ---- the deck's program -----------------------------------------------------
+
+    /// The HDD slot a program name in a `RUN` or `HAVE` means: the program's name, its file
+    /// name or its factory id, in any case. The first match wins.
+    pub fn slot_named(&self, name: &str) -> Option<usize> {
+        self.hdd
+            .iter()
+            .position(|s| crate::basic::names(name, &s.spec.name, &self.data.warez[s.warez].id))
+    }
+
+    /// What an `IF` finds right now. Lagged ICE has no next move.
+    pub fn test(&self, cond: &Cond) -> bool {
+        let c = self.combat.as_ref();
+        match cond {
+            Cond::Cmp(var, op, n) => {
+                let v = match var {
+                    Var::Integ => self.deck.integrity,
+                    Var::Trace => self.deck.trace,
+                    Var::Cpu => c.map_or(0, |c| c.cpu),
+                    Var::Turn => c.map_or(0, |c| c.turn),
+                    Var::Ice => c.map_or(0, |c| c.strength),
+                };
+                op.test(v, *n)
+            }
+            Cond::IceClass(k) => c.is_some_and(|c| self.data.ice[c.ice].class == *k),
+            Cond::Next(m) => {
+                c.is_some_and(|c| !c.stunned) && self.intent().is_some_and(|i| m.is(i))
+            }
+            Cond::Have(name) => self.slot_named(name).is_some(),
+        }
+    }
+
+    /// Replaces the deck's program. Stopped partway through a turn, it carries on from the
+    /// first line after the STOP; otherwise the next pass starts at the top.
+    fn edit_program(&mut self, text: &str) {
+        self.program = crate::basic::parse(text);
+        self.exec.pc = match self.exec.state {
+            ExecState::Stopped(at) => self.program.after(at),
+            _ => self.program.first(),
+        };
+    }
+
+    /// The line a false `IF` skips to: past the line it guards, and past that line's own
+    /// guarded line if it's an IF too (two IFs in a row are an AND).
+    fn skip(&self, guarded: Option<u32>) -> Option<u32> {
+        let n = guarded?;
+        let after = self.program.after(n);
+        match self.program.line(n).map(|l| &l.stmt) {
+            Some(Stmt::If(_)) => self.skip(after),
+            _ => after,
+        }
+    }
+
+    /// Adds a step to the pass and says it in the log as it happens: the OS's sentence, before
+    /// anything the turn does after it. A RUN says nothing more: the program says what it did.
+    fn trace_step(&mut self, line: u32, what: StepWhat) {
+        let step = Step { line, what };
+        if !matches!(step.what, StepWhat::Ran { .. }) {
+            let text = self.step_text(&step);
+            self.say(LogKind::Sys, text);
+        }
+        self.exec.trace.push(step);
+    }
+
+    /// One pass of the deck's program: from the first line (or where a STOP left it) until
+    /// the program ends, a STOP, the cycles run out or there's no GB for another IF. Every RUN
+    /// resolves through `preview`, and runs as `Action::Run` would; one that can't run is
+    /// skipped with the preview's words. A pass that comes back to a line without running
+    /// anything is a hang: `?BREAK IN <line>`, and the debugger has the turn. Unless it
+    /// stopped or hung, the turn ends and the ICE acts.
+    /// `play` sets the program running (`Action::Play`); a step leaves it as it was.
+    fn pass(&mut self, play: bool) -> Result<(), String> {
+        if self.phase != Phase::Combat {
+            return Err("no fight in progress.".into());
+        }
+        // After a STOP the pass carries on from `pc`, this turn's pass and all.
+        let resume = matches!(self.exec.state, ExecState::Stopped(_));
+        if !resume {
+            self.exec.trace.clear();
+            self.exec.pc = self.program.first();
+        }
+        self.exec.state = if play || self.exec.state == ExecState::Running {
+            ExecState::Running
+        } else {
+            ExecState::Paused
+        };
+        let mut visited: Vec<u32> = Vec::new();
+        let mut last = self.exec.pc.unwrap_or(0);
+        loop {
+            let Some(c) = self.combat.as_ref().filter(|_| self.phase == Phase::Combat) else {
+                // The fight ended mid-pass: won, or the deck went down.
+                return Ok(());
+            };
+            let (cpu, ifs) = (c.cpu, c.ifs);
+            if cpu == 0 {
+                self.trace_step(last, StepWhat::OutOfCpu);
+                break;
+            }
+            let Some(no) = self.exec.pc else {
+                self.trace_step(last, StepWhat::End);
+                break;
+            };
+            last = no;
+            if visited.contains(&no) {
+                self.trace_step(no, StepWhat::Break);
+                self.exec.state = ExecState::Paused;
+                self.exec.pc = self.program.first();
+                return Ok(());
+            }
+            visited.push(no);
+            let Some(stmt) = self.program.line(no).map(|l| l.stmt.clone()) else {
+                self.exec.pc = self.program.after(no);
+                continue;
+            };
+            let next = self.program.after(no);
+            self.exec.pc = next;
+            match stmt {
+                Stmt::Rem => {}
+                Stmt::Bad(why) => self.trace_step(no, StepWhat::Skipped(why)),
+                Stmt::Run(name) => {
+                    let Some(slot) = self.slot_named(&name) else {
+                        let why = format!("no program called {name} on the disk.");
+                        self.trace_step(no, StepWhat::Skipped(why));
+                        continue;
+                    };
+                    match self.preview(slot) {
+                        Ok(p) => {
+                            visited.clear();
+                            let uid = self.hdd[slot].uid;
+                            self.apply(Action::Run(slot));
+                            self.trace_step(
+                                no,
+                                StepWhat::Ran {
+                                    uid,
+                                    outcome: p.outcome,
+                                },
+                            );
+                        }
+                        Err(why) => self.trace_step(no, StepWhat::Skipped(why)),
+                    }
+                }
+                Stmt::If(cond) => {
+                    if ifs == 0 {
+                        self.trace_step(no, StepWhat::OutOfRam);
+                        break;
+                    }
+                    if let Some(c) = self.combat.as_mut() {
+                        c.ifs -= 1;
+                    }
+                    let yes = self.test(&cond);
+                    self.trace_step(no, StepWhat::If(yes));
+                    if !yes {
+                        self.exec.pc = self.skip(next);
+                    }
+                }
+                Stmt::Goto(to) => {
+                    if self.program.line(to).is_some() {
+                        self.trace_step(no, StepWhat::Goto(to));
+                        self.exec.pc = Some(to);
+                    } else {
+                        let why = format!("?UNDEF'D STATEMENT {to}");
+                        self.trace_step(no, StepWhat::Skipped(why));
+                    }
+                }
+                Stmt::Stop => {
+                    self.trace_step(no, StepWhat::Stop);
+                    self.exec.state = ExecState::Stopped(no);
+                    return Ok(());
+                }
+            }
+        }
+        // The turn is over: the ICE acts.
+        self.apply(Action::EndTurn);
         Ok(())
     }
 
@@ -1055,7 +1329,7 @@ impl Game {
         self.say(LogKind::Info, line);
     }
 
-    /// Fills `{offer}`, `{per_ram}` and `{cost}` in an event's text.
+    /// Fills `{offer}`, `{per_cpu}` and `{cost}` in an event's text.
     pub fn fill(&self, text: &str, choice: Option<usize>) -> String {
         let Some(e) = &self.encounter else {
             return text.to_string();
@@ -1071,8 +1345,8 @@ impl Game {
         };
         for eff in effects {
             match eff {
-                ChoiceEffect::Sell { per_ram } => {
-                    out = out.replace("{per_ram}", &per_ram.to_string())
+                ChoiceEffect::Sell { per_cpu } => {
+                    out = out.replace("{per_cpu}", &per_cpu.to_string())
                 }
                 ChoiceEffect::Pay { cost, .. } => out = out.replace("{cost}", &cost.to_string()),
                 _ => {}
@@ -1140,11 +1414,11 @@ impl Game {
         }
     }
 
-    /// What a program fetches from a fence paying `per_ram` a GB.
-    pub fn sale_price(&self, slot: usize, per_ram: u32) -> u32 {
+    /// What a program fetches from a fence paying `per_cpu` for each CPU it takes.
+    pub fn sale_price(&self, slot: usize, per_cpu: u32) -> u32 {
         self.hdd
             .get(slot)
-            .map_or(0, |s| per_ram * s.spec.ram + SELL_PER_OPT * s.spec.opt)
+            .map_or(0, |s| per_cpu * s.spec.cpu + SELL_PER_OPT * s.spec.opt)
     }
 
     fn choose(&mut self, c: usize, slot: Option<usize>) -> Result<(), String> {
@@ -1178,9 +1452,9 @@ impl Game {
                     self.say(LogKind::Loot, format!("traded {gave} for {got}."));
                 }
             }
-            ChoiceEffect::Sell { per_ram } => {
+            ChoiceEffect::Sell { per_cpu } => {
                 let Some(i) = slot else { return Ok(()) };
-                let price = self.sale_price(i, per_ram);
+                let price = self.sale_price(i, per_cpu);
                 let gone = self.hdd.remove(i);
                 self.deck.credits += price;
                 self.say(
@@ -1526,40 +1800,6 @@ impl Game {
         false
     }
 
-    fn load(&mut self, slot: usize) -> Result<(), String> {
-        let s = self.slot(slot)?;
-        let name = s.spec.name.clone();
-        if s.loaded {
-            return Err(format!("{name} is already loaded."));
-        }
-        if self.ram_used() + s.spec.ram > self.deck.ram_max {
-            return Err(format!(
-                "not enough ram for {name} ({} needed).",
-                s.spec.ram
-            ));
-        }
-        if let Some(c) = self.combat.as_mut() {
-            if c.cpu < COMBAT_LOAD_CPU {
-                return Err(format!("loading mid-fight costs {COMBAT_LOAD_CPU} cpu."));
-            }
-            c.cpu -= COMBAT_LOAD_CPU;
-        }
-        self.hdd[slot].loaded = true;
-        self.say(LogKind::Info, format!("{name} loaded."));
-        Ok(())
-    }
-
-    fn unload(&mut self, slot: usize) -> Result<(), String> {
-        let s = self.slot(slot)?;
-        let name = s.spec.name.clone();
-        if !s.loaded {
-            return Err(format!("{name} is not loaded."));
-        }
-        self.hdd[slot].loaded = false;
-        self.say(LogKind::Info, format!("{name} unloaded."));
-        Ok(())
-    }
-
     pub fn credits_ok(&self, price: u32) -> bool {
         self.deck.credits >= price
     }
@@ -1697,29 +1937,17 @@ impl Game {
         let s = self.slot(slot)?;
         let spec = binary::check(&bin, self.key())
             .map_err(|f| format!("link failed: {}", f.join("; ")))?;
-        let others = self.ram_used() - if s.loaded { s.spec.ram } else { 0 };
-        let still_fits = others + spec.ram <= self.deck.ram_max;
         let old = s.spec.file();
         let new = spec.file();
         let target = &mut self.hdd[slot];
         target.bin = bin;
         target.spec = spec;
-        let unloaded = target.loaded && !still_fits;
-        if unloaded {
-            target.loaded = false;
-        }
         let renamed = if old == new {
             String::new()
         } else {
             format!(" (was {old})")
         };
         self.say(LogKind::Good, format!("wrote {new}{renamed}. link ok."));
-        if unloaded {
-            self.say(
-                LogKind::Sys,
-                format!("{new} no longer fits in ram. unloaded."),
-            );
-        }
         Ok(())
     }
 

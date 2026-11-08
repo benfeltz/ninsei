@@ -22,8 +22,15 @@ fn bad_saves_are_refused_not_fatal() {
     assert!(Save::load("not ron at all {{{").is_err());
     let future = Save::default()
         .to_text()
-        .replace("version: 1", "version: 99");
+        .replace("version: 2", "version: 99");
     assert!(Save::load(&future).unwrap_err().contains("version 99"));
+    // Version 1 stashed programs with a RAM byte that no longer checks: it starts fresh,
+    // rather than losing its stash one jack-in at a time.
+    assert!(
+        Save::load("(version: 1)")
+            .unwrap_err()
+            .contains("version 1")
+    );
     let corrupt = Save::default()
         .to_text()
         .replace("runs: 0", "runs: \"lots\"");
@@ -32,7 +39,7 @@ fn bad_saves_are_refused_not_fatal() {
 
 #[test]
 fn older_saves_missing_fields_still_load() {
-    let s = Save::load("(version: 1, runs: 3)").unwrap();
+    let s = Save::load("(version: 2, runs: 3)").unwrap();
     assert_eq!(
         (s.runs, s.exits, s.phosphor.as_str(), s.crt),
         (3, 0, "amber", true)
@@ -151,7 +158,7 @@ fn shell_commands() {
 
 #[test]
 fn modem_sounds_default_on_and_toggle_from_the_shell() {
-    let s = Save::load("(version: 1, runs: 4)").unwrap();
+    let s = Save::load("(version: 2, runs: 4)").unwrap();
     assert!(s.sound, "old saves get sound on");
     let d = Data::builtin().unwrap();
     assert_eq!(hub::shell("sound", &s, &d).1, hub::ShellEffect::Sound);
@@ -159,7 +166,7 @@ fn modem_sounds_default_on_and_toggle_from_the_shell() {
 
 #[test]
 fn the_volume_starts_full_stays_in_range_and_comes_back() {
-    let mut s = Save::load("(version: 1, runs: 4)").unwrap();
+    let mut s = Save::load("(version: 2, runs: 4)").unwrap();
     assert_eq!(s.volume, 100, "old saves play at full volume");
     assert_eq!(Save::default().volume, 100);
     assert_eq!(s.volume_gain(), 1.0);

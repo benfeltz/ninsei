@@ -1,10 +1,10 @@
 // Encounters on MSG nodes, FTL-style. Every event needs a `Leave` choice so you can always walk away.
-// Labels may use {offer} (the program on offer), {per_ram}, {cost}.
+// Labels may use {offer} (the program on offer), {per_cpu}, {cost}.
 // `leet: true` makes an event speak l33t: its title, text and choice labels are translated.
 // Choice effects:
 //   Leave
 //   Trade(pool: [...])              swap one of your programs for one picked from `pool`
-//   Sell(per_ram: n)                sell a program for n credits per GB of its ram cost
+//   Sell(per_cpu: n)                sell a program for n credits per CPU it takes to run
 //   Contract                        take a contract on a node ahead
 //   Pay(cost: n, get: <drop>)
 //   Gamble(pct: n, win: <drop>, lose: Trace(n) | Damage(n))
@@ -21,7 +21,7 @@
         ],
         choices: [
             (label: "Trade a program for {offer}", effect: Trade(pool: ["decoder", "garrote", "crowbar", "wyrm", "mirror", "scrubber", "lagspike", "torch"])),
-            (label: "Sell a program ({per_ram}¢ per GB of ram)", effect: Sell(per_ram: 20)),
+            (label: "Sell a program ({per_cpu}¢ per CPU it burns)", effect: Sell(per_cpu: 40)),
             (label: "Not today", effect: Leave),
         ],
     ),

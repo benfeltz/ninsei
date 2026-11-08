@@ -31,7 +31,7 @@ fn the_decks_have_their_desktops() {
 
 #[test]
 fn a_new_save_starts_with_a_shell_tile() {
-    let s = Save::load("(version: 1)").unwrap();
+    let s = Save::load("(version: 2)").unwrap();
     assert_eq!(s.tiling.tiles(), &[Tool::Shell]);
     assert!(!s.tiling_help_seen);
     assert!(s.addons.is_empty());
@@ -266,7 +266,7 @@ fn the_shell_completes_its_verbs_and_arguments() {
         "no third word"
     );
     // Old saves load without the history, and with the tools a save from before had.
-    let old = Save::load("(version: 1)").unwrap();
+    let old = Save::load("(version: 2)").unwrap();
     assert!(old.shell_history.is_empty());
     assert!(old.has_tool("wardial") && old.has_tool("hexed"));
 }

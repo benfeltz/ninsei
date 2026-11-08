@@ -84,7 +84,7 @@ fn hits_are_remembered() {
 
 #[test]
 fn the_setting_is_saved() {
-    assert_eq!(Save::load("(version: 1)").unwrap().glitches, Glitches::On);
+    assert_eq!(Save::load("(version: 2)").unwrap().glitches, Glitches::On);
     let s = Save {
         glitches: Glitches::Reduced,
         ..Save::default()

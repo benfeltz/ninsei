@@ -69,7 +69,7 @@ fn an_upgrade_shows_up_in_the_overview() {
 }
 
 #[test]
-fn ram_and_hdd_say_what_the_loadout_uses() {
+fn hdd_says_what_the_loadout_uses_and_ram_what_it_decides() {
     let d = data();
     let s = fresh(0);
     let o = system::overview(&s, &d);
@@ -79,7 +79,7 @@ fn ram_and_hdd_say_what_the_loadout_uses() {
             .use_note
             .starts_with(&format!("{filled} of"))
     );
-    assert!(spec(&o, "RAM").use_note.contains("free"));
+    assert_eq!(spec(&o, "RAM").use_note, "decisions a turn");
 }
 
 #[test]

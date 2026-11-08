@@ -53,7 +53,7 @@ fn panes_come_with_firmware_or_are_bought() {
     assert!(s.buy_pane(&d, "net").is_err(), "only once");
     assert!(s.buy_pane(&d, "nope").is_err());
     // Old saves load without the field.
-    assert!(Save::load("(version: 1)").unwrap().panes.is_empty());
+    assert!(Save::load("(version: 2)").unwrap().panes.is_empty());
 }
 
 #[test]
@@ -108,28 +108,25 @@ fn bad_panes_are_caught() {
 }
 
 #[test]
-fn the_sheet_sorts_and_filters() {
-    let mut g = Game::new(data(), 7);
+fn the_sheet_sorts() {
+    let g = Game::new(data(), 7);
     assert!(g.hdd.len() >= 3);
-    g.hdd[1].loaded = false;
-    let all = suite::sheet_rows(&g.hdd, SheetCol::Slot, true, false);
+    let all = suite::sheet_rows(&g.hdd, SheetCol::Slot, true);
     assert_eq!(all, (0..g.hdd.len()).collect::<Vec<_>>());
-    let down = suite::sheet_rows(&g.hdd, SheetCol::Slot, false, false);
+    let down = suite::sheet_rows(&g.hdd, SheetCol::Slot, false);
     assert_eq!(down.first(), Some(&(g.hdd.len() - 1)));
-    let loaded = suite::sheet_rows(&g.hdd, SheetCol::Slot, true, true);
-    assert!(!loaded.contains(&1) && loaded.iter().all(|&i| g.hdd[i].loaded));
-    let by_ram = suite::sheet_rows(&g.hdd, SheetCol::Ram, true, false);
+    let by_cpu = suite::sheet_rows(&g.hdd, SheetCol::Cpu, true);
     assert!(
-        by_ram
+        by_cpu
             .windows(2)
-            .all(|w| g.hdd[w[0]].spec.ram <= g.hdd[w[1]].spec.ram)
+            .all(|w| g.hdd[w[0]].spec.cpu <= g.hdd[w[1]].spec.cpu)
     );
-    let by_status = suite::sheet_rows(&g.hdd, SheetCol::Status, true, false);
+    let by_file = suite::sheet_rows(&g.hdd, SheetCol::File, true);
     assert!(
-        !g.hdd[*by_status.last().unwrap()].loaded,
-        "loaded rows first"
+        by_file
+            .windows(2)
+            .all(|w| g.hdd[w[0]].spec.file() <= g.hdd[w[1]].spec.file())
     );
-    assert_eq!(SheetCol::Status.cell(1, &g.hdd[1]), "STORED");
 }
 
 #[test]
@@ -156,7 +153,7 @@ fn the_sheets_columns_hold_their_widest_value_and_header() {
         .unwrap();
     assert_eq!(after[file], g.hdd[0].spec.file().chars().count());
     assert!(after[file] > before[file]);
-    for k in (0..6).filter(|k| *k != file) {
+    for k in (0..SheetCol::ALL.len()).filter(|k| *k != file) {
         assert_eq!(after[k], before[k]);
     }
 }

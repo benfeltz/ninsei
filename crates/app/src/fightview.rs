@@ -1,7 +1,7 @@
 //! The Ono-Sendai's fight view: on ICE contact the network map dives into the node and the
 //! node's wireframe becomes the ICE, turning over a grid that runs to the horizon. It comes
 //! apart as its strength drops (`fight::broken`), jolts when hit, charges before it attacks and
-//! freezes when lagged. Along the bottom, the loaded programs are a hotbar: a digit or a click
+//! freezes when lagged. Along the bottom, the HDD's programs are a hotbar: a digit or a click
 //! runs one, and hovering one previews what it would do (`Game::preview`) on the strength meter
 //! and on the model. Every colour is a theme role; every timing is in [`anim`]. The rules are
 //! `ninsei_core::fight`; animation state lives in egui's memory, never in the game.
@@ -555,9 +555,9 @@ fn hud(painter: &Painter, rect: Rect, p: &Palette, g: &Game, preview: Option<fig
     }
 }
 
-/// The tiles' rects: loaded programs (slot, rect), then END TURN.
+/// The tiles' rects: the HDD's programs (slot, rect), then END TURN.
 fn tile_rects(rect: Rect, g: &Game) -> (Vec<(usize, Rect)>, Rect) {
-    let slots: Vec<usize> = (0..g.hdd.len()).filter(|&i| g.hdd[i].loaded).collect();
+    let slots: Vec<usize> = (0..g.hdd.len()).collect();
     let top = rect.bottom() - anim::TILE_H - 14.0;
     let room = rect.width() - 36.0 - anim::END_W - 12.0;
     let n = slots.len().max(1) as f32;
@@ -585,7 +585,7 @@ fn tile_rects(rect: Rect, g: &Game) -> (Vec<(usize, Rect)>, Rect) {
 /// The program tile under the mouse, as egui saw it last frame (the same hover that shows the
 /// tile's tooltip), so the model can light its preview before the tiles are drawn.
 fn hotbar_hover(ui: &Ui, g: &Game) -> Option<usize> {
-    (0..g.hdd.len()).filter(|&i| g.hdd[i].loaded).find(|&i| {
+    (0..g.hdd.len()).find(|&i| {
         ui.ctx()
             .read_response(tile_id(ui, g.hdd[i].uid))
             .is_some_and(|r| r.hovered())

@@ -71,8 +71,6 @@ fn fence_trades_a_program_in_place() {
     assert_eq!(g.hdd.len(), len);
     assert_eq!(g.hdd[1].spec.name, "Wyrm");
     assert_ne!(g.hdd[1].uid, uid);
-    assert!(!g.hdd[1].loaded);
-    assert!(g.ram_used() <= g.deck.ram_max);
 }
 
 #[test]
@@ -80,8 +78,8 @@ fn fence_buys_programs_but_not_your_last() {
     let mut g = game(3);
     meet(&mut g, "fence");
     let c = choice(&g, |e| matches!(e, ChoiceEffect::Sell { .. }));
-    let price = g.sale_price(0, 20);
-    assert_eq!(price, 20 * g.hdd[0].spec.ram);
+    let price = g.sale_price(0, 40);
+    assert_eq!(price, 40 * g.hdd[0].spec.cpu);
     let len = g.hdd.len();
     g.apply(Action::Choose {
         choice: c,
@@ -129,7 +127,7 @@ fn helping_the_runner_is_a_fight_with_a_bonus() {
     let i = g
         .hdd
         .iter()
-        .position(|s| s.loaded && matches!(s.spec.effect, Effect::Break { .. }))
+        .position(|s| matches!(s.spec.effect, Effect::Break { .. }))
         .unwrap();
     let before = g.deck.fragments;
     g.apply(Action::Run(i));
@@ -180,7 +178,7 @@ fn fixer_contract_pays_when_the_target_falls() {
     let i = g
         .hdd
         .iter()
-        .position(|s| s.loaded && matches!(s.spec.effect, Effect::Break { .. }))
+        .position(|s| matches!(s.spec.effect, Effect::Break { .. }))
         .unwrap();
     let before = g.deck.credits;
     g.apply(Action::Run(i));
@@ -325,7 +323,7 @@ fn fight_rival(seed: u64) -> Game {
 fn breaker(g: &Game) -> usize {
     g.hdd
         .iter()
-        .position(|s| s.loaded && matches!(s.spec.effect, Effect::Break { .. }))
+        .position(|s| matches!(s.spec.effect, Effect::Break { .. }))
         .unwrap()
 }
 

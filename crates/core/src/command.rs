@@ -16,14 +16,19 @@ pub enum Command {
     NewRun,
     /// Open HDD slot `n` in the hex editor.
     Hex(usize),
+    /// Lines the terminal prints as they are: the program's listing.
+    Print(Vec<String>),
 }
 
 pub const HELP: &[&str] = &[
-    "run <slot>      run a loaded program        (r)",
+    "run <slot>      run a program               (r)",
     "end             end your turn               (e)",
     "jack <node>     move to a linked node       (j)",
-    "load <slot>     load a program into ram",
-    "unload <slot>   free its ram",
+    "prog            list the deck's program      (list)",
+    "prog <n> <line> type line n in; prog <n> deletes it",
+    "step            run one pass of the program  (s)",
+    "play            keep running passes          (cont)",
+    "pause           take the turn back",
     "hex <slot>      open a program in the hex editor",
     "opt <slot>      spend a fragment: +budget",
     "newrun [seed]   start a new run",
@@ -35,12 +40,12 @@ pub const HELP: &[&str] = &[
 
 /// Every verb the run terminal knows, for Tab completion.
 pub const VERBS: &[&str] = &[
-    "run", "end", "jack", "load", "unload", "hex", "opt", "newrun", "theme", "crt", "sound",
-    "clear", "help",
+    "run", "end", "jack", "prog", "list", "step", "play", "pause", "hex", "opt", "newrun", "theme",
+    "crt", "sound", "clear", "help",
 ];
 
 /// Verbs whose argument is an HDD slot.
-pub const SLOT_VERBS: &[&str] = &["run", "load", "unload", "hex", "opt"];
+pub const SLOT_VERBS: &[&str] = &["run", "hex", "opt"];
 
 /// Commands kept in the terminal's history (`Save::term_history`).
 pub const HISTORY_KEEP: usize = 100;
@@ -73,8 +78,66 @@ pub fn help(g: &crate::game::Game) -> impl Iterator<Item = &'static str> {
 pub fn parse_in(g: &crate::game::Game, line: &str) -> Result<Command, String> {
     match line.split_whitespace().next() {
         Some(v) if !knows(g, v) => Err(format!("command not found: {v}")),
+        Some(v) if matches!(v.to_ascii_lowercase().as_str(), "prog" | "list") => prog(g, line),
         _ => parse_command(line),
     }
+}
+
+/// `prog` lists the program; `prog <n> <statement>` types line `n` in, and `prog <n>` or
+/// `prog del <n>` deletes it, as typing a bare line number did.
+fn prog(g: &crate::game::Game, line: &str) -> Result<Command, String> {
+    let rest = line.trim_start();
+    let rest = rest[rest.find(char::is_whitespace).unwrap_or(rest.len())..].trim();
+    if rest.is_empty() {
+        return Ok(Command::Print(listing(g)));
+    }
+    let (first, text) = rest.split_once(char::is_whitespace).unwrap_or((rest, ""));
+    let (no, text) = if first.eq_ignore_ascii_case("del") {
+        (text.trim(), "")
+    } else {
+        (first, text)
+    };
+    let no: u32 = no
+        .parse()
+        .ok()
+        .filter(|&n| n <= crate::basic::MAX_LINE)
+        .ok_or_else(|| format!("`{no}` is not a line number."))?;
+    let mut p = g.program.clone();
+    p.set_line(no, text);
+    Ok(Command::Game(Action::Program(p.text())))
+}
+
+/// The program as the terminal lists it: the budgets left this turn, then each line, `>` on
+/// the one about to run, and under a line that won't run, why.
+pub fn listing(g: &crate::game::Game) -> Vec<String> {
+    let v = g.program_view();
+    let state = match v.state {
+        crate::game::ExecState::Paused => "paused".to_string(),
+        crate::game::ExecState::Running => "running".to_string(),
+        crate::game::ExecState::Stopped(n) => format!("stopped in {n}"),
+    };
+    let mut out = Vec::new();
+    if v.fighting {
+        out.push(format!(
+            "turn {}  cpu {}/{}  ram {}/{} GB  {state}",
+            v.turn, v.cpu_left, g.deck.cpu_max, v.ifs_left, g.deck.ram_max
+        ));
+    }
+    for l in &v.lines {
+        let mark = if l.current { ">" } else { " " };
+        out.push(format!("{mark}{:>5} {}", l.no, l.text));
+        if let Some(why) = &l.fault {
+            out.push(format!("       {why}"));
+        }
+    }
+    for s in &v.stray {
+        out.push(format!("       {s}"));
+        out.push(format!("       {}", crate::basic::stray_fault(s)));
+    }
+    if v.lines.is_empty() && v.stray.is_empty() {
+        out.push("no program.".to_string());
+    }
+    out
 }
 
 pub fn parse_command(line: &str) -> Result<Command, String> {
@@ -92,8 +155,9 @@ pub fn parse_command(line: &str) -> Result<Command, String> {
         "run" | "r" | "exec" => Command::Game(Action::Run(num("slot")?)),
         "end" | "e" | "pass" => Command::Game(Action::EndTurn),
         "jack" | "j" | "cd" | "ssh" => Command::Game(Action::Move(num("node")?)),
-        "load" => Command::Game(Action::Load(num("slot")?)),
-        "unload" | "kill" => Command::Game(Action::Unload(num("slot")?)),
+        "step" | "s" => Command::Game(Action::Step),
+        "play" | "cont" => Command::Game(Action::Play),
+        "pause" => Command::Game(Action::Pause),
         "newrun" | "reboot" => match arg {
             Some(s) => Command::Game(Action::NewRun(
                 u64::from_str_radix(s.trim_start_matches("0x"), 16)

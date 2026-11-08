@@ -3,6 +3,7 @@
 
 pub mod ansi;
 pub mod at;
+pub mod basic;
 pub mod bbs;
 pub mod binary;
 pub mod book;
@@ -39,6 +40,7 @@ pub mod rng;
 pub mod scope;
 pub mod scroll;
 pub mod shopper;
+pub mod stack_fight;
 pub mod suite;
 pub mod system;
 pub mod tigerteam;

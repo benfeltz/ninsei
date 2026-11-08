@@ -40,7 +40,7 @@ fn the_shelf() {
 fn old_saves_get_the_starters() {
     let d = data();
     let mut s =
-        Save::load("(version: 1, phosphor: \"plasma\", display: \"c64\", map: Draft)").unwrap();
+        Save::load("(version: 2, phosphor: \"plasma\", display: \"c64\", map: Draft)").unwrap();
     assert!(s.ensure_hardware(&d));
     assert_eq!(
         (s.monitors.clone(), s.decks.clone()),
@@ -255,7 +255,7 @@ fn layouts_are_kept_per_deck_firmware() {
     assert_eq!(back.layout(&d), None);
     assert_eq!(back.layouts.len(), 1);
     // Old saves have none.
-    assert!(Save::load("(version: 1)").unwrap().layouts.is_empty());
+    assert!(Save::load("(version: 2)").unwrap().layouts.is_empty());
 }
 
 #[test]

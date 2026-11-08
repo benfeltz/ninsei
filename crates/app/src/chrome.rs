@@ -91,6 +91,10 @@ pub trait ChromeView {
     fn todo(&self, p: &mut Panes, ui: &mut Ui) {
         p.todo(ui);
     }
+    /// The deck's program, on screen for the whole run.
+    fn script(&self, p: &mut Panes, ui: &mut Ui) {
+        p.script(ui);
+    }
     /// The net pane (secondary).
     fn net(&self, p: &mut Panes, ui: &mut Ui) {
         crate::netpane::live(ui, p.game, &p.pal);
@@ -179,13 +183,13 @@ pub trait ChromeView {
 }
 
 /// The shared layout: map, target and hex in the middle, deck and warez on the left, the
-/// terminal and todo below, and any secondary panes beside the terminal.
+/// terminal, todo and the script below, and any secondary panes beside the terminal.
 pub fn base_layout(extra: &[Tab]) -> DockState<Tab> {
     let mut dock = DockState::new(vec![Tab::Network, Tab::Target, Tab::Hex]);
     let tree = dock.main_surface_mut();
     let [center, left] = tree.split_left(NodeIndex::root(), 0.27, vec![Tab::Deck]);
     tree.split_below(left, 0.42, vec![Tab::Warez]);
-    let [_, bottom] = tree.split_below(center, 0.68, vec![Tab::Terminal, Tab::Todo]);
+    let [_, bottom] = tree.split_below(center, 0.68, vec![Tab::Terminal, Tab::Todo, Tab::Script]);
     if !extra.is_empty() {
         tree.split_right(bottom, 0.55, extra.to_vec());
     }

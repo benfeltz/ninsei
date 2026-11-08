@@ -3,7 +3,10 @@
 //!
 //! Two parts:
 //! - **Spot checks**: single runs on a plain network of each tier, by a dumb bot (first route,
-//!   first breaker, never shields) and a competent one ([`play`]).
+//!   [`DUMB`]: two lines of icepick) and a careful one ([`CAREFUL`], its own program).
+//!   In a fight a bot only drives the deck's program, written in the game's BASIC: it plays,
+//!   and when the program hands over the turn (a STOP, a hang) it ends the turn, having no
+//!   hands of its own. If a bot can't say it in the language, a player can't either.
 //! - **Careers**: the competent bot from a fresh save, run after run. It climbs tiers when it
 //!   keeps getting out, falls back when it doesn't, spends its bank in RIG and wardials for
 //!   bigger numbers. The report says how long the climb takes, what the money buys and when,
@@ -14,9 +17,9 @@
 //! is `cargo run -p ninsei-core --example balance`. Same seed, same report.
 
 use crate::bbs::Line;
-use crate::data::{ChoiceEffect, Data, Drop, Effect, Intent, Penalty};
+use crate::data::{ChoiceEffect, Data, Drop, Effect, Penalty};
 use crate::fight::Outcome;
-use crate::game::{Action, ContractStatus, Game, Phase};
+use crate::game::{Action, ContractStatus, ExecState, Game, Phase, StepWhat};
 use crate::hub::{Entry, RunEnd, Save, Upgrade};
 use crate::network::NodeKind;
 use crate::rng::Rng;
@@ -53,14 +56,70 @@ impl Config {
     }
 }
 
+/// The dumb bot's program: pick at whatever it is until the cycles run out.
+pub const DUMB: &str = "10 RUN icepick\n20 GOTO 10";
+
+/// The careful bot's program. It looks after the deck first: patch when integrity runs low,
+/// raise the firewall when a hit that matters is next, scrub a high trace. Then it uses the
+/// breaker made for the ICE in front of it, and the strongest breaker it carries after that.
+/// It buys the specialists, so it names them. Each specialist is written out six times (a
+/// maxed CPU) rather than looped: a RUN that can't run costs nothing, so a loop on a breaker
+/// the deck doesn't carry would hang, while six skipped lines fall through to line 600.
+pub const CAREFUL: &str = "\
+10 IF INTEG < 7
+20 RUN patch
+30 IF NEXT ATTACK
+40 IF INTEG < 16
+50 RUN firewall
+60 IF TRACE > 69
+70 RUN scrubber
+80 IF ICE CODEGATE
+90 GOTO 300
+100 IF ICE SENTRY
+110 GOTO 400
+120 GOTO 500
+300 RUN decoder
+310 RUN decoder
+320 RUN decoder
+330 RUN decoder
+340 RUN decoder
+350 RUN decoder
+360 GOTO 600
+400 RUN garrote
+410 RUN garrote
+420 RUN garrote
+430 RUN garrote
+440 RUN garrote
+450 RUN garrote
+460 GOTO 600
+500 RUN crowbar
+510 RUN crowbar
+520 RUN crowbar
+530 RUN crowbar
+540 RUN crowbar
+550 RUN crowbar
+600 RUN torch
+610 RUN wyrm
+620 RUN icepick
+630 GOTO 600";
+
 /// Which bot plays.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Bot {
-    /// First route, first affordable breaker, never shields, walks away from everyone.
+    /// First route, [`DUMB`] in fights, walks away from everyone.
     Dumb,
-    /// Picks routes, breaks with the best hit per cycle, shields before attacks, repairs,
-    /// scrubs trace, loads what it carries, walks away from encounters.
+    /// The careful bot: picks routes, shops, talks, and fights with [`CAREFUL`].
     Smart,
+}
+
+impl Bot {
+    /// The program the bot fights with. Neither is the kit's `SAFE`, which only defends.
+    pub fn program(self) -> &'static str {
+        match self {
+            Bot::Dumb => DUMB,
+            Bot::Smart => CAREFUL,
+        }
+    }
 }
 
 /// What a run's bot saw, for the report.
@@ -102,17 +161,20 @@ pub fn play_knowing(mut g: Game, bot: Bot, known: &[String]) -> (Game, RunLog) {
     let mut log = RunLog::default();
     let mut shopped: Vec<(bool, usize)> = Vec::new();
     let mut steps = 0;
+    if g.program.lines.is_empty() {
+        g.apply(Action::Program(bot.program().to_string()));
+    }
+    // The program handed the turn over (a STOP or a hang): a bot has no hands, so it ends it.
+    let mut handed = false;
     while steps < 5_000 {
         steps += 1;
         match g.phase {
             Phase::Exploring => {
                 if bot == Bot::Smart {
-                    load_what_fits(&mut g);
                     let here = (g.outer.is_some(), g.at);
                     if g.at_bbs() && !shopped.contains(&here) {
                         shopped.push(here);
                         shop_bbs(&mut g, known, &mut log);
-                        load_what_fits(&mut g);
                     }
                 }
                 let to = match bot {
@@ -126,17 +188,29 @@ pub fn play_knowing(mut g: Game, bot: Bot, known: &[String]) -> (Game, RunLog) {
                 }
             }
             Phase::Combat => {
-                let act = match bot {
-                    Bot::Dumb => dumb_move(&g),
-                    Bot::Smart => smart_move(&g),
-                };
-                if let Action::Run(slot) = act
-                    && let Ok(p) = g.preview(slot)
-                {
-                    let id = g.data.warez[g.hdd[slot].warez].id.clone();
-                    log.add_break(&id, p.hit());
+                if handed {
+                    handed = false;
+                    g.apply(Action::EndTurn);
+                    continue;
                 }
+                let act = if g.exec.state == ExecState::Running {
+                    Action::Step
+                } else {
+                    Action::Play
+                };
                 g.apply(act);
+                for s in &g.exec.trace {
+                    if let StepWhat::Ran {
+                        uid,
+                        outcome: Outcome::Break { hit, .. },
+                    } = s.what
+                        && let Some(p) = g.hdd.iter().find(|p| p.uid == uid)
+                    {
+                        let id = g.data.warez[p.warez].id.clone();
+                        log.add_break(&id, hit);
+                    }
+                }
+                handed = g.phase == Phase::Combat && g.exec.state != ExecState::Running;
             }
             Phase::Encounter => {
                 let pick = match bot {
@@ -169,87 +243,6 @@ pub fn play_knowing(mut g: Game, bot: Bot, known: &[String]) -> (Game, RunLog) {
         }
     }
     (g, log)
-}
-
-fn dumb_move(g: &Game) -> Action {
-    let cpu = g.combat.as_ref().map_or(0, |c| c.cpu);
-    g.hdd
-        .iter()
-        .enumerate()
-        .find(|(_, s)| {
-            s.loaded && s.spec.cpu <= cpu && matches!(s.spec.effect, Effect::Break { .. })
-        })
-        .map_or(Action::EndTurn, |(i, _)| Action::Run(i))
-}
-
-fn smart_move(g: &Game) -> Action {
-    let Some(c) = &g.combat else {
-        return Action::EndTurn;
-    };
-    let ok = |want: fn(&Outcome) -> bool| {
-        (0..g.hdd.len()).find(|&i| g.preview(i).is_ok_and(|p| want(&p.outcome)))
-    };
-    let d = &g.deck;
-    // Patch up before it's too late; shield an attack coming that would hurt.
-    if d.integrity * 3 <= d.integrity_max
-        && let Some(i) = ok(|o| matches!(o, Outcome::Repair(_)))
-    {
-        return Action::Run(i);
-    }
-    if let Some(Intent::Attack(n)) = g.intent()
-        && !c.stunned
-        && c.shield < n
-        && n * 2 >= d.integrity.min(n * 2)
-        && let Some(i) = ok(|o| matches!(o, Outcome::Shield(_)))
-    {
-        // Only when the hit matters: it would take a third of what's left, or more.
-        if n * 3 >= d.integrity {
-            return Action::Run(i);
-        }
-    }
-    if d.trace * 10 >= TRACE_MAX * 7
-        && let Some(i) = ok(|o| matches!(o, Outcome::Scrub(_)))
-    {
-        return Action::Run(i);
-    }
-    // The breaker that takes the most per cycle; a finishing blow beats everything.
-    let best = (0..g.hdd.len())
-        .filter_map(|i| g.preview(i).ok().map(|p| (i, p)))
-        .filter(|(_, p)| p.hit() > 0)
-        .max_by_key(|(_, p)| {
-            let kills = p.hit() >= c.strength;
-            (kills, p.hit() * 100 / p.cpu.max(1), p.hit())
-        });
-    if let Some((i, _)) = best {
-        return Action::Run(i);
-    }
-    // Nothing breaks: a stun buys a turn against an attack.
-    if matches!(g.intent(), Some(Intent::Attack(_)))
-        && let Some(i) = ok(|o| matches!(o, Outcome::Stun))
-    {
-        return Action::Run(i);
-    }
-    Action::EndTurn
-}
-
-/// Loads programs while RAM allows, breakers first.
-fn load_what_fits(g: &mut Game) {
-    loop {
-        let free = g.deck.ram_max.saturating_sub(g.ram_used());
-        let pick = g
-            .hdd
-            .iter()
-            .enumerate()
-            .filter(|(_, s)| !s.loaded && s.spec.ram <= free)
-            .max_by_key(|(_, s)| matches!(s.spec.effect, Effect::Break { .. }))
-            .map(|(i, _)| i);
-        let Some(i) = pick else { return };
-        let before = g.ram_used();
-        g.apply(Action::Load(i));
-        if g.ram_used() == before {
-            return;
-        }
-    }
 }
 
 /// The route a careful runner takes: the exit when it's there, loot when trace allows, and
@@ -513,7 +506,7 @@ fn talk(g: &Game, known: &[String], log: &mut RunLog) -> Option<usize> {
     let healthy = d.integrity * 3 >= d.integrity_max * 2
         && g.hdd
             .iter()
-            .any(|s| s.loaded && matches!(s.spec.effect, Effect::Break { .. }));
+            .any(|s| matches!(s.spec.effect, Effect::Break { .. }));
     let hurt = |p: &Penalty| match p {
         Penalty::Trace(n) => 4 * i64::from(*n),
         Penalty::Damage(n) => 8 * i64::from(*n),
@@ -820,7 +813,10 @@ impl Probe {
         let per = self.cfg.spot_runs;
         let (bot_ix, tier, seed) = (k / (per * 3), (k / per) % 3 + 1, u64::from(k % per));
         let bot = if bot_ix == 0 { Bot::Dumb } else { Bot::Smart };
-        let mut save = Save::default();
+        let mut save = Save {
+            program: Some(bot.program().to_string()),
+            ..Save::default()
+        };
         save.phonebook.push(Entry {
             id: 0,
             name: "probe".into(),
@@ -852,6 +848,7 @@ impl Probe {
         let save = self.save.get_or_insert_with(|| {
             let mut s = Save {
                 kit,
+                program: Some(CAREFUL.to_string()),
                 ..Save::default()
             };
             let seed = rng.next_u64();

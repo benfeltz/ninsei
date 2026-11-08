@@ -200,12 +200,11 @@ fn warez_name(w: &ninsei_core::binary::Spec) -> String {
     }
 }
 
-/// The warez table's columns: ID, NAME as wide as the widest name, then RAM and CPU while
-/// there's room for them. Names are never sliced: the numbers go first.
+/// The warez table's columns: ID, NAME as wide as the widest name, then CPU while there's
+/// room for it. Names are never sliced: the number goes first.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 struct WarezCols {
     name: usize,
-    ram: bool,
     cpu: bool,
 }
 
@@ -216,16 +215,12 @@ impl WarezCols {
         let base = 3 + name + 1;
         WarezCols {
             name,
-            ram: room >= base + 3,
-            cpu: room >= base + 3 + 4,
+            cpu: room >= base + 4,
         }
     }
 
-    fn line(&self, id: &str, name: &str, ram: &str, cpu: &str) -> String {
+    fn line(&self, id: &str, name: &str, cpu: &str) -> String {
         let mut s = format!("{id:<3}{name:<w$} ", w = self.name);
-        if self.ram {
-            s.push_str(&format!("{ram:>3}"));
-        }
         if self.cpu {
             s.push_str(&format!("{cpu:>4}"));
         }
@@ -273,11 +268,11 @@ impl Panes<'_> {
                 },
                 MeterRow {
                     label: "RAM",
-                    value: g.ram_used(),
+                    value: g.ifs_left(),
                     max: d.ram_max,
-                    note: format!("{}/{} GB", g.ram_used(), d.ram_max),
+                    note: format!("{}/{} GB", g.ifs_left(), d.ram_max),
                     series: h.series(|s| s.ram),
-                    hot: g.ram_used() == d.ram_max,
+                    hot: false,
                 },
                 MeterRow {
                     label: "HDD",
@@ -383,18 +378,12 @@ impl Panes<'_> {
         let p = self.pal;
         let fighting = g.phase == Phase::Combat;
         let cpu = g.combat.as_ref().map_or(0, |c| c.cpu);
-        let note = format!(
-            "ram {}/{}  hdd {}/{}",
-            g.ram_used(),
-            g.deck.ram_max,
-            g.hdd.len(),
-            g.deck.hdd_max
-        );
+        let note = format!("hdd {}/{}", g.hdd.len(), g.deck.hdd_max);
         let mut acts = Vec::new();
         let mut hex = None;
         boxed(ui, &p, "warez/", &note, |ui| {
-            // NAME is as wide as the widest real name; a narrow box drops CPU, then RAM,
-            // before it would slice a name.
+            // NAME is as wide as the widest real name; a narrow box drops CPU before it
+            // would slice a name.
             let name_w = g
                 .hdd
                 .iter()
@@ -403,12 +392,11 @@ impl Panes<'_> {
                 .unwrap_or(0);
             let cw = ui.fonts_mut(|f| f.glyph_width(&mono(MONO), 'M'));
             // What the row's buttons and activity graph take on its right.
-            let controls = 24.0 + 3.0 * (2.0 * cw + 2.0 * ui.spacing().button_padding.x) + 15.0;
+            let controls = 24.0 + 2.0 * (2.0 * cw + 2.0 * ui.spacing().button_padding.x) + 15.0;
             let room = ((ui.available_width() - controls) / cw).floor().max(0.0) as usize;
             let cols = WarezCols::fit(name_w, room);
-            ui.label(text(cols.line("ID", "NAME", "RAM", "CPU"), p.dim));
-            let mut order: Vec<usize> = (0..g.hdd.len()).collect();
-            order.sort_by_key(|&i| !g.hdd[i].loaded);
+            ui.label(text(cols.line("ID", "NAME", "CPU"), p.dim));
+            let order: Vec<usize> = (0..g.hdd.len()).collect();
             ScrollArea::vertical()
                 .auto_shrink([false, true])
                 .show(ui, |ui| {
@@ -419,13 +407,7 @@ impl Panes<'_> {
                             .history
                             .since_run(s.uid)
                             .is_some_and(|t| t < anim::RUN_GLOW_TICKS);
-                        let col = if lit {
-                            p.bright
-                        } else if s.loaded {
-                            p.fg
-                        } else {
-                            p.dim
-                        };
+                        let col = if lit { p.bright } else { p.fg };
                         let row = ui.horizontal(|ui| {
                             ui.spacing_mut().item_spacing.x = 3.0;
                             // Buttons pinned right, then the activity graph, then the row text
@@ -433,29 +415,15 @@ impl Panes<'_> {
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    if s.loaded {
-                                        if ui.small_button("ul").on_hover_text("unload").clicked() {
-                                            acts.push(Action::Unload(i));
-                                        }
-                                        if fighting
-                                            && ui
-                                                .add_enabled(
-                                                    cpu >= w.cpu,
-                                                    egui::Button::new("run").small(),
-                                                )
-                                                .clicked()
-                                        {
-                                            acts.push(Action::Run(i));
-                                        }
-                                    } else {
-                                        let fits = g.ram_used() + w.ram <= g.deck.ram_max;
-                                        if ui
-                                            .add_enabled(fits, egui::Button::new("ld").small())
-                                            .on_hover_text("load")
+                                    if fighting
+                                        && ui
+                                            .add_enabled(
+                                                cpu >= w.cpu,
+                                                egui::Button::new("run").small(),
+                                            )
                                             .clicked()
-                                        {
-                                            acts.push(Action::Load(i));
-                                        }
+                                    {
+                                        acts.push(Action::Run(i));
                                     }
                                     if g.has_tool("hexed")
                                         && ui
@@ -486,7 +454,6 @@ impl Panes<'_> {
                                             let line = cols.line(
                                                 &i.to_string(),
                                                 &warez_name(w),
-                                                &w.ram.to_string(),
                                                 &w.cpu.to_string(),
                                             );
                                             ui.add(egui::Label::new(text(line, col)).truncate())
@@ -510,12 +477,6 @@ impl Panes<'_> {
                         }
                     }
                 });
-            if fighting {
-                ui.label(text(
-                    format!("loading mid-fight costs {} cpu", tuning::COMBAT_LOAD_CPU),
-                    p.dim,
-                ));
-            }
         });
         for a in acts {
             self.act(a);
@@ -617,7 +578,7 @@ impl Panes<'_> {
                 });
                 ui.add_space(4.0);
                 ui.horizontal_wrapped(|ui| {
-                    for (i, s) in g.hdd.iter().enumerate().filter(|(_, s)| s.loaded) {
+                    for (i, s) in g.hdd.iter().enumerate() {
                         let w = &s.spec;
                         let class_hit =
                             matches!(w.effect, Effect::Break { vs: Some(v), .. } if v == ice.class);
@@ -1041,21 +1002,19 @@ mod tests {
     #[test]
     fn the_warez_table_drops_numbers_before_it_slices_a_name() {
         let cols = WarezCols::fit("firewall.exe+O2".len(), 40);
-        assert_eq!((cols.ram, cols.cpu), (true, true));
-        let row = cols.line("0", "firewall.exe+O2", "2", "1");
+        assert!(cols.cpu);
+        let row = cols.line("0", "firewall.exe+O2", "1");
         assert!(row.contains("firewall.exe+O2"), "{row}");
         assert_eq!(
-            cols.line("ID", "NAME", "RAM", "CPU").len(),
+            cols.line("ID", "NAME", "CPU").len(),
             row.len(),
             "header on the row"
         );
-        // Narrower: CPU goes, then RAM; the name stays whole.
+        // Narrower: CPU goes; the name stays whole.
         let cols = WarezCols::fit(15, 3 + 16 + 3);
-        assert_eq!((cols.ram, cols.cpu), (true, false));
-        let cols = WarezCols::fit(15, 3 + 16);
-        assert_eq!((cols.ram, cols.cpu), (false, false));
+        assert!(!cols.cpu);
         assert!(
-            cols.line("0", "firewall.exe+O2", "2", "1")
+            cols.line("0", "firewall.exe+O2", "1")
                 .contains("firewall.exe+O2")
         );
     }
