@@ -4,7 +4,7 @@ The Sense/Net deck's desktop. Reference: the first Macintosh's System 1.x on a 5
 with the Lisa's name (see `docs/design.md`, the Sense/Net's point of view), and the 1992 Human
 Interface Guidelines as the review bar (`.claude/skills/fake-app-craft/references/`). The kit that
 draws it is `crates/app/src/kit/liza.rs`, shared by the Liza desktop (`liza.rs`), System's
-Control Panel (`system.rs`) and the Stack chrome's Script card (`stack.rs`).
+Control Panel (`system.rs`) and the Stack chrome's Script pane (`stack.rs`).
 
 These are the numbers the kit draws to. Change them here and in `kit::liza::size` together.
 
