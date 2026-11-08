@@ -401,6 +401,9 @@ pub struct KitDef {
 /// nowhere, or a RUN or HAVE naming a program no warez is called.
 pub fn program_fault(text: &str, data: &Data) -> Option<String> {
     let p = crate::basic::parse(text);
+    if let Some(s) = p.stray.first() {
+        return Some(format!("`{s}`: {}", crate::basic::NO_NUMBER));
+    }
     let known = |name: &str| {
         data.warez
             .iter()

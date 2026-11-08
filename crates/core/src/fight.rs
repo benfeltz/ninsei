@@ -106,6 +106,8 @@ pub struct LineView {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProgramView {
     pub lines: Vec<LineView>,
+    /// Text typed with no line number: shown after the program, never run.
+    pub stray: Vec<String>,
     pub state: ExecState,
     /// Whether there's a fight for it to run in.
     pub fighting: bool,
@@ -139,6 +141,7 @@ impl Game {
         let c = self.combat.as_ref();
         ProgramView {
             lines,
+            stray: self.program.stray.clone(),
             state: self.exec.state,
             fighting,
             cpu_left: c.map_or(self.deck.cpu_max, |c| c.cpu),

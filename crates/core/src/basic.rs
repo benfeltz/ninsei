@@ -27,7 +27,13 @@ pub const INTENTS: [&str; 3] = ["ATTACK", "TRACE", "FORTIFY"];
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Program {
     pub lines: Vec<Line>,
+    /// Text with no line number (or one past `MAX_LINE`): kept as typed, never run, and
+    /// printed back after the program, so it can't take another line's number.
+    pub stray: Vec<String>,
 }
+
+/// Why a stray line isn't part of the program.
+pub const NO_NUMBER: &str = "?SYNTAX ERROR: no line number";
 
 /// One numbered line.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -126,11 +132,12 @@ impl Program {
         self.lines.first().map(|l| l.no)
     }
 
-    /// The program as text, one numbered line each.
+    /// The program as text, one numbered line each, then the stray lines as typed.
     pub fn text(&self) -> String {
         self.lines
             .iter()
             .map(|l| format!("{} {}", l.no, l.text))
+            .chain(self.stray.iter().cloned())
             .collect::<Vec<_>>()
             .join("\n")
     }
@@ -172,11 +179,10 @@ impl Program {
     }
 }
 
-/// Parses a whole program. A line with no number is kept (numbered after the line before it)
-/// and marked bad; a number given twice keeps the last.
+/// Parses a whole program. A line with no number is kept as stray text, outside the program;
+/// a number given twice keeps the last.
 pub fn parse(text: &str) -> Program {
     let mut p = Program::default();
-    let mut last = 0;
     for raw in text.lines() {
         let raw = raw.trim();
         if raw.is_empty() {
@@ -192,21 +198,8 @@ pub fn parse(text: &str) -> Program {
                 } else {
                     p.set_line(no, rest);
                 }
-                last = no;
             }
-            None => {
-                let why = if digits > 0 {
-                    "?ILLEGAL LINE NUMBER"
-                } else {
-                    "?SYNTAX ERROR: no line number"
-                };
-                last = (last + 1).min(MAX_LINE);
-                p.put(Line {
-                    no: last,
-                    stmt: Stmt::Bad(why.to_string()),
-                    text: raw.to_string(),
-                });
-            }
+            None => p.stray.push(raw.to_string()),
         }
     }
     p

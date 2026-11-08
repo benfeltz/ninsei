@@ -26,16 +26,30 @@ fn parses_the_sample() {
 
 #[test]
 fn bad_lines_are_kept_and_named() {
-    let p = basic::parse("10 RUN\n20 JUMP 10\nRUN icepick\n30 IF INTEG 10\n40 STOP");
-    assert_eq!(p.lines.len(), 5, "{p:?}");
-    for no in [10, 20, 21, 30] {
+    let p = basic::parse("10 RUN\n20 JUMP 10\n30 IF INTEG 10\n40 STOP");
+    assert_eq!(p.lines.len(), 4, "{p:?}");
+    for no in [10, 20, 30] {
         let why = p
             .fault(no)
             .unwrap_or_else(|| panic!("line {no} should be bad: {p:?}"));
         assert!(why.starts_with('?'), "{why}");
     }
-    assert_eq!(p.line(21).map(|l| l.text.as_str()), Some("RUN icepick"));
     assert_eq!(p.line(40).map(|l| &l.stmt), Some(&Stmt::Stop));
+}
+
+#[test]
+fn a_line_with_no_number_never_takes_anothers() {
+    // Kept as typed, outside the program: it can't replace line 11 or be replaced by it.
+    for text in ["11 RUN a\n10 RUN b\nRUN c", "10 RUN a\nRUN c\n11 RUN b"] {
+        let p = basic::parse(text);
+        assert_eq!(p.lines.len(), 2, "{text}: {p:?}");
+        assert_eq!(p.stray, ["RUN c"], "{text}");
+        // Printed back without a number, so a round trip never makes it a runnable line.
+        let back = basic::parse(&p.text());
+        assert_eq!(back, p, "{text}");
+        assert!(back.lines.iter().all(|l| l.stmt != Stmt::Run("c".into())));
+    }
+    assert_eq!(basic::parse("99999 RUN a").stray, ["99999 RUN a"]);
 }
 
 #[test]
