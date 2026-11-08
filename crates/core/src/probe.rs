@@ -313,13 +313,10 @@ fn open_desktop(save: &mut Save, data: &Data) {
     if !save.intros {
         return;
     }
-    let games = save.games.iter().filter_map(|g| {
-        let def = data.game(&g.id)?;
-        Some(match g.copy {
-            crate::hub::GameCopy::Cracked => def.crack.clone(),
-            crate::hub::GameCopy::Boxed => def.splash.clone(),
-        })
-    });
+    let games = save
+        .games
+        .iter()
+        .filter_map(|g| Some(data.game(&g.id)?.intro(g.copy).to_string()));
     let tools = save
         .tools
         .iter()

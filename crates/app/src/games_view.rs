@@ -982,15 +982,12 @@ mod tests {
             };
             for t in Tool::games(&data, &save) {
                 let (def, copy) = t.game_def(&data).unwrap();
-                let want = match copy {
-                    GameCopy::Cracked => &def.crack,
-                    GameCopy::Boxed => &def.splash,
-                };
+                let want = def.intro(copy);
                 let mut h = Harness::new(1280.0, 800.0);
                 let mut home = Home::new(Vec::new());
                 frame(&mut h, &mut home, &data, &save, t, Vec::new());
                 if intros {
-                    assert_eq!(home.tune, Some(TuneCue::Play(want.clone())), "{t:?}");
+                    assert_eq!(home.tune, Some(TuneCue::Play(want.to_string())), "{t:?}");
                     assert!(home.game(t).is_none(), "{t:?}: its intro first");
                 } else {
                     assert_eq!(home.tune, None, "{t:?}: no intro, no tune");

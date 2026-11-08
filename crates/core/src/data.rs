@@ -306,6 +306,17 @@ pub struct GameDef {
     pub icon: Vec<String>,
 }
 
+impl GameDef {
+    /// The intro a copy plays when it opens: a crack its crew's cracktro, a box its
+    /// publisher's splash.
+    pub fn intro(&self, copy: crate::hub::GameCopy) -> &str {
+        match copy {
+            crate::hub::GameCopy::Cracked => &self.crack,
+            crate::hub::GameCopy::Boxed => &self.splash,
+        }
+    }
+}
+
 /// How a game is sold by mail order (the optional `shop` block in `games.ron`).
 #[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct GameShop {

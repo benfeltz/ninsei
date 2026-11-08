@@ -401,10 +401,7 @@ impl Home {
         let Some((def, _)) = tool.game_def(data) else {
             return;
         };
-        let intro = data.intro(match copy {
-            GameCopy::Cracked => &def.crack,
-            GameCopy::Boxed => &def.splash,
-        });
+        let intro = data.intro(def.intro(copy));
         if !self.games.contains_key(&tool) {
             let now = ui.input(|i| i.time);
             let intro = intro.filter(|_| save.intros);
@@ -1249,11 +1246,7 @@ pub(crate) fn game_window(
     let grid = crate::games_view::grids(def)[0];
     let cell = crate::kit::Cells::cell_size(ui.ctx());
     let field = vec2(grid.cols as f32 * cell.x, grid.rows as f32 * cell.y);
-    let intro = match copy {
-        GameCopy::Cracked => &def.crack,
-        GameCopy::Boxed => &def.splash,
-    };
-    let room = if save.intros && data.intro(intro).is_some() {
+    let room = if save.intros && data.intro(def.intro(copy)).is_some() {
         field.max(crate::bbs_view::screen_size(ui))
     } else {
         field
