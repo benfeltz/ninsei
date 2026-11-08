@@ -592,8 +592,9 @@ pub fn popup_width(ctx: &egui::Context, options: &[String], value: &str, look: &
 
 /// A pop-up menu in `r`, System 1's: the value in a shadowed box with a ▾, and on a click its
 /// options in a shadowed list under it, the one under the pointer (or picked with ↑↓)
-/// inverted. A click or Enter picks; Esc or a click outside closes it. Returns the option
-/// picked.
+/// inverted. A click or Enter picks; Esc or a click outside closes it. While it's open it has
+/// the keyboard (`egui_wants_keyboard_input`), so nothing else takes those keys. Returns the
+/// option picked.
 pub fn popup_menu(
     ui: &mut Ui,
     r: Rect,
@@ -625,13 +626,31 @@ pub fn popup_menu(
     );
     let ctx = ui.ctx().clone();
     let mut open: Option<usize> = ctx.data(|d| d.get_temp(open_id));
-    if resp.clicked() {
+    // Only the mouse opens and closes it: egui turns Enter on a focused widget into a click,
+    // and that Enter is the open menu's pick.
+    let clicked = resp.clicked() && ctx.input(|i| i.pointer.any_released());
+    if clicked {
         open = match open {
             Some(_) => None,
             None => Some(options.iter().position(|o| o == value).unwrap_or(0)),
         };
     }
     let mut picked = None;
+    if open.is_some() {
+        // Open, it owns the keyboard: ↑↓, Enter and Esc are its, and nothing else that asks
+        // whether the keys are free takes them.
+        resp.request_focus();
+        ctx.memory_mut(|m| {
+            m.set_focus_lock_filter(
+                id,
+                egui::EventFilter {
+                    vertical_arrows: true,
+                    escape: true,
+                    ..Default::default()
+                },
+            )
+        });
+    }
     if let Some(mut hi) = open {
         let row = size::MENU_ITEM_H;
         let w = r
@@ -694,11 +713,14 @@ pub fn popup_menu(
             picked = Some(hi);
         }
         let outside = ctx.input(|i| i.pointer.any_pressed())
-            && !resp.clicked()
+            && !clicked
             && ctx
                 .pointer_interact_pos()
                 .is_some_and(|q| !list.contains(q) && !r.contains(q));
         open = (picked.is_none() && !esc && !outside).then_some(hi);
+    }
+    if open.is_none() && resp.has_focus() {
+        resp.surrender_focus();
     }
     ctx.data_mut(|d| match open {
         Some(hi) => {

@@ -1160,6 +1160,88 @@ pub(crate) mod tests {
         ice_card(h, g, PANE, ev)
     }
 
+    /// One frame as the run draws it: the Stack's keys first, then the ICE card; returns what
+    /// both asked for.
+    fn run_frame(hn: &mut crate::uitest::Harness, g: &Game, ev: Vec<egui::Event>) -> Vec<Request> {
+        let (mut term, mut focus, mut hex, mut keep) =
+            (ninsei_term::LineEditor::default(), false, None, Vec::new());
+        let (mut suite, mut suite2) = (
+            crate::suite::State::default(),
+            crate::suite::State::default(),
+        );
+        let mut out = Vec::new();
+        hn.frame(ev, |ui| {
+            let mut popup = crate::volume::Popup::default();
+            let mut cx = FrameCx {
+                game: g,
+                pal: crate::theme::Palette::from_def(&g.data.themes[0]),
+                suite: &mut suite2,
+                keys_free: true,
+                level: crate::volume::Level {
+                    on: true,
+                    volume: 100,
+                },
+                popup: &mut popup,
+            };
+            out = Stack.keys(ui.ctx(), &mut cx);
+            let mut child = ui.new_child(
+                egui::UiBuilder::new()
+                    .max_rect(Rect::from_min_size(egui::Pos2::ZERO, vec2(PANE.0, PANE.1))),
+            );
+            let mut panes = Panes {
+                game: g,
+                pal: crate::theme::Palette::from_def(&g.data.themes[0]),
+                map: ninsei_core::netview::MapView::Paint,
+                deck: String::new(),
+                chrome: ninsei_core::hardware::Chrome::Stack,
+                corrupt: (0.0, 0),
+                term: &mut term,
+                focus_input: &mut focus,
+                bbs_open: false,
+                hex: &mut hex,
+                keep: &mut keep,
+                keep_room: 0,
+                suite: &mut suite,
+                hear: &Vec::new,
+                scope_rate: 0,
+                out: Vec::new(),
+            };
+            Stack.target(&mut panes, &mut child);
+            out.extend(panes.out);
+        });
+        out
+    }
+
+    #[test]
+    fn an_open_menu_takes_enter_and_esc_from_the_card() {
+        let mut g = fight("10 IF INTEG < 3\n20 RUN icepick");
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        run_frame(&mut h, &g, vec![]);
+        let menu = h.find("INTEG").unwrap();
+        run_frame(&mut h, &g, crate::uitest::click(menu.center()));
+        run_frame(&mut h, &g, vec![]);
+        run_frame(&mut h, &g, crate::uitest::key(egui::Key::ArrowDown));
+        let out = run_frame(&mut h, &g, crate::uitest::key(egui::Key::Enter));
+        let acts = apply(&mut g, out);
+        assert_eq!(acts.len(), 1, "{acts:?}");
+        assert!(
+            matches!(&acts[0], Action::Program(_)),
+            "Enter picked, it didn't press Run"
+        );
+        assert_eq!(g.program.line(10).unwrap().text, "IF TRACE < 10");
+        // While running, Esc on an open menu closes the menu and leaves the program running.
+        g.apply(Action::Play);
+        run_frame(&mut h, &g, vec![]);
+        let menu = h.find("TRACE").unwrap();
+        run_frame(&mut h, &g, crate::uitest::click(menu.center()));
+        run_frame(&mut h, &g, vec![]);
+        let out = run_frame(&mut h, &g, crate::uitest::key(egui::Key::Escape));
+        assert!(apply(&mut g, out).is_empty());
+        assert_eq!(g.exec.state, ninsei_core::game::ExecState::Running);
+        run_frame(&mut h, &g, vec![]);
+        assert!(h.find("CPU").is_none(), "the menu closed");
+    }
+
     #[test]
     fn the_card_replaces_the_alert() {
         let g = fight("10 RUN icepick\n20 STOP");
