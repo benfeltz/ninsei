@@ -60,7 +60,10 @@ fn title(tool: Tool, data: &ninsei_core::Data) -> String {
         Tool::NightComm => "NiGHTCOMM 3.1".into(),
         Tool::TigerTeam => "Tiger Team Pro 3.0".into(),
         Tool::Guide => "Welcome to the Net".into(),
-        Tool::Player => "TRAX 1.2".into(),
+        // Its name and version, as tools.ron has them.
+        Tool::Player => data
+            .tool("player")
+            .map_or_else(|| tool.name(data), |t| format!("{} {}", t.name, t.version)),
         // A game by the copy's label, with its version, as its own title screen says it.
         Tool::Game(..) => match tool.game_def(data) {
             Some((g, _)) => format!("{} {}", tool.name(data), g.version),
@@ -1082,5 +1085,13 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn traxs_title_is_its_name_and_version_from_the_data() {
+        let mut data = ninsei_core::Data::builtin().unwrap();
+        let t = data.tools.iter_mut().find(|t| t.id == "player").unwrap();
+        t.version = "9.9".into();
+        assert_eq!(title(Tool::Player, &data), "TRAX 9.9");
     }
 }
