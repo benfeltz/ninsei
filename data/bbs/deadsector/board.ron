@@ -89,5 +89,8 @@
             (file: "FRAG-HOT.ZIP", item: Fragment(1),       price: 90,  desc: "Optimizer fragment, cracked"),
             (file: "FRAG2-X.ZIP",  item: Fragment(2),       price: 170, desc: "Fragments x2, no serials"),
         ]),
+        (name: "NOISE", stock: 1, always: true, files: [
+            (file: "TRAPLINE.MOD", item: Tune("trap-line"),     price: 25,  desc: "d1rge. Play it loud. Alone"),
+        ]),
     ],
 )

@@ -82,10 +82,14 @@
             (file: "ICEDB.ZIP",    item: Tool("icedb"),     price: 0,   desc: "ICE bestiary. Know what you fight"),
         ]),
         // Your first breakers. A consumer deck ships with a shield and a repair kit; this is
-        // where you get something that breaks ICE.
-        (name: "FREEWARE", stock: 2, always: true, files: [
+        // where you get something that breaks ICE. The crews give their music disks away here
+        // too, the way the scene always has (docs/world.md).
+        (name: "FREEWARE", stock: 5, always: true, files: [
             (file: "ICEPICK.ZIP",  item: Warez("icepick"),  price: 0,   desc: "IcePick - chips at anything. Free"),
             (file: "DECODER.ZIP",  item: Warez("decoder"),  price: 0,   desc: "Decoder - code gates. Free"),
+            (file: "NINSEI.MOD",   item: Tune("ninsei-nights"), price: 0, desc: "NiGHTMOTHS music disk. 3am shift"),
+            (file: "CHROMA.MOD",   item: Tune("chroma"),        price: 0, desc: "PHOSPHOR. Fast, loud, perfect"),
+            (file: "SILICON.MOD",  item: Tune("silicon-rain"),  price: 0, desc: "PHOSPHOR again. Wet and slow"),
         ]),
         (name: "G-FILES", stock: 4, always: true, files: [
             (file: "WARDIAL.TXT",  item: Text("primer"),    price: 0,   desc: "Wardialing for the clueless"),

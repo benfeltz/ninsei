@@ -49,11 +49,14 @@ pub trait Line {
     /// Whether you have a cracked copy of a game: it lists as yours, like a tool. A boxed
     /// copy doesn't count; the board still sells the crack.
     fn has_crack(&self, id: &str) -> bool;
+    /// Whether you own a tune: it lists as yours, like a tool.
+    fn has_tune(&self, id: &str) -> bool;
     /// Whether a file's tool or game crack is already yours: it lists as yours, not for sale.
     fn owns(&self, item: &Drop) -> bool {
         match item {
             Drop::Tool(t) => self.has_tool(t),
             Drop::Game(g) => self.has_crack(g),
+            Drop::Tune(t) => self.has_tune(t),
             _ => false,
         }
     }
@@ -111,6 +114,10 @@ impl Line for Game {
 
     fn has_crack(&self, id: &str) -> bool {
         Game::has_crack(self, id)
+    }
+
+    fn has_tune(&self, id: &str) -> bool {
+        Game::has_tune(self, id)
     }
 }
 
@@ -796,6 +803,7 @@ fn drop_tag(item: &Drop, l: &Look) -> String {
         Drop::Hint(_) => format!(" {}[TXT]", pipe(l.ok)),
         Drop::Text(_) => format!(" {}[READ]", pipe(l.ok)),
         Drop::Tool(_) | Drop::Game(_) => format!(" {}[EXE]", pipe(l.key)),
+        Drop::Tune(_) => format!(" {}[MUS]", pipe(l.key)),
         _ => format!(" {}[MOD]", pipe(l.aside)),
     }
 }

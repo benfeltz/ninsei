@@ -115,6 +115,8 @@ pub struct Kit {
     /// Games you have a cracked copy of (ids in `hub/games.ron`): a board won't sell you one
     /// twice. A boxed copy doesn't count: the crack is still for sale.
     pub games: Vec<String>,
+    /// Tunes you own (ids in `data/music/`): a board won't sell you one twice.
+    pub tunes: Vec<String>,
     /// Textfiles already on your disk, as (board id, text id).
     pub texts: Vec<(String, String)>,
     /// For each of `programs`, the stash id it came from (`None` for a free program). The run
@@ -146,6 +148,7 @@ impl Default for Kit {
             trust: Vec::new(),
             tools: Vec::new(),
             games: Vec::new(),
+            tunes: Vec::new(),
             texts: Vec::new(),
             origins: Vec::new(),
             free: Vec::new(),
@@ -412,6 +415,9 @@ pub struct Game {
     /// Games you own, the kit's plus any downloaded this run (cracked copies). They come home
     /// even on a flatline.
     pub games: Vec<String>,
+    /// Tunes you own, the kit's plus any downloaded this run. They come home even on a
+    /// flatline.
+    pub tunes: Vec<String>,
     /// Textfiles on your disk, as (board id, text id): the kit's plus any downloaded this run.
     /// They come home even on a flatline, for the QWK reader.
     pub texts: Vec<(String, String)>,
@@ -553,6 +559,7 @@ impl Game {
             sold_out: 0,
             tools: kit.tools.clone(),
             games: kit.games.clone(),
+            tunes: kit.tunes.clone(),
             texts: kit.texts.clone(),
             from_stash: Vec::new(),
             program: crate::basic::parse(&kit.program),
@@ -1858,6 +1865,11 @@ impl Game {
         self.games.iter().any(|g| g == id)
     }
 
+    /// Whether you own a tune (an id in `data/music/`).
+    pub fn has_tune(&self, id: &str) -> bool {
+        self.tunes.iter().any(|t| t == id)
+    }
+
     /// Whether a textfile on this run's board is already on your disk.
     pub fn has_text(&self, id: &str) -> bool {
         let board = &self.bbs().id;
@@ -2070,6 +2082,13 @@ impl Game {
                     self.games.push(id);
                 }
                 self.say(LogKind::Loot, format!("+ game: {name}"));
+            }
+            Drop::Tune(id) => {
+                let title = self.data.tune(&id).map_or(id.clone(), |t| t.title.clone());
+                if !self.has_tune(&id) {
+                    self.tunes.push(id);
+                }
+                self.say(LogKind::Loot, format!("+ music disk: {title}"));
             }
             Drop::Text(id) => {
                 if !self.has_text(&id) {

@@ -118,6 +118,8 @@ pub enum Drop {
     Tool(String),
     /// A cracked copy of a game (id in `hub/games.ron`): yours for good, even on a flatline.
     Game(String),
+    /// A tune on a music disk (id in `data/music/`): yours for good, even on a flatline.
+    Tune(String),
     /// A textfile on a board (id in the board's `texts`): you read it there, free.
     Text(String),
     Nothing,
@@ -320,6 +322,20 @@ impl GameDef {
 #[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct GameShop {
     pub price: u32,
+}
+
+/// A music disk sold boxed by mail order (`data/hub/compilations.ron`): one order, several
+/// tunes. Its publisher writes it up; it knows its own tunes and nothing of the scene's.
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct CompilationDef {
+    pub id: String,
+    pub name: String,
+    pub blurb: String,
+    /// Who sells it (a vendor id in `hub/shopper.ron`).
+    pub publisher: String,
+    pub price: u32,
+    /// The tunes on it (ids in `data/music/`), in the order they play.
+    pub tunes: Vec<String>,
 }
 
 /// The shortest and longest tick a game may ask for.
@@ -760,6 +776,7 @@ pub struct Sources<'a> {
     pub hardware: &'a str,
     pub tools: &'a str,
     pub games: &'a str,
+    pub compilations: &'a str,
     pub addons: &'a str,
     pub panes: &'a str,
     pub shopper: &'a str,
@@ -796,6 +813,7 @@ impl Sources<'static> {
             hardware: include_str!("../../../data/hub/hardware.ron"),
             tools: include_str!("../../../data/hub/tools.ron"),
             games: include_str!("../../../data/hub/games.ron"),
+            compilations: include_str!("../../../data/hub/compilations.ron"),
             addons: include_str!("../../../data/hub/desktops.ron"),
             panes: include_str!("../../../data/hub/panes.ron"),
             shopper: include_str!("../../../data/hub/shopper.ron"),
@@ -842,6 +860,8 @@ pub struct Data {
     pub tools: Vec<ToolDef>,
     /// Games you can own: cracked from a board or boxed by mail.
     pub games: Vec<GameDef>,
+    /// Music disks sold boxed by mail order.
+    pub compilations: Vec<CompilationDef>,
     /// Desktop add-ons you can buy.
     pub addons: Vec<crate::desktop::AddonDef>,
     /// Secondary panes you can buy for the run screen.
@@ -912,6 +932,8 @@ impl Data {
             hardware: ron::from_str(src.hardware).map_err(|e| format!("hub/hardware.ron: {e}"))?,
             tools: ron::from_str(src.tools).map_err(|e| format!("hub/tools.ron: {e}"))?,
             games: ron::from_str(src.games).map_err(|e| format!("hub/games.ron: {e}"))?,
+            compilations: ron::from_str(src.compilations)
+                .map_err(|e| format!("hub/compilations.ron: {e}"))?,
             addons: ron::from_str(src.addons).map_err(|e| format!("hub/desktops.ron: {e}"))?,
             panes: ron::from_str(src.panes).map_err(|e| format!("hub/panes.ron: {e}"))?,
             shopper: ron::from_str(src.shopper).map_err(|e| format!("hub/shopper.ron: {e}"))?,
@@ -1001,6 +1023,8 @@ impl Data {
         self.validate_games()
             .map_err(|e| format!("hub/games.ron: {e}"))?;
         self.validate_tunes()?;
+        self.validate_compilations()
+            .map_err(|e| format!("hub/compilations.ron: {e}"))?;
         for (i, w) in self.warez.iter().enumerate() {
             if self.warez[..i].iter().any(|o| o.id == w.id) {
                 return Err(format!("duplicate warez id `{}`", w.id));
@@ -1151,6 +1175,12 @@ impl Data {
         if let Some((place, _)) = drops.iter().find(|(_, d)| matches!(d, Drop::Game(_))) {
             return Err(format!(
                 "{place} drops a game: games only come from a board's files"
+            ));
+        }
+        // A music disk is a crew's release, posted on a board too.
+        if let Some((place, _)) = drops.iter().find(|(_, d)| matches!(d, Drop::Tune(_))) {
+            return Err(format!(
+                "{place} drops a tune: music disks only come from a board's files"
             ));
         }
         for b in &self.boards {
@@ -1330,6 +1360,11 @@ impl Data {
                     {
                         return Err(err(format!("file `{}` names unknown tool `{id}`", f.file)));
                     }
+                    if let Drop::Tune(id) = &f.item
+                        && self.tune(id).is_none()
+                    {
+                        return Err(err(format!("file `{}` names unknown tune `{id}`", f.file)));
+                    }
                     if let Drop::Game(id) = &f.item {
                         let Some(g) = self.game(id) else {
                             return Err(err(format!(
@@ -1384,9 +1419,6 @@ impl Data {
         Ok(())
     }
 
-    /// Every engine has a game, every game's field fits its engine and a screen, its tick is
-    /// sane, its crack is a crack and
-    /// its splash a splash, and its publisher advertises in CPU Shopper.
     /// Every tune: a unique id, a title that fits a playlist row, an author who signs a
     /// cracktro (a crew, or a publisher's splash), a sound pattern whose loop fits
     /// [`crate::music::MAX_LOOP_SECS`], and a length of at least one loop.
@@ -1421,6 +1453,40 @@ impl Data {
         Ok(())
     }
 
+    /// Every compilation: a unique id, a price, a publisher that advertises in CPU Shopper,
+    /// and one or more tunes that exist, each once.
+    fn validate_compilations(&self) -> Result<(), String> {
+        for (i, c) in self.compilations.iter().enumerate() {
+            let err = |m: String| Err(format!("`{}`: {m}", c.id));
+            if self.compilations[..i].iter().any(|o| o.id == c.id) {
+                return err("listed twice".into());
+            }
+            if c.price == 0 {
+                return err("a boxed disk has a price".into());
+            }
+            if !self.shopper.vendors.iter().any(|v| v.id == c.publisher) {
+                return err(format!("unknown publisher `{}`", c.publisher));
+            }
+            if c.tunes.is_empty() {
+                return err("holds no tunes".into());
+            }
+            for (n, t) in c.tunes.iter().enumerate() {
+                if self.tune(t).is_none() {
+                    return err(format!("names unknown tune `{t}`"));
+                }
+                if c.tunes[..n].contains(t) {
+                    return err(format!("holds `{t}` twice"));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// The compilation called `id` (in `hub/compilations.ron`).
+    pub fn compilation(&self, id: &str) -> Option<&CompilationDef> {
+        self.compilations.iter().find(|c| c.id == id)
+    }
+
     /// Whether `who` signs a cracktro or a splash: a group, or one of the names a group
     /// joins with ` & ` (`m0th & the NiGHTMOTHS` is m0th and the NiGHTMOTHS).
     pub fn signs(&self, who: &str) -> bool {
@@ -1434,6 +1500,9 @@ impl Data {
         self.tunes.iter().find(|t| t.id == id)
     }
 
+    /// Every engine has a game, every game's field fits its engine and a screen, its tick is
+    /// sane, its crack is a crack and
+    /// its splash a splash, and its publisher advertises in CPU Shopper.
     fn validate_games(&self) -> Result<(), String> {
         for (i, g) in self.games.iter().enumerate() {
             let err = |m: String| Err(format!("game `{}`: {m}", g.id));

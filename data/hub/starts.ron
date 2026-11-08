@@ -12,6 +12,7 @@
 //   ranges   number ranges already known (the local exchange always is)
 //   bank     credits in the bank
 //   games    games already on the desktop, (id, Cracked or Boxed)
+//   tunes    tunes already on the disk (ids in data/music/), for a player once you have one
 //   program  the deck's program (BASIC, see docs/design.md "Fights"): every fight opens with it.
 //            A kit without one ships the default kit's.
 (
@@ -31,6 +32,8 @@
         // only what the deck ships, so the first thing a player writes is a RUN of a breaker.
         (id: "pick", default: true, free: ["firewall", "patch", "icepick"],
          games: [("nibbler", Cracked)],
+         // Sense/Net's demo tune is in the box; the dubbed disk carried a 2400 CLUB tune too.
+         tunes: ["welcome", "dialup-rag"],
          program: r#"
 10 REM SAFE 1.0  (c) Sense/Net
 20 IF INTEG < 7

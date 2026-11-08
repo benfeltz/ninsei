@@ -27,6 +27,8 @@ pub struct HomeCall {
     tools: Vec<String>,
     /// Games you have a cracked copy of (ids in `hub/games.ron`).
     games: Vec<String>,
+    /// Tunes you own (ids in `data/music/`).
+    tunes: Vec<String>,
     /// Textfiles from this board already on your disk (text ids).
     texts: Vec<String>,
     tool_defs: Vec<crate::data::ToolDef>,
@@ -65,6 +67,10 @@ impl Line for HomeCall {
 
     fn has_crack(&self, id: &str) -> bool {
         self.games.iter().any(|g| g == id)
+    }
+
+    fn has_tune(&self, id: &str) -> bool {
+        self.tunes.iter().any(|t| t == id)
     }
 
     fn buy_blocker(&self, area: usize, file: usize) -> Option<String> {
@@ -187,6 +193,7 @@ impl Save {
             stash_free,
             tools: self.tools.clone(),
             games: self.cracks(),
+            tunes: self.tunes.clone(),
             texts: self
                 .texts
                 .iter()
@@ -288,6 +295,11 @@ impl Save {
                 self.learn_tool(id);
                 let name = data.tool(id).map_or(id.as_str(), |t| t.name.as_str());
                 format!("{name} is on your desktop")
+            }
+            Drop::Tune(id) => {
+                self.learn_tune(id);
+                let title = data.tune(id).map_or(id.as_str(), |t| t.title.as_str());
+                format!("{title} is on your disk")
             }
             Drop::Game(id) => {
                 self.learn_game(id, crate::hub::GameCopy::Cracked);
