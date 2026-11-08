@@ -47,7 +47,7 @@ deck ─> firmware ─────┘
 
 ### Sense/Net Personal Deck: the starter
 
-**Fantasy.** Everybody's first deck, sold by the simstim giant that sells experiences to ordinary people. It's a friendly consumer machine that ships with a welcome stack and a smile, and the net seen through it is approachable, maybe a bit naive. The cracks show if you look: the fine print, the people its manual would rather you didn't meet.
+**Fantasy.** Everybody's first deck, sold by the simstim giant that sells experiences to ordinary people. It's a friendly consumer machine that ships with a welcome stack and a smile, and the net seen through it is approachable, maybe a bit naive. The cracks show if you look: the fine print, the people its manual would rather you didn't meet. The shop that sold it threw in a dubbed disk, a cracked NIBBLER whose cracktro gives a number Sense/Net never would: the first door off the friendly net comes from the kid at the counter, not the manual.
 
 **Feel.** Friendly, tidy, a little toy-like. A 1-bit world where everything is a picture: a menu bar, icons and folders, windows with striped title bars and a close box, a Trash. A run is a HyperCard stack: the network is a card you're looking at, drawn in MacPaint.
 
