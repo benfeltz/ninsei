@@ -195,9 +195,16 @@ fn a_full_ad_has_its_page_and_pages_count_up() {
         assert!(sections.contains(section));
         assert_eq!(n, number);
     }
-    // Small sections share pages: the issue is shorter than one page per section.
+    // Small sections share pages: the issue is shorter than one page per section plus one
+    // per full-page ad.
+    let full = d
+        .shopper
+        .ads
+        .iter()
+        .filter(|a| a.size == AdSize::Full)
+        .count();
     assert!(
-        numbers.len() < Section::ALL.len() + 2,
+        numbers.len() < Section::ALL.len() + full - 1,
         "{} pages",
         numbers.len()
     );
@@ -474,8 +481,14 @@ fn a_section_never_runs_backwards_across_pages() {
             .filter(|(_, p)| matches!(p, Page::Section { sections, .. } if sections.contains(&s)))
             .map(|(i, _)| i)
             .collect();
+        // Add-ons ride on their deck's own page, so only other deck pages may come between.
+        let decks_only = |w: &[usize]| {
+            (w[0] + 1..w[1]).all(|i| {
+                matches!(&pages[i], Page::Section { sections, .. } if sections == &[Section::Decks])
+            })
+        };
         assert!(
-            on.windows(2).all(|w| w[1] == w[0] + 1),
+            on.windows(2).all(|w| w[1] == w[0] + 1 || decks_only(w)),
             "{s:?} on pages {on:?}"
         );
     }
@@ -491,4 +504,55 @@ fn a_section_never_runs_backwards_across_pages() {
         .map(|(i, _)| i)
         .collect();
     assert_eq!(soft.len(), 1, "software ads share a page: {soft:?}");
+}
+
+#[test]
+fn every_deck_model_is_listed_and_orderable() {
+    let d = data();
+    let mut s = fresh(0);
+    let decks: Vec<_> = s
+        .catalog(&d)
+        .into_iter()
+        .filter(|l| l.section == Section::Decks)
+        .collect();
+    assert_eq!(decks.len(), d.hardware.decks.len());
+    assert_eq!(decks.len(), 7);
+    // Within a brand the models climb in price, in the order the magazine prints them.
+    for maker in ["Ono-Sendai", "Hosaka"] {
+        let prices: Vec<u32> = d
+            .hardware
+            .decks
+            .iter()
+            .filter(|m| m.maker == maker)
+            .map(|m| m.price)
+            .collect();
+        assert!(prices.len() >= 2, "{maker} sells a line of models");
+        assert!(
+            prices.windows(2).all(|w| w[0] < w[1]),
+            "{maker}: {prices:?}"
+        );
+    }
+    // Every model has its own full page.
+    let def = &d.shopper;
+    for l in &decks {
+        assert_eq!(
+            def.ad(&l.item).map(|a| a.size),
+            Some(AdSize::Full),
+            "{}",
+            l.name
+        );
+    }
+    // The cheapest model you don't own orders with the dev key's money.
+    s.dev_credits();
+    let cheapest = decks
+        .iter()
+        .filter(|l| matches!(l.stock, Stock::Price(_)))
+        .min_by_key(|l| l.price())
+        .unwrap();
+    assert_eq!(s.order_blocker(&d, &cheapest.item), None);
+    s.buy_item(&d, &cheapest.item).unwrap();
+    assert!(s.owns(&match &cheapest.item {
+        Item::Deck(id) => ninsei_core::hardware::Hardware::Deck(id.clone()),
+        _ => unreachable!(),
+    }));
 }

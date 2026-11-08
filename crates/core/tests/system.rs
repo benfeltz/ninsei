@@ -177,16 +177,7 @@ fn every_panel_has_one_square_one_bit_icon() {
 
 #[test]
 fn the_cpu_line_shows_the_cap_and_greys_at_it() {
-    let src = include_str!("../../../data/hub/hardware.ron");
-    let d = Data::parse(Sources {
-        hardware: &src.replacen(
-            "(line: Cpu, base: 3, max: 6)",
-            "(line: Cpu, base: 3, max: 4)",
-            1,
-        ),
-        ..Sources::builtin()
-    })
-    .unwrap();
+    let d = starter_cpu(3, 4);
     let mut s = Save {
         bank: 100_000,
         ..Save::default()
@@ -203,4 +194,23 @@ fn the_cpu_line_shows_the_cap_and_greys_at_it() {
     assert_eq!(capped.level, (1, rig_max), "RIG levels still read as owned");
     let stash = spec(&system::overview(&s, &d), "Stash").value.clone();
     assert!(!stash.contains(" of "), "the stash has no chassis: {stash}");
+}
+
+/// The shipped data with the starter deck's CPU row set to `base` and `max`.
+fn starter_cpu(base: u32, max: u32) -> Data {
+    let mut d = Data::builtin().unwrap();
+    let starter = d.hardware.starter_deck().id.clone();
+    let deck = d
+        .hardware
+        .decks
+        .iter_mut()
+        .find(|x| x.id == starter)
+        .unwrap();
+    let row = deck
+        .stats
+        .iter_mut()
+        .find(|s| s.line == ninsei_core::hub::Upgrade::Cpu)
+        .unwrap();
+    (row.base, row.max) = (base, max);
+    d
 }

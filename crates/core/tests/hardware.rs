@@ -177,8 +177,13 @@ fn bad_hardware_is_caught() {
 #[test]
 fn stats_are_read() {
     let d = data();
-    let cpu = d.hardware.deck("sensenet").unwrap().stat(hub::Upgrade::Cpu);
-    assert_eq!(cpu.map(|s| (s.base, s.max)), Some((3, 6)));
+    let cpu = |deck: &ninsei_core::hardware::DeckDef| *deck.stat(hub::Upgrade::Cpu).unwrap();
+    let first = cpu(d.hardware.starter_deck());
+    assert!(first.base <= first.max);
+    assert!(
+        d.hardware.decks.iter().any(|x| cpu(x).max > first.max),
+        "a bigger chassis is for sale"
+    );
     assert!(
         d.hardware
             .decks
@@ -197,7 +202,9 @@ fn bad_stats_are_caught() {
         })
     };
     let err = |s: String| parse(&s).unwrap_err();
-    let cpu = "(line: Cpu, base: 3, max: 6)";
+    // The first deck's CPU row, as written.
+    let at = src.find("(line: Cpu,").unwrap();
+    let cpu = &src[at..at + src[at..].find(')').unwrap() + 1];
     assert!(err(src.replacen(cpu, "(line: Ram, base: 3, max: 6)", 1)).contains("twice"));
     assert!(err(src.replacen(cpu, "(line: Cpu, base: 7, max: 6)", 1)).contains("tops out"));
     assert!(err(src.replacen(cpu, "(line: Stash, base: 2, max: 6)", 1)).contains("home storage"));
@@ -242,4 +249,16 @@ fn layouts_are_kept_per_deck_firmware() {
     assert_eq!(back.layouts.len(), 1);
     // Old saves have none.
     assert!(Save::load("(version: 1)").unwrap().layouts.is_empty());
+}
+
+#[test]
+fn models_share_a_brands_firmware() {
+    let d = data();
+    for deck in &d.hardware.decks {
+        let ids = |m: &ninsei_core::hardware::DeckDef| m.firmware.to_vec();
+        for other in d.hardware.decks.iter().filter(|o| o.maker == deck.maker) {
+            assert_eq!(ids(deck), ids(other), "{} vs {}", deck.id, other.id);
+            assert_eq!(deck.art, other.art, "{} vs {}", deck.id, other.id);
+        }
+    }
 }

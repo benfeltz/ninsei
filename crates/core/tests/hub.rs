@@ -191,16 +191,7 @@ fn the_volume_starts_full_stays_in_range_and_comes_back() {
 
 #[test]
 fn stat_value_is_base_plus_rig_up_to_the_cap() {
-    let src = include_str!("../../../data/hub/hardware.ron");
-    let d = Data::parse(Sources {
-        hardware: &src.replacen(
-            "(line: Cpu, base: 3, max: 6)",
-            "(line: Cpu, base: 3, max: 4)",
-            1,
-        ),
-        ..Sources::builtin()
-    })
-    .unwrap();
+    let d = starter_cpu(3, 4);
     let mut s = Save::default();
     s.ensure_hardware(&d);
     assert_eq!(s.deck, "sensenet");
@@ -215,4 +206,23 @@ fn stat_value_is_base_plus_rig_up_to_the_cap() {
         s.stat_value(&d, hub::Upgrade::Stash),
         ninsei_core::tuning::STASH_BASE_SLOTS
     );
+}
+
+/// The shipped data with the starter deck's CPU row set to `base` and `max`.
+fn starter_cpu(base: u32, max: u32) -> Data {
+    let mut d = Data::builtin().unwrap();
+    let starter = d.hardware.starter_deck().id.clone();
+    let deck = d
+        .hardware
+        .decks
+        .iter_mut()
+        .find(|x| x.id == starter)
+        .unwrap();
+    let row = deck
+        .stats
+        .iter_mut()
+        .find(|s| s.line == ninsei_core::hub::Upgrade::Cpu)
+        .unwrap();
+    (row.base, row.max) = (base, max);
+    d
 }

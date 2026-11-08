@@ -219,17 +219,19 @@ fn overview(ui: &mut Ui, data: &Data, save: &Save, look: Look, out: &mut Vec<WbO
     ui.label(RichText::new(format!("{}  ·  {}", o.os, o.firmware)).color(ink()));
     ui.add_space(6.0);
 
-    // Decks you own, one to a line, like the Monitor panel's list.
+    // Decks you own, as many to a row as fit, so a shelf of models stays on the panel.
     if save.decks.len() > 1 {
-        for id in &save.decks {
-            if let Some(d) = data.hardware.deck(id)
-                && radio(ui, look, save.deck == d.id, &d.title())
+        ui.horizontal_wrapped(|ui| {
+            ui.spacing_mut().item_spacing.x = 14.0;
+            for d in save.decks.iter().filter_map(|id| data.hardware.deck(id)) {
+                if radio(ui, look, save.deck == d.id, &d.title())
                     .on_hover_text(&d.blurb)
                     .clicked()
-            {
-                out.push(WbOut::Deck(d.id.clone()));
+                {
+                    out.push(WbOut::Deck(d.id.clone()));
+                }
             }
-        }
+        });
     }
     let deck = save.deck_def(data);
     if deck.firmware.len() > 1 {
