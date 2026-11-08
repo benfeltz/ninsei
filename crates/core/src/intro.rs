@@ -13,7 +13,8 @@ use crate::data::Data;
 /// Rows the art may use: the last two rows are the board's ad and the scroller.
 pub const ART_ROWS: usize = ROWS - 2;
 
-/// The longest crew tag: `NIBBL-NM.ZIP` leaves three characters of an 8.3 name for it.
+/// The longest crew tag: a crack's 8.3 stem is the game's first letters, a dash and the tag
+/// (`NIBB-2K4.ZIP` leaves four letters for the game), so three characters at most.
 pub const TAG_MAX: usize = 3;
 
 /// Tunables for every intro.

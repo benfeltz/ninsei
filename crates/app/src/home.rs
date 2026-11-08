@@ -3,13 +3,13 @@
 //! draws each tool's contents. A desktop (Workbench, tiling, ...) is only a front-end on this:
 //! it implements [`DesktopView`] and lives in the registry ([`Desktops`]).
 
-use egui::{Align2, Color32, FontFamily, FontId, Id, Rect, Ui, pos2, vec2};
+use egui::{Align2, Color32, FontFamily, FontId, Id, Pos2, Rect, Ui, Vec2, pos2, vec2};
 use ninsei_core::Data;
 use ninsei_core::binary::Bin;
 use ninsei_core::data::ThemeDef;
 use ninsei_core::hardware::Desktop;
 use ninsei_core::hexedit::HexBuffer;
-use ninsei_core::hub::{self, Save, ScanResult, ShellEffect, Tool};
+use ninsei_core::hub::{self, GameCopy, Save, ScanResult, ShellEffect, Tool};
 use ninsei_core::modem::Handshake;
 use std::cell::Cell;
 
@@ -133,6 +133,11 @@ pub enum WbOut {
     Intros(bool),
     /// The Welcome to the Net stack opened on first boot.
     GuideSeen,
+    /// A round of this game (its id) started: count it, so the next deals anew.
+    GameStarted(String),
+    /// An intro (its id) began to play: core books what its scroller advertises, the first
+    /// time ([`Save::saw_intro`]).
+    SawIntro(String),
     /// The Shell ran a command: keep its history in the save.
     ShellHistory(Vec<String>),
     /// The tiling desktop's first-boot key help was dismissed.
@@ -185,6 +190,9 @@ pub struct Cx<'a> {
     pub offset: f32,
     /// Whether it takes input.
     pub live: bool,
+    /// Whether its tools may take the keyboard: false while a window over the desktop (a
+    /// board called from home) owns it, even though the desktop still takes clicks.
+    pub keys: bool,
 }
 
 /// Every desktop, by name. A new desktop is a `Desktop` variant in core, a type implementing
@@ -202,6 +210,15 @@ impl Desktops {
             tiling: crate::tiling::TilingDesk::new(),
             liza: crate::liza::Liza::new(),
         }
+    }
+
+    /// Whether any desktop has `tool` open: a window on Liza or Desktop, a tile on any of
+    /// AnarchyOS's workspaces (kept on the save). Every desktop's windows outlive a switch of
+    /// firmware, so a game open on one stays open while another is on screen.
+    pub fn is_open(&self, save: &Save, tool: Tool) -> bool {
+        self.liza.has(tool)
+            || self.workbench.has(tool)
+            || save.tiling.workspaces.iter().flatten().any(|t| *t == tool)
     }
 
     pub fn get(&mut self, d: Desktop) -> &mut dyn DesktopView {
@@ -265,6 +282,30 @@ pub struct Home {
     pub(crate) guide_at: ninsei_core::cards::Place,
     /// System's open panel, and its Disk panel's pick.
     pub(crate) system: crate::system::SystemUi,
+    /// Whether the desktop's tools may take the keyboard this frame (`Cx::keys`): false
+    /// while a board called from home owns it.
+    pub(crate) desk_keys: bool,
+    /// The games whose windows are open, by copy (the desktops say which, [`Home::keep_open`]):
+    /// its intro while it plays, then the round being played.
+    games: std::collections::HashMap<Tool, GameWin>,
+    /// The last round dealt of each game (by id), so two rounds started before the save
+    /// counts the first (both copies opening in one frame) still deal two games.
+    dealt: std::collections::HashMap<String, u64>,
+}
+
+/// A game's open window: its intro (the time it started) until it ends, then the round.
+struct GameWin {
+    /// The intro's start and end, in the frames' time.
+    intro: Option<(f64, f64)>,
+    session: Option<crate::games_view::Session>,
+}
+
+/// How an intro's frame went.
+enum IntroFrame {
+    /// Still on screen: draw nothing else.
+    Showing,
+    /// Over, run to its end or skipped this frame.
+    Ended { skipped: bool },
 }
 
 /// What the speaker should do with the cracktro's tune this frame.
@@ -317,7 +358,106 @@ impl Home {
             tune: None,
             guide_at: ninsei_core::cards::Place::Home,
             system: crate::system::SystemUi::default(),
+            desk_keys: true,
+            games: Default::default(),
+            dealt: Default::default(),
         }
+    }
+
+    /// The tools whose windows (or tiles) the desktop has open, every frame before it draws:
+    /// a game whose window is no longer among them is over, its intro's tune cut. Hidden, too
+    /// small for a frame, on another workspace: still open, and it waits where it was.
+    pub fn keep_open(&mut self, now: f64, open: impl Fn(Tool) -> bool) {
+        if self.games.is_empty() {
+            return;
+        }
+        let mut cut = false;
+        self.games.retain(|t, w| {
+            let keep = open(*t);
+            // Only an intro still playing has a tune to cut (one not drawn since it ran out
+            // must not cut another window's).
+            cut |= !keep && w.intro.is_some_and(|(_, end)| now < end);
+            keep
+        });
+        if cut {
+            self.tune = Some(TuneCue::Stop);
+        }
+    }
+
+    /// A copy of a game in its window. Opened: its copy's intro (the crack's cracktro, the
+    /// box's splash), skippable, unless intros are off. Then a round, and another when the
+    /// player asks once it's over; the engine played and drawn.
+    #[allow(clippy::too_many_arguments)]
+    fn play(
+        &mut self,
+        ui: &mut Ui,
+        data: &Data,
+        save: &Save,
+        tool: Tool,
+        copy: GameCopy,
+        keys: bool,
+        out: &mut Vec<WbOut>,
+    ) {
+        let Some((def, _)) = tool.game_def(data) else {
+            return;
+        };
+        let intro = data.intro(def.intro(copy));
+        if !self.games.contains_key(&tool) {
+            let now = ui.input(|i| i.time);
+            let intro = intro.filter(|_| save.intros);
+            if let Some(i) = intro {
+                self.tune = Some(TuneCue::Play(i.id.clone()));
+                out.push(WbOut::SawIntro(i.id.clone()));
+            }
+            let w = GameWin {
+                intro: intro.map(|i| (now, now + f64::from(i.secs))),
+                session: None,
+            };
+            self.games.insert(tool, w);
+        }
+        let w = self.games.get_mut(&tool).expect("opened above");
+        if let (Some((start, _)), Some(i)) = (w.intro, intro) {
+            match intro_frame(ui, data, save, i, start, SkipBy::Keyboard(keys)) {
+                IntroFrame::Showing => return,
+                // Skipped: the game starts next frame, so the key that skipped it isn't the
+                // game's.
+                IntroFrame::Ended { skipped: true } => {
+                    w.intro = None;
+                    self.tune = Some(TuneCue::Stop);
+                    ui.ctx().request_repaint();
+                    return;
+                }
+                // Run to its end: the game starts on this frame.
+                IntroFrame::Ended { skipped: false } => w.intro = None,
+            }
+        }
+        let dealt = &mut self.dealt;
+        let mut start = |out: &mut Vec<WbOut>| {
+            let next = dealt.get(&def.id).map_or(0, |r| r + 1);
+            let round = save.game_round(&def.id).max(next);
+            dealt.insert(def.id.clone(), round);
+            out.push(WbOut::GameStarted(def.id.clone()));
+            crate::games_view::Session::new(def, save.key, round)
+        };
+        let s = w.session.get_or_insert_with(|| start(out));
+        if crate::games_view::body(ui, data, def, s, keys).again {
+            *s = start(out);
+        }
+    }
+
+    /// The round being played in `tool`'s window (tests).
+    #[cfg(test)]
+    pub(crate) fn round(&self, tool: Tool) -> Option<u64> {
+        self.games.get(&tool)?.session.as_ref().map(|s| s.round)
+    }
+
+    /// The game being played in `tool`'s window (tests).
+    #[cfg(test)]
+    pub(crate) fn game(&self, tool: Tool) -> Option<&dyn ninsei_core::games::Arcade> {
+        self.games
+            .get(&tool)
+            .and_then(|w| w.session.as_ref())
+            .map(|s| s.game.as_ref())
     }
 
     /// The QWK reader's window body: the screen, its hotkeys as buttons, and keys while the
@@ -380,9 +520,16 @@ impl Home {
     /// Plays tool `id`'s cracktro in its window, every time the window opens, until it ends or
     /// a click or key skips it. True while it's showing (draw nothing else). A tool with no
     /// intro, or intros switched off in System, opens straight away.
-    fn intro_gate(&mut self, ui: &mut Ui, data: &Data, save: &Save, id: &'static str) -> bool {
+    fn intro_gate(
+        &mut self,
+        ui: &mut Ui,
+        data: &Data,
+        save: &Save,
+        id: &'static str,
+        out: &mut Vec<WbOut>,
+    ) -> bool {
         match data.tool(id).and_then(|t| t.intro.clone()) {
-            Some(intro) => self.splash_gate(ui, data, save, id, &intro),
+            Some(intro) => self.splash_gate(ui, data, save, id, &intro, out),
             None => false,
         }
     }
@@ -396,6 +543,7 @@ impl Home {
         save: &Save,
         id: &'static str,
         intro: &str,
+        out: &mut Vec<WbOut>,
     ) -> bool {
         let Some(def) = data.intro(intro) else {
             return false;
@@ -410,34 +558,21 @@ impl Home {
         if fresh && save.intros {
             self.intro_playing.insert(id, now);
             self.tune = Some(TuneCue::Play(def.id.clone()));
+            out.push(WbOut::SawIntro(def.id.clone()));
         }
         let Some(&start) = self.intro_playing.get(id) else {
             return false;
         };
-        let over = |p: egui::Pos2| ui.clip_rect().contains(p);
-        let skip = ui.input(|i| {
-            i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(over)
-                || i.pointer.hover_pos().is_some_and(over)
-                    && i.events.iter().any(|e| {
-                        matches!(
-                            e,
-                            egui::Event::Key { pressed: true, .. } | egui::Event::Text(_)
-                        )
-                    })
-        });
-        let t = (now - start) as f32;
-        if skip || def.done(t) {
-            self.intro_playing.remove(id);
-            if skip {
-                self.tune = Some(TuneCue::Stop);
+        match intro_frame(ui, data, save, def, start, SkipBy::Pointer(self.desk_keys)) {
+            IntroFrame::Showing => true,
+            IntroFrame::Ended { skipped } => {
+                self.intro_playing.remove(id);
+                if skipped {
+                    self.tune = Some(TuneCue::Stop);
+                }
+                false
             }
-            return false;
         }
-        let calm = save.glitches != ninsei_core::glitch::Glitches::On;
-        let lines = def.screen(data, t, calm);
-        crate::bbs_view::paint_screen(ui, &lines, false, &desk_palette());
-        ui.ctx().request_repaint();
-        true
     }
 
     /// Forgets intros whose windows closed while they played (not drawn since the last pass),
@@ -591,6 +726,7 @@ impl Home {
     }
 
     /// Draws home with the desktop `view`: runs the dial and scan clocks, then the desktop.
+    #[allow(clippy::too_many_arguments)]
     pub fn show(
         &mut self,
         view: &mut dyn DesktopView,
@@ -599,6 +735,7 @@ impl Home {
         save: &Save,
         offset: f32,
         live: bool,
+        keys: bool,
     ) -> Vec<WbOut> {
         self.sync_hex(save);
         self.step_probe(ui);
@@ -626,7 +763,9 @@ impl Home {
             save,
             offset,
             live,
+            keys: live && keys,
         };
+        self.desk_keys = cx.keys;
         view.show(ui, self, &cx, &mut out);
         out
     }
@@ -638,8 +777,12 @@ impl Home {
 
     /// What each tool's face on `desktop` needs to be drawn at all: the one place a tool
     /// says so. Faces that scroll (the GUI ones) need nothing: a small window scrolls them.
-    pub fn fit(tool: Tool, desktop: Desktop) -> Option<fit::Need> {
+    pub fn fit(tool: Tool, desktop: Desktop, data: &Data) -> Option<fit::Need> {
         match (tool, desktop) {
+            // A game's field and its status line, in cells, on every desktop.
+            (Tool::Game(..), _) => tool
+                .game_def(data)
+                .map(|(g, _)| fit::Need::cells_owned(crate::games_view::grids(g))),
             // Laid out in cells on every desktop: the list's header and a few rows, and
             // every page's columns.
             (Tool::NightComm | Tool::TigerTeam, _) => {
@@ -654,12 +797,15 @@ impl Home {
     /// Draws `tool` in `ui` (a desktop's window or tile, dressed by `hubtools::wb_visuals`)
     /// unless its face needs more room than `ui` has ([`Home::fit`]); then the one notice in
     /// its place, with the desktop's `hint`. A tool taller than `ui` scrolls with the desktop's
-    /// `scroller`, or egui's bar in the theme's colours. Returns whether the tool was drawn.
+    /// `scroller`, or egui's bar in the theme's colours. `keys`: the tool has the keyboard
+    /// (the front window, the focused tile, and nothing over the desktop owns it). Returns
+    /// whether the tool was drawn.
     #[allow(clippy::too_many_arguments)]
     pub fn tool_in(
         &mut self,
         ui: &mut Ui,
         tool: Tool,
+        keys: bool,
         data: &Data,
         save: &Save,
         out: &mut Vec<WbOut>,
@@ -676,18 +822,22 @@ impl Home {
             ),
             None => (ui.max_rect(), scroll_bar()),
         };
+        if tool == Tool::System {
+            self.system.keys = keys;
+            self.system.blocked = !self.desk_keys;
+        }
         let desktop = save.firmware_def(data).desktop;
-        let need = Self::fit(tool, desktop);
+        let need = Self::fit(tool, desktop, data);
         if let Some(need) = need
-            && let (have, false) = fit::check(ui, room, need, bar)
+            && let (have, false) = fit::check(ui, room, &need, bar)
         {
             #[cfg(test)]
             self.notices.push(tool);
             fit::notice(
                 ui,
                 room,
-                tool.volume(),
-                need.grids,
+                &tool.name(data),
+                &need.grids,
                 have,
                 hint,
                 (backdrop(), ink(), muted()),
@@ -696,9 +846,11 @@ impl Home {
         }
         match scroller {
             Some(s) => (s.show)(ui, Id::new(salt), &mut |ui| {
-                self.tool_body(ui, tool, data, save, out)
+                self.tool_body(ui, tool, keys, data, save, out)
             }),
-            None => scrolled(ui, salt, |ui| self.tool_body(ui, tool, data, save, out)),
+            None => scrolled(ui, salt, |ui| {
+                self.tool_body(ui, tool, keys, data, save, out)
+            }),
         }
         true
     }
@@ -709,6 +861,7 @@ impl Home {
         &mut self,
         child: &mut Ui,
         tool: Tool,
+        keys: bool,
         data: &Data,
         save: &Save,
         out: &mut Vec<WbOut>,
@@ -722,7 +875,7 @@ impl Home {
             // CarrierTerm's splash, unless a dial is already under way.
             Tool::Terminal
                 if self.dialing.is_none()
-                    && self.splash_gate(child, data, save, "carrierterm", "carrierterm") =>
+                    && self.splash_gate(child, data, save, "carrierterm", "carrierterm", out) =>
             {
                 return;
             }
@@ -750,7 +903,7 @@ impl Home {
                     child.separator();
                 }
                 if self.term_tab == TermTab::WarDial && self.dialing.is_none() {
-                    if self.intro_gate(child, data, save, "wardial") {
+                    if self.intro_gate(child, data, save, "wardial", out) {
                         return;
                     }
                     hubtools::wardial(
@@ -781,10 +934,10 @@ impl Home {
             }
             Tool::Rig => crate::shopper::show(child, data, save, out),
             Tool::System => crate::system::show(child, data, save, &mut self.system, out),
-            Tool::HexEd if self.intro_gate(child, data, save, "hexed") => return,
-            Tool::Qwk if self.intro_gate(child, data, save, "qwkread") => return,
-            Tool::IceDb if self.intro_gate(child, data, save, "icedb") => return,
-            Tool::NightComm if self.intro_gate(child, data, save, "nightcomm") => return,
+            Tool::HexEd if self.intro_gate(child, data, save, "hexed", out) => return,
+            Tool::Qwk if self.intro_gate(child, data, save, "qwkread", out) => return,
+            Tool::IceDb if self.intro_gate(child, data, save, "icedb", out) => return,
+            Tool::NightComm if self.intro_gate(child, data, save, "nightcomm", out) => return,
             Tool::NightComm => {
                 crate::nightcomm_view::show(
                     child,
@@ -797,7 +950,9 @@ impl Home {
                     out,
                 );
             }
-            Tool::TigerTeam if self.splash_gate(child, data, save, "tigerteam", "tigerteam") => {
+            Tool::TigerTeam
+                if self.splash_gate(child, data, save, "tigerteam", "tigerteam", out) =>
+            {
                 return;
             }
             Tool::TigerTeam => {
@@ -817,6 +972,7 @@ impl Home {
             Tool::IceDb => hubtools::icedb(child, data, save, &mut self.icedb_sel),
             Tool::Guide => hubtools::guide(child, data, &mut self.guide_at),
             Tool::Shell => {}
+            Tool::Game(_, copy) => self.play(child, data, save, tool, copy, keys, out),
         }
         if let Some(id) = dial {
             self.dial_from(tool, id, save);
@@ -996,6 +1152,111 @@ impl Home {
     }
 }
 
+/// What may skip an intro.
+#[derive(Clone, Copy)]
+enum SkipBy {
+    /// A game's window: a key or a click, only while it has the keyboard (it's the front
+    /// window or the focused tile), so nothing meant for a window over it skips it.
+    Keyboard(bool),
+    /// A tool's window: a click on it, or a key with the pointer over it, unless something
+    /// over the desktop owns the keyboard (false).
+    Pointer(bool),
+}
+
+/// One frame of intro `def`, started at `start`: painted in the desk's colours, until it runs
+/// to its end or input `by` allows skips it.
+fn intro_frame(
+    ui: &mut Ui,
+    data: &Data,
+    save: &Save,
+    def: &ninsei_core::intro::IntroDef,
+    start: f64,
+    by: SkipBy,
+) -> IntroFrame {
+    let now = ui.input(|i| i.time);
+    let over = |p: egui::Pos2| ui.clip_rect().contains(p);
+    let skip = ui.input(|i| {
+        let key = i.events.iter().any(|e| {
+            matches!(
+                e,
+                egui::Event::Key { pressed: true, .. } | egui::Event::Text(_)
+            )
+        });
+        let click = i.pointer.any_pressed() && i.pointer.interact_pos().is_some_and(over);
+        match by {
+            SkipBy::Keyboard(keys) => keys && (key || click),
+            SkipBy::Pointer(free) => {
+                free && (click || key && i.pointer.hover_pos().is_some_and(over))
+            }
+        }
+    });
+    let t = (now - start) as f32;
+    if skip || def.done(t) {
+        return IntroFrame::Ended { skipped: skip };
+    }
+    let calm = save.glitches != ninsei_core::glitch::Glitches::On;
+    let lines = def.screen(data, t, calm);
+    crate::bbs_view::paint_screen_fit(ui, &lines, false, &desk_palette());
+    ui.ctx().request_repaint();
+    IntroFrame::Showing
+}
+
+/// Where a game's window opens on a desktop of windows: the crack's at `origin`, the box's
+/// down and to the right of it, so both copies show when both are open.
+pub(crate) fn game_spot(copy: GameCopy, origin: Pos2) -> Pos2 {
+    match copy {
+        GameCopy::Cracked => origin,
+        GameCopy::Boxed => origin + vec2(50.0, 30.0),
+    }
+}
+
+/// A window of games' size, worked out the first time it's drawn (zero until then: the room
+/// it needs is counted in `ui`'s cells). The desktop's window puts its tool in
+/// `scrolled(rect)`, beside a scroll bar `bar_w` wide with `pad` around it.
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn size_game_window(
+    size: &mut Vec2,
+    ui: &Ui,
+    data: &Data,
+    save: &Save,
+    tool: Tool,
+    scrolled: fn(Rect) -> Rect,
+    bar_w: f32,
+    pad: crate::kit::scrollbar::Pad,
+) {
+    if *size != Vec2::ZERO {
+        return;
+    }
+    let view = |r: Rect| crate::kit::scrollbar::view_rect(scrolled(r), bar_w, pad);
+    *size = game_window(ui, data, save, tool, view).unwrap_or(vec2(400.0, 300.0));
+}
+
+/// How big a window must open for a game: the room its first (square-ish) grid needs in the
+/// kit's cells, or its intro's 80x24 screen if that's bigger and it plays one (intros on, and
+/// the copy has one), plus what the window's frame takes around its `view` (the rect its
+/// tool is drawn in, from the window's rect). `None` for anything but a game.
+pub(crate) fn game_window(
+    ui: &Ui,
+    data: &Data,
+    save: &Save,
+    tool: Tool,
+    view: impl Fn(Rect) -> Rect,
+) -> Option<Vec2> {
+    let (def, copy) = tool.game_def(data)?;
+    let grid = crate::games_view::grids(def)[0];
+    let cell = crate::kit::Cells::cell_size(ui.ctx());
+    let field = vec2(grid.cols as f32 * cell.x, grid.rows as f32 * cell.y);
+    let room = if save.intros && data.intro(def.intro(copy)).is_some() {
+        field.max(crate::bbs_view::screen_size(ui))
+    } else {
+        field
+    };
+    let probe = Rect::from_min_size(Pos2::ZERO, vec2(2000.0, 2000.0));
+    let frame = probe.size() - view(probe).size();
+    // A point of slack either way, so rounding never costs a cell.
+    Some((room + frame + vec2(2.0, 2.0)).ceil())
+}
+
 /// The "too small" hint on a desktop of windows (Liza, Desktop): a window dragged low is cut
 /// short by the screen's bottom edge, so dragging it higher gives it room, unless its top is
 /// already as `highest` as it goes.
@@ -1051,6 +1312,7 @@ pub(crate) mod tests {
     use crate::uitest::{Harness, key, text};
     use egui::{Key, Pos2, UiBuilder};
     use ninsei_core::directory::Listed;
+    use ninsei_core::hub::GameCopy;
 
     /// A started deck with a phonebook, no splashes to wait through.
     pub(crate) fn deck(data: &Data) -> Save {
@@ -1089,10 +1351,27 @@ pub(crate) mod tests {
         rect: Rect,
         events: Vec<egui::Event>,
     ) -> Vec<WbOut> {
+        frame_keys(h, home, data, save, tool, rect, false, events)
+    }
+
+    /// [`frame_at`], saying whether the tool has the keyboard.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn frame_keys(
+        h: &mut Harness,
+        home: &mut Home,
+        data: &Data,
+        save: &Save,
+        tool: Tool,
+        rect: Rect,
+        keys: bool,
+        events: Vec<egui::Event>,
+    ) -> Vec<WbOut> {
         let mut out = Vec::new();
         h.frame(events, |ui| {
             let mut child = ui.new_child(UiBuilder::new().max_rect(rect));
-            let drawn = home.tool_in(&mut child, tool, data, save, &mut out, None, None, "test");
+            let drawn = home.tool_in(
+                &mut child, tool, keys, data, save, &mut out, None, None, "test",
+            );
             assert!(drawn, "{tool:?} drawn at {rect:?}, which it can't take");
         });
         out
@@ -1243,13 +1522,26 @@ pub(crate) mod tests {
         out
     }
 
-    /// A deck on AnarchyOS that owns every tool, so each draws its text-mode face.
+    /// The faces laid out in cells: the text-mode tools, and every copy of every game.
+    fn text_tools(data: &Data) -> Vec<Tool> {
+        let games = data.games.iter().flat_map(|g| {
+            [GameCopy::Cracked, GameCopy::Boxed].map(|c| Tool::game(&g.id, c).unwrap())
+        });
+        Home::TEXT_TOOLS.into_iter().chain(games).collect()
+    }
+
+    /// A deck on AnarchyOS that owns every tool and both copies of every game, so each draws
+    /// its text-mode face.
     fn anarchy_deck(data: &Data) -> Save {
         let mut s = deck(data);
         s.tools = ninsei_core::data::TOOLS
             .iter()
             .map(|t| t.to_string())
             .collect();
+        for g in &data.games {
+            s.learn_game(&g.id, GameCopy::Cracked);
+            s.learn_game(&g.id, GameCopy::Boxed);
+        }
         s.decks = vec!["onosendai".into()];
         s.deck = "onosendai".into();
         s.ensure_hardware(data);
@@ -1275,12 +1567,13 @@ pub(crate) mod tests {
             home.notices.clear();
             h.frame(Vec::new(), |ui| {
                 let mut child = ui.new_child(UiBuilder::new().max_rect(rect));
-                have = Home::fit(tool, Desktop::Tiling).map_or((0, 0), |need| {
-                    fit::check(&child, rect, need, scroll_bar()).0
+                have = Home::fit(tool, Desktop::Tiling, data).map_or((0, 0), |need| {
+                    fit::check(&child, rect, &need, scroll_bar()).0
                 });
                 drawn = home.tool_in(
                     &mut child,
                     tool,
+                    false,
                     data,
                     save,
                     &mut Vec::new(),
@@ -1474,7 +1767,7 @@ pub(crate) mod tests {
 
     /// Widgets `rect` would cut: anything outside it for a face laid out to fill it, and
     /// anything past its sides for a face whose height scrolls.
-    fn cut(h: &Harness, rect: Rect, need: fit::Need) -> Vec<(String, Rect)> {
+    fn cut(h: &Harness, rect: Rect, need: &fit::Need) -> Vec<(String, Rect)> {
         h.outside(rect)
             .into_iter()
             .filter(|(_, r)| {
@@ -1510,22 +1803,23 @@ pub(crate) mod tests {
         let save = anarchy_deck(&data);
         let sizes = tile_sizes();
         assert!(sizes.len() > 8, "a spread of tiles: {sizes:?}");
-        for tool in Home::TEXT_TOOLS {
-            let need = Home::fit(tool, Desktop::Tiling).expect("a text face declares its need");
+        for tool in text_tools(&data) {
+            let need =
+                Home::fit(tool, Desktop::Tiling, &data).expect("a text face declares its need");
             for page in 0..Home::pages(tool) {
                 for (what, rect) in &sizes {
                     let (have, drawn, h) = draw_at(&data, &save, tool, *rect, page);
                     assert_eq!(
                         drawn,
-                        fit::fits(need.grids, have),
+                        fit::fits(&need.grids, have),
                         "{tool:?} page {page} as {what}: {have:?} cells, needs {:?}",
                         need.grids
                     );
                     if drawn {
                         assert!(
-                            cut(&h, *rect, need).is_empty(),
+                            cut(&h, *rect, &need).is_empty(),
                             "{tool:?} page {page} as {what} is cut: {:?}",
-                            cut(&h, *rect, need)
+                            cut(&h, *rect, &need)
                         );
                     }
                 }
@@ -1539,8 +1833,8 @@ pub(crate) mod tests {
         let save = anarchy_deck(&data);
         let mut h = Harness::new(100.0, 100.0);
         crate::uitest::themed(&h.ctx, &data);
-        for tool in Home::TEXT_TOOLS {
-            let need = Home::fit(tool, Desktop::Tiling).unwrap();
+        for tool in text_tools(&data) {
+            let need = Home::fit(tool, Desktop::Tiling, &data).unwrap();
             // The smallest rect holding `cols` x `rows` of the face's own cells, counted the
             // way the desktops count them (beside the scroll bar, for a face that scrolls).
             let mut at = |cols: usize, rows: usize| {
@@ -1550,7 +1844,7 @@ pub(crate) mod tests {
                         fit::check(
                             ui,
                             Rect::from_min_size(pos2(10.0, 10.0), s),
-                            need,
+                            &need,
                             scroll_bar(),
                         )
                         .0
@@ -1566,20 +1860,24 @@ pub(crate) mod tests {
                 Rect::from_min_size(pos2(10.0, 10.0), size)
             };
             for page in 0..Home::pages(tool) {
-                for grid in need.grids {
+                for grid in need.grids.iter() {
                     let exact = at(grid.cols, grid.rows);
                     let (have, drawn, h) = draw_at(&data, &save, tool, exact, page);
                     assert_eq!(have, (grid.cols, grid.rows));
                     assert!(drawn, "{tool:?} page {page} at exactly {grid:?} is drawn");
                     assert!(
-                        cut(&h, exact, need).is_empty(),
+                        cut(&h, exact, &need).is_empty(),
                         "{tool:?} page {page} at exactly {grid:?} is cut: {:?}",
-                        cut(&h, exact, need)
+                        cut(&h, exact, &need)
                     );
                     // A cell short either way: the notice, unless another grid it declared fits.
                     for short in [(grid.cols - 1, grid.rows), (grid.cols, grid.rows - 1)] {
                         let drawn = draw_at(&data, &save, tool, at(short.0, short.1), page).1;
-                        assert_eq!(drawn, fit::fits(need.grids, short), "{tool:?} at {short:?}");
+                        assert_eq!(
+                            drawn,
+                            fit::fits(&need.grids, short),
+                            "{tool:?} at {short:?}"
+                        );
                     }
                 }
             }
@@ -1588,11 +1886,12 @@ pub(crate) mod tests {
 
     #[test]
     fn gui_faces_declare_nothing_and_scroll() {
+        let data = Data::builtin().unwrap();
         for tool in Tool::ALL {
             for desktop in [Desktop::Liza, Desktop::Workbench] {
                 let text = matches!(tool, Tool::NightComm | Tool::TigerTeam);
                 assert_eq!(
-                    Home::fit(tool, desktop).is_some(),
+                    Home::fit(tool, desktop, &data).is_some(),
                     text,
                     "{tool:?} on {desktop:?}"
                 );
@@ -1607,7 +1906,7 @@ pub(crate) mod tests {
             Tool::Guide,
         ] {
             assert!(
-                Home::fit(tool, Desktop::Tiling).is_none(),
+                Home::fit(tool, Desktop::Tiling, &data).is_none(),
                 "{tool:?} scrolls in a tile"
             );
         }
@@ -1786,5 +2085,121 @@ pub(crate) mod tests {
         home.dial_from(Tool::Terminal, id, &save);
         assert!(home.dialing.is_some());
         assert!(home.take_opens().contains(&Tool::Terminal));
+    }
+
+    #[test]
+    fn under_a_board_called_from_home_system_takes_no_keys_even_with_the_pointer_on_it() {
+        let data = Data::builtin().unwrap();
+        let save = anarchy_deck(&data);
+        let rect = Rect::from_min_size(Pos2::ZERO, vec2(880.0, 500.0));
+        let over = egui::Event::PointerMoved(pos2(400.0, 250.0));
+        for (free, want) in [
+            (false, ninsei_core::system::Panel::ALL[0]),
+            (true, ninsei_core::system::Panel::ALL[1]),
+        ] {
+            let mut h = Harness::new(1280.0, 800.0);
+            let mut home = Home::new(Vec::new());
+            home.desk_keys = free;
+            frame_keys(
+                &mut h,
+                &mut home,
+                &data,
+                &save,
+                Tool::System,
+                rect,
+                false,
+                vec![over.clone()],
+            );
+            let mut two = vec![over.clone()];
+            two.extend(key(Key::Num2));
+            frame_keys(
+                &mut h,
+                &mut home,
+                &data,
+                &save,
+                Tool::System,
+                rect,
+                false,
+                two,
+            );
+            frame_keys(
+                &mut h,
+                &mut home,
+                &data,
+                &save,
+                Tool::System,
+                rect,
+                false,
+                vec![over.clone()],
+            );
+            assert_eq!(home.system.panel, want, "keys free: {free}");
+        }
+    }
+
+    #[test]
+    fn a_tools_cracktro_tells_core_when_it_begins_not_every_frame() {
+        let data = Data::builtin().unwrap();
+        let mut save = Save {
+            intros: true,
+            ..deck(&data)
+        };
+        let saw = |out: &[WbOut]| -> Vec<WbOut> {
+            out.iter()
+                .filter(|o| matches!(o, WbOut::SawIntro(_)))
+                .cloned()
+                .collect()
+        };
+        let mut h = Harness::new(1280.0, 800.0);
+        let mut home = Home::new(Vec::new());
+        let out = frame(&mut h, &mut home, &data, &save, Tool::HexEd, Vec::new());
+        assert_eq!(saw(&out), [WbOut::SawIntro("hexed".into())]);
+        // Still playing next frame: told once, not every frame.
+        let out = frame(&mut h, &mut home, &data, &save, Tool::HexEd, Vec::new());
+        assert!(home.intro_playing.contains_key("hexed") && saw(&out).is_empty());
+        // A new window plays it again and says so; core decides it teaches nothing new.
+        save.saw_intro(&data, "hexed");
+        let before = save.to_text();
+        let mut home = Home::new(Vec::new());
+        let out = frame(&mut h, &mut home, &data, &save, Tool::HexEd, Vec::new());
+        assert_eq!(saw(&out), [WbOut::SawIntro("hexed".into())]);
+        save.saw_intro(&data, "hexed");
+        assert_eq!(save.to_text(), before);
+    }
+
+    #[test]
+    fn under_a_board_called_from_home_a_key_never_skips_a_tools_intro() {
+        let data = Data::builtin().unwrap();
+        let save = Save {
+            intros: true,
+            ..anarchy_deck(&data)
+        };
+        let rect = Rect::from_min_size(Pos2::ZERO, vec2(880.0, 500.0));
+        let over = egui::Event::PointerMoved(pos2(400.0, 250.0));
+        for (free, skipped) in [(false, false), (true, true)] {
+            let mut h = Harness::new(1280.0, 800.0);
+            let mut home = Home::new(Vec::new());
+            home.desk_keys = free;
+            frame_at(
+                &mut h,
+                &mut home,
+                &data,
+                &save,
+                Tool::HexEd,
+                rect,
+                vec![over.clone()],
+            );
+            assert!(
+                home.intro_playing.contains_key("hexed"),
+                "the cracktro is up"
+            );
+            let mut k = vec![over.clone()];
+            k.extend(key(Key::Space));
+            frame_at(&mut h, &mut home, &data, &save, Tool::HexEd, rect, k);
+            assert_eq!(
+                !home.intro_playing.contains_key("hexed"),
+                skipped,
+                "keys free: {free}"
+            );
+        }
     }
 }

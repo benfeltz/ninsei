@@ -65,7 +65,7 @@ fn key(g: &mut Grid, col: usize, row: usize, k: &str, what: &str, cmd: Option<Cm
 /// What the text face needs: its grid is never narrower than 40 of its columns (it lays out
 /// to at least that and would cut the rest); its height scrolls, so a few rows will do.
 pub const NEED: crate::kit::fit::Need = crate::kit::fit::Need {
-    grids: &[crate::kit::Fit { cols: 40, rows: 8 }],
+    grids: std::borrow::Cow::Borrowed(&[crate::kit::Fit { cols: 40, rows: 8 }]),
     cells: cells_in,
     scrolls: true,
 };
@@ -168,7 +168,7 @@ pub fn show(ui: &mut Ui, data: &Data, save: &Save, st: &mut SystemUi, out: &mut 
 /// focus (in egui and in the page).
 fn keys(ui: &Ui, st: &SystemUi, cmds: &mut Vec<Cmd>) {
     let live = st.keys || ui.rect_contains_pointer(ui.max_rect());
-    if !live || ui.ctx().text_edit_focused() {
+    if !live || st.blocked || ui.ctx().text_edit_focused() {
         return;
     }
     ui.input(|i| {

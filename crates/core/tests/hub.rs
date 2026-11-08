@@ -1,4 +1,4 @@
-use ninsei_core::hub::{self, RunEnd, Save, Screen, ShellEffect, Tool};
+use ninsei_core::hub::{self, GameCopy, RunEnd, Save, Screen, ShellEffect, Tool};
 use ninsei_core::*;
 
 fn data() -> Data {
@@ -187,4 +187,38 @@ fn the_volume_starts_full_stays_in_range_and_comes_back() {
     // It comes back with the save.
     s.set_volume(60);
     assert_eq!(Save::load(&s.to_text()).unwrap().volume, 60);
+}
+
+#[test]
+fn a_new_deck_comes_with_the_shops_disk_once() {
+    let d = Data::builtin().unwrap();
+    let mut s = Save::default();
+    s.ensure_phonebook(&d, 0);
+    assert_eq!(s.copies("nibbler"), vec![GameCopy::Cracked]);
+    assert_eq!(s.games.len(), 1, "one disk");
+    // Applied once: a later boot doesn't hand it over again, even if it went.
+    s.games.clear();
+    assert!(!s.ensure_phonebook(&d, 0));
+    assert!(s.games.is_empty());
+    // A save that booted before the disk existed never gains it: no migrations.
+    let mut old = Save {
+        started: true,
+        ..Save::default()
+    };
+    old.ensure_phonebook(&d, 0);
+    assert!(old.games.is_empty());
+    // The bare kit starts with nothing on the desktop.
+    let mut bare = Save {
+        kit: "nothing".into(),
+        ..Save::default()
+    };
+    bare.ensure_phonebook(&d, 0);
+    assert!(bare.games.is_empty());
+}
+
+#[test]
+fn a_kit_naming_an_unknown_game_is_rejected() {
+    let mut d = Data::builtin().unwrap();
+    d.starts.kits[0].games = vec![("pong".into(), GameCopy::Boxed)];
+    assert!(d.validate().unwrap_err().contains("unknown game `pong`"));
 }

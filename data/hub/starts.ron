@@ -11,6 +11,7 @@
 //   tools    desktop tools already installed
 //   ranges   number ranges already known (the local exchange always is)
 //   bank     credits in the bank
+//   games    games already on the desktop, (id, Cracked or Boxed)
 (
     always: [
         // The college's network: lightly watched, little worth taking, wide open. Its board
@@ -22,10 +23,12 @@
         // The Security Suite and nothing else: every breaker is found.
         (id: "nothing", free: ["firewall", "patch"]),
         // The start players get: the suite and a generic breaker in the box; the specialists
-        // (Decoder, Garrote, Crowbar) are found on the boards.
-        (id: "pick", default: true, free: ["firewall", "patch", "icepick"]),
+        // (Decoder, Garrote, Crowbar) are found on the boards. The shop that sold the deck threw
+        // in a dubbed disk: a crack whose intro advertises the board it came from.
+        (id: "pick", default: true, free: ["firewall", "patch", "icepick"],
+         games: [("nibbler", Cracked)]),
         // The start before #103 and #105.
         (id: "classic", free: ["icepick", "firewall", "patch", "decoder"], boards: ["gutter"],
-         numbers: true, tools: ["wardial", "hexed", "nightcomm"]),
+         numbers: true, tools: ["wardial", "hexed", "nightcomm"], games: [("nibbler", Cracked)]),
     ],
 )
