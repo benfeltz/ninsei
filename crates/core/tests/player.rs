@@ -259,8 +259,14 @@ fn the_rows_status_and_now_line_say_what_a_player_says() {
     assert_eq!(player::status(&s, &t), "‖ paused · repeat · shuffle");
     s.volume = 70;
     assert_eq!(player::volume(&s), "vol 70%");
+    assert_eq!(
+        (player::level(&s), player::level_label(&s)),
+        (0.7, "Volume")
+    );
     s.sound = false;
     assert_eq!(player::volume(&s), "vol off");
+    // Off, a level control still shows the level, and says it's muted.
+    assert_eq!((player::level(&s), player::level_label(&s)), (0.7, "Muted"));
 }
 
 #[test]
