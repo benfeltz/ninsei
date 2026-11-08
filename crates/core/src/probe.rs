@@ -3,7 +3,7 @@
 //!
 //! Two parts:
 //! - **Spot checks**: single runs on a plain network of each tier, by a dumb bot (first route,
-//!   [`DUMB`]: two lines of icepick) and a competent one ([`play`]: the default kit's `SAFE`).
+//!   [`DUMB`]: two lines of icepick) and a careful one ([`CAREFUL`], its own program).
 //!   In a fight a bot only drives the deck's program, written in the game's BASIC: it plays,
 //!   and when the program hands over the turn (a STOP, a hang) it ends the turn, having no
 //!   hands of its own. If a bot can't say it in the language, a player can't either.
@@ -59,23 +59,65 @@ impl Config {
 /// The dumb bot's program: pick at whatever it is until the cycles run out.
 pub const DUMB: &str = "10 RUN icepick\n20 GOTO 10";
 
+/// The careful bot's program. It looks after the deck first: patch when integrity runs low,
+/// raise the firewall when a hit that matters is next, scrub a high trace. Then it uses the
+/// breaker made for the ICE in front of it, and the strongest breaker it carries after that.
+/// It buys the specialists, so it names them. Each specialist is written out six times (a
+/// maxed CPU) rather than looped: a RUN that can't run costs nothing, so a loop on a breaker
+/// the deck doesn't carry would hang, while six skipped lines fall through to line 600.
+pub const CAREFUL: &str = "\
+10 IF INTEG < 7
+20 RUN patch
+30 IF NEXT ATTACK
+40 IF INTEG < 16
+50 RUN firewall
+60 IF TRACE > 69
+70 RUN scrubber
+80 IF ICE CODEGATE
+90 GOTO 300
+100 IF ICE SENTRY
+110 GOTO 400
+120 GOTO 500
+300 RUN decoder
+310 RUN decoder
+320 RUN decoder
+330 RUN decoder
+340 RUN decoder
+350 RUN decoder
+360 GOTO 600
+400 RUN garrote
+410 RUN garrote
+420 RUN garrote
+430 RUN garrote
+440 RUN garrote
+450 RUN garrote
+460 GOTO 600
+500 RUN crowbar
+510 RUN crowbar
+520 RUN crowbar
+530 RUN crowbar
+540 RUN crowbar
+550 RUN crowbar
+600 RUN torch
+610 RUN wyrm
+620 RUN icepick
+630 GOTO 600";
+
 /// Which bot plays.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Bot {
     /// First route, [`DUMB`] in fights, walks away from everyone.
     Dumb,
-    /// Picks routes, shops, talks, and fights with its save's program (a fresh save's is the
-    /// default kit's `SAFE`: patch when low, shield a hit that matters, scrub high trace,
-    /// the breaker made for the ICE, then the strongest).
+    /// The careful bot: picks routes, shops, talks, and fights with [`CAREFUL`].
     Smart,
 }
 
 impl Bot {
-    /// The program the bot fights with when its save doesn't carry one.
-    pub fn program(self, data: &Data) -> String {
+    /// The program the bot fights with. Neither is the kit's `SAFE`, which only defends.
+    pub fn program(self) -> &'static str {
         match self {
-            Bot::Dumb => DUMB.to_string(),
-            Bot::Smart => data.starts.program("").to_string(),
+            Bot::Dumb => DUMB,
+            Bot::Smart => CAREFUL,
         }
     }
 }
@@ -120,7 +162,7 @@ pub fn play_knowing(mut g: Game, bot: Bot, known: &[String]) -> (Game, RunLog) {
     let mut shopped: Vec<(bool, usize)> = Vec::new();
     let mut steps = 0;
     if g.program.lines.is_empty() {
-        g.apply(Action::Program(bot.program(&g.data)));
+        g.apply(Action::Program(bot.program().to_string()));
     }
     // The program handed the turn over (a STOP or a hang): a bot has no hands, so it ends it.
     let mut handed = false;
@@ -772,7 +814,7 @@ impl Probe {
         let (bot_ix, tier, seed) = (k / (per * 3), (k / per) % 3 + 1, u64::from(k % per));
         let bot = if bot_ix == 0 { Bot::Dumb } else { Bot::Smart };
         let mut save = Save {
-            program: Some(bot.program(&self.data)),
+            program: Some(bot.program().to_string()),
             ..Save::default()
         };
         save.phonebook.push(Entry {
@@ -806,6 +848,7 @@ impl Probe {
         let save = self.save.get_or_insert_with(|| {
             let mut s = Save {
                 kit,
+                program: Some(CAREFUL.to_string()),
                 ..Save::default()
             };
             let seed = rng.next_u64();

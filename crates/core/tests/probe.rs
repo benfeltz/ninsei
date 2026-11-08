@@ -127,13 +127,15 @@ fn the_dumb_bot_is_two_lines() {
     let data = Data::builtin().unwrap();
     let dumb = ninsei_core::basic::parse(probe::DUMB);
     assert_eq!(dumb.lines.len(), 2);
-    assert_eq!(Bot::Dumb.program(&data), probe::DUMB);
-    // The competent bot is the program a fresh deck ships: the default kit's SAFE.
-    assert_eq!(Bot::Smart.program(&data), data.starts.program(""));
+    assert_eq!(Bot::Dumb.program(), probe::DUMB);
+    // The careful bot has its own program: the kit's SAFE only defends.
+    assert_eq!(Bot::Smart.program(), probe::CAREFUL);
+    assert_ne!(probe::CAREFUL, data.starts.program(""));
+    assert_eq!(ninsei_core::hub::program_fault(probe::CAREFUL, &data), None);
     // Both play fights through the interpreter: what's left in the run is their program.
     for bot in [Bot::Dumb, Bot::Smart] {
         let (g, log) = probe::play(Game::new(data.clone(), 3), bot);
-        assert_eq!(g.program, ninsei_core::basic::parse(&bot.program(&data)));
+        assert_eq!(g.program, ninsei_core::basic::parse(bot.program()));
         if log.fights > 0 {
             assert!(
                 !log.breaks.is_empty(),
