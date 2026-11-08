@@ -507,11 +507,12 @@ fn fresh_key(ctx: &egui::Context, key: egui::Key) -> bool {
 }
 
 /// The Script card's look: Liza's two colours and type.
-fn card_look<'a>(p: &Panes<'a>) -> liza::Look<'a> {
+fn card_look<'a>(p: &Panes<'a>, ui: &Ui) -> liza::Look<'a> {
     liza::Look {
         ink: p.pal.fg,
         paper: p.pal.bg,
-        font: egui::TextStyle::Monospace.resolve(&egui::Style::default()),
+        // The run's own type, as the panels round it set theirs.
+        font: egui::TextStyle::Monospace.resolve(ui.style()),
         stripes: None,
         gray: p.game.data.pattern("p50"),
     }
@@ -533,7 +534,7 @@ fn text_w(ui: &Ui, text: &str, font: &egui::FontId) -> f32 {
 fn script_card(p: &mut Panes, ui: &mut Ui) {
     let g = p.game;
     let card = stack_fight::card(g);
-    let look = card_look(p);
+    let look = card_look(p, ui);
     let ink = look.ink;
     let mut acts: Vec<Action> = Vec::new();
     // The title line: the card's name at the left, what's left this turn at the right.
@@ -1295,6 +1296,28 @@ pub(crate) mod tests {
         );
         let out = frame(&mut h, crate::uitest::key(egui::Key::Escape), false);
         assert_eq!(out.len(), 1, "the next Esc pauses");
+    }
+
+    #[test]
+    fn the_card_is_set_in_the_runs_type() {
+        let g = fight("10 RUN icepick");
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        crate::uitest::themed(&h.ctx, &g.data);
+        ice_card(&mut h, &g, PANE, vec![]);
+        ice_card(&mut h, &g, PANE, vec![]);
+        let height = |t: &str| {
+            h.painted_text()
+                .into_iter()
+                .find(|p| p.0 == t)
+                .unwrap_or_else(|| panic!("no {t}"))
+                .1
+                .height()
+        };
+        assert_eq!(
+            height("(RUN)"),
+            height("Blocks:"),
+            "the block's type is the row's"
+        );
     }
 
     #[test]
