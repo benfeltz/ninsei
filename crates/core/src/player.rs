@@ -69,6 +69,8 @@ pub enum Act {
     /// Turn the master level up or down a step ([`VOLUME_STEP`]).
     Louder,
     Softer,
+    /// Set the master level outright, in percent (a control that shows it, clicked).
+    Volume(u8),
     Repeat,
     Shuffle,
 }
@@ -165,6 +167,12 @@ pub fn apply(save: &mut Save, data: &Data, t: &mut Transport, act: Act) -> bool 
             save.volume = v;
             return changed;
         }
+        Act::Volume(pct) => {
+            let v = pct.min(100);
+            let changed = v != save.volume;
+            save.volume = v;
+            return changed;
+        }
         Act::Repeat => {
             save.player.repeat = !save.player.repeat;
             return true;
@@ -236,7 +244,9 @@ pub fn apply(save: &mut Save, data: &Data, t: &mut Transport, act: Act) -> bool 
             t.cue = t.cue.wrapping_add(1);
             true
         }
-        Act::Louder | Act::Softer | Act::Repeat | Act::Shuffle | Act::Toggle => false,
+        Act::Louder | Act::Softer | Act::Volume(_) | Act::Repeat | Act::Shuffle | Act::Toggle => {
+            false
+        }
     }
 }
 

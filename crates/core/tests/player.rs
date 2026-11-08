@@ -148,6 +148,15 @@ fn volume_steps_the_saves_master_level() {
         player::apply(&mut s, &d, &mut t, Act::Softer);
     }
     assert_eq!(s.volume, 0);
+    // A control that shows the level sets it outright.
+    assert!(player::apply(&mut s, &d, &mut t, Act::Volume(40)));
+    assert_eq!(s.volume, 40);
+    assert!(
+        !player::apply(&mut s, &d, &mut t, Act::Volume(40)),
+        "no change"
+    );
+    player::apply(&mut s, &d, &mut t, Act::Volume(250));
+    assert_eq!(s.volume, 100);
 }
 
 #[test]
