@@ -150,7 +150,7 @@ impl Workbench {
                     Tool::IceDb => (pos2(220.0, 60.0), vec2(700.0, 470.0)),
                     Tool::NightComm => (pos2(150.0, 50.0), vec2(880.0, 500.0)),
                     Tool::TigerTeam => (pos2(140.0, 44.0), vec2(900.0, 540.0)),
-                    Tool::Player => (pos2(200.0, 40.0), vec2(600.0, 500.0)),
+                    Tool::Player => (pos2(200.0, 36.0), vec2(600.0, 524.0)),
                     Tool::Guide => (pos2(200.0, 30.0), book_window()),
                     // Sized when it's first drawn (`home::size_game_window`).
                     Tool::Game(_, copy) => {
