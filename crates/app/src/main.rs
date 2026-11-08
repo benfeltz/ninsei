@@ -1722,6 +1722,21 @@ mod tests {
         }
 
         #[test]
+        fn a_slow_frames_command_runs_whole_on_the_run_terminal() {
+            let (mut h, mut app) = running("onosendai");
+            for _ in 0..3 {
+                frame(&mut h, &mut app, Vec::new());
+            }
+            // The keys of `help` and Enter land in one frame.
+            let mut ev = text("h");
+            ev.extend(text("elp"));
+            ev.extend(key(egui::Key::Enter));
+            frame(&mut h, &mut app, ev);
+            assert_eq!(app.term.history().last().map(String::as_str), Some("help"));
+            assert_eq!(app.term.text(), "");
+        }
+
+        #[test]
         fn esc_in_a_slow_frame_keeps_the_typing_before_it() {
             let (mut h, mut app) = running("onosendai");
             for _ in 0..3 {
