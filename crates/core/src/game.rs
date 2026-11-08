@@ -30,6 +30,23 @@ pub struct Caps {
     pub integrity: Option<u32>,
 }
 
+impl Deck {
+    /// For a deck mod or a loot drop: the line's name, where it stands, and its ceiling.
+    fn line(&self, item: &Drop) -> Option<(&'static str, u32, Option<u32>)> {
+        match item {
+            Drop::Cpu(_) => Some(("cpu", self.cpu_max, self.caps.cpu)),
+            Drop::Ram(_) => Some(("ram", self.ram_max, self.caps.ram)),
+            Drop::Hdd(_) => Some(("hdd", self.hdd_max, self.caps.hdd)),
+            _ => None,
+        }
+    }
+
+    /// How much of a `+n` upgrade the chassis has room for.
+    fn room(now: u32, n: u32, cap: Option<u32>) -> u32 {
+        cap.map_or(n, |c| n.min(c.saturating_sub(now)))
+    }
+}
+
 /// One program on the HDD. Loaded programs occupy RAM and can be run.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Slot {
@@ -1563,6 +1580,14 @@ impl Game {
         if s.bought {
             return Some(format!("{} already downloaded.", def.file));
         }
+        if let Some((line, now, Some(cap))) = self.deck.line(&def.item)
+            && let Drop::Cpu(n) | Drop::Ram(n) | Drop::Hdd(n) = def.item
+            && now + n > cap
+        {
+            return Some(format!(
+                "your deck can't take it: {line} tops out at {cap}."
+            ));
+        }
         if self.deck.credits < def.price {
             return Some(format!(
                 "insufficient credits: {} needs {}¢, you have {}¢.",
@@ -1759,17 +1784,23 @@ impl Game {
                 self.deck.credits += n;
                 self.say(LogKind::Loot, format!("+ {n}¢"));
             }
-            Drop::Ram(n) => {
-                self.deck.ram_max += n;
-                self.say(LogKind::Loot, format!("+ ram upgrade: +{n}"));
-            }
-            Drop::Cpu(n) => {
-                self.deck.cpu_max += n;
-                self.say(LogKind::Loot, format!("+ cpu upgrade: +{n}"));
-            }
-            Drop::Hdd(n) => {
-                self.deck.hdd_max += n;
-                self.say(LogKind::Loot, format!("+ hdd upgrade: +{n} slots"));
+            Drop::Ram(n) | Drop::Cpu(n) | Drop::Hdd(n) => {
+                let (line, now, cap) = self.deck.line(&drop).expect("a deck line");
+                let n = Deck::room(now, n, cap);
+                if n == 0 {
+                    self.say(
+                        LogKind::Sys,
+                        format!("found a {line} upgrade, but the chassis is full. wasted."),
+                    );
+                    return;
+                }
+                match drop {
+                    Drop::Ram(_) => self.deck.ram_max += n,
+                    Drop::Cpu(_) => self.deck.cpu_max += n,
+                    _ => self.deck.hdd_max += n,
+                }
+                let unit = if line == "hdd" { " slots" } else { "" };
+                self.say(LogKind::Loot, format!("+ {line} upgrade: +{n}{unit}"));
             }
             Drop::Repair(n) => {
                 self.deck.integrity = (self.deck.integrity + n).min(self.deck.integrity_max);

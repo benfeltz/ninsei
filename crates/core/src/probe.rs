@@ -939,7 +939,7 @@ impl Probe {
             if save.bank < c + reserve {
                 break;
             }
-            if save.buy(&data.rig, u).is_err() {
+            if save.buy(data, u).is_err() {
                 break;
             }
             match self.stats.buys.iter_mut().find(|(k, _, _)| *k == u) {

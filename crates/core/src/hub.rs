@@ -1724,13 +1724,40 @@ impl Save {
         self.stash.iter().find(|s| s.id == id)
     }
 
-    /// Buys the next level of an upgrade with banked credits.
-    pub fn buy(&mut self, defs: &[UpgradeDef], u: Upgrade) -> Result<String, String> {
-        let def = defs.iter().find(|d| d.kind == u).ok_or("no such upgrade")?;
+    /// Why the deck plugged in can't take the next level of an upgrade, if it can't: the
+    /// level would take the line past the chassis' ceiling.
+    pub fn upgrade_blocker(&self, data: &Data, u: Upgrade) -> Option<String> {
+        let def = data.rig.iter().find(|d| d.kind == u)?;
+        let cap = self.stat_cap(data, u)?;
+        let after = self.stat_base(data, u) + def.step * (self.rig.level(u) + 1);
+        if after <= cap {
+            return None;
+        }
+        let unit = if def.unit.is_empty() {
+            &def.label
+        } else {
+            &def.unit
+        };
+        Some(format!(
+            "the {} tops out at {cap} {unit}. a bigger chassis takes more.",
+            self.deck_def(data).title()
+        ))
+    }
+
+    /// Buys the next level of an upgrade with banked credits, if the deck can take it.
+    pub fn buy(&mut self, data: &Data, u: Upgrade) -> Result<String, String> {
+        let def = data
+            .rig
+            .iter()
+            .find(|d| d.kind == u)
+            .ok_or("no such upgrade")?;
         let level = self.rig.level(u);
         let cost = def
             .cost(level)
             .ok_or_else(|| format!("{} is maxed out.", def.label))?;
+        if let Some(why) = self.upgrade_blocker(data, u) {
+            return Err(why);
+        }
         if self.bank < cost {
             return Err(format!(
                 "{} costs {cost}¢. you have {}¢.",

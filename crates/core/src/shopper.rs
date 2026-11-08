@@ -513,6 +513,13 @@ impl Save {
             Some(Stock::Call) => Some(
                 "call now: it's for an OS none of your decks run yet. order the deck first.".into(),
             ),
+            // The magazine doesn't know your deck; the order form does.
+            Some(Stock::Price(_))
+                if let Item::Upgrade(u) = item
+                    && let Some(why) = self.upgrade_blocker(data, *u) =>
+            {
+                Some(why)
+            }
             Some(Stock::Price(p)) if self.bank < p => {
                 Some(format!("{p}¢. the bank has {}¢.", self.bank))
             }
@@ -531,7 +538,7 @@ impl Save {
             return Err(self.order_blocker(data, item).unwrap_or_default());
         }
         match item {
-            Item::Upgrade(u) => self.buy(&data.rig, *u),
+            Item::Upgrade(u) => self.buy(data, *u),
             Item::Monitor(id) => self.buy_hardware(data, &Hardware::Monitor(id.clone())),
             Item::Deck(id) => self.buy_hardware(data, &Hardware::Deck(id.clone())),
             Item::Addon(id) => self.buy_addon(data, id),

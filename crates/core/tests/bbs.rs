@@ -370,3 +370,79 @@ fn without_hexed_there_is_no_compiler() {
     g.tools.retain(|t| t != "hexed");
     assert!(g.compile_blocker().is_some());
 }
+
+/// A board with a deck mod in stock: the game sitting on it and where the file is.
+fn deck_mod() -> (Game, usize, usize) {
+    let d = Data::builtin().unwrap();
+    for board in 0..d.boards.len() {
+        for seed in 0..40 {
+            let g = game_at_board(seed, 0, board);
+            for (a, files) in g.bbs_stock.iter().enumerate() {
+                for (f, s) in files.iter().enumerate() {
+                    if matches!(
+                        g.bbs().areas[a].files[s.def].item,
+                        Drop::Cpu(_) | Drop::Ram(_) | Drop::Hdd(_)
+                    ) {
+                        return (g, a, f);
+                    }
+                }
+            }
+        }
+    }
+    panic!("no board stocks a deck mod")
+}
+
+#[test]
+fn a_deck_mod_past_the_cap_is_refused_unpaid() {
+    let (mut g, area, file) = deck_mod();
+    g.deck.credits = 10_000;
+    g.deck.caps = Caps {
+        cpu: Some(g.deck.cpu_max),
+        ram: Some(g.deck.ram_max),
+        hdd: Some(g.deck.hdd_max),
+        integrity: None,
+    };
+    let before = g.deck.clone();
+    let why = g.buy_blocker(area, file).expect("refused");
+    assert!(why.contains("can't take it"), "{why}");
+    g.apply(Action::Buy { area, file });
+    assert_eq!(g.deck, before, "nothing charged, nothing added");
+    assert!(!g.bbs_stock[area][file].bought);
+}
+
+#[test]
+fn loot_past_the_cap_is_wasted() {
+    let src = include_str!("../../../data/loot.ron");
+    let start = src.find("    vault: (").unwrap();
+    let end = start + src[start..].find("]),").unwrap() + 3;
+    let loot = format!(
+        "{}    vault: (rolls: 1, entries: [(weight: 1, drop: Cpu(1))]),{}",
+        &src[..start],
+        &src[end..]
+    );
+    let d = Data::parse(Sources {
+        loot: &loot,
+        ..Sources::builtin()
+    })
+    .unwrap();
+    let kit = Kit {
+        caps: Caps {
+            cpu: Some(Kit::default().cpu),
+            ..Caps::default()
+        },
+        ..Kit::default()
+    };
+    let mut g = Game::start(d, 1, &kit);
+    for n in &mut g.net.nodes {
+        n.kind = NodeKind::Vault;
+        n.cleared = true;
+    }
+    let to = g.reachable()[0];
+    g.net.nodes[to].cleared = false;
+    let cpu = g.deck.cpu_max;
+    g.apply(Action::Move(to));
+    assert_eq!(g.deck.cpu_max, cpu, "the chassis is full");
+    let last = g.log.iter().rev().find(|l| l.text.contains("cpu")).unwrap();
+    assert_eq!(last.kind, LogKind::Sys);
+    assert!(last.text.contains("chassis is full"), "{}", last.text);
+}

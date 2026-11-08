@@ -47,7 +47,7 @@ fn an_upgrade_shows_up_in_the_overview() {
     let d = data();
     let mut s = fresh(100_000);
     let before = system::overview(&s, &d);
-    s.buy(&d.rig, Upgrade::Ram).unwrap();
+    s.buy(&d, Upgrade::Ram).unwrap();
     let after = system::overview(&s, &d);
     assert_eq!(
         spec(&after, "RAM").level.0,
@@ -55,7 +55,7 @@ fn an_upgrade_shows_up_in_the_overview() {
     );
     assert_ne!(spec(&after, "RAM").value, spec(&before, "RAM").value);
     // Maxed: no next upgrade.
-    while s.buy(&d.rig, Upgrade::Cpu).is_ok() {}
+    while s.buy(&d, Upgrade::Cpu).is_ok() {}
     assert_eq!(spec(&system::overview(&s, &d), "CPU").next, None);
 }
 

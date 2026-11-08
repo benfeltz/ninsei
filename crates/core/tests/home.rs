@@ -46,7 +46,7 @@ fn rig_prices_climb_and_cap() {
 fn buying_spends_the_bank() {
     let d = data();
     let mut s = save();
-    assert!(s.buy(&d.rig, Upgrade::Ram).unwrap_err().contains("costs"));
+    assert!(s.buy(&d, Upgrade::Ram).unwrap_err().contains("costs"));
     s.bank = 10_000;
     let first = d
         .rig
@@ -55,13 +55,13 @@ fn buying_spends_the_bank() {
         .unwrap()
         .cost(0)
         .unwrap();
-    s.buy(&d.rig, Upgrade::Ram).unwrap();
+    s.buy(&d, Upgrade::Ram).unwrap();
     assert_eq!((s.rig.ram, s.bank), (1, 10_000 - first));
     let cpu_max = d.rig.iter().find(|u| u.kind == Upgrade::Cpu).unwrap().max;
     for _ in 0..cpu_max {
-        s.buy(&d.rig, Upgrade::Cpu).unwrap();
+        s.buy(&d, Upgrade::Cpu).unwrap();
     }
-    assert!(s.buy(&d.rig, Upgrade::Cpu).unwrap_err().contains("maxed"));
+    assert!(s.buy(&d, Upgrade::Cpu).unwrap_err().contains("maxed"));
 }
 
 #[test]
@@ -309,4 +309,53 @@ fn a_new_deck_ships_with_the_suite_and_a_generic_breaker() {
         .map(|w| w.to_string())
         .collect();
     assert_eq!(s.kit(&d).programs.len(), tuning::START_WAREZ.len());
+}
+
+/// The shipped data with the starter's CPU ceiling at `max`.
+fn starter_cpu_max(max: u32) -> Data {
+    let src = include_str!("../../../data/hub/hardware.ron");
+    Data::parse(Sources {
+        hardware: &src.replacen(
+            "(line: Cpu, base: 3, max: 6)",
+            &format!("(line: Cpu, base: 3, max: {max})"),
+            1,
+        ),
+        ..Sources::builtin()
+    })
+    .unwrap()
+}
+
+#[test]
+fn rig_stops_at_the_chassis() {
+    let d = starter_cpu_max(4);
+    let mut s = save();
+    s.ensure_hardware(&d);
+    s.bank = 100_000;
+    s.buy(&d, Upgrade::Cpu).unwrap();
+    let bank = s.bank;
+    let why = s.buy(&d, Upgrade::Cpu).unwrap_err();
+    assert!(why.contains(&s.deck_def(&d).title()), "{why}");
+    assert!(why.contains("4 cyc"), "{why}");
+    assert_eq!((s.rig.cpu, s.bank), (1, bank), "nothing charged");
+    assert_eq!(s.upgrade_blocker(&d, Upgrade::Cpu), Some(why));
+    assert_eq!(s.upgrade_blocker(&d, Upgrade::Ram), None);
+}
+
+#[test]
+fn order_blocker_says_why_before_buying() {
+    use ninsei_core::shopper::{Item, Stock};
+    let d = starter_cpu_max(3);
+    let mut s = save();
+    s.ensure_hardware(&d);
+    s.bank = 100_000;
+    let cpu = Item::Upgrade(Upgrade::Cpu);
+    let listing = s.catalog(&d).into_iter().find(|l| l.item == cpu).unwrap();
+    assert!(
+        matches!(listing.stock, Stock::Price(_)),
+        "the magazine still lists it: it doesn't know your deck"
+    );
+    let why = s.order_blocker(&d, &cpu).expect("the order form refuses");
+    assert!(why.contains("tops out at 3"), "{why}");
+    assert_eq!(s.buy_item(&d, &cpu), Err(why));
+    assert_eq!((s.rig.cpu, s.bank), (0, 100_000));
 }
