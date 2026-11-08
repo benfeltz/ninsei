@@ -48,9 +48,8 @@ fn ramp() -> [Color32; 3] {
     [muted(), ink(), accent()]
 }
 
-/// This frame's acts and cursor moves from the keyboard, while the player has it. `arrows`:
-/// ↑↓ move the cursor here (a list box with the focus walks itself).
-fn keys(ui: &Ui, rows: usize, sel: &mut Option<usize>, arrows: bool) -> Vec<Act> {
+/// This frame's acts and cursor moves from the keyboard, while the player has it.
+fn keys(ui: &Ui, rows: usize, sel: &mut Option<usize>) -> Vec<Act> {
     let mut acts = Vec::new();
     ui.input(|i| {
         for e in &i.events {
@@ -75,7 +74,6 @@ fn keys(ui: &Ui, rows: usize, sel: &mut Option<usize>, arrows: bool) -> Vec<Act>
                 Key::Minus => acts.push(Act::Softer),
                 Key::R => acts.push(Act::Repeat),
                 Key::S => acts.push(Act::Shuffle),
-                Key::ArrowDown | Key::ArrowUp if !arrows => {}
                 Key::J | Key::ArrowDown if rows > 0 => {
                     *sel = Some(sel.map_or(0, |s| (s + 1).min(last)));
                 }
@@ -115,7 +113,7 @@ pub fn tile(
     if keys_on {
         // Its keys are the player's: nothing behind it types them.
         ui.ctx().memory_mut(|m| m.stop_text_input());
-        for a in keys(ui, rows.len(), &mut pui.sel, true) {
+        for a in keys(ui, rows.len(), &mut pui.sel) {
             out.push(WbOut::Player(a));
         }
     }
@@ -331,10 +329,10 @@ pub fn liza_face(
     }
     let list_id = Id::new("trax-liza-list");
     if keys_on {
-        // Its keys are the player's: nothing behind it types them.
+        // Its keys are the player's: nothing behind it types them, and ↑↓ move the cursor
+        // here (the list box never keeps the focus that would walk it itself).
         ui.ctx().memory_mut(|m| m.stop_text_input());
-        let walks = ui.memory(|m| m.has_focus(list_id));
-        for a in keys(ui, rows.len(), &mut pui.sel, !walks) {
+        for a in keys(ui, rows.len(), &mut pui.sel) {
             out.push(WbOut::Player(a));
         }
     }
