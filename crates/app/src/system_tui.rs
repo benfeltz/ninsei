@@ -407,12 +407,20 @@ fn overview(g: &mut Grid, data: &Data, save: &Save, st: &SystemUi, items: &mut V
         g.put(x + label_w, y, v, ink());
         y += 1;
     }
+    // The values line up, and the meters start a cell past the longest ("6 of 12 slots").
+    let value_w = o
+        .specs
+        .iter()
+        .map(|s| s.value.chars().count() + 1)
+        .max()
+        .unwrap_or(0)
+        .max(8);
     for s in &o.specs {
         g.put(x, y, &s.label, accent());
         g.put(x + label_w, y, &s.value, ink());
         // The level as a meter: one cell per upgrade.
         let (lvl, max) = s.level;
-        let mut c = x + label_w + 8;
+        let mut c = x + label_w + value_w;
         for i in 0..max {
             c = g.put(c, y, "■", if i < lvl { accent() } else { fill() });
         }

@@ -173,7 +173,7 @@ impl Liza {
         let (pos, size) = match tool {
             Tool::Shell => (pos2(40.0, 330.0), vec2(620.0, 290.0)),
             Tool::Terminal => (pos2(60.0, 44.0), vec2(720.0, 440.0)),
-            Tool::System => (pos2(100.0, 40.0), vec2(700.0, 500.0)),
+            Tool::System => (pos2(100.0, 40.0), vec2(760.0, 500.0)),
             Tool::Rig => (pos2(80.0, 30.0), book_window()),
             Tool::HexEd => (pos2(40.0, 40.0), vec2(800.0, 500.0)),
             Tool::Qwk => (pos2(70.0, 50.0), vec2(700.0, 470.0)),

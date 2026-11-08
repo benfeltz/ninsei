@@ -174,3 +174,33 @@ fn every_panel_has_one_square_one_bit_icon() {
         "a colour pixel"
     );
 }
+
+#[test]
+fn the_cpu_line_shows_the_cap_and_greys_at_it() {
+    let src = include_str!("../../../data/hub/hardware.ron");
+    let d = Data::parse(Sources {
+        hardware: &src.replacen(
+            "(line: Cpu, base: 3, max: 6)",
+            "(line: Cpu, base: 3, max: 4)",
+            1,
+        ),
+        ..Sources::builtin()
+    })
+    .unwrap();
+    let mut s = Save {
+        bank: 100_000,
+        ..Save::default()
+    };
+    s.ensure_hardware(&d);
+    let cpu = |s: &Save| spec(&system::overview(s, &d), "CPU").clone();
+    assert_eq!(cpu(&s).value, "3 of 4 cyc");
+    assert!(cpu(&s).next.is_some());
+    s.buy(&d, Upgrade::Cpu).unwrap();
+    let capped = cpu(&s);
+    assert_eq!(capped.value, "4 of 4 cyc");
+    assert_eq!(capped.next, None, "the chassis is full: nothing to buy");
+    let rig_max = d.rig.iter().find(|u| u.kind == Upgrade::Cpu).unwrap().max;
+    assert_eq!(capped.level, (1, rig_max), "RIG levels still read as owned");
+    let stash = spec(&system::overview(&s, &d), "Stash").value.clone();
+    assert!(!stash.contains(" of "), "the stash has no chassis: {stash}");
+}
