@@ -1898,6 +1898,31 @@ mod script_tests {
     }
 
     #[test]
+    fn a_narrow_tile_cuts_the_hang_before_the_budgets() {
+        let mut g = fight("10 GOTO 20\n20 GOTO 10");
+        for _ in 0..3 {
+            g.apply(Action::Step);
+        }
+        // Room for the budgets, not for the hang after them.
+        let size = (300.0, 300.0);
+        let mut h = Harness::new(1280.0, 800.0);
+        frame(&mut h, &g, size, vec![]);
+        frame(&mut h, &g, size, vec![]);
+        let rows = rows_painted(&h, pane_rect(size));
+        let edge = rows
+            .iter()
+            .map(|(s, _)| s.replace(' ', ""))
+            .find(|s| s.contains("cpu"))
+            .unwrap_or_else(|| panic!("{rows:?}"));
+        let ram = format!("ram{}/{}", g.ifs_left(), g.deck.ram_max);
+        assert!(edge.contains(&ram), "the budgets whole: {edge}");
+        assert!(
+            edge.contains('…') && !edge.contains("in10"),
+            "the hang cut: {edge}"
+        );
+    }
+
+    #[test]
     fn a_hang_is_cut_into_the_tiles_bottom_edge_and_the_line_stays_lit() {
         let mut g = fight("10 GOTO 20\n20 GOTO 10");
         for _ in 0..3 {
