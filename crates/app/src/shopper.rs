@@ -551,7 +551,12 @@ fn full_ad(
     if let Some(n) = &a.note {
         ui_copy.label(small(n));
     }
-    if let Some(v) = vendor.filter(|v| !v.terms.is_empty()) {
+    // The small print goes in whole or not at all: a terms list cut off by the price
+    // reads as a misprint.
+    let row = ui_copy.fonts_mut(|f| f.row_height(&FontId::proportional(size::SMALL)));
+    let spacing = ui_copy.spacing().item_spacing.y;
+    let fits = |n: usize| 6.0 + (row + spacing) * (n + 1) as f32 <= ui_copy.available_height();
+    if let Some(v) = vendor.filter(|v| !v.terms.is_empty() && fits(v.terms.len())) {
         ui_copy.add_space(6.0);
         ui_copy.label(bold("TERMS:", size::SMALL));
         for t in &v.terms {
@@ -1021,6 +1026,16 @@ mod tests {
                         };
                         for t in [s.label.clone(), num(s.ships), num(s.max)] {
                             assert!(seen.contains(&t), "{}: no {t:?} in {seen:?}", l.name);
+                        }
+                    }
+                    // The small print is whole or absent, never cut off by the price.
+                    let def = &data.shopper;
+                    if let Some(v) = def.vendor(def.vendor_of(l))
+                        && seen.iter().any(|t| t == "TERMS:")
+                    {
+                        for t in &v.terms {
+                            let t = format!("★ {t}");
+                            assert!(seen.contains(&t), "{}: {t:?} is cut off", l.name);
                         }
                     }
                     // The box is whole: every word of it on the page and none cut at a clip.
