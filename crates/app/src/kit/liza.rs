@@ -656,7 +656,16 @@ pub fn popup_menu(
         let w = r
             .width()
             .max(popup_width(&ctx, options, value, look) - size::POPUP_ARROW);
-        let list = Rect::from_min_size(r.left_bottom(), vec2(w, row * options.len() as f32));
+        // Under the box, or over it when that would run off the screen: placed here and drawn
+        // here, so the clicks land where the items are.
+        let size = vec2(w, row * options.len() as f32);
+        let screen = ctx.content_rect();
+        let below = Rect::from_min_size(r.left_bottom(), size);
+        let list = if below.bottom() > screen.bottom() && r.top() - size.y >= screen.top() {
+            Rect::from_min_size(pos2(r.left(), r.top() - size.y), size)
+        } else {
+            below
+        };
         // The keys while it's open: ↑↓ move, Enter picks, Esc closes.
         let (up, down, enter, esc) = ctx.input_mut(|i| {
             (
@@ -674,6 +683,7 @@ pub fn popup_menu(
         }
         egui::Area::new(id.with("list"))
             .order(egui::Order::Foreground)
+            .constrain(false)
             .fixed_pos(list.min)
             .show(&ctx, |ui| {
                 let (list, _) = ui.allocate_exact_size(list.size(), Sense::hover());
@@ -1290,6 +1300,29 @@ mod tests {
         controls(&mut h, "7", "INTEG", crate::uitest::text("9"));
         let (got, ..) = controls(&mut h, "7", "INTEG", key(Key::Escape));
         assert_eq!(got, None);
+    }
+
+    #[test]
+    fn a_popup_near_the_bottom_opens_upward_and_still_picks() {
+        let mut h = Harness::new(400.0, 300.0);
+        let opts: Vec<String> = ["INTEG", "TRACE", "CPU"].map(String::from).to_vec();
+        let mut got = None;
+        let mut frame = |h: &mut Harness, ev| {
+            h.frame(ev, |ui| {
+                let r = Rect::from_min_size(pos2(20.0, 270.0), vec2(90.0, size::FIELD_H));
+                got = popup_menu(ui, r, Id::new("m"), "INTEG", &opts, &look()).or(got);
+            });
+        };
+        frame(&mut h, vec![]);
+        frame(&mut h, click(pos2(40.0, 280.0)));
+        frame(&mut h, vec![]);
+        let trace = h.find("TRACE").unwrap();
+        assert!(
+            trace.bottom() <= 270.0,
+            "it opened above the box: {trace:?}"
+        );
+        frame(&mut h, click(trace.center()));
+        assert_eq!(got, Some(1));
     }
 
     #[test]
