@@ -124,9 +124,30 @@ fn on_every_deck_finish_is_the_rest_of_the_turn() {
 }
 
 #[test]
-fn on_every_deck_safe_hangs_where_you_look_until_the_next_step() {
+fn on_every_deck_run_idles_safe_through_a_quiet_turn_and_carries_on() {
     for deck in DECKS {
         let mut g = fight_on(deck);
+        g.apply(Action::Play);
+        while turn(&g) == 1 {
+            assert_eq!(g.exec.state, ExecState::Running, "{deck}: no hang stops it");
+            g.apply(Action::Step);
+        }
+        assert_eq!(
+            g.exec.trace.last().unwrap().what,
+            StepWhat::OutOfRam,
+            "{deck}"
+        );
+        assert_eq!(g.exec.state, ExecState::Running, "{deck}: on into turn 2");
+    }
+}
+
+#[test]
+fn on_every_deck_a_loop_that_spends_nothing_hangs_where_you_look_until_the_next_step() {
+    for deck in DECKS {
+        let mut g = fight_on(deck);
+        g.apply(Action::Program(
+            "10 REM idle\n20 GOTO 30\n30 GOTO 20".into(),
+        ));
         while g.exec.broke.is_none() {
             g.apply(Action::Step);
         }

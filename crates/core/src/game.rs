@@ -451,7 +451,8 @@ pub struct Exec {
     pub pc: Option<u32>,
     /// This turn's pass so far, or the last one: a step per line executed.
     pub trace: Vec<Step>,
-    /// The lines this pass has come to since its last RUN: coming back to one is a hang.
+    /// The lines this pass has come to since it last spent a budget (a RUN's cycle or an
+    /// IF's GB): coming back to one is a hang.
     pub visited: Vec<u32>,
     /// A pass is under way this turn: the next line carries it on instead of starting at the
     /// top. The turn's end closes it.
@@ -1369,6 +1370,9 @@ impl Game {
                     if let Some(c) = self.combat.as_mut() {
                         c.ifs -= 1;
                     }
+                    // Spending a GB is progress, as a RUN's cycle is: a loop of IFs idles
+                    // through the RAM and ends the turn, it doesn't hang.
+                    self.exec.visited.clear();
                     let yes = self.test(&cond);
                     self.trace_step(no, StepWhat::If(yes));
                     if !yes {

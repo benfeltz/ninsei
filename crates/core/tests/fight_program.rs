@@ -59,24 +59,18 @@ fn a_fresh_deck_fights_with_safe_and_a_pass_is_one_turn() {
     );
     let cpu = g.deck.cpu_max;
     g.apply(Action::Finish);
-    // SAFE only defends: at full integrity against a fortify it has nothing to do, comes
-    // round to line 20 having run nothing, and hands the turn over.
+    // SAFE only defends: at full integrity against a fortify it has nothing to do. Each
+    // time round its IFs spend GB, so it idles through the RAM and the turn ends: no hang.
     assert_eq!(ran(&g), 0, "{:?}", g.exec.trace);
-    assert!(g.log.iter().any(|l| l.text == "?BREAK IN 20"));
-    assert_eq!(
-        g.combat.as_ref().unwrap().turn,
-        1,
-        "the turn is the player's"
-    );
-    // The first edit: a breaker in the loop. The pass carries on in the same turn, with the
-    // GB the hang already spent gone, so it runs out of RAM before cycles and the turn ends.
+    assert_eq!(g.exec.trace.last().unwrap().what, StepWhat::OutOfRam);
+    assert!(!g.log.iter().any(|l| l.text.contains("?BREAK")));
+    assert_eq!(g.combat.as_ref().unwrap().turn, 2, "the ICE acted");
+    // The first edit: a breaker in the loop. A whole turn: two IFs a loop, and the deck's
+    // RAM covers a loop per cycle.
     g.apply(Action::Program(format!(
         "{}\n55 RUN icepick",
         g.program.text()
     )));
-    g.apply(Action::Finish);
-    assert_eq!(g.combat.as_ref().unwrap().turn, 2, "the ICE acted once");
-    // A whole turn: two IFs a loop, and the deck's RAM covers a loop per cycle.
     g.apply(Action::Finish);
     assert_eq!(ran(&g) as u32, cpu, "{:?}", g.exec.trace);
     assert_eq!(g.combat.as_ref().unwrap().turn, 3);
@@ -259,20 +253,24 @@ fn safe_patches_when_low_and_raises_the_firewall_before_an_attack() {
 }
 
 #[test]
-fn play_with_safe_hands_back_every_quiet_turn() {
+fn run_with_safe_idles_through_a_quiet_turn_and_carries_on() {
     let mut s = fresh();
     let mut g = fight_from(&mut s, "bulwark");
     // Fortify next, the deck whole: nothing to defend against.
     assert!(matches!(g.intent(), Some(Intent::Fortify(_))));
     g.apply(Action::Play);
-    g.apply(Action::Finish);
-    assert_ne!(g.exec.state, ExecState::Running, "a hang stops Run");
-    assert_eq!(
-        g.combat.as_ref().unwrap().turn,
-        1,
-        "the turn is the player's"
-    );
-    assert!(g.log.iter().any(|l| l.text == "?BREAK IN 20"));
+    // The driver's beats: a Step each while it runs.
+    while g.combat.as_ref().unwrap().turn == 1 {
+        assert_eq!(g.exec.state, ExecState::Running, "{:?}", g.exec.trace);
+        g.apply(Action::Step);
+    }
+    assert_eq!(g.exec.trace.last().unwrap().what, StepWhat::OutOfRam);
+    assert!(!g.log.iter().any(|l| l.text.contains("?BREAK")), "no hang");
+    // Run keeps going into the next turn.
+    assert_eq!(g.exec.state, ExecState::Running);
+    g.apply(Action::Step);
+    assert_eq!(g.exec.state, ExecState::Running);
+    assert_eq!(g.combat.as_ref().unwrap().turn, 2);
     // The hotbar still plays it by hand.
     let pick = g.slot_named("icepick").unwrap();
     let before = g.combat.as_ref().unwrap().strength;
@@ -315,12 +313,16 @@ const SNAPSHOT: &str = "([(20, \"If(true)\"), (30, \"Ran { uid: 2, outcome: Repa
     (55, \"Ran { uid: 3, outcome: Break { hit: 3, vs: Plain } }\"), (55, \"OutOfCpu\")], \
     2, 3, 6, 497, 8)";
 
+/// A loop that spends nothing: it comes round to line 20 with no RUN and no IF.
+const IDLE: &str = "10 REM idle\n20 GOTO 30\n30 GOTO 20";
+
 #[test]
 fn a_hang_holds_the_line_until_an_edit() {
     let mut s = fresh();
     let mut g = fight_from(&mut s, "bulwark");
+    g.apply(Action::Program(IDLE.into()));
     g.apply(Action::Finish);
-    // SAFE comes round to line 20 having run nothing: the cursor stays on it.
+    // Back on line 20 having spent nothing: the cursor stays on it.
     assert_eq!(g.exec.broke, Some(20));
     assert_eq!(g.exec.pc, Some(20));
     assert_eq!(ninsei_core::listing::broke(&g), Some(20));
@@ -503,9 +505,10 @@ fn the_terminal_steps_a_line_and_finishes_the_turn() {
 #[test]
 fn every_deck_says_the_hang_where_you_look_until_the_next_step() {
     use ninsei_core::{btop_fight, listing, stack_fight, suite};
-    // A fresh deck's SAFE with nothing to defend against: Step until it hangs on line 20.
+    // A loop that spends nothing: Step until it hangs on line 20.
     let mut s = fresh();
     let mut g = fight_from(&mut s, "bulwark");
+    g.apply(Action::Program(IDLE.into()));
     while g.exec.broke.is_none() {
         g.apply(Action::Step);
     }

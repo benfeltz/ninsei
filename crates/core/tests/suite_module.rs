@@ -238,7 +238,7 @@ fn proc_7_is_one_program_before_during_and_after_an_incident() {
 #[test]
 fn the_last_watch_lets_go_of_a_hang_with_the_edge() {
     let mut g = fight();
-    g.apply(Action::Program("10 IF INTEG > 0\n20 GOTO 10".into()));
+    g.apply(Action::Program("10 GOTO 20\n20 GOTO 10".into()));
     let last = |g: &Game| -> String {
         suite::watches(g)
             .into_iter()

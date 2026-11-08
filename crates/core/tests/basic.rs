@@ -283,11 +283,19 @@ fn a_cycle_less_loop_breaks() {
     assert!(g.log.iter().any(|l| l.text == "?BREAK IN 10"));
     assert_eq!(g.exec.state, ExecState::Paused, "the debugger has the turn");
     assert_eq!(combat(&g).turn, 1, "a hang doesn't end the turn");
-    // A loop whose only RUN is guarded by a false IF hangs too.
+    // A loop whose only RUN is guarded by a false IF spends a GB each time round: that's
+    // progress, so it idles through the RAM and the turn ends, no hang.
     let mut g = fight("bulwark", "10 IF INTEG > 100\n20 RUN icepick\n30 GOTO 10");
+    g.apply(Action::Finish);
+    assert_eq!(g.exec.trace.last().unwrap().what, StepWhat::OutOfRam);
+    assert!(!g.exec.trace.iter().any(|s| s.what == StepWhat::Break));
+    assert_eq!(combat(&g).turn, 2, "the ICE acted");
+    // A GOTO loop spends nothing, however long it is: still a hang.
+    let mut g = fight("bulwark", "10 GOTO 20\n20 GOTO 30\n30 GOTO 10");
     g.apply(Action::Finish);
     let last = g.exec.trace.last().unwrap();
     assert_eq!((last.line, &last.what), (10, &StepWhat::Break));
+    assert_eq!(combat(&g).turn, 1);
 }
 
 #[test]
