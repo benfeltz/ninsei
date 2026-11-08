@@ -1,0 +1,25 @@
+// A tune on a music disk (the format is in ninsei-nights.ron).
+// Sense/Net's own: the demo tune every new Personal Deck ships with. Major, gentle, a smile.
+(
+    title: "Welcome to the Net",
+    by: "Sense/Net",
+    secs: 60,
+    tune: (bpm: 104, tracks: [
+        (wave: Sine, vol: 0.22, pattern: "
+            C5 - E5 - G5 - - - A5 - G5 - E5 - - -
+            F5 - E5 - D5 - - - G4 - - - - - - -
+            C5 - E5 - G5 - - - C6 - B5 - A5 - - -
+            G5 - F5 - D5 - E5 - C5 - - - - - . .
+        "),
+        (wave: Triangle, vol: 0.28, pattern: "
+            C3 . . . G2 . . . C3 . . . G2 . . .
+            F2 . . . A2 . . . G2 . . . B2 . . .
+            C3 . . . E3 . . . A2 . . . F2 . . .
+            G2 . . . G2 . . . C3 . . . . . . .
+        "),
+        (wave: Square, vol: 0.03, pattern: "
+            E4 . G4 . E4 . G4 . E4 . G4 . E4 . G4 .
+            F4 . A4 . F4 . A4 . D4 . G4 . D4 . G4 .
+        "),
+    ]),
+)

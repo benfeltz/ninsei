@@ -514,6 +514,39 @@ pub struct ArtSrc<'a> {
     pub art: &'a str,
 }
 
+/// One tune's raw file, found under `data/music/<id>.ron` at build time.
+#[derive(Clone, Copy, Debug)]
+pub struct TuneSrc<'a> {
+    pub id: &'a str,
+    pub tune: &'a str,
+}
+
+/// Every tune in `data/music/`, in file order.
+pub const BUILTIN_TUNES: &[TuneSrc<'static>] = include!(concat!(env!("OUT_DIR"), "/music.rs"));
+
+/// A tune on a music disk (`data/music/<id>.ron`): what the desktop's player plays. Its title
+/// and its author are the author's own words; the tune is a cracktro-format pattern,
+/// synthesized like everything else.
+#[derive(Deserialize, Clone, Debug)]
+pub struct TuneFile {
+    /// The file's name, set when it loads.
+    #[serde(skip)]
+    pub id: String,
+    /// What a playlist calls it, as its author wrote it.
+    pub title: String,
+    /// Who wrote it: a crew or a publisher that signs a cracktro in `data/intros/`.
+    pub by: String,
+    /// How long it plays in a playlist before the next one, in seconds: one loop or more.
+    pub secs: u32,
+    pub tune: crate::intro::TuneDef,
+}
+
+/// The longest a tune's title may be, so a playlist row never cuts one.
+pub const TUNE_TITLE_MAX: usize = 24;
+
+/// The longest a tune may play in a playlist, in seconds.
+pub const TUNE_SECS_MAX: u32 = 600;
+
 /// Every picture in `data/art/`, in file order.
 pub const BUILTIN_ART: &[ArtSrc<'static>] = include!(concat!(env!("OUT_DIR"), "/art.rs"));
 
@@ -736,6 +769,7 @@ pub struct Sources<'a> {
     pub sounds: &'a [PackSrc<'a>],
     pub art: &'a [ArtSrc<'a>],
     pub intros: &'a [IntroSrc<'a>],
+    pub tunes: &'a [TuneSrc<'a>],
     pub welcome: &'a str,
     pub starts: &'a str,
     pub rig: &'a str,
@@ -771,6 +805,7 @@ impl Sources<'static> {
             sounds: BUILTIN_SOUNDS,
             art: BUILTIN_ART,
             intros: BUILTIN_INTROS,
+            tunes: BUILTIN_TUNES,
             welcome: include_str!("../../../data/stacks/welcome.ron"),
             starts: include_str!("../../../data/hub/starts.ron"),
             rig: include_str!("../../../data/hub/rig.ron"),
@@ -825,6 +860,8 @@ pub struct Data {
     pub art: Vec<ArtDef>,
     /// Cracktros, one per file in `data/intros/`.
     pub intros: Vec<crate::intro::IntroDef>,
+    /// Tunes on music disks, one per file in `data/music/`.
+    pub tunes: Vec<TuneFile>,
     /// The Welcome to the Net stack (`data/stacks/welcome.ron`).
     pub welcome: crate::cards::StackDef,
     /// How a new deck starts: what everyone gets, and the kits (`data/hub/starts.ron`).
@@ -896,6 +933,18 @@ impl Data {
                         .map_err(|e| format!("intros/{}.ron: {e}", i.id))
                 })
                 .collect::<Result<_, _>>()?,
+            tunes: src
+                .tunes
+                .iter()
+                .map(|t| {
+                    ron::from_str::<TuneFile>(t.tune)
+                        .map(|mut d| {
+                            d.id = t.id.to_string();
+                            d
+                        })
+                        .map_err(|e| format!("music/{}.ron: {e}", t.id))
+                })
+                .collect::<Result<_, _>>()?,
             art: src.art.iter().map(|a| ArtDef::parse(a.id, a.art)).collect(),
             sounds: src
                 .sounds
@@ -951,6 +1000,7 @@ impl Data {
         }
         self.validate_games()
             .map_err(|e| format!("hub/games.ron: {e}"))?;
+        self.validate_tunes()?;
         for (i, w) in self.warez.iter().enumerate() {
             if self.warez[..i].iter().any(|o| o.id == w.id) {
                 return Err(format!("duplicate warez id `{}`", w.id));
@@ -1337,6 +1387,53 @@ impl Data {
     /// Every engine has a game, every game's field fits its engine and a screen, its tick is
     /// sane, its crack is a crack and
     /// its splash a splash, and its publisher advertises in CPU Shopper.
+    /// Every tune: a unique id, a title that fits a playlist row, an author who signs a
+    /// cracktro (a crew, or a publisher's splash), a sound pattern whose loop fits
+    /// [`crate::music::MAX_LOOP_SECS`], and a length of at least one loop.
+    fn validate_tunes(&self) -> Result<(), String> {
+        for (i, t) in self.tunes.iter().enumerate() {
+            let err = |m: String| Err(format!("music/{}.ron: {m}", t.id));
+            if self.tunes[..i].iter().any(|o| o.id == t.id) {
+                return err("listed twice".into());
+            }
+            let title = t.title.chars().count();
+            if title == 0 || title > TUNE_TITLE_MAX {
+                return err(format!("a title is 1 to {TUNE_TITLE_MAX} characters"));
+            }
+            if !self.signs(&t.by) {
+                return err(format!("`{}` signs no cracktro in data/intros/", t.by));
+            }
+            t.tune.validate().or_else(|e| err(e))?;
+            let secs = t.tune.loop_secs(0);
+            if secs > crate::music::MAX_LOOP_SECS {
+                return err(format!(
+                    "loops after {secs:.0} s (keep it under {} s)",
+                    crate::music::MAX_LOOP_SECS
+                ));
+            }
+            if (t.secs as f32) < secs || t.secs > TUNE_SECS_MAX {
+                return err(format!(
+                    "plays {} s: at least one loop ({secs:.0} s), at most {TUNE_SECS_MAX}",
+                    t.secs
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// Whether `who` signs a cracktro or a splash: a group, or one of the names a group
+    /// joins with ` & ` (`m0th & the NiGHTMOTHS` is m0th and the NiGHTMOTHS).
+    pub fn signs(&self, who: &str) -> bool {
+        self.intros
+            .iter()
+            .any(|i| i.group == who || i.group.split(" & ").any(|g| g == who))
+    }
+
+    /// The tune called `id` (a file in `data/music/`).
+    pub fn tune(&self, id: &str) -> Option<&TuneFile> {
+        self.tunes.iter().find(|t| t.id == id)
+    }
+
     fn validate_games(&self) -> Result<(), String> {
         for (i, g) in self.games.iter().enumerate() {
             let err = |m: String| Err(format!("game `{}`: {m}", g.id));

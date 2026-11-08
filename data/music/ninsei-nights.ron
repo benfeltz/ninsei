@@ -1,0 +1,35 @@
+// A tune on a music disk (see crates/core/src/data.rs, TuneFile, and docs/world.md).
+//   title  what the player's playlist calls it, in its author's words
+//   by     who wrote it: a crew or a publisher that signs a cracktro in data/intros/
+//   secs   how long it plays in a playlist before the next one: at least one loop
+//   tune   a chiptune in the cracktro format (bpm, steps per beat, up to 4 tracks); its loop
+//          (the LCM of the tracks' lengths) stays under music::MAX_LOOP_SECS
+// The NiGHTMOTHS: square leads over a triangle bass, the Gutter's house sound.
+(
+    title: "NiNSEi NiGHTS",
+    by: "the NiGHTMOTHS",
+    secs: 96,
+    tune: (bpm: 138, tracks: [
+        (wave: Square, vol: 0.11, pattern: "
+            E5 . . E5 G5 . A5 . B5 - - . A5 . G5 .
+            E5 - - . D5 . E5 . G5 - - - - . . .
+            E5 . . E5 G5 . A5 . B5 - - . D6 . B5 .
+            A5 - - . G5 . A5 . E5 - - - - . . .
+            C6 . . B5 A5 . G5 . A5 - - . G5 . E5 .
+            D5 - - . E5 . G5 . A5 - - - - . . .
+            C6 . . B5 A5 . G5 . A5 . B5 . D6 . B5 .
+            E5 - - - - - - - - - - - . . . .
+        "),
+        (wave: Triangle, vol: 0.3, pattern: "
+            E2 . E3 . E2 . E3 . E2 . E3 . D3 . E3 .
+            C2 . C3 . C2 . C3 . D2 . D3 . D2 . D3 .
+            E2 . E3 . E2 . E3 . E2 . E3 . G3 . E3 .
+            A1 . A2 . A1 . A2 . B1 . B2 . B1 . B2 .
+        "),
+        (wave: Square, vol: 0.035, pattern: "
+            B3 . E4 . G4 . E4 . B3 . E4 . G4 . E4 .
+            G3 . C4 . E4 . C4 . A3 . D4 . F#4 . D4 .
+        "),
+        (wave: Noise, vol: 0.07, pattern: "x . . . x . . x x . . . x . x ."),
+    ]),
+)

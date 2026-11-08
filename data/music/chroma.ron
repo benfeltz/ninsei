@@ -1,0 +1,28 @@
+// A tune on a music disk (the format is in ninsei-nights.ron).
+// PHOSPHOR: a fast arpeggio lead at 150+, the colour cycling of their logos as a tune.
+(
+    title: "CHROMA",
+    by: "PHOSPHOR",
+    secs: 80,
+    tune: (bpm: 164, tracks: [
+        (wave: Square, vol: 0.09, pattern: "
+            A4 C5 E5 A5 E5 C5 A4 C5 E5 A5 C6 A5 E5 C5 A4 E4
+            F4 A4 C5 F5 C5 A4 F4 A4 C5 F5 A5 F5 C5 A4 F4 C4
+            G4 B4 D5 G5 D5 B4 G4 B4 D5 G5 B5 G5 D5 B4 G4 D4
+            E4 G#4 B4 E5 B4 G#4 E4 G#4 B4 E5 G#5 E5 B4 G#4 E4 B3
+        "),
+        (wave: Triangle, vol: 0.32, pattern: "
+            A2 - . A2 . . A3 . A2 - . A2 . . G2 .
+            F2 - . F2 . . F3 . F2 - . F2 . . E2 .
+            G2 - . G2 . . G3 . G2 - . G2 . . F#2 .
+            E2 - . E2 . . E3 . E2 - . E2 . . G#2 .
+        "),
+        (wave: Saw, vol: 0.06, pattern: "
+            A5 - - - - - - - C6 - - - B5 - - -
+            A5 - - - - - - - F5 - - - - - - -
+            G5 - - - - - - - B5 - - - D6 - - -
+            E6 - - - - - - - - - - - . . . .
+        "),
+        (wave: Noise, vol: 0.08, pattern: "x . x . x . x x x . x . x x x ."),
+    ]),
+)
