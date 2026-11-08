@@ -102,6 +102,16 @@ impl Listing {
         ctx.data_mut(|d| d.get_temp_mut_or_default::<View>(id).cursor)
     }
 
+    /// Whether a row is being retyped: the row holds the keyboard.
+    pub fn editing(&self, ctx: &egui::Context) -> bool {
+        ctx.memory(|m| m.has_focus(self.edit_id()))
+    }
+
+    /// Whether the pane is the one you're in: it holds the keys, or one of its rows does.
+    pub fn active(&self, ctx: &egui::Context) -> bool {
+        self.has_keys(ctx) || self.editing(ctx)
+    }
+
     /// The line editor's look over a retyped row, from the theme.
     pub fn style(p: &Palette, font: FontId) -> ninsei_term::widget::Style {
         ninsei_term::widget::Style {

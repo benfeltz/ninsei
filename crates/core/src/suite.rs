@@ -97,6 +97,8 @@ pub enum FKey {
     EndTurn,
     /// Retype the line under the Module window's cursor.
     Edit,
+    /// Open a new line after the cursor (Ins does the same, on a keyboard that has one).
+    Open,
     Pause,
     Step,
     /// Run, or carry on after a STOP.
@@ -121,6 +123,7 @@ impl Legend {
             Legend::Module => &[
                 (1, FKey::Help, "Help"),
                 (2, FKey::Edit, "Edit"),
+                (3, FKey::Open, "Insert"),
                 (4, FKey::Pause, "Pause"),
                 (8, FKey::Step, "Step"),
                 (9, FKey::Run, "Run"),
@@ -143,6 +146,7 @@ pub fn fkey_live(g: &Game, k: FKey, cursor: Option<u32>) -> bool {
     let keys = crate::listing::keys(g, cursor);
     match k {
         FKey::Edit => keys.edit,
+        FKey::Open => keys.open,
         FKey::Pause => keys.pause,
         FKey::Step => keys.step,
         FKey::Run => keys.run || keys.cont,

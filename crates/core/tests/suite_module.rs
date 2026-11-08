@@ -89,7 +89,7 @@ fn the_module_marks_the_line_about_to_run_and_the_stops() {
 #[test]
 fn the_legend_changes_with_the_active_window_and_leaves_the_browser_its_keys() {
     let module: Vec<u8> = Legend::Module.keys().iter().map(|k| k.0).collect();
-    assert_eq!(module, [1, 2, 4, 8, 9, 10]);
+    assert_eq!(module, [1, 2, 3, 4, 8, 9, 10]);
     let default: Vec<(u8, FKey)> = Legend::Default.keys().iter().map(|k| (k.0, k.1)).collect();
     assert_eq!(
         default,
@@ -107,7 +107,10 @@ fn the_legend_changes_with_the_active_window_and_leaves_the_browser_its_keys() {
         }
     }
     let labels: Vec<&str> = Legend::Module.keys().iter().map(|k| k.2).collect();
-    assert_eq!(labels, ["Help", "Edit", "Pause", "Step", "Run", "End turn"]);
+    assert_eq!(
+        labels,
+        ["Help", "Edit", "Insert", "Pause", "Step", "Run", "End turn"]
+    );
 }
 
 #[test]

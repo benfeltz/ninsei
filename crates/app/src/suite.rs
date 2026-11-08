@@ -990,9 +990,11 @@ impl Panes<'_> {
         let style = Listing::style(&p, mono(size::MONO));
         let note = rules::module_note(g);
         let mut acts = Vec::new();
+        // Lit while it's the window you're in, a line being retyped included.
+        let lit = l.active(&ctx);
         l.show(ui, g, |ui, v, f| {
             let (rows, focused) = (f.rows, f.focused);
-            window_with(ui, &p, Tab::Script.number(), "", &note, focused, |ui| {
+            window_with(ui, &p, Tab::Script.number(), "", &note, lit, |ui| {
                 let inner = ui.available_rect_before_wrap();
                 let fit = Cells::fit_font(ui, inner, mono(size::MONO), Some(size::ROW_H));
                 let c = Cells::sized(
@@ -1288,7 +1290,7 @@ fn fkey_of(n: u8) -> Option<Key> {
 
 /// The legend up now: the Module window's while it's active, else the suite's own.
 fn legend_now(ctx: &egui::Context) -> Legend {
-    if module().has_keys(ctx) {
+    if module().active(ctx) {
         Legend::Module
     } else {
         Legend::Default
@@ -1297,11 +1299,12 @@ fn legend_now(ctx: &egui::Context) -> Legend {
 
 /// What F-key `k` asks for, given the sheet's cursor and the Module window's: the same
 /// whether it's pressed or clicked on the legend. A debugger key that wouldn't press asks for
-/// nothing.
+/// nothing, and nothing does while a line is being retyped (the row has the keyboard). Edit
+/// and Insert start a retype through [`retype_next`], so a click on the legend can't take
+/// the row's keys away in the frame it opens.
 fn fkey(ctx: &egui::Context, k: FKey, st: &State, g: &Game) -> Option<Request> {
     let m = module();
-    let cursor = m.cursor(ctx);
-    if !rules::fkey_live(g, k, cursor) {
+    if m.editing(ctx) || !rules::fkey_live(g, k, m.cursor(ctx)) {
         return None;
     }
     Some(match k {
@@ -1312,14 +1315,59 @@ fn fkey(ctx: &egui::Context, k: FKey, st: &State, g: &Game) -> Option<Request> {
         FKey::Step => act(Action::Step),
         FKey::Run => act(Action::Play),
         FKey::Pause => act(Action::Pause),
-        FKey::Edit => {
-            let mut v = m.view(ctx, g);
-            let no = cursor?;
-            m.start_edit(ctx, &mut v, no, &ninsei_core::listing::editing_text(g, no));
-            m.keep(ctx, v);
+        FKey::Edit | FKey::Open => {
+            retype_next(ctx, Some(k));
             return None;
         }
     })
+}
+
+/// What the Module window does at the start of the next frame: take the keys back (a click
+/// on its legend lands outside it, and egui lets the focus go), and open a retype if Edit or
+/// Insert asked for one.
+#[derive(Clone, Copy, Debug, Default)]
+struct Pending {
+    retake: bool,
+    retype: Option<FKey>,
+}
+
+fn pending_id() -> egui::Id {
+    egui::Id::new("suite-module-pending")
+}
+
+/// Asks the Module window to take its keys back next frame, and to retype (Edit) or open
+/// (Insert) a line then.
+fn retype_next(ctx: &egui::Context, retype: Option<FKey>) {
+    ctx.data_mut(|d| {
+        let p = d.get_temp_mut_or_default::<Pending>(pending_id());
+        p.retake = true;
+        p.retype = retype.or(p.retype);
+    });
+}
+
+/// Does what [`retype_next`] asked last frame.
+fn settle(ctx: &egui::Context, g: &Game) {
+    let Some(p) = ctx.data_mut(|d| d.remove_temp::<Pending>(pending_id())) else {
+        return;
+    };
+    let m = module();
+    if p.retake {
+        m.take_keys(ctx);
+    }
+    let mut v = m.view(ctx, g);
+    let line = match p.retype {
+        Some(FKey::Edit) => v
+            .cursor
+            .map(|n| (n, ninsei_core::listing::editing_text(g, n))),
+        Some(FKey::Open) => {
+            ninsei_core::listing::open_after(g, v.cursor).map(|n| (n, String::new()))
+        }
+        _ => None,
+    };
+    if let Some((no, text)) = line {
+        m.start_edit(ctx, &mut v, no, &text);
+    }
+    m.keep(ctx, v);
 }
 
 /// The Module window's listing: its focus id and memory.
@@ -1480,14 +1528,16 @@ impl ChromeView for Suite {
         let p = cx.pal;
         let ctx = ui.ctx().clone();
         let cursor = module().cursor(&ctx);
+        let editing = module().editing(&ctx);
+        let legend = legend_now(&ctx);
         // One row of cells: each key's cap in inverse and what it does, both clickable.
         let mut line: Sheet<FKey> = Sheet::new(cols_across(ui));
         let mut c = 0;
-        for &(n, k, label) in legend_now(&ctx).keys() {
+        for &(n, k, label) in legend.keys() {
             if k == FKey::Hex && !cx.game.has_tool("hexed") {
                 continue;
             }
-            let live = rules::fkey_live(cx.game, k, cursor);
+            let live = !editing && rules::fkey_live(cx.game, k, cursor);
             let start = c;
             c = line.inv(
                 c,
@@ -1500,7 +1550,13 @@ impl ChromeView for Suite {
             line.hit(start, 0, c - start, k);
             c += 2;
         }
-        line.paint(ui, mono(size::MONO), Some(size::ROW_H))
+        let clicked = line.paint(ui, mono(size::MONO), Some(size::ROW_H));
+        // A click on the Module window's legend lands outside the window: it gets its keys
+        // back next frame.
+        if legend == Legend::Module && !clicked.is_empty() {
+            retype_next(&ctx, None);
+        }
+        clicked
             .into_iter()
             .filter_map(|k| fkey(&ctx, k, cx.suite, cx.game))
             .collect()
@@ -1511,6 +1567,7 @@ impl ChromeView for Suite {
             return Vec::new();
         }
         let g = cx.game;
+        settle(ctx, g);
         let mut out = Vec::new();
         // The Module window's own keys while it's active (and no dialog is waiting on Enter).
         if cx.suite.dialogs.is_empty() {
@@ -1522,7 +1579,8 @@ impl ChromeView for Suite {
                             Key::ArrowDown => Bind::Down,
                             Key::Enter => Bind::Edit,
                             Key::Insert => Bind::Open,
-                            Key::Delete => Bind::Delete,
+                            // A Mac's delete key is Backspace; it has no Ins (F3 Insert).
+                            Key::Delete | Key::Backspace => Bind::Delete,
                             Key::Escape => Bind::Release,
                             _ => return None,
                         })
@@ -1534,10 +1592,17 @@ impl ChromeView for Suite {
         let st = &mut *cx.suite;
         let legend = legend_now(ctx);
         let (pressed, arrows) = ctx.input(|i| {
+            // A fresh press only: a held F8 steps once, not on every repeat.
+            let fresh = |k: Key| {
+                i.events.iter().any(|e| {
+                    matches!(e, egui::Event::Key { key, pressed: true, repeat: false, .. }
+                        if *key == k)
+                })
+            };
             let f: Vec<FKey> = legend
                 .keys()
                 .iter()
-                .filter(|(n, _, _)| fkey_of(*n).is_some_and(|k| i.key_pressed(k)))
+                .filter(|(n, _, _)| fkey_of(*n).is_some_and(fresh))
                 .map(|(_, k, _)| *k)
                 .collect();
             let a = [
@@ -2258,8 +2323,8 @@ mod module_tests {
         Rect::from_min_size(pos2(0.0, 1300.0), vec2(900.0, 20.0))
     }
 
-    /// One frame as the run draws it: the chrome's keys, the Module window in a `size` pane,
-    /// the legend under the panes and the activity log beside; returns what they asked for.
+    /// One frame as the run draws it: the chrome's keys, the legend, then the Module window in a
+    /// `size` pane and the activity log under it; returns what they asked for.
     fn frame_with(
         h: &mut Harness,
         g: &Game,
@@ -2284,6 +2349,9 @@ mod module_tests {
                 popup: &mut popup,
             };
             out = Suite.keys(ui.ctx(), &mut cx);
+            // The legend before the panes, as the run draws its bottom panel first.
+            let mut l = ui.new_child(UiBuilder::new().max_rect(legend_rect()));
+            out.extend(Suite.legend(&mut l, &mut cx));
             let mut panes = Panes {
                 game: g,
                 pal: pal(g),
@@ -2308,8 +2376,6 @@ mod module_tests {
             let mut t = ui.new_child(UiBuilder::new().max_rect(log));
             Suite.terminal(&mut panes, &mut t);
             out.extend(panes.out);
-            let mut l = ui.new_child(UiBuilder::new().max_rect(legend_rect()));
-            out.extend(Suite.legend(&mut l, &mut cx));
         });
         out
     }
@@ -2411,6 +2477,97 @@ mod module_tests {
             .iter()
             .map(|l| format!("{} {}", l.no, l.text))
             .collect()
+    }
+
+    #[test]
+    fn clicking_the_debuggers_keys_on_the_legend_keeps_the_window_active() {
+        let g = fight("10 RUN icepick\n20 STOP\n30 GOTO 10");
+        let mut h = Harness::new(1280.0, 1400.0);
+        activate_on(&mut h, &g, 10);
+        frame(&mut h, &g, vec![]);
+        for _ in 0..2 {
+            let at = h
+                .find("F8 Step")
+                .unwrap_or_else(|| panic!("{:?}", h.texts()))
+                .center();
+            let out = frame(&mut h, &g, crate::uitest::click(at));
+            let acts = actions(out);
+            assert_eq!(acts, [Action::Step], "the same key, twice");
+            frame(&mut h, &g, vec![]);
+            assert!(module().has_keys(&h.ctx), "the window is active again");
+        }
+        // F2 on the legend opens the retype, and it stays open.
+        let at = h.find("F2 Edit").unwrap().center();
+        frame(&mut h, &g, crate::uitest::click(at));
+        frame(&mut h, &g, vec![]);
+        frame(&mut h, &g, vec![]);
+        assert!(module().editing(&h.ctx), "retyping line 10");
+    }
+
+    #[test]
+    fn while_a_line_is_retyped_the_window_stays_active_and_the_f_keys_wait() {
+        let g = fight("10 RUN icepick\n20 STOP\n30 GOTO 10");
+        let mut h = Harness::new(1280.0, 1400.0);
+        activate_on(&mut h, &g, 20);
+        frame(&mut h, &g, key(Key::F2));
+        frame(&mut h, &g, vec![]);
+        assert!(module().editing(&h.ctx));
+        let legend: String = rows_in(&h, legend_rect())
+            .into_iter()
+            .map(|(s, _)| s)
+            .collect();
+        assert!(
+            legend.contains("F8Step") && !legend.contains("Jack"),
+            "{legend}"
+        );
+        for k in [Key::F8, Key::F4] {
+            let out = frame(&mut h, &g, key(k));
+            assert!(out.is_empty(), "{k:?} does nothing mid-retype");
+            assert!(
+                module().editing(&h.ctx),
+                "and the line is still being retyped"
+            );
+        }
+    }
+
+    #[test]
+    fn a_held_f8_steps_once() {
+        let g = fight("10 RUN icepick\n20 STOP\n30 GOTO 10");
+        let mut h = Harness::new(1280.0, 1400.0);
+        activate_on(&mut h, &g, 10);
+        let down = || {
+            vec![egui::Event::Key {
+                key: Key::F8,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            }]
+        };
+        assert_eq!(actions(frame(&mut h, &g, down())), [Action::Step]);
+        // Still held: egui calls the next press a repeat.
+        assert!(actions(frame(&mut h, &g, down())).is_empty());
+    }
+
+    #[test]
+    fn on_a_mac_f3_inserts_and_backspace_deletes() {
+        let mut g = fight("10 RUN icepick\n20 STOP\n30 GOTO 10");
+        let mut h = Harness::new(1280.0, 1400.0);
+        activate_on(&mut h, &g, 20);
+        frame(&mut h, &g, key(Key::F3));
+        frame(&mut h, &g, vec![]);
+        frame(&mut h, &g, typed("RUN patch"));
+        for a in actions(frame(&mut h, &g, key(Key::Enter))) {
+            g.apply(a);
+        }
+        assert_eq!(g.program.line(25).unwrap().text, "RUN patch");
+        frame(&mut h, &g, vec![]);
+        let acts = actions(frame(&mut h, &g, key(Key::Backspace)));
+        assert_eq!(acts.len(), 1);
+        for a in acts {
+            g.apply(a);
+        }
+        assert!(g.program.line(25).is_none(), "{:?}", g.program.text());
     }
 
     #[test]
