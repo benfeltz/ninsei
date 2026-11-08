@@ -125,7 +125,9 @@ fn a_game_id_fits_a_tool() {
     assert!(GameId::new("").is_none());
     assert!(GameId::new(&"x".repeat(hub::GAME_ID_MAX + 1)).is_none());
     let mut d = data();
-    d.games[0].id = "a-much-too-long-game-id".into();
+    // Minefield: no kit starts with it, so only the id is wrong.
+    let m = d.games.iter().position(|g| g.id == "minefield").unwrap();
+    d.games[m].id = "a-much-too-long-game-id".into();
     assert!(d.validate().unwrap_err().contains("ASCII characters"));
 }
 

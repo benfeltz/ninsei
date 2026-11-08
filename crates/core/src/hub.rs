@@ -389,6 +389,9 @@ pub struct KitDef {
     pub ranges: Vec<String>,
     #[serde(default)]
     pub bank: u32,
+    /// Games already on the desktop (a game id and the copy): the disk the shop threw in.
+    #[serde(default)]
+    pub games: Vec<(String, GameCopy)>,
 }
 
 impl StartsDef {
@@ -425,6 +428,9 @@ impl StartsDef {
                 .find(|r| !data.exchanges.iter().any(|x| x.id == **r))
             {
                 return err(format!("unknown range `{r}`"));
+            }
+            if let Some((g, _)) = k.games.iter().find(|(g, _)| data.game(g).is_none()) {
+                return err(format!("unknown game `{g}`"));
             }
         }
         for n in &self.always {
@@ -1336,6 +1342,9 @@ impl Save {
         }
         for r in &kit.ranges {
             self.learn_range(r, came);
+        }
+        for (g, copy) in &kit.games {
+            self.learn_game(g, *copy);
         }
         self.bank += kit.bank;
         self.loadout.starters = kit.free.clone();

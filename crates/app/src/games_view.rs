@@ -823,6 +823,8 @@ mod tests {
     fn the_lists_the_desktops_draw_from_hold_only_the_copies_you_own() {
         let data = Data::builtin().unwrap();
         let mut save = deck(&data);
+        // Without the disk the shop throws in: only the box is owned.
+        save.games.clear();
         save.learn_game("blox", GameCopy::Boxed);
         let unowned = |t: &Tool| matches!(t, Tool::Game(id, _) if id.as_str() != "blox");
         let shown: Vec<Tool> = save.icons(&data).into_iter().map(|i| i.tool).collect();
