@@ -36,6 +36,7 @@ pub mod network;
 pub mod nightcomm;
 pub mod panes;
 pub mod pattern;
+pub mod player;
 pub mod probe;
 pub mod qwk;
 pub mod rng;
