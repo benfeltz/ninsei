@@ -2029,6 +2029,33 @@ mod script_tests {
     }
 
     #[test]
+    fn a_long_line_retyped_in_a_narrow_tile_is_never_cut_at_its_edge() {
+        let g =
+            fight("10 REM a long remark that runs well past the edge of a narrow tile\n20 STOP");
+        let size = (240.0, 200.0);
+        let mut h = Harness::new(1280.0, 800.0);
+        frame(&mut h, &g, size, vec![]);
+        script::take_keys(&h.ctx);
+        frame(&mut h, &g, size, vec![]);
+        frame(&mut h, &g, size, letter('e'));
+        frame(&mut h, &g, size, vec![]);
+        assert!(h.ctx.memory(|m| m.has_focus(script::edit_id())), "retyping");
+        let tile = pane_rect(size);
+        let cut: Vec<_> = h
+            .cut_text()
+            .into_iter()
+            .filter(|(_, r)| tile.contains(r.min))
+            .collect();
+        assert!(cut.is_empty(), "cut at a clip rect: {cut:?}");
+        let line = h
+            .painted_text()
+            .into_iter()
+            .find(|(t, _)| t.starts_with('<'))
+            .expect("the line, scrolled to its end with its start marked");
+        assert!(line.0.ends_with("tile"), "{line:?}");
+    }
+
+    #[test]
     fn the_tile_stays_whole_inside_its_pane_at_three_sizes() {
         let g = fight("10 REM yo wintermute\n20 IF INTEG < 8\n30 RUN patch\n40 STOP\n50 GOTO 20");
         for size in [(220.0, 160.0), PANE, (700.0, 900.0)] {
