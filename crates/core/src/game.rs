@@ -499,7 +499,7 @@ pub enum StepWhat {
     Goto(u32),
     /// A STOP: the turn is the hotbar's.
     Stop,
-    /// The pass went round without running anything: `?BREAK IN <line>`.
+    /// The pass went round without spending anything (no RUN, no IF): `?BREAK IN <line>`.
     Break,
     /// The pass ended: no cycles left.
     OutOfCpu,
@@ -1278,7 +1278,8 @@ impl Game {
     /// from the first line (or where a STOP or a pause left it) until the program ends, a STOP,
     /// the cycles run out or there's no GB for another IF. Every RUN resolves through
     /// `preview`, and runs as `Action::Run` would; one that can't run is skipped with the
-    /// preview's words. Coming back to a line without running anything is a hang:
+    /// preview's words. Coming back to a line without spending anything (no RUN's cycle, no IF's
+    /// GB) since it was last there is a hang:
     /// `?BREAK IN <line>`, the cursor held there and the debugger has the turn. When the pass
     /// is over, on the line that spends the last cycle, reaches the end or finds no GB, the
     /// turn ends and the ICE acts.
