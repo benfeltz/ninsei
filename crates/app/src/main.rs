@@ -587,7 +587,11 @@ impl App {
         // the music has gone on.
         let dt = self.home.player_clock.map_or(0.0, |t| (now - t).max(0.0)) as f32;
         self.home.player_clock = Some(now);
-        let live = player::at_home(self.screen) && !self.speaker.intro_on();
+        // The clock runs only while the music can be heard: not under a cracktro, and not
+        // while a new tune renders.
+        let live = player::at_home(self.screen)
+            && !self.speaker.intro_on()
+            && !self.speaker.desk_rendering();
         if player::tick(&mut self.save, &self.data, &mut self.home.player, dt, live) {
             self.save_dirty = true;
         }
