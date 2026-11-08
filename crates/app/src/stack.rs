@@ -41,6 +41,8 @@ mod look {
     pub const FIELD_GAP: f32 = 6.0;
     /// The palette's blocks: their width and height.
     pub const CHIP_W: f32 = 56.0;
+    /// The narrowest a chip gets: its word and a little paper either side.
+    pub const CHIP_MIN: f32 = 44.0;
     pub const CHIP_H: f32 = 20.0;
     /// How round the small buttons are.
     pub const SMALL_R: u8 = 6;
@@ -542,6 +544,22 @@ fn select(ui: &Ui, no: Option<u32>) {
     ui.data_mut(|d| d.insert_temp(Id::new("stack-selected"), no));
 }
 
+/// How the palette lays out in `width` with `gap` between its pieces: each chip's width, and
+/// whether the move and clear boxes go on a row of their own under the chips. Chips shrink to
+/// fit beside the boxes; when even the narrowest won't, the boxes wrap. Nothing overlaps.
+fn palette_fit(width: f32, gap: f32) -> (f32, bool) {
+    let n = stack_fight::PALETTE.len() as f32;
+    // The chips' shadows reach past their last one.
+    let room = width - liza::size::SHADOW;
+    let boxes = 3.0 * look::CHIP_H + 2.0 * gap;
+    let beside = ((room - boxes - n * gap) / n).floor();
+    if beside >= look::CHIP_MIN {
+        return (beside.min(look::CHIP_W), false);
+    }
+    let alone = ((room - (n - 1.0) * gap) / n).floor();
+    (alone.clamp(look::CHIP_MIN, look::CHIP_W), true)
+}
+
 /// The Script card: a line with the budgets, the program's blocks (scrolling when they
 /// run past the card), the palette row (the blocks to add, and moving or clearing the selected
 /// one), then Step, Run and Pause on a row of their own. Edits and presses become actions;
@@ -564,15 +582,13 @@ fn script_card(p: &mut Panes, ui: &mut Ui) {
         ink,
     );
     let mut sel = selected(ui, g);
-    blocks(ui, g, &card, &look, &mut sel, &mut acts);
+    let gap = ui.spacing().item_spacing.x;
+    let (chip_w, wrap) = palette_fit(ui.available_width().floor(), gap);
+    blocks(ui, g, &card, &look, wrap, &mut sel, &mut acts);
     ui.add_space(4.0);
-    // The palette: the blocks to add, then the selected block's move and clear boxes.
-    ui.horizontal(|ui| {
-        for kind in stack_fight::PALETTE {
-            if let Some(a) = palette_chip(ui, g, kind, &look) {
-                acts.push(a);
-            }
-        }
+    // The palette: the blocks to add, then the selected block's move and clear boxes, beside
+    // them or, in a narrow column, on a row of their own.
+    let boxes = |ui: &mut Ui, sel: &mut Option<u32>, acts: &mut Vec<Action>| {
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
             for (glyph, what) in [("X", "clear"), ("▼", "move down"), ("▲", "move up")] {
                 let up = what == "move up";
@@ -582,19 +598,32 @@ fn script_card(p: &mut Panes, ui: &mut Ui) {
                     _ => to.is_some(),
                 };
                 if palette_box(ui, glyph, what, on, &look)
-                    && let Some(no) = sel
+                    && let Some(no) = *sel
                 {
                     if what == "clear" {
                         acts.push(stack_fight::remove(g, no));
-                        sel = None;
+                        *sel = None;
                     } else if let Some(a) = stack_fight::swap(g, no, up) {
                         acts.push(a);
-                        sel = to;
+                        *sel = to;
                     }
                 }
             }
         });
+    };
+    ui.horizontal(|ui| {
+        for kind in stack_fight::PALETTE {
+            if let Some(a) = palette_chip(ui, g, kind, chip_w, &look) {
+                acts.push(a);
+            }
+        }
+        if !wrap {
+            boxes(ui, &mut sel, &mut acts);
+        }
     });
+    if wrap {
+        ui.horizontal(|ui| boxes(ui, &mut sel, &mut acts));
+    }
     ui.add_space(4.0);
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
         let b = card.buttons;
@@ -676,17 +705,19 @@ fn blocks(
     g: &Game,
     card: &stack_fight::Card,
     look: &liza::Look,
+    wrap: bool,
     sel: &mut Option<u32>,
     acts: &mut Vec<Action>,
 ) {
-    // Under the box: a gap, the palette row, a gap, the buttons' row, with egui's spacing
-    // round each.
+    // Under the box: a gap, the palette's row (two when it wraps), a gap, the buttons' row,
+    // with egui's spacing round each.
+    let palette_rows = if wrap { 2.0 } else { 1.0 };
     let foot = 4.0
-        + look::CHIP_H
+        + palette_rows * (look::CHIP_H + ui.spacing().item_spacing.y)
         + 4.0
         + liza::size::BUTTON_H
         + 2.0 * liza::size::RING_OUT
-        + 4.0 * ui.spacing().item_spacing.y
+        + 3.0 * ui.spacing().item_spacing.y
         + 2.0;
     let box_h = (ui.available_height() - foot)
         .max(2.0 * look::BLOCK_ROW)
@@ -799,8 +830,14 @@ fn blocks(
 }
 
 /// A block from the palette: a click adds it at the end; dragged, it drops where it lands.
-fn palette_chip(ui: &mut Ui, g: &Game, kind: BlockKind, look: &liza::Look) -> Option<Action> {
-    let (r, _) = ui.allocate_exact_size(vec2(look::CHIP_W, look::CHIP_H), Sense::hover());
+fn palette_chip(
+    ui: &mut Ui,
+    g: &Game,
+    kind: BlockKind,
+    w: f32,
+    look: &liza::Look,
+) -> Option<Action> {
+    let (r, _) = ui.allocate_exact_size(vec2(w, look::CHIP_H), Sense::hover());
     let r = Rect::from_min_size(r.min.round(), r.size());
     let resp = ui.interact(r, Id::new(("stack-chip", kind)), Sense::click_and_drag());
     resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, kind.label()));
@@ -1506,6 +1543,65 @@ pub(crate) mod tests {
                 assert!(r.right() <= w + 0.5, "{w}: {t} at {r:?}");
             }
         }
+    }
+
+    #[test]
+    fn the_palette_never_overlaps_in_a_narrow_column() {
+        let g = fight("10 RUN icepick\n20 GOTO 10\n30 STOP");
+        let parts = [
+            "RUN",
+            "IF",
+            "GOTO",
+            "STOP",
+            "move up",
+            "move down",
+            "clear",
+            "Step",
+            "Run",
+            "Pause",
+        ];
+        for w in [340.0, 300.0, 260.0, 230.0] {
+            let size = (w, 520.0);
+            let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+            script(&mut h, &g, size, vec![]);
+            script(&mut h, &g, size, vec![]);
+            // A middle block selected, so the move and clear boxes are all live.
+            let r = h.find("line 20").unwrap();
+            script(
+                &mut h,
+                &g,
+                size,
+                crate::uitest::click(pos2(r.left() + 12.0, r.center().y)),
+            );
+            script(&mut h, &g, size, vec![]);
+            let rects: Vec<(&str, Rect)> = parts
+                .iter()
+                .map(|p| (*p, h.find(p).unwrap_or_else(|| panic!("{w}: no {p}"))))
+                .collect();
+            for (i, (a, ra)) in rects.iter().enumerate() {
+                assert!(
+                    ra.right() <= w + 0.5,
+                    "{w}: {a} at {ra:?} runs past the column"
+                );
+                for (b, rb) in &rects[i + 1..] {
+                    assert!(!ra.intersects(*rb), "{w}: {a} {ra:?} overlaps {b} {rb:?}");
+                }
+            }
+            assert!(h.cut_text().is_empty(), "{w}: {:?}", h.cut_text());
+        }
+    }
+
+    #[test]
+    fn the_palette_shrinks_its_chips_then_wraps_its_boxes() {
+        assert_eq!(
+            palette_fit(400.0, 8.0),
+            (look::CHIP_W, false),
+            "room to spare"
+        );
+        let (w, wrap) = palette_fit(300.0, 8.0);
+        assert!(!wrap && (look::CHIP_MIN..look::CHIP_W).contains(&w), "{w}");
+        let (w, wrap) = palette_fit(230.0, 8.0);
+        assert!(wrap && w >= look::CHIP_MIN, "{w}");
     }
 
     #[test]
