@@ -1,6 +1,7 @@
 //! 141.2 acceptance: the fight is a program the deck runs, played through the real save and
 //! run (`Save::jack_in`, `Game::apply`, `Save::record`), with loading gone.
 
+use ninsei_core::basic;
 use ninsei_core::binary;
 use ninsei_core::command::{self, Command};
 use ninsei_core::game::{ExecState, StepWhat};
@@ -58,9 +59,51 @@ fn a_fresh_deck_fights_with_safe_and_a_pass_is_one_turn() {
     );
     let cpu = g.deck.cpu_max;
     g.apply(Action::Step);
-    // SAFE at full integrity against a fortify: no patch, no shield, every cycle a breaker.
-    assert_eq!(ran(&g) as u32, cpu, "{:?}", g.exec.trace);
+    // SAFE only defends: at full integrity against a fortify it has nothing to do, comes
+    // round to line 20 having run nothing, and hands the turn over.
+    assert_eq!(ran(&g), 0, "{:?}", g.exec.trace);
+    assert!(g.log.iter().any(|l| l.text == "?BREAK IN 20"));
+    assert_eq!(
+        g.combat.as_ref().unwrap().turn,
+        1,
+        "the turn is the player's"
+    );
+    // The first edit: a breaker in the loop. The pass carries on in the same turn, with the
+    // GB the hang already spent gone, so it runs out of RAM before cycles and the turn ends.
+    g.apply(Action::Program(format!(
+        "{}\n55 RUN icepick",
+        g.program.text()
+    )));
+    g.apply(Action::Step);
     assert_eq!(g.combat.as_ref().unwrap().turn, 2, "the ICE acted once");
+    // A whole turn: two IFs a loop, and the deck's RAM covers a loop per cycle.
+    g.apply(Action::Step);
+    assert_eq!(ran(&g) as u32, cpu, "{:?}", g.exec.trace);
+    assert_eq!(g.combat.as_ref().unwrap().turn, 3);
+}
+
+#[test]
+fn safe_names_only_what_the_deck_ships() {
+    let d = data();
+    let kit = d.starts.kit("");
+    let safe = basic::parse(d.starts.program(""));
+    let mut ran = Vec::new();
+    for line in &safe.lines {
+        match &line.stmt {
+            basic::Stmt::Run(name) | basic::Stmt::If(basic::Cond::Have(name)) => {
+                assert!(
+                    kit.free.iter().any(|id| id.eq_ignore_ascii_case(name)),
+                    "SAFE names {name}, which the deck doesn't ship"
+                );
+                ran.push(name.to_ascii_lowercase());
+            }
+            _ => {}
+        }
+    }
+    // Defence only: the Security Suite's two programs, never a breaker.
+    ran.sort();
+    ran.dedup();
+    assert_eq!(ran, ["firewall", "patch"]);
 }
 
 #[test]

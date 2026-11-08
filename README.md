@@ -255,7 +255,7 @@ Both are drawn in the theme's colours. The **Synthwave** theme gives the magenta
 
 Turn-based. Each turn you get your deck's CPU to spend running the warez on your HDD; then the ICE does what its intent says (attack, trace or fortify) and your shields drop. Class breakers (decoder vs code gate, garrote vs sentry, crowbar vs barrier) hit their class for double and everything else for half. Stunned ICE adapts: it can't be stunned again the turn after.
 
-Your deck also holds a **program**, in a line-numbered BASIC (`RUN <program>`, `IF <condition>`, `GOTO <line>`, `STOP`), kept between runs and editable mid-fight; a new deck ships with Sense/Net's `SAFE`. One pass through it is one turn: each `RUN` spends a cycle, each `IF` a GB of RAM, and the pass ends when the program does, at a `STOP`, or when either runs out. From the terminal, `prog` lists it, `prog <n> <line>` types a line in, `step` plays a pass and `play` keeps going until a `STOP`; the hotbar still works whenever the program has handed you the turn.
+Your deck also holds a **program**, in a line-numbered BASIC (`RUN <program>`, `IF <condition>`, `GOTO <line>`, `STOP`), kept between runs and editable mid-fight; a new deck ships with Sense/Net's `SAFE`, which only defends (patch when low, firewall before an attack) and hands you the turn when there's nothing to defend against. One pass through it is one turn: each `RUN` spends a cycle, each `IF` a GB of RAM, and the pass ends when the program does, at a `STOP`, or when either runs out. From the terminal, `prog` lists it, `prog <n> <line>` types a line in, `step` plays a pass and `play` keeps going until a `STOP`; the hotbar still works whenever the program has handed you the turn.
 
 ## Encounters
 
