@@ -438,10 +438,9 @@ pub enum ExecState {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Exec {
     pub state: ExecState,
-    /// The line about to run: the program's first at the start of a turn.
+    /// The line about to run: the program's first at the start of a turn, or the one after a
+    /// STOP (`ExecState::Stopped`), where the next pass carries on.
     pub pc: Option<u32>,
-    /// A pass stopped partway through this turn (at a STOP): the next carries on from `pc`.
-    pub mid: bool,
     /// This turn's pass so far, or the last one: a step per line executed.
     pub trace: Vec<Step>,
 }
@@ -801,14 +800,8 @@ impl Game {
             Action::TakeJob { job } => self.take_job(job),
             Action::Read(r) => self.read(r),
             Action::Run(slot) => self.run(slot),
-            Action::Step => self.pass(),
-            Action::Play => {
-                if self.phase != Phase::Combat {
-                    return Err("no fight in progress.".into());
-                }
-                self.exec.state = ExecState::Running;
-                self.pass()
-            }
+            Action::Step => self.pass(false),
+            Action::Play => self.pass(true),
             Action::Pause => {
                 if self.exec.state == ExecState::Running {
                     self.exec.state = ExecState::Paused;
@@ -1111,7 +1104,6 @@ impl Game {
         c.ifs = self.deck.ram_max;
         c.turn += 1;
         self.exec.pc = self.program.first();
-        self.exec.mid = false;
         if let ExecState::Stopped(_) = self.exec.state {
             self.exec.state = ExecState::Paused;
         }
@@ -1161,20 +1153,13 @@ impl Game {
         }
     }
 
-    /// Replaces the deck's program. Mid-pass, it carries on from the first line at or after
-    /// where it was; otherwise the next pass starts at the top.
+    /// Replaces the deck's program. Stopped partway through a turn, it carries on from the
+    /// first line after the STOP; otherwise the next pass starts at the top.
     fn edit_program(&mut self, text: &str) {
         self.program = crate::basic::parse(text);
-        self.exec.pc = if self.exec.mid {
-            // Carry on where it was: the line it was about to run, or past the STOP.
-            let from = match (self.exec.pc, self.exec.state) {
-                (Some(n), _) => Some(n),
-                (None, ExecState::Stopped(at)) => Some(at + 1),
-                _ => None,
-            };
-            from.and_then(|n| self.program.lines.iter().map(|l| l.no).find(|&l| l >= n))
-        } else {
-            self.program.first()
+        self.exec.pc = match self.exec.state {
+            ExecState::Stopped(at) => self.program.after(at),
+            _ => self.program.first(),
         };
     }
 
@@ -1206,18 +1191,22 @@ impl Game {
     /// skipped with the preview's words. A pass that comes back to a line without running
     /// anything is a hang: `?BREAK IN <line>`, and the debugger has the turn. Unless it
     /// stopped or hung, the turn ends and the ICE acts.
-    fn pass(&mut self) -> Result<(), String> {
+    /// `play` sets the program running (`Action::Play`); a step leaves it as it was.
+    fn pass(&mut self, play: bool) -> Result<(), String> {
         if self.phase != Phase::Combat {
             return Err("no fight in progress.".into());
         }
-        if !self.exec.mid {
+        // After a STOP the pass carries on from `pc`, this turn's pass and all.
+        let resume = matches!(self.exec.state, ExecState::Stopped(_));
+        if !resume {
             self.exec.trace.clear();
             self.exec.pc = self.program.first();
         }
-        self.exec.mid = false;
-        if let ExecState::Stopped(_) = self.exec.state {
-            self.exec.state = ExecState::Paused;
-        }
+        self.exec.state = if play || self.exec.state == ExecState::Running {
+            ExecState::Running
+        } else {
+            ExecState::Paused
+        };
         let mut visited: Vec<u32> = Vec::new();
         let mut last = self.exec.pc.unwrap_or(0);
         loop {
@@ -1299,7 +1288,6 @@ impl Game {
                 Stmt::Stop => {
                     self.trace_step(no, StepWhat::Stop);
                     self.exec.state = ExecState::Stopped(no);
-                    self.exec.mid = true;
                     return Ok(());
                 }
             }

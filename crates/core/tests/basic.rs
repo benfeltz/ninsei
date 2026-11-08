@@ -227,6 +227,19 @@ fn stop_hands_over_the_turn() {
 }
 
 #[test]
+fn play_after_a_stop_carries_on_past_it() {
+    let mut g = fight("bulwark", "10 RUN icepick\n20 STOP\n30 RUN icepick");
+    g.apply(Action::Step);
+    assert_eq!(g.exec.state, ExecState::Stopped(20));
+    g.apply(Action::Play);
+    // Line 30 ran in the same turn, then the turn ended: the pass didn't start over at 10.
+    let lines: Vec<u32> = g.exec.trace.iter().map(|s| s.line).collect();
+    assert_eq!(&lines[..3], [10, 20, 30], "{:?}", g.exec.trace);
+    assert_eq!(ran(&g), 2);
+    assert_eq!((g.exec.state, combat(&g).turn), (ExecState::Running, 2));
+}
+
+#[test]
 fn a_cycle_less_loop_breaks() {
     let mut g = fight("bulwark", "10 GOTO 10");
     g.apply(Action::Play);
