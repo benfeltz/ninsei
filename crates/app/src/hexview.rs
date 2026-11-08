@@ -3,13 +3,14 @@
 //! run's HDD (the `hexedit` pane), and the hub's HexEd window wires it to the stash.
 
 use egui::{
-    Align2, Color32, Event, EventFilter, FontFamily, FontId, Id, Key, Rect, RichText, Sense,
-    Stroke, Ui, pos2, vec2,
+    Color32, Event, EventFilter, FontFamily, FontId, Id, Key, Rect, RichText, Sense, Stroke, Ui,
+    pos2, vec2,
 };
 use ninsei_core::binary::{self, Bin, Field, LEN};
 use ninsei_core::hexedit::{HexBuffer, ROW};
 use ninsei_core::{Action, Command, Effect, Game, tuning};
 
+use crate::kit::Cells;
 use crate::panes::Request;
 use crate::theme::Palette;
 
@@ -176,17 +177,20 @@ pub fn editor(ui: &mut Ui, h: &mut HexBuffer, cx: &HexCtx, p: &Palette) -> Vec<H
 
 fn grid(ui: &mut Ui, h: &mut HexBuffer, p: &Palette) {
     let font = FontId::new(FONT, FontFamily::Monospace);
-    let cw = ui.ctx().fonts_mut(|f| f.glyph_width(&font, '0'));
-    let off_w = cw * 8.0;
-    let hex_w = cw * 3.0;
-    let gap = cw;
-    let ascii_x = off_w + hex_w * ROW as f32 + gap * 2.0;
+    // The grid in cells: the offset (8), three a byte with a one-cell gap after the eighth,
+    // two cells, then the ASCII column and one to spare; a header row over the bytes.
+    let hex_c = |col: usize| 8 + 3 * col + usize::from(col >= 8);
+    let ascii_c = 8 + 3 * ROW + 2;
     let rows = LEN / ROW;
-    let size = vec2(
-        ascii_x + cw * (ROW as f32 + 1.0),
-        CELL_H * (rows as f32 + 1.0) + 4.0,
+    let (resp, g) = Cells::allocate(
+        ui,
+        font,
+        Some(CELL_H),
+        (ascii_c + ROW + 1, rows + 1),
+        vec2(0.0, 2.0),
+        Sense::click(),
     );
-    let (rect, resp) = ui.allocate_exact_size(size, Sense::click());
+    let rect = resp.rect;
     let focused = ui.memory(|m| m.has_focus(grid_id()));
     let painter = ui.painter_at(rect);
     painter.rect_filled(rect, 0.0, p.bg);
@@ -196,70 +200,37 @@ fn grid(ui: &mut Ui, h: &mut HexBuffer, p: &Palette) {
         Stroke::new(1.0, if focused { p.fg } else { p.faint }),
         egui::StrokeKind::Inside,
     );
+    // Under a glyph in a cell: where a mark under it goes.
+    let under = |cell: Rect| cell.center().y + FONT * 0.5 + 1.0;
 
-    let hex_x =
-        |col: usize| rect.left() + off_w + hex_w * col as f32 + if col >= 8 { gap } else { 0.0 };
-    let row_y = |row: usize| rect.top() + 2.0 + CELL_H * (row as f32 + 1.0);
-    painter.text(
-        pos2(rect.left() + cw, rect.top() + 4.0),
-        Align2::LEFT_TOP,
-        "OFFSET",
-        font.clone(),
-        p.dim,
-    );
+    g.text(&painter, 1, 0, "OFFSET", p.dim);
     for col in 0..ROW {
-        painter.text(
-            pos2(hex_x(col), rect.top() + 4.0),
-            Align2::LEFT_TOP,
-            format!("{col:02X}"),
-            font.clone(),
-            p.dim,
-        );
+        g.text(&painter, hex_c(col), 0, &format!("{col:02X}"), p.dim);
     }
-    painter.text(
-        pos2(rect.left() + ascii_x, rect.top() + 4.0),
-        Align2::LEFT_TOP,
-        "ASCII",
-        font.clone(),
-        p.dim,
-    );
+    g.text(&painter, ascii_c, 0, "ASCII", p.dim);
 
     for i in 0..LEN {
         let (row, col) = (i / ROW, i % ROW);
-        let y = row_y(row);
+        let r = row + 1;
         if col == 0 {
-            painter.text(
-                pos2(rect.left() + cw, y),
-                Align2::LEFT_TOP,
-                format!("{:04X}", row * ROW),
-                font.clone(),
-                p.dim,
-            );
+            g.text(&painter, 1, r, &format!("{:04X}", row * ROW), p.dim);
         }
         let b = h.buf[i];
+        let hex = g.at(hex_c(col), r, 2, 1);
         let mut col_c = field_color(Field::at(i), p);
         if h.changed(i) {
             col_c = p.bright;
-            let ux = hex_x(col);
+            let y = under(hex);
             painter.line_segment(
-                [
-                    pos2(ux, y + FONT + 1.0),
-                    pos2(ux + cw * 2.0, y + FONT + 1.0),
-                ],
+                [pos2(hex.left(), y), pos2(hex.right(), y)],
                 Stroke::new(1.0, p.bright),
             );
         }
-        let cell = Rect::from_min_size(
-            pos2(hex_x(col) - 2.0, y - 2.0),
-            vec2(cw * 2.0 + 4.0, CELL_H - 2.0),
-        );
-        let acell = Rect::from_min_size(
-            pos2(rect.left() + ascii_x + cw * col as f32, y - 2.0),
-            vec2(cw, CELL_H - 2.0),
-        );
+        let cell = hex.expand2(vec2(2.0, -1.0));
+        let acell = g.at(ascii_c + col, r, 1, 1).shrink2(vec2(0.0, 1.0));
         let text = format!("{b:02X}");
         let ch = if b.is_ascii_graphic() { b as char } else { '.' };
-        if i == h.cursor {
+        let (hex_ink, ascii_ink) = if i == h.cursor {
             // The active column gets the solid cursor; the other column gets an outline.
             let (solid, ghost) = if h.ascii {
                 (acell, cell)
@@ -273,78 +244,38 @@ fn grid(ui: &mut Ui, h: &mut HexBuffer, p: &Palette) {
                 Stroke::new(1.0, p.dim),
                 egui::StrokeKind::Inside,
             );
-            let ink = p.bg;
             if h.ascii {
-                painter.text(
-                    pos2(hex_x(col), y),
-                    Align2::LEFT_TOP,
-                    text,
-                    font.clone(),
-                    col_c,
-                );
-                painter.text(
-                    acell.left_top() + vec2(0.0, 2.0),
-                    Align2::LEFT_TOP,
-                    ch,
-                    font.clone(),
-                    ink,
-                );
+                (col_c, p.bg)
             } else {
-                painter.text(
-                    pos2(hex_x(col), y),
-                    Align2::LEFT_TOP,
-                    text,
-                    font.clone(),
-                    ink,
-                );
                 if h.low_nibble {
-                    let nx = hex_x(col) + cw;
+                    let low = g.at(hex_c(col) + 1, r, 1, 1);
+                    let y = under(low) + 1.0;
                     painter.line_segment(
-                        [pos2(nx, y + FONT + 2.0), pos2(nx + cw, y + FONT + 2.0)],
-                        Stroke::new(2.0, ink),
+                        [pos2(low.left(), y), pos2(low.right(), y)],
+                        Stroke::new(2.0, p.bg),
                     );
                 }
-                painter.text(
-                    acell.left_top() + vec2(0.0, 2.0),
-                    Align2::LEFT_TOP,
-                    ch,
-                    font.clone(),
-                    col_c,
-                );
+                (p.bg, col_c)
             }
         } else {
-            painter.text(
-                pos2(hex_x(col), y),
-                Align2::LEFT_TOP,
-                text,
-                font.clone(),
-                col_c,
-            );
-            painter.text(
-                acell.left_top() + vec2(0.0, 2.0),
-                Align2::LEFT_TOP,
-                ch,
-                font.clone(),
-                col_c.gamma_multiply(0.8),
-            );
-        }
+            (col_c, col_c.gamma_multiply(0.8))
+        };
+        g.text(&painter, hex_c(col), r, &text, hex_ink);
+        g.text(&painter, ascii_c + col, r, &ch.to_string(), ascii_ink);
     }
 
-    // Mouse: click a byte to put the cursor there and take keyboard focus.
+    // Mouse: click a byte to put the cursor there and take keyboard focus. The cell under
+    // the pointer maps back through the same columns the bytes were drawn in: a byte's two
+    // digits and the space after them, or its ASCII cell.
     let pick = |pos: egui::Pos2| -> Option<(usize, bool)> {
-        let row = ((pos.y - rect.top() - 2.0) / CELL_H).floor() as isize - 1;
-        if !(0..rows as isize).contains(&row) {
-            return None;
-        }
-        let row = row as usize;
-        let ax = pos.x - rect.left() - ascii_x;
-        if ax >= 0.0 {
-            let col = (ax / cw) as usize;
-            return (col < ROW).then_some((row * ROW + col, true));
+        let (c, r) = g.cell_at(pos)?;
+        let row = r.checked_sub(1).filter(|&row| row < rows)?;
+        if (ascii_c..ascii_c + ROW).contains(&c) {
+            return Some((row * ROW + c - ascii_c, true));
         }
         (0..ROW)
-            .find(|&c| pos.x >= hex_x(c) - 2.0 && pos.x < hex_x(c) + hex_w)
-            .map(|c| (row * ROW + c, false))
+            .find(|&col| (hex_c(col)..hex_c(col) + 3).contains(&c))
+            .map(|col| (row * ROW + col, false))
     };
     if let Some(pos) = resp.hover_pos()
         && let Some((i, _)) = pick(pos)
@@ -577,5 +508,109 @@ fn picker(ui: &mut Ui, game: &Game, p: &Palette, out: &mut Vec<Request>) {
         "10-1E name   1F checksum = sum of 00-1E mod 256",
     ] {
         ui.label(RichText::new(l).small().color(p.dim));
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::uitest::{Harness, click};
+
+    /// Where the last frame painted glyph `ch`, lowest on the screen first.
+    fn glyph(h: &Harness, ch: &str) -> Rect {
+        h.painted()
+            .iter()
+            .filter_map(|s| match s {
+                egui::Shape::Text(t) if t.galley.text() == ch => Some(t.visual_bounding_rect()),
+                _ => None,
+            })
+            .max_by(|a, b| a.center().y.total_cmp(&b.center().y))
+            .unwrap_or_else(|| panic!("no {ch:?} painted"))
+    }
+
+    #[test]
+    fn the_grid_lays_bytes_in_cells_and_a_click_picks_the_one_under_it() {
+        let data = ninsei_core::Data::builtin().unwrap();
+        let p = Palette::from_def(&data.themes[0]);
+        let mut bin = [0u8; LEN];
+        bin[18] = b'Z';
+        let mut hb = HexBuffer::open(0, bin);
+        let mut h = Harness::new(1000.0, 400.0);
+        // One frame; returns the rect the grid took.
+        let draw = |h: &mut Harness, hb: &mut HexBuffer, events| {
+            let mut area = Rect::NOTHING;
+            h.frame(events, |ui| {
+                grid(ui, hb, &p);
+                area = ui.min_rect();
+            });
+            area
+        };
+        let area = draw(&mut h, &mut hb, Vec::new());
+        for s in h.painted() {
+            assert!(area.expand(1.0).contains_rect(s.visual_bounding_rect()));
+        }
+        // 0x5A at 18: "5A" in the hex column, "Z" in the ASCII one, a cell apart in each.
+        let (five, a, z) = (glyph(&h, "5"), glyph(&h, "A"), glyph(&h, "Z"));
+        assert!((a.center().y - five.center().y).abs() < 0.5, "on one row");
+        assert!(a.left() > five.left(), "A after 5");
+        draw(&mut h, &mut hb, click(z.center()));
+        assert_eq!((hb.cursor, hb.ascii), (18, true), "the ASCII column");
+        draw(&mut h, &mut hb, click(five.center()));
+        assert_eq!((hb.cursor, hb.ascii), (18, false), "the hex column");
+    }
+
+    #[test]
+    fn the_cursor_and_the_marks_sit_on_their_bytes_cells() {
+        let data = ninsei_core::Data::builtin().unwrap();
+        let p = Palette::from_def(&data.themes[0]);
+        let mut bin = [0u8; LEN];
+        bin[18] = b'Z';
+        let mut hb = HexBuffer::open(0, bin);
+        hb.buf[20] = 0x7E; // changed since it was opened
+        hb.set_cursor(18);
+        hb.low_nibble = true;
+        let mut h = Harness::new(1000.0, 400.0);
+        h.frame(Vec::new(), |ui| grid(ui, &mut hb, &p));
+        let (five, a, z) = (glyph(&h, "5"), glyph(&h, "A"), glyph(&h, "Z"));
+        let (seven, e) = (glyph(&h, "7"), glyph(&h, "E"));
+        let rects = h.rects();
+        // The solid cursor holds both digits; the outline sits on the ASCII cell.
+        assert!(rects.iter().any(|(r, fill, _)| *fill == p.dim
+            && r.contains(five.center())
+            && r.contains(a.center())));
+        assert!(
+            rects
+                .iter()
+                .any(|(r, fill, stroke)| *fill == Color32::TRANSPARENT
+                    && *stroke == p.dim
+                    && r.contains(z.center()))
+        );
+        let lines: Vec<([egui::Pos2; 2], Stroke)> = h
+            .painted()
+            .iter()
+            .filter_map(|s| match s {
+                egui::Shape::LineSegment { points, stroke } => Some((*points, *stroke)),
+                _ => None,
+            })
+            .collect();
+        let under = |pts: &[egui::Pos2; 2], g: Rect| {
+            let (x0, x1) = (pts[0].x.min(pts[1].x), pts[0].x.max(pts[1].x));
+            (x0..=x1).contains(&g.center().x)
+                && pts[0].y >= g.bottom() - 1.0
+                && pts[0].y <= g.bottom() + 6.0
+        };
+        // The change mark runs under both digits of the changed byte.
+        assert!(
+            lines
+                .iter()
+                .any(|(pts, st)| st.color == p.bright && under(pts, seven) && under(pts, e)),
+            "the change mark under 7E: {lines:?}"
+        );
+        // The nibble mark is under the low digit only.
+        let nibble = lines
+            .iter()
+            .find(|(_, st)| st.color == p.bg && st.width == 2.0)
+            .expect("the nibble mark");
+        assert!(under(&nibble.0, a) && !under(&nibble.0, five), "{nibble:?}");
     }
 }

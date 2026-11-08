@@ -116,6 +116,24 @@ impl SheetCol {
     }
 }
 
+/// Characters each sheet column needs to show every value and its header with a sort arrow
+/// (` ▲`) whole: the row-number column (the last row's number, or the header row's `1`),
+/// then `SheetCol::ALL`'s, sized from the widest real value so nothing is cut.
+pub fn sheet_widths(hdd: &[Slot]) -> (usize, [usize; 6]) {
+    let rownum = (hdd.len() + 1).to_string().len();
+    let mut w = [0; 6];
+    for (k, c) in SheetCol::ALL.iter().enumerate() {
+        w[k] = hdd
+            .iter()
+            .enumerate()
+            .map(|(i, s)| c.cell(i, s).chars().count())
+            .chain([c.header().chars().count() + 2])
+            .max()
+            .unwrap_or(0);
+    }
+    (rownum, w)
+}
+
 /// HDD slot indices in spreadsheet order: sorted by `col` (ties by slot), optionally only the
 /// loaded rows.
 pub fn sheet_rows(hdd: &[Slot], col: SheetCol, ascending: bool, loaded_only: bool) -> Vec<usize> {

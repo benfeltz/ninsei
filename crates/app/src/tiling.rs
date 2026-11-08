@@ -5,25 +5,35 @@
 //!
 //! Keys: **Esc** is the leader (it also lets go of the Shell), then a key:
 //! `1`-`9` workspace, `Shift`+digit send the tile there, `Space` launcher, `h`/`l` or arrows
-//! focus, `Enter` swap with master, `x` close, `?` help. The mouse works too: click a tile to
-//! focus it, a workspace to switch. Browser-safe: no Ctrl or Alt shortcuts.
+//! focus, `Enter` swap with master, `f` full screen, `[`/`]` resize the master, `x` close,
+//! `?` help. The mouse works too: click a tile to focus it, a workspace to switch.
+//! Browser-safe: no Ctrl or Alt shortcuts.
 
-use egui::{
-    Align2, Event, FontFamily, FontId, Id, Key, Rect, Sense, Stroke, StrokeKind, Ui, pos2, vec2,
-};
+use egui::{Event, FontFamily, FontId, Key, Rect, Ui, pos2, vec2};
 use ninsei_core::desktop::{self, AddonEffect, Tiling};
 use ninsei_core::hardware::Desktop;
 use ninsei_core::hub::Tool;
 
 use crate::home::{Cx, DesktopView, Home, WbOut, accent, backdrop, font, hint, ink, muted, shadow};
+use crate::kit::anarchy;
 
-/// Sizes, in one place.
-mod size {
-    pub const BAR_H: f32 = 26.0;
-    pub const GAP: f32 = 8.0;
-    pub const TITLE_H: f32 = 18.0;
-    pub const ROUND: f32 = 6.0;
-    pub const LAUNCHER: [f32; 2] = [460.0, 320.0];
+use crate::kit::anarchy::size;
+
+/// The desktop's look for the kit: the theme's colours and the app's type, and `ui`'s visuals
+/// (what the theme set: the caret, square corners) dressed for the desk.
+fn look(ui: &Ui) -> anarchy::Look {
+    let mut visuals = ui.visuals().clone();
+    crate::hubtools::wb_visuals(&mut visuals);
+    anarchy::Look {
+        backdrop: backdrop(),
+        shadow: shadow(),
+        ink: ink(),
+        accent: accent(),
+        muted: muted(),
+        font: font(),
+        small: FontId::new(12.0, FontFamily::Monospace),
+        visuals,
+    }
 }
 
 /// What the launcher lists.
@@ -83,18 +93,16 @@ fn entries(fuzzy: bool, save: &ninsei_core::hub::Save) -> Vec<Entry> {
     v
 }
 
-#[derive(Default)]
-struct Launcher {
-    query: String,
-    sel: usize,
-    focused: bool,
-}
-
 pub struct TilingDesk {
     /// Esc was pressed: the next key is a desktop command.
     leader: bool,
-    launcher: Option<Launcher>,
+    launcher: Option<anarchy::Launcher>,
     help: bool,
+    /// Whether the Shell was taking the keys last frame.
+    shell_typing: bool,
+    /// The Shell has just started taking the keys: it asks for its focus next frame, after the
+    /// key that gave them back has been read by someone else.
+    focus_pending: bool,
 }
 
 impl TilingDesk {
@@ -103,13 +111,17 @@ impl TilingDesk {
             leader: false,
             launcher: None,
             help: false,
+            shell_typing: false,
+            focus_pending: false,
         }
     }
 
-    /// Reads this frame's keys for the desktop. Returns true if something changed.
-    /// `searching`: the Shell is in a `Ctrl+R` search, where Esc only ends the search.
-    fn keys(&mut self, ui: &Ui, t: &mut Tiling, searching: bool) {
+    /// Reads this frame's keys for the desktop. `searching`: the Shell is in a `Ctrl+R`
+    /// search, where Esc only ends the search. A key the leader acts on is consumed (its
+    /// press, release and the text it types), so no tile drawn later this frame sees it.
+    fn keys(&mut self, ui: &Ui, t: &mut Tiling, searching: bool, help_open: bool) {
         let events = ui.input(|i| i.events.clone());
+        let mut used: Vec<Key> = Vec::new();
         for e in events {
             match e {
                 Event::Key {
@@ -117,7 +129,7 @@ impl TilingDesk {
                     pressed: true,
                     ..
                 } => {
-                    if self.launcher.take().is_none() && !self.help && !searching {
+                    if self.launcher.take().is_none() && !help_open && !searching {
                         self.leader = !self.leader;
                     }
                     self.help = false;
@@ -145,10 +157,15 @@ impl TilingDesk {
                     match (key, digit) {
                         (_, Some(n)) if modifiers.shift => t.send(n),
                         (_, Some(n)) => t.switch(n),
-                        (Key::Space | Key::P, _) => self.launcher = Some(Launcher::default()),
+                        (Key::Space | Key::P, _) => {
+                            self.launcher = Some(anarchy::Launcher::default())
+                        }
                         (Key::H | Key::ArrowLeft | Key::K | Key::ArrowUp, _) => t.step(-1),
                         (Key::L | Key::ArrowRight | Key::J | Key::ArrowDown, _) => t.step(1),
                         (Key::Enter, _) => t.swap_master(),
+                        (Key::F, _) => t.toggle_full(),
+                        (Key::OpenBracket, _) => t.resize_master(-1),
+                        (Key::CloseBracket, _) => t.resize_master(1),
                         (Key::X, _) => {
                             t.close();
                         }
@@ -157,10 +174,23 @@ impl TilingDesk {
                     }
                     if done {
                         self.leader = false;
+                        used.push(key);
                     }
                 }
                 _ => {}
             }
+        }
+        if !used.is_empty() {
+            ui.ctx().input_mut(|i| {
+                i.events.retain(|e| match e {
+                    Event::Key { key, .. } => !used.contains(key),
+                    Event::Text(_) => false,
+                    _ => true,
+                });
+                for k in &used {
+                    i.keys_down.remove(k);
+                }
+            });
         }
     }
 }
@@ -175,71 +205,29 @@ impl DesktopView for TilingDesk {
             t.open(tool);
         }
         if live {
-            self.keys(ui, &mut t, home.shell_searching());
+            self.keys(
+                ui,
+                &mut t,
+                home.shell_searching(),
+                self.help || !save.tiling_help_seen,
+            );
         }
         let screen = ui.ctx().content_rect().translate(vec2(0.0, cx.offset));
         let painter = ui.painter_at(screen);
         painter.rect_filled(screen, 0.0, shadow());
 
-        // The bar.
-        let bar = Rect::from_min_size(screen.min, vec2(screen.width(), size::BAR_H));
-        painter.rect_filled(bar, 0.0, shadow());
-        painter.line_segment(
-            [bar.left_bottom(), bar.right_bottom()],
-            Stroke::new(1.0, muted()),
-        );
-        let small = FontId::new(12.0, FontFamily::Monospace);
-        let mut x = bar.left() + 8.0;
-        for w in 0..t.workspaces.len() {
-            let r = Rect::from_min_size(pos2(x, bar.top() + 4.0), vec2(22.0, size::BAR_H - 8.0));
-            let here = w == t.current;
-            let used = !t.workspaces[w].is_empty();
-            if here {
-                painter.rect_filled(r, 4.0, accent());
-            }
-            let col = if here {
-                shadow()
-            } else if used {
-                ink()
-            } else {
-                muted()
-            };
-            painter.text(
-                r.center(),
-                Align2::CENTER_CENTER,
-                (w + 1).to_string(),
-                small.clone(),
-                col,
-            );
-            if live
-                && ui
-                    .interact(r, Id::new(("tile-ws", w)), Sense::click())
-                    .clicked()
-            {
-                t.switch(w);
-            }
-            x += 26.0;
+        let look = look(ui);
+        // The bar: the workspaces, the mode, the focused tile and the widgets.
+        let workspaces: Vec<anarchy::Workspace> = (0..t.workspaces.len())
+            .map(|w| anarchy::Workspace {
+                here: w == t.current,
+                used: !t.workspaces[w].is_empty(),
+            })
+            .collect();
+        let mut focused = t.focused().map_or("empty", Tool::volume).to_string();
+        if t.shape().full {
+            focused.push_str("  [full]");
         }
-        let mode = if self.leader {
-            " LEADER "
-        } else {
-            "  esc: keys"
-        };
-        painter.text(
-            pos2(x + 8.0, bar.center().y),
-            Align2::LEFT_CENTER,
-            mode,
-            small.clone(),
-            if self.leader { accent() } else { muted() },
-        );
-        let focused = t.focused().map_or("empty", Tool::volume);
-        painter.text(
-            pos2(x + 110.0, bar.center().y),
-            Align2::LEFT_CENTER,
-            focused,
-            small.clone(),
-            ink(),
-        );
         let deck = save.deck_def(data).title();
         let monitor = save.monitor_def(data).title();
         let up = ui.input(|i| i.time) as u64;
@@ -259,18 +247,25 @@ impl DesktopView for TilingDesk {
                 save.runs, save.exits, save.flatlines, save.best_haul
             );
         }
-        painter.text(
-            bar.right_center() - vec2(8.0, 0.0),
-            Align2::RIGHT_CENTER,
-            right,
-            small.clone(),
-            muted(),
-        );
+        let bar = anarchy::Bar {
+            workspaces: &workspaces,
+            mode: if self.leader {
+                " LEADER "
+            } else {
+                "  esc: keys"
+            },
+            mode_lit: self.leader,
+            focused: &focused,
+            right: &right,
+        };
+        if let Some(w) = anarchy::bar(ui, &painter, screen, &bar, &look, live) {
+            t.switch(w);
+        }
         ui.ctx()
             .request_repaint_after(std::time::Duration::from_secs(1));
 
         // The tiles.
-        let area = Rect::from_min_max(pos2(screen.left(), bar.bottom()), screen.max);
+        let area = work_area(screen);
         let layout = t.layout(
             [area.left(), area.top(), area.width(), area.height()],
             size::GAP,
@@ -289,32 +284,33 @@ impl DesktopView for TilingDesk {
                 .flatten()
         });
         let mut focus_to = None;
-        for (i, (tool, [x, y, w, h])) in layout.into_iter().enumerate() {
+        // Esc drops egui's focus, and a leader, launcher or help key must not be typed into the
+        // Shell: whenever the Shell goes from not taking the keys to taking them (a closed
+        // leader, launcher or help, or focus moved onto it), it asks for its focus on the next
+        // frame, once that key has been read.
+        let help_open = self.help || !save.tiling_help_seen;
+        let shell_typing = live
+            && t.focused() == Some(Tool::Shell)
+            && self.launcher.is_none()
+            && !self.leader
+            && !help_open;
+        if std::mem::take(&mut self.focus_pending) && shell_typing {
+            home.focus();
+        } else if shell_typing && !self.shell_typing {
+            self.focus_pending = true;
+        }
+        self.shell_typing = shell_typing;
+        for (tool, [x, y, w, h]) in layout {
+            // The tile's place on the workspace (full screen lays out only the focused one).
+            let i = t.tiles().iter().position(|x| *x == tool).unwrap_or(t.focus);
             let r = Rect::from_min_size(pos2(x, y), vec2(w, h));
             let on = i == t.focus;
-            painter.rect_filled(r, size::ROUND, backdrop());
-            painter.rect_stroke(
-                r,
-                size::ROUND,
-                Stroke::new(
-                    if on { 2.0 } else { 1.0 },
-                    if on { accent() } else { muted() },
-                ),
-                StrokeKind::Inside,
-            );
-            let label = format!(" {} ", tool.volume().to_lowercase());
-            let g =
-                painter.layout_no_wrap(label, small.clone(), if on { accent() } else { muted() });
-            let tr = Rect::from_min_size(r.min + vec2(12.0, -7.0), g.size());
-            painter.rect_filled(tr, 0.0, shadow());
-            painter.galley(tr.min, g, ink());
+            anarchy::tile(&painter, r, &tool.volume().to_lowercase(), on, &look);
             if live && clicked.is_some_and(|p| r.contains(p)) {
                 focus_to = Some(i);
             }
-            let content = r
-                .shrink2(vec2(10.0, 8.0))
-                .with_min_y(r.top() + size::TITLE_H - 4.0);
-            let typing = live && on && self.launcher.is_none() && !self.leader;
+            let content = anarchy::tile_content(r);
+            let typing = live && on && self.launcher.is_none() && !self.leader && !help_open;
             if tool == Tool::Shell {
                 home.shell(ui, content, data, save, typing, out);
                 continue;
@@ -333,9 +329,16 @@ impl DesktopView for TilingDesk {
             if tool == Tool::System {
                 home.system.keys = typing;
             }
-            crate::home::scrolled(&mut child, ("tile-scroll", tool), |ui| {
-                home.tool_body(ui, tool, data, save, out)
-            });
+            home.tool_in(
+                &mut child,
+                tool,
+                data,
+                save,
+                out,
+                full_screen_hint(t.shape().full, t.tiles().len()),
+                None,
+                ("tile-scroll", tool),
+            );
         }
         if let Some(i) = focus_to {
             t.focus = i;
@@ -345,9 +348,9 @@ impl DesktopView for TilingDesk {
         }
 
         if live {
-            self.launcher_ui(ui, home, cx, &mut t, out);
+            self.launcher_ui(ui, home, cx, &mut t, out, &look);
             let first = !save.tiling_help_seen;
-            if (self.help || first) && help_ui(ui, screen) {
+            if (self.help || first) && anarchy::help(ui, screen, &HELP, &look) {
                 self.help = false;
                 if first {
                     out.push(WbOut::HelpSeen);
@@ -369,6 +372,7 @@ impl TilingDesk {
         cx: &Cx,
         t: &mut Tiling,
         out: &mut Vec<WbOut>,
+        look: &anarchy::Look,
     ) {
         let Some(l) = &mut self.launcher else { return };
         let fuzzy = cx
@@ -376,98 +380,20 @@ impl TilingDesk {
             .has_effect(cx.data, Desktop::Tiling, AddonEffect::Fuzzy);
         let items = entries(fuzzy, cx.save);
         let labels: Vec<String> = items.iter().map(Entry::label).collect();
-        let screen = ui.ctx().content_rect();
-        let r = Rect::from_center_size(
-            pos2(screen.center().x, screen.top() + screen.height() * 0.35),
-            vec2(size::LAUNCHER[0], size::LAUNCHER[1]),
+        let hint = if fuzzy {
+            "open a tool or run a command"
+        } else {
+            "open a tool"
+        };
+        let run = anarchy::launcher(
+            ui.ctx(),
+            ui.ctx().content_rect(),
+            l,
+            &labels,
+            |q| desktop::search(q, &labels, fuzzy),
+            hint,
+            look,
         );
-        let mut run = None;
-        // The box is painted inside the Area, on its own layer, so the widgets draw on top.
-        egui::Area::new(Id::new("launcher-area"))
-            .order(egui::Order::Foreground)
-            .fade_in(false)
-            .fixed_pos(r.min)
-            .show(ui.ctx(), |ui| {
-                let p = ui.painter();
-                p.rect_filled(r.expand(3.0), size::ROUND + 2.0, shadow());
-                p.rect_filled(r, size::ROUND, backdrop());
-                p.rect_stroke(
-                    r,
-                    size::ROUND,
-                    Stroke::new(2.0, accent()),
-                    StrokeKind::Inside,
-                );
-                ui.allocate_rect(r, Sense::hover());
-                let inner = r.shrink2(vec2(12.0, 10.0));
-                let mut ui = ui.new_child(
-                    egui::UiBuilder::new()
-                        .max_rect(inner)
-                        .layout(egui::Layout::top_down(egui::Align::Min)),
-                );
-                let ui = &mut ui;
-                ui.set_width(inner.width());
-                crate::hubtools::wb_visuals(ui.visuals_mut());
-                let edit = egui::TextEdit::singleline(&mut l.query)
-                    .hint_text(if fuzzy {
-                        "open a tool or run a command"
-                    } else {
-                        "open a tool"
-                    })
-                    .font(font())
-                    .desired_width(f32::INFINITY)
-                    .id(Id::new("launcher-input"));
-                let resp = ui.add(edit);
-                if !l.focused {
-                    resp.request_focus();
-                    l.focused = true;
-                }
-                if resp.changed() {
-                    l.sel = 0;
-                }
-                // Filtered after the edit, so the list matches what was just typed.
-                let hits = desktop::search(&l.query, &labels, fuzzy);
-                let (down, up, enter) = ui.input(|i| {
-                    (
-                        i.key_pressed(Key::ArrowDown),
-                        i.key_pressed(Key::ArrowUp),
-                        i.key_pressed(Key::Enter),
-                    )
-                });
-                if !hits.is_empty() {
-                    if down {
-                        l.sel = (l.sel + 1) % hits.len();
-                    }
-                    if up {
-                        l.sel = (l.sel + hits.len() - 1) % hits.len();
-                    }
-                    l.sel = l.sel.min(hits.len() - 1);
-                }
-                ui.add_space(6.0);
-                for (k, &i) in hits.iter().take(12).enumerate() {
-                    let on = k == l.sel;
-                    let txt = egui::RichText::new(&labels[i]).font(font()).color(if on {
-                        shadow()
-                    } else {
-                        ink()
-                    });
-                    let b = egui::Button::new(txt)
-                        .fill(if on { accent() } else { backdrop() })
-                        .frame(on);
-                    if ui.add_sized([ui.available_width(), 20.0], b).clicked() {
-                        run = Some(i);
-                    }
-                }
-                if hits.is_empty() {
-                    ui.label(
-                        egui::RichText::new("nothing matches")
-                            .font(font())
-                            .color(muted()),
-                    );
-                }
-                if enter && let Some(&i) = hits.get(l.sel) {
-                    run = Some(i);
-                }
-            });
         if let Some(i) = run {
             match &items[i] {
                 Entry::Tool(tool, _) => t.open(*tool),
@@ -489,62 +415,35 @@ impl TilingDesk {
     }
 }
 
-/// The key help. Returns true when it's dismissed (a click, or any key but the leader).
-fn help_ui(ui: &mut Ui, screen: Rect) -> bool {
-    let lines = [
-        ("AnarchyOS // ono-sendai cyberspace vii", ""),
-        ("", ""),
-        ("esc", "leader: then one of these"),
-        ("space", "launcher: open a tool"),
-        ("1-9", "go to workspace"),
-        ("shift+1-9", "send the tile to a workspace"),
-        ("h / l", "focus previous / next tile"),
-        ("enter", "swap the tile with the master"),
-        ("x", "close the tile"),
-        ("?", "this help"),
-        ("", ""),
-        ("", "the mouse works too. click anywhere to start."),
-    ];
-    let r = Rect::from_center_size(
-        screen.center(),
-        vec2(580.0, 22.0 * lines.len() as f32 + 24.0),
-    );
-    let painter = ui.ctx().layer_painter(egui::LayerId::new(
-        egui::Order::Foreground,
-        Id::new("tiling-help"),
-    ));
-    painter.rect_filled(r.expand(3.0), size::ROUND + 2.0, shadow());
-    painter.rect_filled(r, size::ROUND, backdrop());
-    painter.rect_stroke(
-        r,
-        size::ROUND,
-        Stroke::new(2.0, accent()),
-        StrokeKind::Inside,
-    );
-    for (i, (k, v)) in lines.iter().enumerate() {
-        let y = r.top() + 14.0 + i as f32 * 22.0;
-        painter.text(
-            pos2(r.left() + 18.0, y),
-            Align2::LEFT_TOP,
-            *k,
-            font(),
-            accent(),
-        );
-        painter.text(
-            pos2(r.left() + 150.0, y),
-            Align2::LEFT_TOP,
-            *v,
-            font(),
-            ink(),
-        );
-    }
-    ui.input(|i| {
-        i.pointer.primary_clicked()
-            || i.events.iter().any(|e| {
-                matches!(e, Event::Key { pressed: true, key, .. } if *key != Key::Escape && *key != Key::Questionmark && *key != Key::Slash)
-            })
-    })
+/// The "too small" notice's hint: full screen, when it would give the tile more room (not
+/// when the workspace is full screen already, where Esc f would shrink it, nor for a tile
+/// that's alone).
+fn full_screen_hint(full: bool, tiles: usize) -> Option<&'static str> {
+    (!full && tiles > 1).then_some("Esc f: full screen")
 }
+
+/// Where tiles go on `screen`: everything under the bar.
+pub(crate) fn work_area(screen: Rect) -> Rect {
+    Rect::from_min_max(pos2(screen.left(), screen.top() + size::BAR_H), screen.max)
+}
+
+/// The key help: a key (after the leader) and what it does.
+const HELP: [(&str, &str); 14] = [
+    ("AnarchyOS // ono-sendai cyberspace vii", ""),
+    ("", ""),
+    ("esc", "leader: then one of these"),
+    ("space", "launcher: open a tool"),
+    ("1-9", "go to workspace"),
+    ("shift+1-9", "send the tile to a workspace"),
+    ("h / l", "focus previous / next tile"),
+    ("enter", "swap the tile with the master"),
+    ("f", "full screen, and back"),
+    ("[ / ]", "shrink / grow the master"),
+    ("x", "close the tile"),
+    ("?", "this help"),
+    ("", ""),
+    ("", "the mouse works too. click anywhere to start."),
+];
 
 #[cfg(test)]
 mod tests {
@@ -616,6 +515,7 @@ mod tests {
             ninsei_core::hardware::Desktop::Tiling
         );
         let ctx = egui::Context::default();
+        crate::uitest::themed(&ctx, &data);
         let mut desk = TilingDesk::new();
         let mut home = Home::new(Vec::new());
         let key = |k| {
@@ -661,6 +561,7 @@ mod tests {
         frame(&mut desk, &mut home, Vec::new());
         frame(&mut desk, &mut home, Vec::new());
         assert!(home.system.keys, "the new System tile is focused");
+        assert!(home.notices.is_empty(), "System fits the stack tile");
         frame(&mut desk, &mut home, key(egui::Key::Num2));
         frame(&mut desk, &mut home, Vec::new());
         assert_eq!(home.system.panel, ninsei_core::system::Panel::Monitor);
@@ -673,5 +574,445 @@ mod tests {
         frame(&mut desk, &mut home, key(egui::Key::Num3));
         frame(&mut desk, &mut home, Vec::new());
         assert_eq!(home.system.panel, ninsei_core::system::Panel::Monitor);
+    }
+
+    /// The tiling desktop at 1280x800 on a `uitest::Harness`, with the save the app would keep.
+    struct Rig {
+        h: crate::uitest::Harness,
+        data: ninsei_core::Data,
+        save: ninsei_core::hub::Save,
+        desk: TilingDesk,
+        home: Home,
+    }
+
+    impl Rig {
+        fn new(help_seen: bool) -> Self {
+            let mut r = Rig {
+                h: crate::uitest::Harness::new(1280.0, 800.0),
+                data: ninsei_core::Data::builtin().unwrap(),
+                save: ninsei_core::hub::Save {
+                    tiling_help_seen: help_seen,
+                    ..Default::default()
+                },
+                desk: TilingDesk::new(),
+                home: Home::new(Vec::new()),
+            };
+            crate::uitest::themed(&r.h.ctx, &r.data);
+            r.frame(Vec::new());
+            r.frame(Vec::new());
+            r
+        }
+
+        fn frame(&mut self, events: Vec<Event>) {
+            let mut out = Vec::new();
+            let (data, save, desk, home) = (&self.data, &self.save, &mut self.desk, &mut self.home);
+            self.h.frame(events, |ui| {
+                let cx = Cx {
+                    data,
+                    save,
+                    offset: 0.0,
+                    live: true,
+                };
+                desk.show(ui, home, &cx, &mut out);
+            });
+            for w in out {
+                match w {
+                    crate::home::WbOut::Tiling(l) => self.save.tiling = l,
+                    crate::home::WbOut::HelpSeen => self.save.tiling_help_seen = true,
+                    _ => {}
+                }
+            }
+        }
+
+        /// Runs `events`, then a quiet frame.
+        fn send(&mut self, events: Vec<Event>) {
+            self.frame(events);
+            self.frame(Vec::new());
+        }
+
+        /// A key as a real keyboard sends it: the press, and the text it types.
+        fn key_text(&mut self, k: egui::Key, s: &str) {
+            let mut e = crate::uitest::key(k);
+            e.extend(crate::uitest::text(s));
+            self.send(e);
+        }
+
+        fn key(&mut self, k: egui::Key) {
+            self.send(crate::uitest::key(k));
+        }
+
+        fn type_text(&mut self, s: &str) {
+            self.send(crate::uitest::text(s));
+        }
+    }
+
+    #[test]
+    fn the_shell_takes_typing_after_the_first_boot_help_closes() {
+        let mut r = Rig::new(false);
+        // The key that closes the help isn't typed; what follows is.
+        r.key_text(egui::Key::A, "a");
+        assert!(r.save.tiling_help_seen, "the help closed");
+        r.type_text("help");
+        assert_eq!(r.home.shell_text(), "help");
+        r.key(egui::Key::Enter);
+        assert!(r.home.shell_has("dial <n>"), "help ran in the Shell");
+    }
+
+    #[test]
+    fn the_shell_takes_typing_after_a_click_closes_the_help() {
+        for p in [pos2(640.0, 400.0), pos2(640.0, 760.0), pos2(30.0, 400.0)] {
+            let mut r = Rig::new(false);
+            r.send(crate::uitest::click(p));
+            assert!(r.save.tiling_help_seen, "the help closed at {p:?}");
+            r.type_text("help");
+            assert_eq!(r.home.shell_text(), "help", "typing after a click at {p:?}");
+        }
+    }
+
+    #[test]
+    fn esc_on_the_first_boot_help_closes_it_and_the_shell_takes_typing() {
+        let mut r = Rig::new(false);
+        r.key(egui::Key::Escape);
+        assert!(r.save.tiling_help_seen, "Esc closed the help");
+        assert!(!r.desk.leader, "and didn't open the leader");
+        r.type_text("help");
+        assert_eq!(r.home.shell_text(), "help");
+    }
+
+    #[test]
+    fn leader_keys_reach_the_desktop_never_the_shell() {
+        let mut r = Rig::new(true);
+        r.type_text("ph");
+        // Esc, Esc: the leader opens and closes, and the Shell types again.
+        r.key(egui::Key::Escape);
+        r.key(egui::Key::Escape);
+        r.type_text("x");
+        assert_eq!(
+            r.home.shell_text(),
+            "phx",
+            "Esc, Esc leaves the Shell typing"
+        );
+        // Esc, h (focus previous, the Shell is alone): no h on the command line.
+        r.key(egui::Key::Escape);
+        r.key_text(egui::Key::H, "h");
+        assert_eq!(r.home.shell_text(), "phx", "the leader's h isn't typed");
+        // Esc, Enter (swap with master) doesn't submit the command line.
+        r.key(egui::Key::Escape);
+        r.key(egui::Key::Enter);
+        assert_eq!(
+            r.home.shell_text(),
+            "phx",
+            "the leader's Enter isn't submitted"
+        );
+        // Esc, ?, then the key that closes the help: neither is typed.
+        r.key(egui::Key::Escape);
+        r.key_text(egui::Key::Questionmark, "?");
+        assert!(r.desk.help, "the help is open");
+        r.key_text(egui::Key::Q, "q");
+        assert!(!r.desk.help, "the help closed");
+        r.type_text("y");
+        assert_eq!(r.home.shell_text(), "phxy");
+        // A click in the focused tile keeps it typing.
+        r.send(crate::uitest::click(pos2(640.0, 400.0)));
+        r.type_text("z");
+        assert_eq!(r.home.shell_text(), "phxyz");
+    }
+
+    #[test]
+    fn moving_the_focus_onto_the_shell_with_the_leader_gives_it_the_keys() {
+        let mut r = Rig::new(true);
+        r.save.tools = ninsei_core::data::TOOLS
+            .iter()
+            .map(|t| t.to_string())
+            .collect();
+        r.home.open(Tool::IceDb);
+        r.frame(Vec::new());
+        r.frame(Vec::new());
+        assert_ne!(
+            r.save.tiling.focused(),
+            Some(Tool::Shell),
+            "the new tile is focused"
+        );
+        r.type_text("q");
+        assert_eq!(r.home.shell_text(), "", "the Shell isn't typing");
+        // Esc, h onto the Shell: the h isn't typed, what follows is.
+        r.key(egui::Key::Escape);
+        r.key_text(egui::Key::H, "h");
+        assert_eq!(r.save.tiling.focused(), Some(Tool::Shell));
+        r.type_text("ph");
+        assert_eq!(r.home.shell_text(), "ph");
+    }
+
+    #[test]
+    fn esc_f_full_screens_the_focused_tile_and_esc_brackets_resize_the_master() {
+        let mut r = Rig::new(true);
+        r.save.tools = ninsei_core::data::TOOLS
+            .iter()
+            .map(|t| t.to_string())
+            .collect();
+        r.home.open(Tool::IceDb);
+        r.frame(Vec::new());
+        r.frame(Vec::new());
+        assert_eq!(r.save.tiling.focused(), Some(Tool::IceDb), "the stack tile");
+        let master = pos2(100.0, 400.0);
+        r.key(egui::Key::Escape);
+        r.key(egui::Key::F);
+        assert!(r.save.tiling.shape().full);
+        // The master isn't drawn: a click where it was lands on the full-screen tile.
+        r.send(crate::uitest::click(master));
+        assert_eq!(r.save.tiling.focused(), Some(Tool::IceDb));
+        r.key(egui::Key::Escape);
+        r.key(egui::Key::F);
+        assert!(!r.save.tiling.shape().full, "and back");
+        r.send(crate::uitest::click(master));
+        assert_eq!(
+            r.save.tiling.focused(),
+            Some(Tool::Shell),
+            "the master is back"
+        );
+        // Esc ] grows the master, Esc [ shrinks it.
+        let pct = ninsei_core::desktop::MASTER_PCT;
+        let step = ninsei_core::desktop::MASTER_STEP;
+        r.key(egui::Key::Escape);
+        r.key(egui::Key::CloseBracket);
+        assert_eq!(r.save.tiling.shape().master, pct + step);
+        for _ in 0..2 {
+            r.key(egui::Key::Escape);
+            r.key(egui::Key::OpenBracket);
+        }
+        assert_eq!(r.save.tiling.shape().master, pct - step);
+        assert_eq!(r.home.shell_text(), "", "none of it was typed");
+    }
+
+    #[test]
+    fn the_help_names_full_screen_and_the_resize_keys() {
+        assert!(HELP.contains(&("f", "full screen, and back")));
+        assert!(HELP.contains(&("[ / ]", "shrink / grow the master")));
+    }
+
+    #[test]
+    fn the_leaders_keys_never_reach_a_focused_system_tile() {
+        let mut r = Rig::new(true);
+        r.save.tools = ninsei_core::data::TOOLS
+            .iter()
+            .map(|t| t.to_string())
+            .collect();
+        r.save.decks = vec!["onosendai".into()];
+        r.save.deck = "onosendai".into();
+        r.save.ensure_hardware(&r.data);
+        r.home.open(Tool::System);
+        r.frame(Vec::new());
+        r.frame(Vec::new());
+        assert!(r.home.system.keys, "the System tile has the keys");
+        let pct = ninsei_core::desktop::MASTER_PCT;
+        let step = ninsei_core::desktop::MASTER_STEP;
+        r.key(egui::Key::Escape);
+        r.key_text(egui::Key::CloseBracket, "]");
+        assert_eq!(r.save.tiling.shape().master, pct + step, "the master grew");
+        r.key(egui::Key::Escape);
+        r.key_text(egui::Key::OpenBracket, "[");
+        assert_eq!(r.save.tiling.shape().master, pct);
+        assert_eq!(
+            r.home.system.panel,
+            ninsei_core::system::Panel::Overview,
+            "and System didn't turn its panel"
+        );
+        // Without the leader, [ and ] are System's again.
+        r.key_text(egui::Key::CloseBracket, "]");
+        assert_eq!(r.home.system.panel, ninsei_core::system::Panel::Monitor);
+    }
+
+    #[test]
+    fn the_notice_offers_full_screen_only_when_it_would_help() {
+        assert_eq!(full_screen_hint(false, 3), Some("Esc f: full screen"));
+        assert_eq!(
+            full_screen_hint(true, 3),
+            None,
+            "already full: Esc f would shrink it"
+        );
+        assert_eq!(
+            full_screen_hint(false, 1),
+            None,
+            "alone, it has the whole workspace"
+        );
+    }
+
+    #[test]
+    fn the_launcher_scrolls_to_an_entry_past_its_first_screenful() {
+        let mut r = Rig::new(true);
+        r.save.tools = ninsei_core::data::TOOLS
+            .iter()
+            .map(|t| t.to_string())
+            .collect();
+        let fzf = r
+            .data
+            .addons
+            .iter()
+            .find(|a| a.effect == AddonEffect::Fuzzy)
+            .expect("the fzf add-on")
+            .id
+            .clone();
+        r.save.addons.push(fzf);
+        let labels: Vec<String> = entries(true, &r.save).iter().map(Entry::label).collect();
+        assert!(labels.len() > 12, "more than a screenful: {labels:?}");
+        r.key(egui::Key::Escape);
+        r.key(egui::Key::Space);
+        // `$ help`, past the first screenful: its list shows that it ran.
+        let help = labels.iter().position(|l| l == "$ help").expect("help");
+        assert!(help >= 12);
+        for _ in 0..help {
+            r.key(egui::Key::ArrowDown);
+        }
+        let l = r.desk.launcher.as_ref().expect("the launcher");
+        assert_eq!(l.sel, help);
+        assert!(l.list.shows(help), "the entry is in view");
+        assert!(!l.list.shows(0), "the first has scrolled away");
+        r.key(egui::Key::Enter);
+        assert!(r.desk.launcher.is_none(), "it ran and closed");
+        assert!(r.home.shell_has("dial <n>"), "help ran in the Shell");
+    }
+
+    #[test]
+    fn the_launcher_is_dressed_by_the_theme() {
+        let r = Rig::new(true);
+        let p = crate::theme::Palette::from_def(&r.data.themes[0]);
+        let mut seen = None;
+        let mut h = crate::uitest::Harness::new(400.0, 300.0);
+        crate::uitest::themed(&h.ctx, &r.data);
+        h.frame(Vec::new(), |ui| seen = Some(look(ui).visuals));
+        let v = seen.unwrap();
+        assert_eq!(v.text_cursor.stroke.color, p.fg, "the theme's caret");
+        assert_eq!(v.widgets.inactive.corner_radius, egui::CornerRadius::ZERO);
+        assert_eq!(v.widgets.hovered.expansion, 0.0);
+    }
+
+    /// A rig with every tool and the fzf add-on, so the launcher runs past a screenful.
+    fn with_fzf() -> Rig {
+        let mut r = Rig::new(true);
+        r.save.tools = ninsei_core::data::TOOLS
+            .iter()
+            .map(|t| t.to_string())
+            .collect();
+        let fzf = r
+            .data
+            .addons
+            .iter()
+            .find(|a| a.effect == AddonEffect::Fuzzy)
+            .unwrap()
+            .id
+            .clone();
+        r.save.addons.push(fzf);
+        r
+    }
+
+    #[test]
+    fn a_workspace_pill_click_switches_to_it() {
+        let mut r = Rig::new(true);
+        // The second pill: 8px in, a pill and a step along, in the middle of the bar.
+        let at = pos2(
+            8.0 + size::PILL_STEP + size::PILL[0] / 2.0,
+            size::BAR_H / 2.0,
+        );
+        r.send(crate::uitest::click(at));
+        assert_eq!(r.save.tiling.current, 1);
+    }
+
+    #[test]
+    fn typing_filters_the_launcher_and_a_click_opens_the_row() {
+        let mut r = with_fzf();
+        r.key(egui::Key::Escape);
+        r.key(egui::Key::Space);
+        r.key(egui::Key::ArrowDown);
+        assert_eq!(r.desk.launcher.as_ref().unwrap().sel, 1);
+        r.type_text("ice");
+        assert_eq!(
+            r.desk.launcher.as_ref().unwrap().sel,
+            0,
+            "typing starts the pick over"
+        );
+        let row =
+            r.h.find("ICE DB")
+                .unwrap_or_else(|| panic!("{:?}", r.h.texts()));
+        assert!(r.h.find("CarrierTerm").is_none(), "filtered out");
+        r.send(crate::uitest::click(row.center()));
+        assert!(r.desk.launcher.is_none());
+        assert_eq!(r.save.tiling.focused(), Some(Tool::IceDb));
+    }
+
+    #[test]
+    fn esc_closes_the_launcher_without_the_leader() {
+        let mut r = Rig::new(true);
+        r.key(egui::Key::Escape);
+        r.key(egui::Key::Space);
+        assert!(r.desk.launcher.is_some());
+        r.key(egui::Key::Escape);
+        assert!(r.desk.launcher.is_none());
+        assert!(!r.desk.leader, "closing it isn't the leader");
+    }
+
+    #[test]
+    fn the_wheel_scrolls_the_launcher_and_its_mark_says_where() {
+        let mut r = with_fzf();
+        r.key(egui::Key::Escape);
+        r.key(egui::Key::Space);
+        let n = entries(true, &r.save).len();
+        let painted = |r: &Rig| -> String {
+            r.h.painted()
+                .iter()
+                .filter_map(|s| match s {
+                    egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+                    _ => None,
+                })
+                .collect::<Vec<_>>()
+                .join("|")
+        };
+        assert!(painted(&r).contains(&format!("1/{n}")), "{}", painted(&r));
+        let over = r.h.find("CarrierTerm").unwrap().center();
+        let wheel = vec![
+            egui::Event::PointerMoved(over),
+            egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Line,
+                delta: vec2(0.0, -3.0),
+                modifiers: egui::Modifiers::NONE,
+                phase: egui::TouchPhase::Move,
+            },
+        ];
+        r.send(wheel);
+        r.frame(Vec::new());
+        assert!(
+            r.desk.launcher.as_ref().unwrap().list.top > 0,
+            "the wheel scrolled it"
+        );
+    }
+
+    #[test]
+    fn the_launcher_and_help_sit_on_whole_pixels() {
+        let data = ninsei_core::Data::builtin().unwrap();
+        let mut h = crate::uitest::Harness::new(1366.0, 768.0);
+        crate::uitest::themed(&h.ctx, &data);
+        let mut l = anarchy::Launcher::default();
+        let labels = vec!["one".to_string(), "two".to_string()];
+        h.frame(Vec::new(), |ui| {
+            let look = look(ui);
+            let screen = Rect::from_min_size(egui::Pos2::ZERO, vec2(1366.0, 768.0));
+            anarchy::launcher(ui.ctx(), screen, &mut l, &labels, |_| vec![0, 1], "", &look);
+            let odd = Rect::from_min_size(egui::Pos2::ZERO, vec2(1365.0, 767.0));
+            anarchy::help(ui, odd, &HELP, &look);
+        });
+        h.frame(Vec::new(), |ui| {
+            let look = look(ui);
+            let screen = Rect::from_min_size(egui::Pos2::ZERO, vec2(1366.0, 768.0));
+            anarchy::launcher(ui.ctx(), screen, &mut l, &labels, |_| vec![0, 1], "", &look);
+            let odd = Rect::from_min_size(egui::Pos2::ZERO, vec2(1365.0, 767.0));
+            anarchy::help(ui, odd, &HELP, &look);
+        });
+        // Every box (the frames and their fills) starts on a whole pixel.
+        for (r, fill, stroke) in h.rects() {
+            if r.width() > 300.0
+                && (fill != egui::Color32::TRANSPARENT || stroke != egui::Color32::TRANSPARENT)
+            {
+                assert_eq!(r.min, r.min.round(), "{r:?}");
+            }
+        }
     }
 }

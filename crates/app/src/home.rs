@@ -14,6 +14,7 @@ use ninsei_core::modem::Handshake;
 use std::cell::Cell;
 
 use crate::hubtools;
+use crate::kit::{Fit, fit};
 use crate::theme::Palette;
 
 /// The desktop's colours. Like the Amiga's palette registers: set once a frame from the desktop
@@ -233,6 +234,9 @@ pub struct Home {
     pub(crate) nightcomm: crate::nightcomm_view::NightComm,
     /// Tiger Team Pro's section, picks and its own terminal.
     pub(crate) tigerteam: crate::tigerteam_view::TigerTeam,
+    /// The tools a desktop drew the "too small" notice for instead (tests).
+    #[cfg(test)]
+    pub(crate) notices: Vec<Tool>,
     pub(crate) term_tab: TermTab,
     /// Range highlighted in WarDial.
     pub(crate) range_sel: Option<String>,
@@ -296,6 +300,8 @@ impl Home {
             term_sel: None,
             nightcomm: Default::default(),
             tigerteam: Default::default(),
+            #[cfg(test)]
+            notices: Vec::new(),
             term_tab: TermTab::Phonebook,
             range_sel: None,
             scan: None,
@@ -625,9 +631,81 @@ impl Home {
         out
     }
 
-    /// Draws a tool's contents (everything but the Shell) into `child`. Desktops call this
-    /// inside whatever frame they give a tool: a window, a tile.
-    pub fn tool_body(
+    #[cfg(test)]
+    /// The text-mode tools: the ones laid out in cells, which the fit test draws at every size
+    /// the tiler gives.
+    pub const TEXT_TOOLS: [Tool; 3] = [Tool::NightComm, Tool::TigerTeam, Tool::System];
+
+    /// What each tool's face on `desktop` needs to be drawn at all: the one place a tool
+    /// says so. Faces that scroll (the GUI ones) need nothing: a small window scrolls them.
+    pub fn fit(tool: Tool, desktop: Desktop) -> Option<fit::Need> {
+        match (tool, desktop) {
+            // Laid out in cells on every desktop: the list's header and a few rows, and
+            // every page's columns.
+            (Tool::NightComm | Tool::TigerTeam, _) => {
+                Some(fit::Need::cells(&[Fit { cols: 56, rows: 12 }]))
+            }
+            // AnarchyOS's System is text mode, in its own grid.
+            (Tool::System, Desktop::Tiling) => Some(crate::system_tui::NEED),
+            _ => None,
+        }
+    }
+
+    /// Draws `tool` in `ui` (a desktop's window or tile, dressed by `hubtools::wb_visuals`)
+    /// unless its face needs more room than `ui` has ([`Home::fit`]); then the one notice in
+    /// its place, with the desktop's `hint`. A tool taller than `ui` scrolls with the desktop's
+    /// `scroller`, or egui's bar in the theme's colours. Returns whether the tool was drawn.
+    #[allow(clippy::too_many_arguments)]
+    pub fn tool_in(
+        &mut self,
+        ui: &mut Ui,
+        tool: Tool,
+        data: &Data,
+        save: &Save,
+        out: &mut Vec<WbOut>,
+        hint: Option<&str>,
+        scroller: Option<&Scroller>,
+        salt: impl std::hash::Hash + std::fmt::Debug,
+    ) -> bool {
+        // The room the face gets: the scroller's view (in from its pads, beside its bar), or the
+        // whole rect less egui's bar when the face scrolls.
+        let (room, bar) = match scroller {
+            Some(s) => (
+                crate::kit::scrollbar::view_rect(ui.max_rect(), s.bar_w, s.pad),
+                0.0,
+            ),
+            None => (ui.max_rect(), scroll_bar()),
+        };
+        let desktop = save.firmware_def(data).desktop;
+        let need = Self::fit(tool, desktop);
+        if let Some(need) = need
+            && let (have, false) = fit::check(ui, room, need, bar)
+        {
+            #[cfg(test)]
+            self.notices.push(tool);
+            fit::notice(
+                ui,
+                room,
+                tool.volume(),
+                need.grids,
+                have,
+                hint,
+                (backdrop(), ink(), muted()),
+            );
+            return false;
+        }
+        match scroller {
+            Some(s) => (s.show)(ui, Id::new(salt), &mut |ui| {
+                self.tool_body(ui, tool, data, save, out)
+            }),
+            None => scrolled(ui, salt, |ui| self.tool_body(ui, tool, data, save, out)),
+        }
+        true
+    }
+
+    /// Draws a tool's contents (everything but the Shell) into `child`. Only through
+    /// [`Home::tool_in`], which knows the room is enough.
+    fn tool_body(
         &mut self,
         child: &mut Ui,
         tool: Tool,
@@ -825,6 +903,12 @@ impl Home {
         }
     }
 
+    /// Whether the Shell's output shows a line containing `needle` (tests).
+    #[cfg(test)]
+    pub(crate) fn shell_has(&self, needle: &str) -> bool {
+        self.shell_lines.iter().any(|l| l.contains(needle))
+    }
+
     /// What's typed in the Shell's command line.
     #[cfg(test)]
     pub fn shell_text(&self) -> String {
@@ -912,7 +996,31 @@ impl Home {
     }
 }
 
+/// The "too small" hint on a desktop of windows (Liza, Desktop): a window dragged low is cut
+/// short by the screen's bottom edge, so dragging it higher gives it room, unless its top is
+/// already as `highest` as it goes.
+pub(crate) fn drag_hint(top: f32, highest: f32) -> Option<&'static str> {
+    (top > highest + 0.5).then_some("Drag the window higher for more room.")
+}
+
 /// A dim line for an empty tile or slot.
+/// The room `scrolled`'s bar takes beside a face that scrolls.
+pub(crate) fn scroll_bar() -> f32 {
+    crate::theme::visible_scroll().allocated_width()
+}
+
+/// A desktop's own scroll bar for a tool taller than its window: the bar's width and the view's
+/// pads (so the fit check measures the room the face really gets,
+/// `kit::scrollbar::view_rect`), and the view that scrolls it (given an id and the body).
+pub(crate) struct Scroller<'a> {
+    pub bar_w: f32,
+    pub pad: crate::kit::scrollbar::Pad,
+    pub show: &'a ScrollView<'a>,
+}
+
+/// Draws a body (the last argument) in a view that scrolls, keyed by the id.
+pub(crate) type ScrollView<'a> = dyn Fn(&mut Ui, Id, &mut dyn FnMut(&mut Ui)) + 'a;
+
 /// A tool's body in a window or tile that may be shorter than it: it scrolls, with a solid bar
 /// drawn in the text colour so every theme shows it.
 pub(crate) fn scrolled(
@@ -965,12 +1073,27 @@ pub(crate) mod tests {
         tool: Tool,
         events: Vec<egui::Event>,
     ) -> Vec<WbOut> {
+        let rect = Rect::from_min_size(Pos2::ZERO, vec2(880.0, 500.0));
+        frame_at(h, home, data, save, tool, rect, events)
+    }
+
+    /// One frame of `tool` drawn in `rect` through the desktops' one door (so never at a size
+    /// its face can't take: a test that tries fails here), with these events. Returns what
+    /// it sent.
+    pub(crate) fn frame_at(
+        h: &mut Harness,
+        home: &mut Home,
+        data: &Data,
+        save: &Save,
+        tool: Tool,
+        rect: Rect,
+        events: Vec<egui::Event>,
+    ) -> Vec<WbOut> {
         let mut out = Vec::new();
         h.frame(events, |ui| {
-            let mut child = ui.new_child(
-                UiBuilder::new().max_rect(Rect::from_min_size(Pos2::ZERO, vec2(880.0, 500.0))),
-            );
-            home.tool_body(&mut child, tool, data, save, &mut out);
+            let mut child = ui.new_child(UiBuilder::new().max_rect(rect));
+            let drawn = home.tool_in(&mut child, tool, data, save, &mut out, None, None, "test");
+            assert!(drawn, "{tool:?} drawn at {rect:?}, which it can't take");
         });
         out
     }
@@ -991,6 +1114,437 @@ pub(crate) mod tests {
         let mut out = frame(h, home, data, save, tool, crate::uitest::click(at));
         out.extend(frame(h, home, data, save, tool, Vec::new()));
         out
+    }
+
+    impl Home {
+        /// How many pages `tool` has, for a test to draw each.
+        fn pages(tool: Tool) -> usize {
+            match tool {
+                Tool::NightComm => ninsei_core::nightcomm::Tab::ALL.len(),
+                Tool::TigerTeam => ninsei_core::tigerteam::Page::ALL.len(),
+                Tool::System => ninsei_core::system::Panel::ALL.len(),
+                _ => 1,
+            }
+        }
+
+        /// Turns `tool` to its `page`th page.
+        fn turn_to(&mut self, tool: Tool, page: usize) {
+            match tool {
+                Tool::NightComm => self.nightcomm.tab = ninsei_core::nightcomm::Tab::ALL[page],
+                Tool::TigerTeam => self.tigerteam.page = ninsei_core::tigerteam::Page::ALL[page],
+                Tool::System => self.system.panel = ninsei_core::system::Panel::ALL[page],
+                _ => {}
+            }
+        }
+    }
+
+    /// The rects a tile on AnarchyOS at 1280x800 gives a tool to draw in: alone, as the
+    /// master and the stack beside one to three others, with the master at its default,
+    /// narrowest and widest share. Each with what it is, for a failing test to say.
+    fn tile_sizes() -> Vec<(String, Rect)> {
+        use ninsei_core::desktop::Tiling;
+        let screen = Rect::from_min_size(Pos2::ZERO, vec2(1280.0, 800.0));
+        let area = crate::tiling::work_area(screen);
+        let others = [Tool::Terminal, Tool::Qwk, Tool::IceDb];
+        let mut out: Vec<(String, Rect)> = Vec::new();
+        for n in 0..=others.len() {
+            for steps in [0, -100, 100] {
+                let mut t = Tiling::default();
+                for o in &others[..n] {
+                    t.open(*o);
+                }
+                t.resize_master(steps);
+                let tiles = t.layout(
+                    [area.left(), area.top(), area.width(), area.height()],
+                    crate::kit::anarchy::size::GAP,
+                );
+                for (i, (_, [x, y, w, h])) in tiles.into_iter().enumerate() {
+                    let r = crate::kit::anarchy::tile_content(Rect::from_min_size(
+                        pos2(x, y),
+                        vec2(w, h),
+                    ));
+                    if !out.iter().any(|(_, o)| o.size() == r.size()) {
+                        let what = format!(
+                            "tile {i} of {} with the master at {}%",
+                            n + 1,
+                            t.shape().master
+                        );
+                        out.push((what, r));
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// A deck on AnarchyOS that owns every tool, so each draws its text-mode face.
+    fn anarchy_deck(data: &Data) -> Save {
+        let mut s = deck(data);
+        s.tools = ninsei_core::data::TOOLS
+            .iter()
+            .map(|t| t.to_string())
+            .collect();
+        s.decks = vec!["onosendai".into()];
+        s.deck = "onosendai".into();
+        s.ensure_hardware(data);
+        s
+    }
+
+    /// Draws `tool`, turned to its `page`th page, through the desktops' one door at `rect` on
+    /// a themed screen, a few frames so it settles. Returns the cells it had and whether the
+    /// tool (not the notice) was drawn.
+    fn draw_at(
+        data: &Data,
+        save: &Save,
+        tool: Tool,
+        rect: Rect,
+        page: usize,
+    ) -> ((usize, usize), bool, Harness) {
+        let mut h = Harness::new(1280.0, 800.0);
+        crate::uitest::themed(&h.ctx, data);
+        let mut home = Home::new(Vec::new());
+        home.turn_to(tool, page);
+        let (mut have, mut drawn) = ((0, 0), false);
+        for _ in 0..3 {
+            home.notices.clear();
+            h.frame(Vec::new(), |ui| {
+                let mut child = ui.new_child(UiBuilder::new().max_rect(rect));
+                have = Home::fit(tool, Desktop::Tiling).map_or((0, 0), |need| {
+                    fit::check(&child, rect, need, scroll_bar()).0
+                });
+                drawn = home.tool_in(
+                    &mut child,
+                    tool,
+                    data,
+                    save,
+                    &mut Vec::new(),
+                    None,
+                    None,
+                    "t",
+                );
+            });
+        }
+        assert_eq!(
+            home.notices.is_empty(),
+            drawn,
+            "a notice exactly when not drawn"
+        );
+        (have, drawn, h)
+    }
+
+    #[test]
+    fn carrierterm_in_a_narrow_tile_shows_whole_rows_wherever_it_scrolls() {
+        let data = Data::builtin().unwrap();
+        let mut save = anarchy_deck(&data);
+        save.add_starters(&data);
+        let mut rng = ninsei_core::rng::Rng::new(7);
+        while save.phonebook.len() < 14 {
+            save.add_number(&data, &mut rng, 1)
+                .expect("a company to list");
+        }
+        let mut h = Harness::new(1280.0, 800.0);
+        crate::uitest::themed(&h.ctx, &data);
+        let mut home = Home::new(Vec::new());
+        // An AnarchyOS stack tile: the card goes under the list.
+        let rect = Rect::from_min_size(pos2(10.0, 10.0), vec2(508.0, 700.0));
+        let run = |h: &mut Harness, home: &mut Home, events| {
+            frame_at(h, home, &data, &save, Tool::Terminal, rect, events);
+            frame_at(h, home, &data, &save, Tool::Terminal, rect, Vec::new());
+        };
+        run(&mut h, &mut home, Vec::new());
+        let total = format!("{} of {} numbers", 15, 15);
+        let check = |h: &Harness, what: &str| {
+            let head = h.find("NUMBER").expect("the list's header").bottom();
+            let footer = h
+                .find(&total)
+                .unwrap_or_else(|| panic!("{what}: {:?}", h.texts()))
+                .top();
+            let rows: Vec<Rect> = h
+                .all("555-")
+                .into_iter()
+                .filter(|r| r.width() > 400.0)
+                .collect();
+            assert!(rows.len() >= 5, "{what}: a list: {:?}", h.texts());
+            assert!(rows.len() < 15, "{what}: a window on it");
+            for r in rows {
+                assert!(
+                    r.top() >= head && r.bottom() <= footer - 6.0,
+                    "{what}: a row cut by the box: {r:?}, box {head}..{}",
+                    footer - 6.0
+                );
+            }
+        };
+        check(&h, "at the top");
+        for _ in 0..9 {
+            run(&mut h, &mut home, crate::uitest::key(Key::ArrowDown));
+        }
+        check(&h, "arrowed down");
+        assert!(
+            h.find(&format!("{total}  ·  10/15")).is_some(),
+            "the footer says where: {:?}",
+            h.texts()
+        );
+        let wheel = vec![
+            egui::Event::PointerMoved(pos2(200.0, 150.0)),
+            egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: vec2(0.0, 33.0),
+                modifiers: egui::Modifiers::NONE,
+                phase: egui::TouchPhase::Move,
+            },
+        ];
+        let before = home.directory.list.top;
+        assert!(before > 0, "scrolled to follow the pick");
+        // The wheel over the card under the list is the card's, not the list's.
+        let card = h.find("DIRECTORY CARD").expect("the card").center();
+        let over_card = vec![
+            egui::Event::PointerMoved(card),
+            egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Line,
+                delta: vec2(0.0, 3.0),
+                modifiers: egui::Modifiers::NONE,
+                phase: egui::TouchPhase::Move,
+            },
+        ];
+        run(&mut h, &mut home, over_card);
+        assert_eq!(
+            home.directory.list.top, before,
+            "the card's wheel left the list alone"
+        );
+        run(&mut h, &mut home, wheel);
+        check(&h, "wheeled up");
+        assert!(home.directory.list.top < before, "the wheel scrolled it up");
+    }
+
+    #[test]
+    fn a_search_brings_carrierterms_pick_into_view() {
+        let data = Data::builtin().unwrap();
+        let mut save = anarchy_deck(&data);
+        save.add_starters(&data);
+        let mut rng = ninsei_core::rng::Rng::new(7);
+        while save.phonebook.len() < 14 {
+            save.add_number(&data, &mut rng, 1)
+                .expect("a company to list");
+        }
+        let mut h = Harness::new(1280.0, 800.0);
+        crate::uitest::themed(&h.ctx, &data);
+        let mut home = Home::new(Vec::new());
+        let rect = Rect::from_min_size(pos2(10.0, 10.0), vec2(508.0, 700.0));
+        let run = |h: &mut Harness, home: &mut Home, events| {
+            frame_at(h, home, &data, &save, Tool::Terminal, rect, events);
+            frame_at(h, home, &data, &save, Tool::Terminal, rect, Vec::new());
+        };
+        run(&mut h, &mut home, Vec::new());
+        for _ in 0..11 {
+            run(&mut h, &mut home, crate::uitest::key(Key::ArrowDown));
+        }
+        assert!(home.directory.list.top > 0, "scrolled down");
+        // A search that drops the pick but keeps more numbers than the box shows: the pick
+        // goes back to the first, and the window must go with it.
+        let picked = home.directory.sel;
+        let query = ('a'..='z')
+            .map(|c| c.to_string())
+            .find(|q| {
+                let shown = ninsei_core::directory::search(&save, &data, q, home.directory.filter);
+                shown.len() >= 8 && !shown.iter().any(|l| Some(l.key) == picked)
+            })
+            .expect("a letter most names have and the pick hasn't");
+        run(&mut h, &mut home, text(&query));
+        let shown = ninsei_core::directory::search(
+            &save,
+            &data,
+            &home.directory.query,
+            home.directory.filter,
+        );
+        let at = shown
+            .iter()
+            .position(|l| Some(l.key) == home.directory.sel)
+            .expect("a pick");
+        assert!(
+            home.directory.list.shows(at),
+            "the pick ({at}) is in the window from {}",
+            home.directory.list.top
+        );
+    }
+
+    #[test]
+    fn a_list_box_takes_the_wheel_over_its_rows_and_leaves_none_for_the_tool() {
+        let data = Data::builtin().unwrap();
+        let mut h = Harness::new(600.0, 400.0);
+        crate::uitest::themed(&h.ctx, &data);
+        let mut list = crate::kit::List::default();
+        // One frame; returns the wheel left over once the list has drawn.
+        let frame = |h: &mut Harness, list: &mut crate::kit::List, events, wheel_on| {
+            let mut left = 0.0;
+            h.frame(events, |ui| {
+                hubtools::list_box(ui, 200.0, 40, list, None, wheel_on, |ui, i| {
+                    ui.label(format!("row {i}"));
+                });
+                left = ui.input(|i| i.smooth_scroll_delta.y);
+            });
+            left
+        };
+        let over = || vec![egui::Event::PointerMoved(pos2(100.0, 50.0))];
+        frame(&mut h, &mut list, over(), true);
+        let wheel = vec![egui::Event::MouseWheel {
+            unit: egui::MouseWheelUnit::Line,
+            delta: vec2(0.0, -3.0),
+            modifiers: egui::Modifiers::NONE,
+            phase: egui::TouchPhase::Move,
+        }];
+        let mut left = frame(&mut h, &mut list, wheel.clone(), true);
+        for _ in 0..10 {
+            assert_eq!(left, 0.0, "the list left some wheel for the tool");
+            left = frame(&mut h, &mut list, Vec::new(), true);
+        }
+        assert!(list.top > 0, "and scrolled itself");
+        // A read-only list (the dialing sidebar) leaves the wheel to the tool.
+        let mut still = crate::kit::List::default();
+        frame(&mut h, &mut still, over(), false);
+        let left = frame(&mut h, &mut still, wheel, false);
+        assert!(left != 0.0, "the wheel is the tool's");
+        assert_eq!(still.top, 0);
+    }
+
+    /// Widgets `rect` would cut: anything outside it for a face laid out to fill it, and
+    /// anything past its sides for a face whose height scrolls.
+    fn cut(h: &Harness, rect: Rect, need: fit::Need) -> Vec<(String, Rect)> {
+        h.outside(rect)
+            .into_iter()
+            .filter(|(_, r)| {
+                !need.scrolls || r.left() < rect.left() - 0.5 || r.right() > rect.right() + 0.5
+            })
+            .collect()
+    }
+
+    #[test]
+    fn a_list_box_made_n_rows_tall_shows_n_rows() {
+        for pitch in [21.3_f32, 22.0, 19.7, 23.1, 20.9] {
+            let gap = 4.0;
+            for n in 1..40 {
+                let height = n as f32 * pitch - gap;
+                assert_eq!(
+                    hubtools::rows_in(height, pitch, gap),
+                    n,
+                    "{n} rows of {pitch}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_window_is_told_to_go_higher_only_when_it_can() {
+        assert!(drag_hint(300.0, 20.0).is_some());
+        assert_eq!(drag_hint(20.0, 20.0), None, "already at the top");
+    }
+
+    #[test]
+    fn every_text_tool_fits_its_tiles_or_says_so() {
+        let data = Data::builtin().unwrap();
+        let save = anarchy_deck(&data);
+        let sizes = tile_sizes();
+        assert!(sizes.len() > 8, "a spread of tiles: {sizes:?}");
+        for tool in Home::TEXT_TOOLS {
+            let need = Home::fit(tool, Desktop::Tiling).expect("a text face declares its need");
+            for page in 0..Home::pages(tool) {
+                for (what, rect) in &sizes {
+                    let (have, drawn, h) = draw_at(&data, &save, tool, *rect, page);
+                    assert_eq!(
+                        drawn,
+                        fit::fits(need.grids, have),
+                        "{tool:?} page {page} as {what}: {have:?} cells, needs {:?}",
+                        need.grids
+                    );
+                    if drawn {
+                        assert!(
+                            cut(&h, *rect, need).is_empty(),
+                            "{tool:?} page {page} as {what} is cut: {:?}",
+                            cut(&h, *rect, need)
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_notice_shows_exactly_below_each_tools_minimum() {
+        let data = Data::builtin().unwrap();
+        let save = anarchy_deck(&data);
+        let mut h = Harness::new(100.0, 100.0);
+        crate::uitest::themed(&h.ctx, &data);
+        for tool in Home::TEXT_TOOLS {
+            let need = Home::fit(tool, Desktop::Tiling).unwrap();
+            // The smallest rect holding `cols` x `rows` of the face's own cells, counted the
+            // way the desktops count them (beside the scroll bar, for a face that scrolls).
+            let mut at = |cols: usize, rows: usize| {
+                let mut size = vec2(0.0, 2000.0);
+                h.frame(Vec::new(), |ui| {
+                    let have = |s| {
+                        fit::check(
+                            ui,
+                            Rect::from_min_size(pos2(10.0, 10.0), s),
+                            need,
+                            scroll_bar(),
+                        )
+                        .0
+                    };
+                    while have(size).0 < cols {
+                        size.x += 0.25;
+                    }
+                    size.y = 0.0;
+                    while have(size).1 < rows {
+                        size.y += 0.25;
+                    }
+                });
+                Rect::from_min_size(pos2(10.0, 10.0), size)
+            };
+            for page in 0..Home::pages(tool) {
+                for grid in need.grids {
+                    let exact = at(grid.cols, grid.rows);
+                    let (have, drawn, h) = draw_at(&data, &save, tool, exact, page);
+                    assert_eq!(have, (grid.cols, grid.rows));
+                    assert!(drawn, "{tool:?} page {page} at exactly {grid:?} is drawn");
+                    assert!(
+                        cut(&h, exact, need).is_empty(),
+                        "{tool:?} page {page} at exactly {grid:?} is cut: {:?}",
+                        cut(&h, exact, need)
+                    );
+                    // A cell short either way: the notice, unless another grid it declared fits.
+                    for short in [(grid.cols - 1, grid.rows), (grid.cols, grid.rows - 1)] {
+                        let drawn = draw_at(&data, &save, tool, at(short.0, short.1), page).1;
+                        assert_eq!(drawn, fit::fits(need.grids, short), "{tool:?} at {short:?}");
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn gui_faces_declare_nothing_and_scroll() {
+        for tool in Tool::ALL {
+            for desktop in [Desktop::Liza, Desktop::Workbench] {
+                let text = matches!(tool, Tool::NightComm | Tool::TigerTeam);
+                assert_eq!(
+                    Home::fit(tool, desktop).is_some(),
+                    text,
+                    "{tool:?} on {desktop:?}"
+                );
+            }
+        }
+        for tool in [
+            Tool::Terminal,
+            Tool::Rig,
+            Tool::HexEd,
+            Tool::Qwk,
+            Tool::IceDb,
+            Tool::Guide,
+        ] {
+            assert!(
+                Home::fit(tool, Desktop::Tiling).is_none(),
+                "{tool:?} scrolls in a tile"
+            );
+        }
     }
 
     #[test]

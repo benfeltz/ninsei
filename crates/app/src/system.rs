@@ -15,12 +15,11 @@ use crate::theme::Palette;
 mod tests;
 
 /// Liza's Control Panel list, after System 6's: a framed list of icons with their names under
-/// them, an (inactive) scroll bar down its right side, and the system's version beneath.
+/// them, the scroll bar down its right side (inactive while every panel fits), and the system's
+/// version beneath.
 mod cp {
     /// The list's width, scroll bar included.
     pub const LIST_W: f32 = 150.0;
-    /// The scroll bar's width, and the size of its arrow boxes.
-    pub const SCROLL_W: f32 = 16.0;
     /// Icons draw at twice their pixels: 32x32, the Control Panel's size.
     pub const ICON_SCALE: f32 = 2.0;
     /// One panel's cell: icon, gap, name, gap.
@@ -78,9 +77,9 @@ fn panel_body(
 ) {
     let panel = st.panel;
     ui.vertical(|ui| match panel {
-        Panel::Overview => overview(ui, data, save, out),
-        Panel::Monitor => monitor(ui, data, save, out),
-        Panel::Theme => theme(ui, data, save, out),
+        Panel::Overview => overview(ui, data, save, look, out),
+        Panel::Monitor => monitor(ui, data, save, look, out),
+        Panel::Theme => theme(ui, data, save, look, out),
         Panel::Disk => disk_panel(ui, data, save, look, st, out),
     });
 }
@@ -105,102 +104,65 @@ fn control_panel(ui: &mut Ui, data: &Data, save: &Save, st: &mut SystemUi, out: 
 }
 
 /// The Control Panel's list: each panel's icon over its name, the open one inverted, icon and
-/// name together. Click one to open it; then ↑↓ walk the list.
+/// name together, in the kit's list box. Click one to open it; then ↑↓ walk the list.
 fn panel_list(ui: &mut Ui, data: &Data, st: &mut SystemUi, height: f32) {
-    use egui::{Rect, Sense, Stroke, pos2, vec2};
-    let id = egui::Id::new("system-panel-list");
-    let (rect, _) = ui.allocate_exact_size(vec2(cp::LIST_W, height), Sense::hover());
-    // The list itself takes focus (a click anywhere in it), so the arrows can walk it.
-    let list = ui.interact(rect, id, Sense::click());
-    if list.clicked() {
-        list.request_focus();
-    }
-    if list.has_focus() {
-        ui.memory_mut(|m| {
-            m.set_focus_lock_filter(
-                id,
-                egui::EventFilter {
-                    vertical_arrows: true,
-                    ..Default::default()
-                },
-            )
-        });
-        let (up, down) = ui.input(|i| {
-            (
-                i.key_pressed(egui::Key::ArrowUp),
-                i.key_pressed(egui::Key::ArrowDown),
-            )
-        });
-        let at = Panel::ALL.iter().position(|&p| p == st.panel).unwrap_or(0);
-        if up && at > 0 {
-            st.panel = Panel::ALL[at - 1];
-        }
-        if down && at + 1 < Panel::ALL.len() {
-            st.panel = Panel::ALL[at + 1];
-        }
-    }
-
-    let (paper, ink) = (backdrop(), ink());
-    let line = Stroke::new(1.0, ink);
-    let p = ui.painter_at(rect);
-    p.rect_filled(rect, 0.0, paper);
-    p.rect_stroke(rect, 0.0, line, egui::StrokeKind::Inside);
-    // The scroll bar: inactive, since every panel fits, so arrows and an empty track.
-    let bar = Rect::from_min_max(pos2(rect.right() - cp::SCROLL_W, rect.top()), rect.max);
-    p.vline(bar.left(), bar.y_range(), line);
-    let up = Rect::from_min_size(bar.min, vec2(cp::SCROLL_W, cp::SCROLL_W));
-    let down = Rect::from_min_max(pos2(bar.left(), bar.bottom() - cp::SCROLL_W), bar.max);
-    p.hline(bar.x_range(), up.bottom(), line);
-    p.hline(bar.x_range(), down.top(), line);
-    scroll_arrow(&p, up, -1.0, line);
-    scroll_arrow(&p, down, 1.0, line);
-
-    let cells_w = rect.width() - cp::SCROLL_W;
-    for (i, &panel) in Panel::ALL.iter().enumerate() {
-        let on = st.panel == panel;
-        let cell = Rect::from_min_size(
-            rect.min + vec2(0.0, cp::TOP + i as f32 * cp::CELL_H),
-            vec2(cells_w, cp::CELL_H),
-        );
-        let r = ui.interact(cell, id.with(i), Sense::click());
-        r.widget_info(|| {
-            egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, panel.label())
-        });
-        if r.clicked() {
-            st.panel = panel;
-            ui.memory_mut(|m| m.request_focus(id));
-        }
-        let (fg, bg) = if on { (paper, ink) } else { (ink, paper) };
-        // The icon, pixel-aligned, centred at the top of the cell.
-        let px = ninsei_core::system::panel_icon(data, panel);
-        let side = ninsei_core::system::PANEL_ICON as f32 * cp::ICON_SCALE;
-        let art = pos2((cell.center().x - side / 2.0).round(), cell.top().round());
-        for (y, row) in px.iter().enumerate() {
-            for (x, ch) in row.chars().enumerate() {
-                let col = match ch {
-                    'k' => fg,
-                    'w' => bg,
-                    _ => continue,
-                };
-                let at = art + vec2(x as f32, y as f32) * cp::ICON_SCALE;
-                p.rect_filled(
-                    Rect::from_min_size(at, egui::Vec2::splat(cp::ICON_SCALE)),
-                    0.0,
-                    col,
-                );
+    use egui::{Rect, pos2, vec2};
+    let look = crate::kit::liza::Look {
+        gray: data.pattern("p50"),
+        ..mac()
+    };
+    let at = Panel::ALL.iter().position(|&p| p == st.panel).unwrap_or(0);
+    let picked = crate::kit::liza::list_box(
+        ui,
+        vec2(cp::LIST_W, height),
+        egui::Id::new("system-panel-list"),
+        Panel::ALL.len(),
+        cp::CELL_H,
+        cp::TOP,
+        at,
+        &look,
+        |p, cell, i, on| {
+            let panel = Panel::ALL[i];
+            let (fg, bg) = if on {
+                (look.paper, look.ink)
+            } else {
+                (look.ink, look.paper)
+            };
+            // The icon, pixel-aligned, centred at the top of the cell.
+            let px = ninsei_core::system::panel_icon(data, panel);
+            let side = ninsei_core::system::PANEL_ICON as f32 * cp::ICON_SCALE;
+            let art = pos2((cell.center().x - side / 2.0).round(), cell.top().round());
+            for (y, row) in px.iter().enumerate() {
+                for (x, ch) in row.chars().enumerate() {
+                    let col = match ch {
+                        'k' => fg,
+                        'w' => bg,
+                        _ => continue,
+                    };
+                    let at = art + vec2(x as f32, y as f32) * cp::ICON_SCALE;
+                    p.rect_filled(
+                        Rect::from_min_size(at, egui::Vec2::splat(cp::ICON_SCALE)),
+                        0.0,
+                        col,
+                    );
+                }
             }
-        }
-        // The name under it, on a solid backing (inverse when open).
-        let galley = p.layout_no_wrap(panel.label().to_string(), font(), fg);
-        let name = Rect::from_center_size(
-            pos2(
-                cell.center().x,
-                art.y + side + 4.0 + galley.size().y / 2.0 + 1.0,
-            ),
-            galley.size() + vec2(6.0, 2.0),
-        );
-        p.rect_filled(name, 0.0, bg);
-        p.galley(name.min + vec2(3.0, 1.0), galley, fg);
+            // The name under it, on a solid backing (inverse when open).
+            let galley = p.layout_no_wrap(panel.label().to_string(), font(), fg);
+            let name = Rect::from_center_size(
+                pos2(
+                    cell.center().x,
+                    art.y + side + 4.0 + galley.size().y / 2.0 + 1.0,
+                ),
+                galley.size() + vec2(6.0, 2.0),
+            );
+            p.rect_filled(name, 0.0, bg);
+            p.galley(name.min + vec2(3.0, 1.0), galley, fg);
+            panel.label().to_string()
+        },
+    );
+    if let Some(i) = picked {
+        st.panel = Panel::ALL[i];
     }
 }
 
@@ -220,27 +182,14 @@ fn software_grid(ui: &mut Ui, software: &[(String, String)]) {
         });
 }
 
-/// A scroll bar's arrow in its box, outlined: pointing up (`dir` -1) or down (1).
-fn scroll_arrow(p: &egui::Painter, b: egui::Rect, dir: f32, line: egui::Stroke) {
-    use egui::pos2;
-    let c = b.center();
-    let (tip, base) = (c.y + dir * 4.0, c.y - dir * 3.0);
-    let pts = vec![
-        pos2(c.x, tip),
-        pos2(c.x + 5.0, base),
-        pos2(c.x - 5.0, base),
-        pos2(c.x, tip),
-    ];
-    p.add(egui::Shape::line(pts, line));
-}
-
 /// Desktop: Workbench 1.3's Preferences. A row of chunky gadgets across the top picks the
 /// panel; the open one fills the window under it. Settings take at once, so there's no
 /// Use/Cancel pair: every gadget is a live switch.
 fn preferences(ui: &mut Ui, data: &Data, save: &Save, st: &mut SystemUi, out: &mut Vec<WbOut>) {
+    let look = crate::workbench::look();
     ui.horizontal(|ui| {
         for p in Panel::ALL {
-            if gadget(ui, p.label(), st.panel == p).clicked() {
+            if crate::kit::workbench::toggle_gadget(ui, p.label(), st.panel == p, &look).clicked() {
                 st.panel = p;
             }
             ui.add_space(4.0);
@@ -254,33 +203,6 @@ fn preferences(ui: &mut Ui, data: &Data, save: &Save, st: &mut SystemUi, out: &m
     panel_body(ui, data, save, Look::Amiga, st, out);
 }
 
-/// A Workbench 1.3 gadget: a box with a light top-left edge and a dark bottom-right one,
-/// pressed in (edges swapped, filled with the accent) when it's the open panel.
-fn gadget(ui: &mut Ui, label: &str, on: bool) -> egui::Response {
-    let font = egui::FontId::monospace(13.0);
-    let galley = ui.painter().layout_no_wrap(label.to_string(), font, ink());
-    let size = galley.size() + egui::vec2(18.0, 10.0);
-    let (r, resp) = ui.allocate_exact_size(size, egui::Sense::click());
-    resp.widget_info(|| {
-        egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, on, label)
-    });
-    let p = ui.painter();
-    p.rect_filled(r, 0.0, if on { accent() } else { fill() });
-    let (lt, rb) = if on {
-        (shadow(), ink())
-    } else {
-        (ink(), shadow())
-    };
-    let s = |c| egui::Stroke::new(2.0, c);
-    p.line_segment([r.left_bottom(), r.left_top()], s(lt));
-    p.line_segment([r.left_top(), r.right_top()], s(lt));
-    p.line_segment([r.right_top(), r.right_bottom()], s(rb));
-    p.line_segment([r.right_bottom(), r.left_bottom()], s(rb));
-    let text = if on { shadow() } else { ink() };
-    p.galley_with_override_text_color(r.center() - galley.size() / 2.0, galley, text);
-    resp
-}
-
 fn head(ui: &mut Ui, t: &str) {
     ui.label(RichText::new(t).color(ink()).strong().size(16.0));
     ui.add_space(4.0);
@@ -291,7 +213,7 @@ fn dim(t: impl Into<String>) -> RichText {
 }
 
 /// About This Deck: the OS and deck, the specs, the software you own, and the switches.
-fn overview(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
+fn overview(ui: &mut Ui, data: &Data, save: &Save, look: Look, out: &mut Vec<WbOut>) {
     let o = system::overview(save, data);
     head(ui, &o.deck);
     ui.label(RichText::new(format!("{}  ·  {}", o.os, o.firmware)).color(ink()));
@@ -301,8 +223,7 @@ fn overview(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
     if save.decks.len() > 1 {
         for id in &save.decks {
             if let Some(d) = data.hardware.deck(id)
-                && ui
-                    .radio(save.deck == d.id, d.title())
+                && radio(ui, look, save.deck == d.id, &d.title())
                     .on_hover_text(&d.blurb)
                     .clicked()
             {
@@ -316,7 +237,7 @@ fn overview(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
         ui.horizontal_wrapped(|ui| {
             ui.label(dim("Firmware"));
             for f in &deck.firmware {
-                if ui.radio(fw.id == f.id, &f.label).clicked() {
+                if radio(ui, look, fw.id == f.id, &f.label).clicked() {
                     out.push(WbOut::Firmware(f.id.clone()));
                 }
             }
@@ -352,12 +273,11 @@ fn overview(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
 
     ui.label(RichText::new("Sound and screen").color(ink()).strong());
     let mut sound = save.sound;
-    if ui.checkbox(&mut sound, "Sound").changed() {
+    if check(ui, look, &mut sound, "Sound").changed() {
         out.push(WbOut::Sound);
     }
     let mut intros = save.intros;
-    if ui
-        .checkbox(&mut intros, "Cracktros")
+    if check(ui, look, &mut intros, "Cracktros")
         .on_hover_text("Programs from the boards open with their crew's intro.")
         .changed()
     {
@@ -366,7 +286,7 @@ fn overview(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
     ui.horizontal(|ui| {
         ui.label(RichText::new("Damage glitches").color(ink()));
         for g in ninsei_core::glitch::Glitches::ALL {
-            if ui.radio(save.glitches == g, g.label()).clicked() {
+            if radio(ui, look, save.glitches == g, g.label()).clicked() {
                 out.push(WbOut::Glitches(g));
             }
         }
@@ -374,7 +294,7 @@ fn overview(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
 }
 
 /// The monitors you own, the one plugged in, and the CRT.
-fn monitor(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
+fn monitor(ui: &mut Ui, data: &Data, save: &Save, look: Look, out: &mut Vec<WbOut>) {
     let m = save.monitor_def(data);
     head(ui, "Monitor");
     for id in &save.monitors {
@@ -382,8 +302,7 @@ fn monitor(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
             continue;
         };
         ui.horizontal(|ui| {
-            if ui
-                .radio(save.monitor == m.id, m.title())
+            if radio(ui, look, save.monitor == m.id, &m.title())
                 .on_hover_text(&m.blurb)
                 .clicked()
             {
@@ -396,7 +315,7 @@ fn monitor(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
     ui.label(dim(&m.blurb));
     ui.add_space(6.0);
     let mut crt = save.crt;
-    if ui.checkbox(&mut crt, "CRT effects").changed() {
+    if check(ui, look, &mut crt, "CRT effects").changed() {
         out.push(WbOut::Crt);
     }
     if let Some(t) = m.locked_theme(data) {
@@ -406,15 +325,53 @@ fn monitor(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
     }
 }
 
+/// Liza's controls in her two colours.
+fn mac() -> crate::kit::liza::Look<'static> {
+    crate::kit::liza::Look {
+        ink: ink(),
+        paper: backdrop(),
+        font: font(),
+        stripes: None,
+        gray: None,
+    }
+}
+
+/// A check box: the Mac's on Liza, Workbench's on Desktop.
+fn check(ui: &mut Ui, look: Look, on: &mut bool, label: &str) -> egui::Response {
+    match look {
+        Look::Mac => crate::kit::liza::check_box(ui, on, label, &mac()),
+        Look::Amiga => crate::kit::workbench::check_box(ui, on, label, &crate::workbench::look()),
+    }
+}
+
+/// A push button: the Mac's on Liza, Workbench's on Desktop. Disabled when `ui` is.
+fn push(ui: &mut Ui, look: Look, label: &str) -> egui::Response {
+    match look {
+        Look::Mac => crate::kit::liza::push_button(ui, label, false, &mac()),
+        Look::Amiga => crate::kit::workbench::push_button(ui, label, &crate::workbench::look()),
+    }
+}
+
+/// A radio button: the Mac's on Liza, a Workbench toggle gadget on Desktop.
+fn radio(ui: &mut Ui, look: Look, on: bool, label: &str) -> egui::Response {
+    match look {
+        Look::Mac => crate::kit::liza::radio(ui, on, label, &mac()),
+        // 1.3's mutually exclusive choice: a row of toggle gadgets, the chosen one pressed in.
+        Look::Amiga => {
+            crate::kit::workbench::toggle_gadget(ui, label, on, &crate::workbench::look())
+        }
+    }
+}
+
 /// Every theme with its six colours; locked to one on a mono monitor.
-fn theme(ui: &mut Ui, data: &Data, save: &Save, out: &mut Vec<WbOut>) {
+fn theme(ui: &mut Ui, data: &Data, save: &Save, look: Look, out: &mut Vec<WbOut>) {
     head(ui, "Theme");
     for t in &data.themes {
         let blocker = save.theme_blocker(data, &t.id);
         ui.horizontal(|ui| {
             let resp = ui
                 .add_enabled_ui(blocker.is_none(), |ui| {
-                    ui.radio(save.phosphor == t.id, format!("{:<18}", t.label))
+                    radio(ui, look, save.phosphor == t.id, &format!("{:<18}", t.label))
                 })
                 .inner;
             if let Some(why) = &blocker {
@@ -498,15 +455,14 @@ fn disk_panel(
         ui.label(RichText::new("Disk").color(ink()).strong().size(16.0));
         ui.add_space(12.0);
         let busy = st.defrag.is_some();
+        let label = if busy {
+            "Defragmenting…"
+        } else {
+            "Defragment"
+        };
         if ui
-            .add_enabled(
-                !busy,
-                egui::Button::new(if busy {
-                    "Defragmenting…"
-                } else {
-                    "Defragment"
-                }),
-            )
+            .add_enabled_ui(!busy, |ui| push(ui, look, label))
+            .inner
             .on_hover_text("Lay every program out end to end")
             .clicked()
         {
@@ -538,7 +494,7 @@ fn disk_panel(
         ui.vertical(|ui| {
             info(ui, data, st, &on, &shelf);
             ui.add_space(6.0);
-            actions(ui, save, data, st, out);
+            actions(ui, save, data, look, st, out);
         });
     });
 }
@@ -843,7 +799,14 @@ fn box_list(ui: &mut Ui, save: &Save, data: &Data, st: &mut SystemUi, shelf: &[P
 }
 
 /// Install, Remove and Scrap for the picked program, with scrap's confirmation.
-fn actions(ui: &mut Ui, save: &Save, data: &Data, st: &mut SystemUi, out: &mut Vec<WbOut>) {
+fn actions(
+    ui: &mut Ui,
+    save: &Save,
+    data: &Data,
+    look: Look,
+    st: &mut SystemUi,
+    out: &mut Vec<WbOut>,
+) {
     let Some(at) = st.picked.clone() else {
         ui.label(dim("Pick a program."));
         return;
@@ -851,10 +814,10 @@ fn actions(ui: &mut Ui, save: &Save, data: &Data, st: &mut SystemUi, out: &mut V
     if let Some(id) = st.confirm_scrap {
         ui.label(RichText::new("Scrap it for good?").color(ink()).strong());
         ui.horizontal(|ui| {
-            if ui.button("Cancel").clicked() {
+            if push(ui, look, "Cancel").clicked() {
                 st.confirm_scrap = None;
             }
-            if ui.button("Scrap").clicked() {
+            if push(ui, look, "Scrap").clicked() {
                 out.push(WbOut::Scrap(id));
                 st.confirm_scrap = None;
                 st.picked = None;
@@ -864,8 +827,7 @@ fn actions(ui: &mut Ui, save: &Save, data: &Data, st: &mut SystemUi, out: &mut V
     }
     ui.horizontal(|ui| {
         if save.is_installed(&at) {
-            if ui
-                .button("◂ Remove")
+            if push(ui, look, "◂ Remove")
                 .on_hover_text("Back into the box (Enter)")
                 .clicked()
             {
@@ -873,7 +835,9 @@ fn actions(ui: &mut Ui, save: &Save, data: &Data, st: &mut SystemUi, out: &mut V
             }
         } else {
             let blocker = save.install_blocker(data, &at);
-            let resp = ui.add_enabled(blocker.is_none(), egui::Button::new("Install ▸"));
+            let resp = ui
+                .add_enabled_ui(blocker.is_none(), |ui| push(ui, look, "Install ▸"))
+                .inner;
             match blocker {
                 Some(why) => {
                     resp.on_disabled_hover_text(why);
@@ -889,8 +853,7 @@ fn actions(ui: &mut Ui, save: &Save, data: &Data, st: &mut SystemUi, out: &mut V
             }
         }
         if let Disk::Stash(id) = at
-            && ui
-                .button("Scrap…")
+            && push(ui, look, "Scrap…")
                 .on_hover_text("Delete it for good (Del)")
                 .clicked()
         {
@@ -933,7 +896,8 @@ fn keys(
     shelf: &[Program],
     out: &mut Vec<WbOut>,
 ) {
-    if !ui.rect_contains_pointer(ui.max_rect()) || ui.ctx().text_edit_focused() {
+    // The keys belong to whatever has the focus (a text field, the panel list), not to Disk.
+    if !ui.rect_contains_pointer(ui.max_rect()) || ui.memory(|m| m.focused().is_some()) {
         return;
     }
     let all: Vec<&Disk> = on.iter().chain(shelf).map(|p| &p.at).collect();

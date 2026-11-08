@@ -11,9 +11,9 @@ use ninsei_core::modem::Handshake;
 use ninsei_core::nightcomm::{self, Block, Sort, Tab};
 use ninsei_core::tuning::{HEAT_COOL, HEAT_MAX};
 
-use crate::cells::Cells;
 use crate::home::{Dialing, WbOut, accent, fill, ink, muted, shadow};
 use crate::hubtools::SCAN_FILL_SECS;
+use crate::kit::{Cells, List};
 
 /// NiGHTCOMM's state between frames: the page, the order and filter, what's picked, and the
 /// TERM page's line and scrollback.
@@ -25,6 +25,10 @@ pub struct NightComm {
     pub sel: Option<u32>,
     /// The range picked on WARDiAL and RANGES.
     pub range: Option<String>,
+    /// Where iNTEL's, WARDiAL's and RANGES's lists are scrolled to.
+    pub(crate) intel_list: List,
+    pub(crate) wardial_list: List,
+    pub(crate) ranges_list: List,
     /// TERM's command line.
     pub term: ninsei_term::LineEditor,
     /// What TERM has printed, oldest first.
@@ -47,6 +51,9 @@ impl Default for NightComm {
             query: String::new(),
             sel: None,
             range: None,
+            intel_list: List::default(),
+            wardial_list: List::default(),
+            ranges_list: List::default(),
             term: ninsei_term::LineEditor::new(TERM_HISTORY),
             term_lines: vec![
                 "NiGHTCOMM 3.1 TERM".to_string(),
@@ -199,9 +206,6 @@ pub fn show(
     let g = Cells::fit(ui, rect, muted(), shadow(), muted());
     let p = ui.painter_at(rect);
     p.rect_filled(rect, 0.0, shadow());
-    if g.cols < 24 || g.rows < 8 {
-        return;
-    }
     // The program's box: page titles in the top border, the key legend in the bottom one.
     g.frame(&p, 0, 0, g.cols, g.rows);
     let mut c = 2;
@@ -225,8 +229,10 @@ pub fn show(
         tool: ninsei_core::hub::Tool::NightComm,
     };
     let mut legend: Vec<String> = Vec::new();
+    // Drawn this frame: iNTEL has no box under its list, so its mark goes on the legend's.
+    let mut mark_on_legend = false;
     match nc.tab {
-        Tab::Intel => intel(&ctx, save, nc, &keys, inner, dial, &mut legend),
+        Tab::Intel => mark_on_legend = intel(&ctx, save, nc, &keys, inner, dial, &mut legend),
         Tab::Wardial => wardial(&ctx, data, save, nc, &keys, scan, inner, out, &mut legend),
         Tab::Ranges => ranges(&ctx, data, save, nc, &keys, inner, &mut legend),
         Tab::Term => term(
@@ -286,6 +292,12 @@ pub fn show(
         }
         c += used + 1;
     }
+    // iNTEL's place in its list, on the legend's border when there's no box under the list:
+    // after the legend, in the room it leaves.
+    if mark_on_legend {
+        nc.intel_list
+            .mark(&g, &p, 1, g.rows - 1, g.cols - 2, c, ink());
+    }
     if keys.text.contains(&'/') && nc.tab == Tab::Intel {
         nc.want_filter = true;
     }
@@ -321,15 +333,12 @@ impl Ctx<'_> {
 
     /// An inverse-video row: the period's selection.
     pub(crate) fn picked(&self, c: usize, r: usize, w: usize) {
-        self.g.fill(self.p, c, r, w, 1, accent());
+        self.g.inverse(self.p, c, r, w, "", shadow(), accent());
     }
 
     /// A sub-box with its title cut into the top border.
     pub(crate) fn boxed(&self, c: usize, r: usize, w: usize, h: usize, title: &str) {
-        self.g.frame(self.p, c, r, w, h);
-        if !title.is_empty() {
-            self.g.title(self.p, c + 2, r, title, ink());
-        }
+        self.g.boxed(self.p, c, r, w, h, title, ink());
     }
 }
 
@@ -356,11 +365,6 @@ pub(crate) fn step<T: PartialEq + Clone>(ids: &[T], cur: &mut Option<T>, keys: &
     *cur = Some(ids[i].clone());
 }
 
-/// The first row to show so `at` stays in a window of `rows`.
-pub(crate) fn scroll_to(at: usize, rows: usize) -> usize {
-    (at + 1).saturating_sub(rows.max(1))
-}
-
 fn result_glyph(e: RunEnd) -> char {
     match e {
         RunEnd::Exit => 'E',
@@ -368,6 +372,8 @@ fn result_glyph(e: RunEnd) -> char {
     }
 }
 
+/// iNTEL: the numbers you know, their heat and their runs. Returns whether its mark goes on
+/// the legend's border (no box under the list), for `show` to draw after the legend.
 #[allow(clippy::too_many_arguments)]
 fn intel(
     cx: &Ctx,
@@ -377,7 +383,7 @@ fn intel(
     (c0, r0, w, h): (usize, usize, usize, usize),
     dial: &mut Option<u32>,
     legend: &mut Vec<String>,
-) {
+) -> bool {
     let (g, p) = (cx.g, cx.p);
     for c in &keys.text {
         if *c == 's' {
@@ -404,16 +410,16 @@ fn intel(
     // Columns, sized from their widest real value.
     let heat_w = HEAT_MAX as usize + 5;
     let listing_w = if narrow { 0 } else { 14 };
+    // The last results; a narrow window with the box under the list leaves them to it, so
+    // the names keep their room.
+    let show_last = !(narrow && detail);
+    let last_w = if show_last {
+        ninsei_core::tuning::RESULTS_KEPT + 1
+    } else {
+        0
+    };
     // Everything but the name: margins, number, listing, heat, runs and the last results.
-    let others = 1
-        + 10
-        + 2
-        + if narrow { 0 } else { listing_w + 2 }
-        + heat_w
-        + 2
-        + 6
-        + ninsei_core::tuning::RESULTS_KEPT
-        + 1;
+    let others = 1 + 10 + 2 + if narrow { 0 } else { listing_w + 2 } + heat_w + 2 + 6 + last_w;
     let name_w = w.saturating_sub(others);
     let x_num = c0 + 1;
     let x_name = x_num + 10;
@@ -448,7 +454,9 @@ fn intel(
         },
         muted(),
     );
-    g.text(p, x_last, r0, "LAST", muted());
+    if show_last {
+        g.text(p, x_last, r0, "LAST", muted());
+    }
     let visible = list_h.saturating_sub(1);
     if rows.is_empty() {
         let msg = if save.phonebook.is_empty() {
@@ -458,17 +466,10 @@ fn intel(
         };
         g.text(p, x_num, r0 + 1, msg, muted());
     }
-    let at = nc
-        .sel
-        .and_then(|s| ids.iter().position(|i| *i == s))
-        .unwrap_or(0);
-    for (k, e) in rows
-        .iter()
-        .enumerate()
-        .skip(scroll_to(at, visible))
-        .take(visible)
-    {
-        let r = r0 + 1 + (k - scroll_to(at, visible));
+    let at = nc.sel.and_then(|s| ids.iter().position(|i| *i == s));
+    for k in nc.intel_list.view(rows.len(), at, visible) {
+        let e = &rows[k];
+        let r = r0 + 1 + nc.intel_list.row(k);
         let on = nc.sel == Some(e.id);
         if on {
             cx.picked(c0, r, w);
@@ -484,13 +485,8 @@ fn intel(
             g.text_max(p, x_list, r, &e.business, listing_w, dim);
         }
         if on {
-            g.text(
-                p,
-                x_heat,
-                r,
-                &format!("{:<w$}", "■".repeat(e.heat as usize), w = HEAT_MAX as usize),
-                fg,
-            );
+            // Inverse, like the row's text: lit and unlit cells in the row's ink.
+            g.meter_in(p, x_heat, r, HEAT_MAX as usize, e.heat as usize, &[fg], fg);
         } else {
             g.meter(p, x_heat, r, HEAT_MAX as usize, e.heat as usize, &ramp());
         }
@@ -504,8 +500,10 @@ fn intel(
         };
         g.text(p, x_heat + HEAT_MAX as usize + 1, r, word, word_col);
         g.text_right(p, x_runs + 4, r, &e.runs.to_string(), fg);
-        let last: String = e.last.iter().map(|x| result_glyph(*x)).collect();
-        g.text(p, x_last, r, if last.is_empty() { "-" } else { &last }, dim);
+        if show_last {
+            let last: String = e.last.iter().map(|x| result_glyph(*x)).collect();
+            g.text(p, x_last, r, if last.is_empty() { "-" } else { &last }, dim);
+        }
         let hit = cx.click(c0, r, w, ("nc-row", e.id));
         if hit.clicked() {
             nc.sel = Some(e.id);
@@ -514,8 +512,10 @@ fn intel(
             *dial = Some(e.id);
         }
     }
+    // Where you are goes in the border under the list, once what shares that border is
+    // drawn: the boxes below, or (with none) the legend, which `show` draws last.
     if !detail {
-        return;
+        return true;
     }
     // The picked number, and the watched lines beside it.
     let top = r0 + list_h;
@@ -523,7 +523,8 @@ fn intel(
     let dw = w - side;
     let Some(e) = nc.sel.and_then(|id| save.entry(id)) else {
         cx.boxed(c0, top, dw, DETAIL_ROWS, "");
-        return;
+        nc.intel_list.mark(g, p, c0, top, w, c0, ink());
+        return false;
     };
     cx.boxed(
         c0,
@@ -553,18 +554,20 @@ fn intel(
     );
     let exits = e.last.iter().filter(|x| **x == RunEnd::Exit).count();
     let flats = e.last.len() - exits;
+    let last: String = e.last.iter().map(|x| result_glyph(*x)).collect();
     g.text(p, x, top + 3, "runs", muted());
-    g.text(
+    g.text_max(
         p,
         v,
         top + 3,
         &match e.runs {
             0 => "never run".to_string(),
             n => format!(
-                "{n}  ·  last {}: {exits} out, {flats} flatlined",
+                "{n}  ·  last {}: {last}  {exits} out, {flats} flatlined",
                 e.last.len()
             ),
         },
+        dw.saturating_sub(12),
         ink(),
     );
     g.text(p, x, top + 4, "listed", muted());
@@ -580,6 +583,8 @@ fn intel(
             g.text(p, sx + 2, top + 1 + i, &f.number, accent());
         }
     }
+    nc.intel_list.mark(g, p, c0, top, w, c0, ink());
+    false
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -628,8 +633,13 @@ pub(crate) fn wardial(
         h
     };
     cx.boxed(c0, r0, lw, lh, "ranges");
-    for (i, r) in known.iter().take(lh - 2).enumerate() {
-        let y = r0 + 1 + i;
+    let at = nc
+        .range
+        .as_ref()
+        .and_then(|s| ids.iter().position(|i| i == s));
+    for i in nc.wardial_list.view(known.len(), at, lh - 2) {
+        let r = &known[i];
+        let y = r0 + 1 + nc.wardial_list.row(i);
         let on = Some(&r.def.id) == nc.range.as_ref();
         if on {
             cx.picked(c0 + 1, y, lw - 2);
@@ -648,6 +658,7 @@ pub(crate) fn wardial(
             nc.range = Some(r.def.id.clone());
         }
     }
+    nc.wardial_list.mark(g, p, c0, r0 + lh - 1, lw, c0, ink());
     let (mx, my, mw, mh) = if narrow {
         (c0, r0 + lh, w, h - lh)
     } else {
@@ -891,8 +902,13 @@ pub(crate) fn ranges(
     if wide_from {
         g.text(p, x_from, r0, "FROM", muted());
     }
-    for (i, r) in rows.iter().enumerate().take(th.saturating_sub(1)) {
-        let y = r0 + 1 + i;
+    let at = nc
+        .range
+        .as_ref()
+        .and_then(|s| ids.iter().position(|i| i == s));
+    for i in nc.ranges_list.view(rows.len(), at, th.saturating_sub(1)) {
+        let r = &rows[i];
+        let y = r0 + 1 + nc.ranges_list.row(i);
         let on = Some(&r.def.id) == nc.range.as_ref();
         if on {
             cx.picked(c0, y, w);
@@ -931,7 +947,7 @@ pub(crate) fn ranges(
                 (r.scanned as usize * 8).div_ceil(r.blocks as usize).min(8)
             };
             if on {
-                g.text(p, x_dial, y, &format!("{:<8}", "■".repeat(lit)), fg);
+                g.meter_in(p, x_dial, y, 8, lit, &[fg], fg);
             } else {
                 g.meter(p, x_dial, y, 8, lit, &ramp());
             }
@@ -958,6 +974,7 @@ pub(crate) fn ranges(
     if wh > 0 {
         let top = r0 + th;
         cx.boxed(c0, top, w, wh, "watched lines");
+        nc.ranges_list.mark(g, p, c0, top, w, c0, ink());
         let label = |id: &str| {
             data.exchanges
                 .iter()
@@ -1183,6 +1200,16 @@ mod tests {
         s
     }
 
+    /// A deck whose phonebook runs longer than a small tile's list.
+    fn big_book(data: &Data) -> Save {
+        let mut s = nightcomm_deck(data);
+        let mut rng = ninsei_core::rng::Rng::new(7);
+        while s.phonebook.len() < 16 {
+            s.add_number(data, &mut rng, 1).expect("a company to list");
+        }
+        s
+    }
+
     #[test]
     fn digits_pick_the_page() {
         let data = Data::builtin().unwrap();
@@ -1342,6 +1369,233 @@ mod tests {
             home.nightcomm.tab,
             Tab::Wardial,
             "on an empty line it turns the page"
+        );
+    }
+
+    #[test]
+    fn the_picked_row_shows_its_heat_meter_inverse() {
+        let data = Data::builtin().unwrap();
+        let save = nightcomm_deck(&data);
+        let (h, home) = opened(&data, &save);
+        assert!(home.nightcomm.sel.is_some(), "a number is picked");
+        // The picked row: the full-width inverse bar.
+        let (bar, _, _) = h
+            .rects()
+            .into_iter()
+            .find(|(r, fill, _)| *fill == accent() && r.width() > 400.0)
+            .expect("the picked row");
+        let meter = h
+            .rects()
+            .into_iter()
+            .filter(|(r, fill, stroke)| {
+                bar.contains_rect(*r)
+                    && r.width() < bar.width() / 4.0
+                    && (*fill == shadow() || *stroke == shadow())
+            })
+            .count();
+        assert_eq!(
+            meter, HEAT_MAX as usize,
+            "every cell of the meter, in the row's ink"
+        );
+    }
+
+    #[test]
+    fn a_short_tile_scrolls_intel_to_the_picked_number_and_says_where() {
+        let data = Data::builtin().unwrap();
+        let save = big_book(&data);
+        let mut h = Harness::new(1280.0, 800.0);
+        crate::uitest::themed(&h.ctx, &data);
+        let mut home = Home::new(Vec::new());
+        // NiGHTCOMM's smallest tile, 56x12: the list shows nine of the sixteen numbers, and
+        // no box under it.
+        let rect =
+            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(56.0 * 8.5, 12.0 * 17.0 + 1.0));
+        let draw = |h: &mut Harness, home: &mut Home, events| {
+            crate::home::tests::frame_at(h, home, &data, &save, Tool::NightComm, rect, events);
+        };
+        draw(&mut h, &mut home, Vec::new());
+        draw(&mut h, &mut home, Vec::new());
+        let len = save.phonebook.len();
+        for _ in 0..len {
+            draw(&mut h, &mut home, key(Key::ArrowDown));
+        }
+        let ids: Vec<u32> = nightcomm::intel(&save, "", home.nightcomm.sort)
+            .iter()
+            .map(|e| e.id)
+            .collect();
+        let at = ids
+            .iter()
+            .position(|i| Some(*i) == home.nightcomm.sel)
+            .unwrap();
+        assert_eq!(at, len - 1, "the last number");
+        assert!(home.nightcomm.intel_list.top > 0, "scrolled");
+        assert!(home.nightcomm.intel_list.shows(at), "and it's on screen");
+    }
+
+    /// Draws iNTEL in a 56-cell-wide rect `rows` cells tall (each cell 17 points), picks the
+    /// last number, and returns when the `/` of its `n/len` mark was painted and every shape
+    /// under it, by the order they were painted in.
+    fn intel_mark(rows: usize) -> (usize, Vec<usize>) {
+        let data = Data::builtin().unwrap();
+        let save = big_book(&data);
+        let mut h = Harness::new(1280.0, 800.0);
+        crate::uitest::themed(&h.ctx, &data);
+        let mut home = Home::new(Vec::new());
+        let rect = egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(56.0 * 8.5, rows as f32 * 17.0 + 1.0),
+        );
+        let draw = |h: &mut Harness, home: &mut Home, events| {
+            crate::home::tests::frame_at(h, home, &data, &save, Tool::NightComm, rect, events);
+        };
+        draw(&mut h, &mut home, Vec::new());
+        for _ in 0..save.phonebook.len() {
+            draw(&mut h, &mut home, key(Key::ArrowDown));
+        }
+        draw(&mut h, &mut home, Vec::new());
+        let text = |s: &egui::Shape| match s {
+            egui::Shape::Text(t) => Some((t.galley.text().to_string(), t.visual_bounding_rect())),
+            _ => None,
+        };
+        let shapes = h.painted();
+        let (at, slash) = shapes
+            .iter()
+            .enumerate()
+            .filter_map(|(i, s)| text(s).map(|(t, r)| (i, t, r)))
+            .filter(|(_, t, _)| t == "/")
+            .map(|(i, _, r)| (i, r))
+            // The mark sits at the border's right end; the legend's `/ filter` at its left.
+            .max_by(|a, b| a.1.center().x.total_cmp(&b.1.center().x))
+            .expect("a mark");
+        assert!(
+            slash.center().x > rect.center().x,
+            "the mark, not the legend's /"
+        );
+        let row: Vec<usize> = shapes
+            .iter()
+            .enumerate()
+            .filter(|(i, s)| *i != at && s.visual_bounding_rect().intersects(slash))
+            .map(|(i, _)| i)
+            .collect();
+        (at, row)
+    }
+
+    #[test]
+    fn intels_mark_is_painted_over_whatever_shares_its_border() {
+        // With the box under the list (its border is the mark's), and without (the legend's).
+        for rows in [DETAIL_ROWS + 7, 12] {
+            let (mark, under) = intel_mark(rows);
+            assert!(
+                under.iter().all(|i| *i < mark),
+                "{rows} rows: something painted over the mark ({mark}): {under:?}"
+            );
+        }
+    }
+
+    /// iNTEL drawn `cols` x `rows` cells big, its numbers with runs behind them: each row of
+    /// painted glyphs, joined left to right.
+    fn intel_rows(cols: usize, rows: usize) -> Vec<String> {
+        let data = Data::builtin().unwrap();
+        let mut save = nightcomm_deck(&data);
+        for e in &mut save.phonebook {
+            e.runs = 2;
+            e.last = vec![RunEnd::Exit, RunEnd::Flatline];
+        }
+        let mut h = Harness::new(1280.0, 800.0);
+        crate::uitest::themed(&h.ctx, &data);
+        let mut home = Home::new(Vec::new());
+        let rect = egui::Rect::from_min_size(
+            egui::Pos2::ZERO,
+            egui::vec2(cols as f32 * 8.5, rows as f32 * 17.0 + 1.0),
+        );
+        for _ in 0..2 {
+            crate::home::tests::frame_at(
+                &mut h,
+                &mut home,
+                &data,
+                &save,
+                Tool::NightComm,
+                rect,
+                Vec::new(),
+            );
+        }
+        painted_rows(&h)
+    }
+
+    /// Each row of glyphs the last frame painted, joined left to right.
+    fn painted_rows(h: &Harness) -> Vec<String> {
+        let mut glyphs: Vec<(i32, f32, String)> = h
+            .painted()
+            .iter()
+            .filter_map(|s| match s {
+                egui::Shape::Text(t) => {
+                    let r = t.visual_bounding_rect();
+                    Some((
+                        (r.center().y / 17.0) as i32,
+                        r.center().x,
+                        t.galley.text().to_string(),
+                    ))
+                }
+                _ => None,
+            })
+            .collect();
+        glyphs.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.total_cmp(&b.1)));
+        glyphs
+            .chunk_by(|a, b| a.0 == b.0)
+            .map(|row| row.iter().map(|g| g.2.as_str()).collect())
+            .collect()
+    }
+
+    #[test]
+    fn a_narrow_intel_shows_the_last_results_somewhere() {
+        // No box under the list: the column stays.
+        let short = intel_rows(56, 12);
+        assert!(short.iter().any(|r| r.contains("LAST")), "{short:?}");
+        assert!(
+            short.iter().any(|r| r.ends_with("EF")),
+            "the results: {short:?}"
+        );
+        // With the box: the column goes and the box has them.
+        let tall = intel_rows(56, DETAIL_ROWS + 7);
+        assert!(!tall.iter().any(|r| r.contains("LAST")), "{tall:?}");
+        assert!(
+            tall.iter().any(|r| r.contains("last2:EF")),
+            "in the box: {tall:?}"
+        );
+    }
+
+    #[test]
+    fn a_page_key_from_term_paints_no_stale_intel_mark() {
+        let data = Data::builtin().unwrap();
+        let save = big_book(&data);
+        let mut h = Harness::new(1280.0, 800.0);
+        crate::uitest::themed(&h.ctx, &data);
+        let mut home = Home::new(Vec::new());
+        // NiGHTCOMM's smallest tile: iNTEL's mark goes on the legend's border.
+        let rect =
+            egui::Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(56.0 * 8.5, 12.0 * 17.0 + 1.0));
+        let draw = |h: &mut Harness, home: &mut Home, events| {
+            crate::home::tests::frame_at(h, home, &data, &save, Tool::NightComm, rect, events);
+        };
+        draw(&mut h, &mut home, Vec::new());
+        draw(&mut h, &mut home, Vec::new());
+        let len = save.phonebook.len();
+        let mark = format!("/{len}");
+        assert!(
+            painted_rows(&h).iter().any(|r| r.contains(&mark)),
+            "iNTEL's mark is there"
+        );
+        // To TERM, then back with 1 from its empty line: the page turns after TERM drew.
+        for events in [text("4"), Vec::new(), Vec::new()] {
+            draw(&mut h, &mut home, events);
+        }
+        assert_eq!(home.nightcomm.tab, Tab::Term);
+        draw(&mut h, &mut home, text("1"));
+        assert_eq!(home.nightcomm.tab, Tab::Intel, "the page key turned it");
+        assert!(
+            !painted_rows(&h).iter().any(|r| r.contains(&mark)),
+            "TERM's frame carries no iNTEL mark: {:?}",
+            painted_rows(&h)
         );
     }
 }

@@ -12,6 +12,10 @@ pub struct Harness {
     /// What last frame's widgets said (label or value), where they were, and whether they
     /// would take a click.
     widgets: Vec<(String, Rect, bool)>,
+    /// What last frame painted, flattened.
+    shapes: Vec<egui::Shape>,
+    /// Each shape's clip rect, beside `shapes`.
+    clips: Vec<Rect>,
     /// Check boxes last frame, by label: ticked or not.
     ticks: Vec<(String, bool)>,
 }
@@ -26,6 +30,8 @@ impl Harness {
             size: vec2(w, h),
             t: 0.0,
             widgets: Vec::new(),
+            shapes: Vec::new(),
+            clips: Vec::new(),
             ticks: Vec::new(),
         }
     }
@@ -41,6 +47,18 @@ impl Harness {
         self.t += 0.1;
         let mut out = self.ctx.run_ui(raw, |u| ui(u));
         out.textures_delta.clear();
+        fn flat(s: egui::Shape, into: &mut Vec<egui::Shape>) {
+            match s {
+                egui::Shape::Vec(v) => v.into_iter().for_each(|s| flat(s, into)),
+                s => into.push(s),
+            }
+        }
+        self.shapes.clear();
+        self.clips.clear();
+        for c in std::mem::take(&mut out.shapes) {
+            flat(c.shape, &mut self.shapes);
+            self.clips.resize(self.shapes.len(), c.clip_rect);
+        }
         self.ticks = out
             .platform_output
             .accesskit_update
@@ -122,6 +140,40 @@ impl Harness {
             .collect()
     }
 
+    /// The rectangles last frame painted: where, its fill, and its outline's colour.
+    pub fn rects(&self) -> Vec<(Rect, egui::Color32, egui::Color32)> {
+        self.shapes
+            .iter()
+            .filter_map(|s| match s {
+                egui::Shape::Rect(r) => Some((r.rect, r.fill, r.stroke.color)),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Text last frame cut at a clip rect: what it said and where it would have run, for each
+    /// piece of text that starts inside its clip and runs past its right or bottom edge.
+    pub fn cut_text(&self) -> Vec<(String, Rect)> {
+        self.shapes
+            .iter()
+            .zip(&self.clips)
+            .filter_map(|(s, clip)| match s {
+                egui::Shape::Text(t) => {
+                    let r = Rect::from_min_size(t.pos, t.galley.size());
+                    let cut = clip.contains(r.min)
+                        && (r.right() > clip.right() + 0.5 || r.bottom() > clip.bottom() + 0.5);
+                    cut.then(|| (t.galley.text().to_string(), r))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// What last frame painted, in order, flattened.
+    pub fn painted(&self) -> &[egui::Shape] {
+        &self.shapes
+    }
+
     /// Whether last frame's check box labelled `text` was ticked (none: no such box).
     pub fn ticked(&self, text: &str) -> Option<bool> {
         self.ticks
@@ -134,6 +186,12 @@ impl Harness {
     pub fn texts(&self) -> Vec<&str> {
         self.widgets.iter().map(|(t, _, _)| t.as_str()).collect()
     }
+}
+
+/// Puts the app's real type scale (and a theme's colours) on `ctx`, so a test counts the
+/// cells the player gets.
+pub fn themed(ctx: &egui::Context, data: &ninsei_core::Data) {
+    crate::theme::apply(ctx, &crate::theme::Palette::from_def(&data.themes[0]));
 }
 
 /// A key pressed and released.
