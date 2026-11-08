@@ -34,6 +34,8 @@ pub struct HomeCall {
     tool_defs: Vec<crate::data::ToolDef>,
     /// Each game's id and its crack's label, for "you already have".
     cracks: Vec<(String, String)>,
+    /// Each tune's id and its title, for "you already have".
+    tune_titles: Vec<(String, String)>,
 }
 
 impl Line for HomeCall {
@@ -88,7 +90,13 @@ impl Line for HomeCall {
         if matches!(f.item, Drop::Warez(_)) && self.stash_free == 0 {
             return Some("your stash is full.".into());
         }
-        if let Some(why) = crate::game::tool_blocker(&self.tool_defs, &self.cracks, &f.item, self) {
+        if let Some(why) = crate::game::tool_blocker(
+            &self.tool_defs,
+            &self.cracks,
+            &self.tune_titles,
+            &f.item,
+            self,
+        ) {
             return Some(why);
         }
         if self.bank < f.price {
@@ -202,6 +210,7 @@ impl Save {
                 .collect(),
             tool_defs: data.tools.clone(),
             cracks: data.crack_labels(),
+            tune_titles: data.tune_titles(),
         }
     }
 
