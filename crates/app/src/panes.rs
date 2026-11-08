@@ -699,7 +699,7 @@ impl Panes<'_> {
                         LogKind::Good => p.fg,
                         LogKind::Bad => p.bright,
                         LogKind::Loot => p.bright,
-                        LogKind::Sys => p.dim,
+                        LogKind::Sys | LogKind::Program => p.dim,
                     };
                     let line = self.garble(&l.text);
                     ui.label(RichText::new(line).monospace().color(col));

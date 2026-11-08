@@ -271,6 +271,8 @@ pub enum LogKind {
     Loot,
     /// System chatter and errors.
     Sys,
+    /// The deck's program saying a step of its pass.
+    Program,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -1180,7 +1182,7 @@ impl Game {
         let step = Step { line, what };
         if !matches!(step.what, StepWhat::Ran { .. }) {
             let text = self.step_text(&step);
-            self.say(LogKind::Sys, text);
+            self.say(LogKind::Program, text);
         }
         self.exec.trace.push(step);
     }

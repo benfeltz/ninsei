@@ -247,7 +247,7 @@ fn the_editor_keys_press_only_where_they_do_something() {
     let k = btop_fight::keys(&g, None);
     assert!(!k.edit && !k.delete && !k.moves, "an empty program: {k:?}");
     assert!(k.open, "it can still open its first line");
-    let legend = k.legend();
+    let legend = btop_fight::legend(&k);
     assert_eq!(legend[1][1], ("o", "open", true));
     assert_eq!(legend[1][0], ("e", "edit", false));
 }

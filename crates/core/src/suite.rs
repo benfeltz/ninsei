@@ -29,6 +29,125 @@ pub fn log_ref(kind: LogKind) -> &'static str {
         LogKind::Good => "OK",
         LogKind::Bad => "ERR",
         LogKind::Loot => "CR",
+        LogKind::Program => "PRG",
+    }
+}
+
+/// The deck's program as the suite files it: a module in the debugger.
+pub const MODULE: &str = "PROC-7.BAS";
+
+/// A gutter mark as the Module window draws it: `▶` on the line about to run, `■` on a STOP.
+pub fn module_mark(g: crate::listing::Gutter) -> &'static str {
+    use crate::listing::Gutter;
+    match g {
+        Gutter::Current => "▶",
+        Gutter::Stop => "■",
+        Gutter::None => " ",
+    }
+}
+
+/// The Module window's bottom edge, the suite's words: what's left this turn in an incident,
+/// the deck's limits outside one.
+pub fn module_note(g: &Game) -> String {
+    let cpu = g.combat.as_ref().map_or(g.deck.cpu_max, |c| c.cpu);
+    format!(
+        "CPU {cpu}/{}  RAM {}/{}",
+        g.deck.cpu_max,
+        g.ifs_left(),
+        g.deck.ram_max
+    )
+}
+
+/// The Watches strip under the Module window, in order: TURN, CPU, IFS, INTEG, TRACE, NEXT,
+/// ICE and LAST (the last step of the pass, as the activity log said it). Blank outside an
+/// incident: nothing is being watched.
+pub fn watches(g: &Game) -> Vec<(&'static str, String)> {
+    const NAMES: [&str; 8] = [
+        "TURN", "CPU", "IFS", "INTEG", "TRACE", "NEXT", "ICE", "LAST",
+    ];
+    let Some(c) = g.combat.as_ref().filter(|_| crate::listing::fighting(g)) else {
+        return NAMES.iter().map(|n| (*n, String::new())).collect();
+    };
+    let last = g
+        .exec
+        .trace
+        .last()
+        .map_or(String::new(), |s| g.step_text(s));
+    let values = [
+        c.turn.to_string(),
+        format!("{} / {}", c.cpu, g.deck.cpu_max),
+        format!("{} / {}", c.ifs, g.deck.ram_max),
+        format!("{} / {}", g.deck.integrity, g.deck.integrity_max),
+        format!("{} %", g.deck.trace),
+        g.intent().map_or(String::new(), |i| i.describe()),
+        g.data.ice[c.ice].name.to_uppercase(),
+        last,
+    ];
+    NAMES.into_iter().zip(values).collect()
+}
+
+/// What an F-key in the legend does.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FKey {
+    Help,
+    /// Open the selected program in the hex editor.
+    Hex,
+    /// Type `jack ` on the command line.
+    Jack,
+    EndTurn,
+    /// Retype the line under the Module window's cursor.
+    Edit,
+    Pause,
+    Step,
+    /// Run, or carry on after a STOP.
+    Run,
+}
+
+/// Which legend is up: Turbo Debugger's way, the keys change with the active window.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Legend {
+    /// The Module window is active: the debugger's keys.
+    Module,
+    /// Any other window.
+    Default,
+}
+
+impl Legend {
+    /// The legend's keys, in order: the F-key's number, what it does and its label. The app
+    /// wires the keys and draws the legend from this one table, so they can't disagree. Never
+    /// F5, F6, F7, F11 or F12: the browser's.
+    pub fn keys(self) -> &'static [(u8, FKey, &'static str)] {
+        match self {
+            Legend::Module => &[
+                (1, FKey::Help, "Help"),
+                (2, FKey::Edit, "Edit"),
+                (4, FKey::Pause, "Pause"),
+                (8, FKey::Step, "Step"),
+                (9, FKey::Run, "Run"),
+                (10, FKey::EndTurn, "End turn"),
+            ],
+            Legend::Default => &[
+                (1, FKey::Help, "Help"),
+                (4, FKey::Hex, "Hex"),
+                (8, FKey::Jack, "Jack"),
+                (10, FKey::EndTurn, "End turn"),
+            ],
+        }
+    }
+}
+
+/// Whether F-key `k` does anything now, with the Module window's cursor on `cursor`: the
+/// debugger's only in an incident and only when they'd press (Run also carries on after a
+/// STOP), Edit with a line under the cursor; the rest always.
+pub fn fkey_live(g: &Game, k: FKey, cursor: Option<u32>) -> bool {
+    let keys = crate::listing::keys(g, cursor);
+    match k {
+        FKey::Edit => keys.edit,
+        FKey::Pause => keys.pause,
+        FKey::Step => keys.step,
+        FKey::Run => keys.run || keys.cont,
+        FKey::Hex => g.has_tool("hexed"),
+        FKey::Help | FKey::Jack | FKey::EndTurn => true,
     }
 }
 

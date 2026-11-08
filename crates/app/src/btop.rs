@@ -728,7 +728,7 @@ impl Panes<'_> {
                 .show(ui, |ui| {
                     for l in &g.log {
                         let (mark, col) = match l.kind {
-                            LogKind::Sys => ("·", p.dim),
+                            LogKind::Sys | LogKind::Program => ("·", p.dim),
                             LogKind::Info => ("›", p.fg),
                             LogKind::Good => ("+", p.fg),
                             LogKind::Bad => ("!", p.bright),
@@ -1285,7 +1285,7 @@ pub mod script {
                 } else {
                     pal.bright
                 };
-                c.text(&painter, 0, y, r.gutter.mark(), mark);
+                c.text(&painter, 0, y, btop_fight::mark(r.gutter), mark);
                 let line = match &r.fault {
                     Some(f) => format!("{}  {f}", r.text),
                     None => r.text.clone(),
@@ -1314,7 +1314,7 @@ pub mod script {
                 }
             }
             if legend {
-                for (k, keys_row) in keys.legend().iter().enumerate() {
+                for (k, keys_row) in btop_fight::legend(&keys).iter().enumerate() {
                     let y = c.rows - 2 + k;
                     let mut x = 0;
                     for (key, word, presses) in keys_row.iter() {

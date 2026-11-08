@@ -921,7 +921,7 @@ impl Panes<'_> {
                     .show_rows(ui, size::ROW_H, g.log.len(), |ui, shown| {
                         for l in &g.log[shown] {
                             let col = match l.kind {
-                                LogKind::Sys => p.dim,
+                                LogKind::Sys | LogKind::Program => p.dim,
                                 LogKind::Info | LogKind::Good => p.fg,
                                 LogKind::Bad | LogKind::Loot => p.bright,
                             };
