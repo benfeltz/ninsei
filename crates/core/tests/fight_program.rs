@@ -323,8 +323,8 @@ fn a_hang_holds_the_line_until_an_edit() {
     // SAFE comes round to line 20 having run nothing: the cursor stays on it.
     assert_eq!(g.exec.broke, Some(20));
     assert_eq!(g.exec.pc, Some(20));
+    assert_eq!(ninsei_core::listing::broke(&g), Some(20));
     let v = g.program_view();
-    assert_eq!(v.broke, Some(20));
     assert!(v.lines.iter().find(|l| l.no == 20).unwrap().current);
     assert_eq!(
         g.combat.as_ref().unwrap().turn,

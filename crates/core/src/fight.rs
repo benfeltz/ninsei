@@ -115,10 +115,6 @@ pub struct ProgramView {
     pub ifs_left: u32,
     pub turn: u32,
     pub trace: Vec<Step>,
-    /// A pass is under way this turn: the cursor is partway down it.
-    pub open: bool,
-    /// A hang on this line: `?BREAK IN n`, the cursor held there.
-    pub broke: Option<u32>,
 }
 
 impl Game {
@@ -152,8 +148,6 @@ impl Game {
             ifs_left: self.ifs_left(),
             turn: c.map_or(0, |c| c.turn),
             trace: self.exec.trace.clone(),
-            open: fighting && self.exec.open,
-            broke: self.exec.broke.filter(|_| fighting),
         }
     }
 
