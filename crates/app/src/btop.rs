@@ -1019,7 +1019,9 @@ pub mod script {
         let mut out = Vec::new();
         let mut taken = Vec::new();
         let events = ctx.input(|i| i.events.clone());
-        for e in &events {
+        // Where a retype started this frame: the typing after it is the line's.
+        let mut edit_from = None;
+        for (i, e) in events.iter().enumerate() {
             let Event::Key {
                 key,
                 pressed: true,
@@ -1056,20 +1058,24 @@ pub mod script {
                     v.cursor = btop_fight::moved(g, v.cursor, -1);
                     true
                 }
-                Key::E | Key::Enter if once => {
-                    if let Some(no) = v.cursor {
+                // Taken on a repeat too (a held Enter must not reach the hotkeys), acted on once.
+                Key::E | Key::Enter => {
+                    if once && let Some(no) = v.cursor.filter(|_| k.edit) {
                         start_edit(ctx, &mut v, no, &btop_fight::editing_text(g, no));
+                        edit_from = Some(i);
                     }
                     true
                 }
-                Key::O if once => {
-                    if let Some(no) = btop_fight::open_after(g, v.cursor) {
+                Key::O => {
+                    if once && let Some(no) = btop_fight::open_after(g, v.cursor) {
                         start_edit(ctx, &mut v, no, "");
+                        edit_from = Some(i);
                     }
                     true
                 }
-                Key::D if once => {
-                    if let Some(no) = v.cursor
+                Key::D => {
+                    if once
+                        && let Some(no) = v.cursor
                         && let Some(a) = btop_fight::delete(g, no)
                     {
                         let lines = &g.program.lines;
@@ -1087,14 +1093,46 @@ pub mod script {
                 _ => false,
             };
             if took {
-                taken.push(e.clone());
+                taken.push(i);
             }
         }
-        ctx.input_mut(|i| {
-            i.events
-                .retain(|e| !matches!(e, Event::Text(_)) && !taken.contains(e))
+        let drop = dropped(&events, &taken, edit_from);
+        ctx.input_mut(|inp| {
+            let mut i = 0;
+            inp.events.retain(|_| {
+                i += 1;
+                !drop.contains(&(i - 1))
+            })
         });
         keep(ctx, v);
+        out
+    }
+
+    /// The events (by index) the tile takes out of a frame: the keys it took, the character each
+    /// of those typed (beside its key: after it natively, before it in a browser), and any other
+    /// typing before a retype started (the tile has the keyboard; that typing has nowhere to
+    /// go). Typing after a retype started stays for the line.
+    pub(crate) fn dropped(
+        events: &[Event],
+        taken: &[usize],
+        edit_from: Option<usize>,
+    ) -> Vec<usize> {
+        let typed = |i: usize, key: Key| {
+            let name = key.name().to_ascii_lowercase();
+            matches!(events.get(i), Some(Event::Text(t)) if *t == name)
+        };
+        let mut out: Vec<usize> = taken.to_vec();
+        for &t in taken {
+            if let Some(Event::Key { key, .. }) = events.get(t) {
+                if typed(t + 1, *key) {
+                    out.push(t + 1);
+                } else if t > 0 && typed(t - 1, *key) {
+                    out.push(t - 1);
+                }
+            }
+        }
+        let until = edit_from.unwrap_or(events.len());
+        out.extend((0..until).filter(|&i| matches!(events[i], Event::Text(_))));
         out
     }
 
@@ -1828,6 +1866,71 @@ mod script_tests {
             cs[s.find("rrun").unwrap()],
             p.fg,
             "paused in a fight: run presses"
+        );
+    }
+
+    #[test]
+    fn typing_in_the_frame_that_starts_a_retype_goes_into_the_line() {
+        let mut g = fight("10 RUN icepick\n20 STOP\n30 GOTO 10");
+        let mut h = Harness::new(1280.0, 800.0);
+        focus_on(&mut h, &g, 20);
+        let mut ev = letter('e');
+        ev.extend(typed("X"));
+        frame(&mut h, &g, PANE, ev);
+        let acts = actions(frame(
+            &mut h,
+            &g,
+            PANE,
+            crate::uitest::key(egui::Key::Enter),
+        ));
+        for a in acts {
+            g.apply(a);
+        }
+        assert_eq!(
+            g.program.line(20).unwrap().text,
+            "STOPX",
+            "the e itself typed nothing"
+        );
+    }
+
+    #[test]
+    fn a_held_enter_is_the_tiles_and_nothing_after_hears_it() {
+        let g = fight("10 RUN icepick\n20 STOP");
+        let mut h = Harness::new(1280.0, 800.0);
+        let held = vec![egui::Event::Key {
+            key: egui::Key::Enter,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::NONE,
+        }];
+        // Enter goes down while something else has it (the row that committed), and is
+        // still held when the tile has the keys back: egui calls that press a repeat.
+        h.frame(held.clone(), |_| {});
+        let mut left = true;
+        h.frame(held, |ui| {
+            script::take_keys(ui.ctx());
+            let (mut suite, mut popup) = (
+                crate::suite::State::default(),
+                crate::volume::Popup::default(),
+            );
+            let mut cx = FrameCx {
+                game: &g,
+                pal: pal(&g),
+                suite: &mut suite,
+                keys_free: true,
+                level: crate::volume::Level {
+                    on: true,
+                    volume: 100,
+                },
+                popup: &mut popup,
+            };
+            crate::chrome::Btop.keys(ui.ctx(), &mut cx);
+            left = ui.input(|i| i.key_pressed(egui::Key::Enter));
+        });
+        assert!(
+            !left,
+            "the run's hotkeys would have sent it to the terminal"
         );
     }
 
