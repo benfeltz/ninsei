@@ -126,7 +126,7 @@ pub struct Spec {
     pub value: String,
     /// A note on how it's used ("the loadout uses 4 GB", "5 of 6 filled").
     pub use_note: String,
-    /// Upgrade level owned, out of the most there is.
+    /// Upgrade level owned, out of the most this deck takes (never below the levels owned).
     pub level: (u32, u32),
     /// What the next upgrade adds, if there's one left ("+1 cyc").
     pub next: Option<String>,
@@ -161,7 +161,15 @@ pub fn overview(save: &Save, data: &Data) -> Overview {
             format!("{n} {unit}")
         }
     };
-    let level = |u: Upgrade| (save.rig.level(u), def(u).map_or(0, |d| d.max));
+    // The meter counts the levels this chassis takes, never more than it holds already.
+    let level = |u: Upgrade| {
+        let owned = save.rig.level(u);
+        let Some(d) = def(u) else { return (owned, 0) };
+        let room = save.stat_cap(data, u).map_or(d.max, |cap| {
+            (cap.saturating_sub(save.stat_base(data, u)) / d.step).min(d.max)
+        });
+        (owned, room.max(owned))
+    };
     // A line the chassis can't take any further has no next, like a maxed one.
     let next = |u: Upgrade| {
         let d = def(u)?;

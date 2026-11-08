@@ -38,7 +38,8 @@ fn the_overview_reports_the_deck_and_its_specs() {
             .starts_with(&s.stat_base(&d, Upgrade::Cpu).to_string())
     );
     let max = d.rig.iter().find(|u| u.kind == Upgrade::Cpu).unwrap().max;
-    assert_eq!(cpu.level, (0, max));
+    assert_eq!(cpu.level.0, 0);
+    assert!(cpu.level.1 <= max, "never more than RIG sells");
     // Next is offered exactly when the chassis has room for it.
     assert_eq!(
         cpu.next.is_some(),
@@ -184,6 +185,26 @@ fn every_panel_has_one_square_one_bit_icon() {
 }
 
 #[test]
+fn the_meter_counts_the_chassis_and_never_hides_levels_owned() {
+    let d = starter_cpu(3, 5);
+    let mut s = Save::default();
+    s.ensure_hardware(&d);
+    let cpu = |s: &Save| spec(&system::overview(s, &d), "CPU").level;
+    assert_eq!(cpu(&s), (0, 2), "a case with room for two");
+    // An old save past this case's ceiling still shows everything it bought.
+    s.rig.cpu = 3;
+    assert_eq!(cpu(&s), (3, 3));
+    // A case bigger than RIG sells stops at RIG's maximum.
+    let roomy = starter_cpu(3, 100);
+    let rig_max = d.rig.iter().find(|u| u.kind == Upgrade::Cpu).unwrap().max;
+    s.rig.cpu = 0;
+    assert_eq!(
+        spec(&system::overview(&s, &roomy), "CPU").level,
+        (0, rig_max)
+    );
+}
+
+#[test]
 fn the_cpu_line_shows_the_cap_and_greys_at_it() {
     let d = starter_cpu(3, 4);
     let mut s = Save {
@@ -198,8 +219,11 @@ fn the_cpu_line_shows_the_cap_and_greys_at_it() {
     let capped = cpu(&s);
     assert_eq!(capped.value, "4 of 4 cyc");
     assert_eq!(capped.next, None, "the chassis is full: nothing to buy");
-    let rig_max = d.rig.iter().find(|u| u.kind == Upgrade::Cpu).unwrap().max;
-    assert_eq!(capped.level, (1, rig_max), "RIG levels still read as owned");
+    assert_eq!(
+        capped.level,
+        (1, 1),
+        "the meter counts what this chassis takes"
+    );
     let stash = spec(&system::overview(&s, &d), "Stash").value.clone();
     assert!(!stash.contains(" of "), "the stash has no chassis: {stash}");
 }
