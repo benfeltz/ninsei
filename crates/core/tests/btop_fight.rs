@@ -208,3 +208,27 @@ fn an_edit_mid_fight_changes_what_the_next_pass_runs() {
         "the retyped line ran"
     );
 }
+
+#[test]
+fn the_tile_reads_as_the_program_view_says() {
+    let mut g = fight();
+    g.apply(Action::Program(
+        "10 RUN icepick\n20 STOP\n30 JUMP 10\nfoo".into(),
+    ));
+    let v = g.program_view();
+    let rows = btop_fight::rows(&g);
+    for (r, l) in rows.iter().zip(&v.lines) {
+        assert_eq!(r.no, Some(l.no));
+        assert_eq!(r.gutter == Gutter::Current, l.current, "line {}", l.no);
+        assert_eq!(r.gutter == Gutter::Stop, l.stop && !l.current);
+        assert_eq!(r.fault, l.fault);
+    }
+    assert_eq!(rows.len(), v.lines.len() + v.stray.len());
+    assert_eq!(
+        btop_fight::note(&g),
+        format!(
+            "cpu {}/{}  ram {}/{}",
+            v.cpu_left, g.deck.cpu_max, v.ifs_left, g.deck.ram_max
+        )
+    );
+}

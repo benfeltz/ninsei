@@ -7,7 +7,7 @@
 //! holds a program of its own. The terminal is the prompt: the trace prints there.
 
 use crate::basic;
-use crate::game::{Action, ExecState, Game};
+use crate::game::{Action, ExecState, Game, Phase};
 
 /// The tile's title, cut into its top edge.
 pub const TITLE: &str = "ice.bas";
@@ -56,42 +56,49 @@ pub struct Keys {
     pub pause: bool,
 }
 
+/// ICE in front: the program plays.
 fn fighting(g: &Game) -> bool {
-    g.program_view().fighting
+    g.combat.is_some() && g.phase == Phase::Combat
 }
 
-/// The listing, as the game stands: the program's lines, then any stray text.
+/// The listing, as the game stands: the program's lines, then any stray text. Read straight
+/// from the program, once a frame.
 pub fn rows(g: &Game) -> Vec<Row> {
-    let v = g.program_view();
-    let lines = v.lines.into_iter().map(|l| Row {
-        no: Some(l.no),
-        gutter: if l.current {
-            Gutter::Current
-        } else if l.stop {
-            Gutter::Stop
-        } else {
-            Gutter::None
-        },
-        dim: l.fault.is_some(),
-        fault: l.fault,
-        text: l.text,
+    let pc = g.exec.pc.filter(|_| fighting(g));
+    let lines = g.program.lines.iter().map(|l| {
+        let fault = g.program.fault(l.no);
+        Row {
+            no: Some(l.no),
+            gutter: if pc == Some(l.no) {
+                Gutter::Current
+            } else if l.stmt == basic::Stmt::Stop {
+                Gutter::Stop
+            } else {
+                Gutter::None
+            },
+            dim: fault.is_some(),
+            fault,
+            text: l.text.clone(),
+        }
     });
-    let stray = v.stray.into_iter().map(|s| Row {
+    let stray = g.program.stray.iter().map(|s| Row {
         no: None,
         gutter: Gutter::None,
         dim: true,
-        fault: Some(basic::stray_fault(&s).to_string()),
-        text: s,
+        fault: Some(basic::stray_fault(s).to_string()),
+        text: s.clone(),
     });
     lines.chain(stray).collect()
 }
 
 /// The bottom edge: what's left this turn in a fight, the deck's limits outside one.
 pub fn note(g: &Game) -> String {
-    let v = g.program_view();
+    let cpu = g.combat.as_ref().map_or(g.deck.cpu_max, |c| c.cpu);
     format!(
-        "cpu {}/{}  ram {}/{}",
-        v.cpu_left, g.deck.cpu_max, v.ifs_left, g.deck.ram_max
+        "cpu {cpu}/{}  ram {}/{}",
+        g.deck.cpu_max,
+        g.ifs_left(),
+        g.deck.ram_max
     )
 }
 
@@ -126,12 +133,10 @@ pub fn keys(g: &Game) -> Keys {
 
 /// Where the cursor starts: the line about to run, else the first line.
 pub fn home(g: &Game) -> Option<u32> {
-    let v = g.program_view();
-    v.lines
-        .iter()
-        .find(|l| l.current)
-        .or(v.lines.first())
-        .map(|l| l.no)
+    g.exec
+        .pc
+        .filter(|&n| fighting(g) && g.program.line(n).is_some())
+        .or(g.program.first())
 }
 
 /// The line `by` lines from `no` (up when negative), stopping at either end. From a line that
