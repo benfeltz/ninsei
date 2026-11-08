@@ -152,14 +152,7 @@ pub fn overview(save: &Save, data: &Data) -> Overview {
     let defs = &data.rig;
     let def = |u: Upgrade| defs.iter().find(|d| d.kind == u);
     let unit = |u: Upgrade| def(u).map_or(String::new(), |d| d.unit.clone());
-    let with_unit = |n: u32, u: Upgrade| {
-        let unit = unit(u);
-        if unit.is_empty() {
-            n.to_string()
-        } else {
-            format!("{n} {unit}")
-        }
-    };
+    let with_unit = |n: u32, u: Upgrade| crate::hub::amount(n, &unit(u));
     // The meter counts the levels this chassis takes, never more than it holds already.
     let level = |u: Upgrade| {
         let owned = save.rig.level(u);

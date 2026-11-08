@@ -395,3 +395,28 @@ fn an_unknown_deck_falls_back_to_the_starters_chassis() {
     s.ensure_hardware(&d);
     assert_eq!(s.deck, starter.id);
 }
+
+#[test]
+fn a_save_owning_a_deck_the_data_dropped_loads_and_plays() {
+    let d = data();
+    let mut s = save();
+    s.ensure_hardware(&d);
+    let gone = "a model this build no longer sells".to_string();
+    assert!(d.hardware.deck(&gone).is_none());
+    s.decks.push(gone.clone());
+    s.deck = gone.clone();
+    let mut back = Save::load(&s.to_text()).unwrap();
+    back.ensure_hardware(&d);
+    // No ghost: the deck it owned is dropped from the list, and it sits at the starter.
+    assert!(!back.decks.contains(&gone), "{:?}", back.decks);
+    assert!(back.decks.iter().all(|x| d.hardware.deck(x).is_some()));
+    assert_eq!(back.deck, d.hardware.starter_deck().id);
+    // And it plays: a run starts on the starter's chassis and takes an action.
+    let mut g = back.jack_in(&d, 7);
+    let cpu = d.hardware.starter_deck().stat(Upgrade::Cpu).unwrap();
+    assert!(g.deck.cpu_max <= cpu.max);
+    assert_eq!(g.phase, Phase::Exploring);
+    let next = g.net.nodes[g.at].links[0];
+    g.apply(Action::Move(next));
+    assert_eq!(g.at, next, "it jacks into the next node");
+}

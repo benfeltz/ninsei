@@ -507,7 +507,7 @@ fn a_section_never_runs_backwards_across_pages() {
 }
 
 #[test]
-fn every_deck_model_is_listed_and_orderable() {
+fn every_deck_in_the_data_is_listed_and_orderable() {
     let d = data();
     let mut s = fresh(0);
     let decks: Vec<_> = s
@@ -515,30 +515,16 @@ fn every_deck_model_is_listed_and_orderable() {
         .into_iter()
         .filter(|l| l.section == Section::Decks)
         .collect();
-    assert_eq!(decks.len(), d.hardware.decks.len());
-    assert_eq!(decks.len(), 7);
-    // Within a brand the models climb in price, in the order the magazine prints them.
-    let mut makers: Vec<&str> = d.hardware.decks.iter().map(|m| m.maker.as_str()).collect();
-    makers.dedup();
-    let lines = makers
+    // The magazine prints exactly the decks in the data, each once, in the data's order.
+    let printed: Vec<Item> = decks.iter().map(|l| l.item.clone()).collect();
+    let data_decks: Vec<Item> = d
+        .hardware
+        .decks
         .iter()
-        .filter(|&&mk| d.hardware.decks.iter().filter(|m| m.maker == mk).count() > 1)
-        .count();
-    assert!(lines >= 2, "brands sell lines of models");
-    for maker in makers {
-        let prices: Vec<u32> = d
-            .hardware
-            .decks
-            .iter()
-            .filter(|m| m.maker == maker)
-            .map(|m| m.price)
-            .collect();
-        assert!(
-            prices.windows(2).all(|w| w[0] < w[1]),
-            "{maker}: {prices:?}"
-        );
-    }
-    // Every model has its own full page.
+        .map(|m| Item::Deck(m.id.clone()))
+        .collect();
+    assert_eq!(printed, data_decks);
+    // Every deck has its own full page.
     let def = &d.shopper;
     for l in &decks {
         assert_eq!(
@@ -548,17 +534,72 @@ fn every_deck_model_is_listed_and_orderable() {
             l.name
         );
     }
-    // The cheapest model you don't own orders with the dev key's money.
-    s.dev_credits();
+    // The cheapest deck you don't own orders once the bank holds its price.
     let cheapest = decks
         .iter()
         .filter(|l| matches!(l.stock, Stock::Price(_)))
         .min_by_key(|l| l.price())
         .unwrap();
+    s.bank = cheapest.price().unwrap();
     assert_eq!(s.order_blocker(&d, &cheapest.item), None);
     s.buy_item(&d, &cheapest.item).unwrap();
     assert!(s.owns(&match &cheapest.item {
         Item::Deck(id) => ninsei_core::hardware::Hardware::Deck(id.clone()),
         _ => unreachable!(),
     }));
+}
+
+#[test]
+fn a_deck_ad_prints_its_stats_and_nothing_else_does() {
+    let d = data();
+    let cat = fresh(0).catalog(&d);
+    for deck in &d.hardware.decks {
+        let l = cat
+            .iter()
+            .find(|l| l.item == Item::Deck(deck.id.clone()))
+            .unwrap();
+        assert_eq!(l.specs.len(), deck.stats.len(), "{}", deck.id);
+        for (spec, row) in l.specs.iter().zip(&deck.stats) {
+            assert_eq!(spec.line, row.line);
+            assert_eq!((spec.ships, spec.max), (row.base, row.max), "{}", deck.id);
+            let rig = d.rig.iter().find(|u| u.kind == row.line).unwrap();
+            assert_eq!(spec.label, rig.label, "the magazine's word for the line");
+            let unit = |n: u32| match rig.unit.as_str() {
+                "" => n.to_string(),
+                u => format!("{n} {u}"),
+            };
+            assert_eq!(spec.ships_text(), unit(row.base));
+            assert_eq!(spec.max_text(), unit(row.max));
+        }
+        // CPU, RAM and HDD are always in the box.
+        for u in [Upgrade::Cpu, Upgrade::Ram, Upgrade::Hdd] {
+            assert!(l.specs.iter().any(|s| s.line == u), "{} {u:?}", deck.id);
+        }
+    }
+    // A product's numbers, never the reader's rig: RIG levels don't move them.
+    let mut rich = fresh(0);
+    rich.rig.ram = 3;
+    let again = rich.catalog(&d);
+    for (a, b) in cat.iter().zip(&again) {
+        assert_eq!(a.specs, b.specs, "{}", a.name);
+    }
+    for l in cat.iter().filter(|l| !matches!(l.item, Item::Deck(_))) {
+        assert!(l.specs.is_empty(), "{} has no spec box", l.name);
+    }
+}
+
+#[test]
+fn a_vendors_small_print_runs_every_term_in() {
+    let d = data();
+    for v in &d.shopper.vendors {
+        match v.small_print() {
+            None => assert!(v.terms.is_empty(), "{}", v.id),
+            Some(p) => {
+                assert!(p.starts_with("TERMS: "), "{p}");
+                for t in &v.terms {
+                    assert!(p.contains(t.as_str()), "{}: {t}", v.id);
+                }
+            }
+        }
+    }
 }

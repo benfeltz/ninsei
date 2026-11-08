@@ -1,7 +1,7 @@
 //! Monitors and decks: owned hardware decides the CRT look, the themes you can use, and the UX.
 
 use ninsei_core::hardware::Hardware;
-use ninsei_core::hub::{self, Save, ShellEffect};
+use ninsei_core::hub::{self, Save, ShellEffect, Upgrade};
 use ninsei_core::netview::MapView;
 use ninsei_core::*;
 
@@ -272,7 +272,20 @@ fn models_share_a_brands_firmware() {
 
 #[test]
 fn climbing_a_brand_keeps_the_firmware_and_the_layout() {
-    let d = data();
+    // The shipped data sells one deck a brand; the rule still holds for a brand that sells
+    // two, so give a deck with two firmware versions a bigger twin.
+    let mut d = data();
+    let twin = d
+        .hardware
+        .decks
+        .iter()
+        .find(|x| x.firmware.len() > 1)
+        .map(|x| ninsei_core::hardware::DeckDef {
+            id: format!("{}-twin", x.id),
+            ..x.clone()
+        })
+        .expect("a deck with two firmware versions");
+    d.hardware.decks.push(twin);
     // Two models of one brand whose firmware has a second version to switch to.
     let (a, b) = d
         .hardware
@@ -304,4 +317,29 @@ fn climbing_a_brand_keeps_the_firmware_and_the_layout() {
     assert_ne!(other.maker, b.maker);
     s.use_deck(&d, &other.id).unwrap();
     assert_eq!(s.firmware, other.firmware[0].id);
+}
+
+#[test]
+fn the_starter_is_the_low_tier_and_the_rest_share_one_ceiling() {
+    let d = data();
+    let starter = d.hardware.starter_deck();
+    let real: Vec<_> = d.hardware.decks.iter().filter(|x| !x.starter).collect();
+    assert!(!real.is_empty());
+    for line in Upgrade::ALL {
+        let Some(low) = starter.stat(line) else {
+            continue;
+        };
+        let tops: Vec<u32> = real.iter().map(|x| x.stat(line).unwrap().max).collect();
+        assert!(tops.iter().all(|&t| t > low.max), "{line:?}: {tops:?}");
+        assert!(tops.windows(2).all(|w| w[0] == w[1]), "{line:?}: {tops:?}");
+    }
+    // The real decks differ in shape, not in how far they go: what they ship with.
+    for (i, a) in real.iter().enumerate() {
+        for b in &real[i + 1..] {
+            let ships = |x: &ninsei_core::hardware::DeckDef| {
+                Upgrade::ALL.map(|u| x.stat(u).map(|s| s.base))
+            };
+            assert_ne!(ships(a), ships(b), "{} and {} ship alike", a.id, b.id);
+        }
+    }
 }
