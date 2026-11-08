@@ -312,6 +312,7 @@ fn ice_bas_is_one_program_before_during_and_after_a_fight() {
     g.apply(btop_fight::delete(&g, first).unwrap());
     let before = g.combat.as_ref().unwrap().strength;
     g.apply(Action::Play);
+    g.apply(Action::Finish);
     g.apply(Action::Pause);
     let after = g.combat.as_ref().map_or(0, |c| c.strength);
     assert!(after < before, "the program attacked: {before} -> {after}");

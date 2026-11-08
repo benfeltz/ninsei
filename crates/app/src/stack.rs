@@ -1641,17 +1641,19 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn step_runs_a_pass_and_the_message_box_says_so() {
+    fn step_runs_a_line_and_the_message_box_says_so() {
         let mut g = fight("10 RUN icepick\n20 IF INTEG > 99\n30 GOTO 10");
         let mut h = crate::uitest::Harness::new(1280.0, 800.0);
         script(&mut h, &g, PANE, vec![]);
         let turn = g.combat.as_ref().unwrap().turn;
-        let before = g.log.len();
         let out = click_on(&mut h, &g, "Step");
         assert_eq!(apply(&mut g, out), [Action::Step]);
-        if g.phase == Phase::Combat {
-            assert_eq!(g.combat.as_ref().unwrap().turn, turn + 1);
-        }
+        assert_eq!(g.exec.pc, Some(20), "the ▶ moves to the next line");
+        assert_eq!(g.combat.as_ref().unwrap().turn, turn, "the turn goes on");
+        let before = g.log.len();
+        script(&mut h, &g, PANE, vec![]);
+        let out = click_on(&mut h, &g, "Step");
+        assert_eq!(apply(&mut g, out), [Action::Step]);
         let said: Vec<&str> = g.log[before..].iter().map(|l| l.text.as_str()).collect();
         assert!(
             said.contains(&"20 IF INTEG > 99: no. skipping the next line."),

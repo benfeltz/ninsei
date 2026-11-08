@@ -278,6 +278,7 @@ fn play_after_a_stop_carries_on_past_it() {
 fn a_cycle_less_loop_breaks() {
     let mut g = fight("bulwark", "10 GOTO 10");
     g.apply(Action::Play);
+    g.apply(Action::Finish);
     assert_eq!(g.exec.trace.last().unwrap().what, StepWhat::Break);
     assert!(g.log.iter().any(|l| l.text == "?BREAK IN 10"));
     assert_eq!(g.exec.state, ExecState::Paused, "the debugger has the turn");
@@ -368,6 +369,7 @@ fn edits_apply_to_the_next_pass() {
 fn play_keeps_running_and_pause_hands_back() {
     let mut g = fight("bulwark", SAMPLE);
     g.apply(Action::Play);
+    g.apply(Action::Finish);
     assert_eq!((g.exec.state, combat(&g).turn), (ExecState::Running, 2));
     g.apply(Action::Finish);
     assert_eq!((g.exec.state, combat(&g).turn), (ExecState::Running, 3));
