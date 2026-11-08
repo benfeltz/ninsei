@@ -212,3 +212,40 @@ fn a_deck_careers_cannot_buy_means_they_never_climb_and_the_report_says_so() {
         );
     }
 }
+
+#[test]
+fn deck_lines_fit_the_shell_whatever_the_decks_are_called() {
+    let mut data = cheap_decks();
+    for d in &mut data.hardware.decks {
+        d.maker = "Ono-Sendai Heavy Industries Consolidated".into();
+        d.name = format!("{} Professional Workstation Deluxe", d.name);
+    }
+    let climb = data
+        .hardware
+        .decks
+        .iter()
+        .find(|d| !d.starter)
+        .unwrap()
+        .id
+        .clone();
+    for id in [
+        "",
+        climb.as_str(),
+        "a-deck-id-much-longer-than-any-line-has-room-for",
+    ] {
+        let cfg = Config {
+            career_runs: 40,
+            ..short_careers()
+        };
+        let mut p = Probe::new(&data, cfg).with_deck(id);
+        while !p.step(50) {}
+        let lines = p.report();
+        for l in &lines {
+            assert!(l.chars().count() <= 70, "{id:?}: {l:?}");
+        }
+        if id.is_empty() {
+            assert!(lines.iter().any(|l| l.contains("tier 3 on ")), "{lines:?}");
+            assert!(lines.iter().any(|l| l.trim_start().starts_with("deck ")));
+        }
+    }
+}

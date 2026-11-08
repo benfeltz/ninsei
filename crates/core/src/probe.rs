@@ -726,6 +726,18 @@ pub struct Stats {
     pub maxed: Vec<u32>,
 }
 
+/// A deck's name cut to `n` characters, so a report line fits the Shell whatever the data
+/// calls it.
+fn short(name: &str, n: usize) -> String {
+    if name.chars().count() <= n {
+        name.to_string()
+    } else {
+        let mut s: String = name.chars().take(n - 1).collect();
+        s.push('…');
+        s
+    }
+}
+
 /// The probe, resumable: call [`Probe::step`] until it's done, then read [`Probe::report`].
 #[derive(Clone)]
 pub struct Probe {
@@ -1184,7 +1196,7 @@ impl Probe {
             self.data.starts.kit(&self.kit).id
         ));
         if let Some(d) = self.climbs_to() {
-            out.push(format!("  careers climb to {}", d.title()));
+            out.push(format!("  careers climb to {}", short(&d.title(), 48)));
         }
         out.push(String::new());
         out.push("single runs, plain network       dumb bot    smart bot".into());
@@ -1220,7 +1232,10 @@ impl Probe {
         let mut by = s.t3_by_chassis.clone();
         by.sort_by(|a, b| (a.0.1, &a.0.0).cmp(&(b.0.1, &b.0.0)));
         for ((deck, cap), t) in by {
-            let deck = self.data.hardware.deck(&deck).map_or(deck, |d| d.title());
+            let deck = short(
+                &self.data.hardware.deck(&deck).map_or(deck, |d| d.title()),
+                28,
+            );
             out.push(format!(
                 "  tier 3 on {deck} (cpu {cap}): {:>5} runs, {:>3}% out",
                 t.runs,
@@ -1292,8 +1307,9 @@ impl Probe {
         decks.sort_by_key(|d| d.2 / u64::from(d.1.max(1)));
         for (title, n, sum) in decks {
             out.push(format!(
-                "  deck   {:>4.1} a career: {title}, around run {}",
+                "  deck   {:>4.1} a career: {}, around run {}",
                 f64::from(n) / careers as f64,
+                short(&title, 28),
                 sum / u64::from(n.max(1))
             ));
         }
@@ -1301,8 +1317,11 @@ impl Probe {
             _ if self.deck.is_empty() => {
                 "  (the bot climbs to the cheapest deck that takes it further)".into()
             }
-            Some(d) => format!("  (the bot climbs only to {})", d.title()),
-            None => format!("  (the bot never climbs: no deck `{}` to buy)", self.deck),
+            Some(d) => format!("  (the bot climbs only to {})", short(&d.title(), 40)),
+            None => format!(
+                "  (the bot never climbs: no deck `{}` to buy)",
+                short(&self.deck, 24)
+            ),
         });
         let mut maxed: Vec<u32> = s.maxed.iter().copied().filter(|&r| r > 0).collect();
         maxed.sort_unstable();
