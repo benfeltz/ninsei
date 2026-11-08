@@ -272,7 +272,7 @@ fn hex_round_trips() {
 
 #[test]
 fn saves_from_before_the_stash_still_load() {
-    let s = Save::load("(version: 1, runs: 2, exits: 1)").unwrap();
+    let s = Save::load("(version: 2, runs: 2, exits: 1)").unwrap();
     assert_eq!((s.bank, s.fragments, s.key), (0, 0, 0));
     assert_eq!(s.loadout.starters.len(), tuning::START_WAREZ.len());
     let mut s = s;

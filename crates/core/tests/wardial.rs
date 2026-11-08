@@ -243,7 +243,7 @@ fn shell_ranges_and_wardial() {
 
 #[test]
 fn old_saves_know_the_local_exchange() {
-    let s = Save::load("(version: 1, runs: 1)").unwrap();
+    let s = Save::load("(version: 2, runs: 1)").unwrap();
     assert!(s.knows_range("local"));
     assert_eq!(s.telco_heat, 0);
 }

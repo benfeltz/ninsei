@@ -14,8 +14,9 @@ use crate::tuning::{
     PHONEBOOK_START, RESULTS_KEPT, START_WAREZ, STASH_BASE_SLOTS, TRAP_TRACE_PCT, WARDIAL_BLOCK,
 };
 
-/// Bump when the save's shape changes incompatibly.
-pub const SAVE_VERSION: u32 = 1;
+/// Bump when the save's shape changes incompatibly. 2: binary byte 07 (the RAM cost) became
+/// reserved, so a version-1 stash would fail its checks: a version-1 save starts fresh.
+pub const SAVE_VERSION: u32 = 2;
 /// Run theme a new save starts with.
 pub const DEFAULT_RUN_THEME: &str = "amber";
 

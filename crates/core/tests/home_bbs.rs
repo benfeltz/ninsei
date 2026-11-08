@@ -50,7 +50,7 @@ fn a_fresh_phonebook_has_sense_net_and_the_school() {
 
 #[test]
 fn old_saves_know_no_boards() {
-    let s = Save::load("(version: 1, runs: 1)").unwrap();
+    let s = Save::load("(version: 2, runs: 1)").unwrap();
     assert!(s.boards.is_empty() && s.pending.is_empty() && s.home_bought.is_empty());
 }
 

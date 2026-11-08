@@ -53,7 +53,7 @@ fn panes_come_with_firmware_or_are_bought() {
     assert!(s.buy_pane(&d, "net").is_err(), "only once");
     assert!(s.buy_pane(&d, "nope").is_err());
     // Old saves load without the field.
-    assert!(Save::load("(version: 1)").unwrap().panes.is_empty());
+    assert!(Save::load("(version: 2)").unwrap().panes.is_empty());
 }
 
 #[test]

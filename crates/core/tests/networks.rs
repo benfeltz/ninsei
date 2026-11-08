@@ -212,7 +212,7 @@ fn shell_dials_by_position_or_number() {
 #[test]
 fn old_saves_keep_their_start() {
     let d = data();
-    let mut s = Save::load("(version: 1, runs: 4)").unwrap();
+    let mut s = Save::load("(version: 2, runs: 4)").unwrap();
     assert!(s.started, "a save from before kits has started");
     assert!(!s.ensure_phonebook(&d, 3), "no kit is applied to it");
     assert_eq!(Save::load(&s.to_text()).unwrap(), s);

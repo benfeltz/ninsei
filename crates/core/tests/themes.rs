@@ -37,7 +37,7 @@ fn rgb_parses_hex() {
 fn one_setting_for_everything() {
     let s = Save::default();
     assert_eq!(s.phosphor, DEFAULT_RUN_THEME);
-    let old = Save::load("(version: 1, phosphor: \"ice\")").unwrap();
+    let old = Save::load("(version: 2, phosphor: \"ice\")").unwrap();
     assert_eq!(old.phosphor, "ice", "older saves keep their theme");
 }
 
