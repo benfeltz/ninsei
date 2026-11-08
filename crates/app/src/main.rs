@@ -582,15 +582,12 @@ impl App {
     fn play_desktop_music(&mut self, ctx: &egui::Context) {
         use ninsei_core::player;
         let now = ctx.input(|i| i.time);
-        let dt = self
-            .home
-            .player_clock
-            .map_or(0.0, |t| (now - t).clamp(0.0, 30.0)) as f32;
+        // However long since the last frame: no frames come while the window is hidden, and
+        // the music has gone on.
+        let dt = self.home.player_clock.map_or(0.0, |t| (now - t).max(0.0)) as f32;
         self.home.player_clock = Some(now);
         let live = player::at_home(self.screen) && !self.speaker.intro_on();
-        let before = self.save.player.clone();
-        player::tick(&mut self.save, &self.data, &mut self.home.player, dt, live);
-        if self.save.player != before {
+        if player::tick(&mut self.save, &self.data, &mut self.home.player, dt, live) {
             self.save_dirty = true;
         }
         let want = player::wanted(&self.save, &self.data, self.screen, &self.home.player);
