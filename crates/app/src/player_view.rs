@@ -345,15 +345,23 @@ pub fn liza_face(
     let (x0, w) = (rect.left(), rect.width());
     let line = 20.0;
     let mut y = rect.top();
+    // Every column is measured in the face's type: an advance, and the widths of what sits
+    // beside a control.
+    let ctx = ui.ctx().clone();
+    let measure = |s: &str| kit::text_width(&ctx, s, &look.font).ceil();
+    let adv = measure("0");
+    let chars = |px: f32| (px / adv).floor().max(1.0) as usize;
+    let cut = crate::kit::cells::cut;
 
     // The tune in bold (struck twice a pixel apart, as a bitmap face bolds) and its crew.
     let tune = player::current_tune(save, data);
     let (title, by) = tune.map_or(("No tune", ""), |t| (t.title.as_str(), t.by.as_str()));
+    let (title, by) = (cut(title, chars(w - 1.0)), cut(by, chars(w)));
     for dx in [0.0, 1.0] {
         p.text(
             pos2(x0 + dx, y),
             Align2::LEFT_TOP,
-            title,
+            &title,
             look.font.clone(),
             look.ink,
         );
@@ -361,7 +369,7 @@ pub fn liza_face(
     p.text(
         pos2(x0, y + line),
         Align2::LEFT_TOP,
-        by,
+        &by,
         look.font.clone(),
         look.ink,
     );
@@ -369,7 +377,7 @@ pub fn liza_face(
 
     // Where it is: elapsed, the slider, the length.
     let (at, total) = player::now(save, data, t).map_or((0.0, 0.0), |(_, a, b)| (a, b));
-    let clock_w = 48.0;
+    let clock_w = measure("00:00") + 8.0;
     p.text(
         pos2(x0, y + 8.0),
         Align2::LEFT_CENTER,
@@ -429,16 +437,17 @@ pub fn liza_face(
         look.font.clone(),
         look.ink,
     );
-    let therm = Rect::from_min_size(pos2(x0 + 70.0, y + 2.0), vec2(120.0, 12.0));
+    let label_w = measure("Volume").max(measure("Muted"));
+    let therm = Rect::from_min_size(pos2(x0 + label_w + 10.0, y + 2.0), vec2(120.0, 12.0));
     let level = player::level(save);
     if let Some(v) = kit::thermometer(ui, therm, Id::new("trax-liza-volume"), level, &look) {
         out.push(WbOut::Player(Act::Volume((v * 100.0).round() as u8)));
     }
     let mut modes = ui.new_child(
         UiBuilder::new()
-            .max_rect(Rect::from_min_size(
-                pos2(x0 + 210.0, y),
-                vec2(w - 210.0, line),
+            .max_rect(Rect::from_min_max(
+                pos2(therm.right() + 20.0, y),
+                pos2(x0 + w, y + line),
             ))
             .layout(egui::Layout::left_to_right(egui::Align::Center)),
     );
@@ -510,6 +519,11 @@ pub fn liza_face(
         ui.new_child(UiBuilder::new().max_rect(Rect::from_min_max(pos2(x0, y), rect.max)));
     let sel = pui.sel.unwrap_or(0);
     let font = look.font.clone();
+    // The columns: the mark, the title (the longest a title may be), the crew in what's left,
+    // and the length at the right.
+    let title_x = 4.0 + 2.0 * adv;
+    let by_x = title_x + adv * (ninsei_core::data::TUNE_TITLE_MAX + 2) as f32;
+    let len_w = measure("00:00");
     let picked = kit::list_box(
         &mut list,
         vec2(w, rect.bottom() - y),
@@ -537,16 +551,17 @@ pub fn liza_face(
                 fg,
             );
             p.text(
-                pos2(cell.left() + 20.0, mid),
+                pos2(cell.left() + title_x, mid),
                 Align2::LEFT_CENTER,
-                row.title,
+                cut(row.title, ninsei_core::data::TUNE_TITLE_MAX),
                 font.clone(),
                 fg,
             );
+            let by_room = cell.width() - 6.0 - len_w - adv - by_x;
             p.text(
-                pos2(cell.left() + 240.0, mid),
+                pos2(cell.left() + by_x, mid),
                 Align2::LEFT_CENTER,
-                crate::kit::cells::cut(row.by, 14),
+                cut(row.by, chars(by_room)),
                 font.clone(),
                 fg,
             );
@@ -1058,6 +1073,32 @@ mod tests {
                 .filter(|r| therm.expand(0.5).contains_rect(*r) && r.width() < therm.width() - 3.0)
                 .any(|r| r.right() > therm.left() + 60.0);
             assert!(lit, "the level is drawn");
+        }
+
+        #[test]
+        fn the_longest_title_never_runs_into_its_crew() {
+            let mut data = Data::builtin().unwrap();
+            let longest = "W".repeat(ninsei_core::data::TUNE_TITLE_MAX);
+            data.tunes[0].title = longest.clone();
+            let mut save = sensenet(&data);
+            save.tunes.insert(0, data.tunes[0].id.clone());
+            let by = data.tunes[0].by.clone();
+            let mut h = Harness::new(800.0, 700.0);
+            let mut home = Home::new(Vec::new());
+            da(&mut h, &mut home, &data, &save, false, Vec::new());
+            let texts = h.painted_text();
+            let at = |t: &str| {
+                texts
+                    .iter()
+                    .filter(|(s, _)| s.starts_with(t))
+                    .map(|(_, r)| *r)
+                    .max_by(|a, b| a.top().total_cmp(&b.top()))
+                    .unwrap_or_else(|| panic!("no {t:?}"))
+            };
+            // The crew may be cut short with …: found by how it starts.
+            let (title, crew) = (at(&longest), at(&by[..6]));
+            assert!((title.center().y - crew.center().y).abs() < 1.0, "one row");
+            assert!(title.right() < crew.left(), "{title:?} {crew:?}");
         }
 
         #[test]
