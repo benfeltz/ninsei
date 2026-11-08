@@ -9,7 +9,7 @@ use ninsei_core::Data;
 use ninsei_core::hub::Save;
 use ninsei_core::player::{self, Act, Transport};
 
-use crate::home::{WbOut, accent, ink, muted, shadow};
+use crate::home::{WbOut, accent, font, ink, muted, shadow};
 use crate::kit::cells::Unlit;
 use crate::kit::{Cells, List};
 
@@ -48,8 +48,9 @@ fn ramp() -> [Color32; 3] {
     [muted(), ink(), accent()]
 }
 
-/// This frame's acts and cursor moves from the keyboard, while the tile has it.
-fn keys(ui: &Ui, rows: usize, sel: &mut Option<usize>) -> Vec<Act> {
+/// This frame's acts and cursor moves from the keyboard, while the player has it. `arrows`:
+/// ↑↓ move the cursor here (a list box with the focus walks itself).
+fn keys(ui: &Ui, rows: usize, sel: &mut Option<usize>, arrows: bool) -> Vec<Act> {
     let mut acts = Vec::new();
     ui.input(|i| {
         for e in &i.events {
@@ -74,6 +75,7 @@ fn keys(ui: &Ui, rows: usize, sel: &mut Option<usize>) -> Vec<Act> {
                 Key::Minus => acts.push(Act::Softer),
                 Key::R => acts.push(Act::Repeat),
                 Key::S => acts.push(Act::Shuffle),
+                Key::ArrowDown | Key::ArrowUp if !arrows => {}
                 Key::J | Key::ArrowDown if rows > 0 => {
                     *sel = Some(sel.map_or(0, |s| (s + 1).min(last)));
                 }
@@ -113,7 +115,7 @@ pub fn tile(
     if keys_on {
         // Its keys are the player's: nothing behind it types them.
         ui.ctx().memory_mut(|m| m.stop_text_input());
-        for a in keys(ui, rows.len(), &mut pui.sel) {
+        for a in keys(ui, rows.len(), &mut pui.sel, true) {
             out.push(WbOut::Player(a));
         }
     }
@@ -279,6 +281,298 @@ pub fn tile(
         }
         None => {
             g.text(&p, 2, top + 1, "-", muted());
+        }
+    }
+}
+
+/// The Sense/Net's TRAX: its face's size, a fixed desk accessory.
+pub const LIZA_SIZE: egui::Vec2 = egui::vec2(440.0, 404.0);
+
+/// The spectrum box's height on the desk accessory, and a bar's width and gap.
+const LIZA_VIS_H: f32 = 64.0;
+const LIZA_BAR: f32 = 6.0;
+const LIZA_GAP: f32 = 2.0;
+/// A playlist cell's height.
+const LIZA_CELL_H: f32 = 20.0;
+
+/// The Liza look in the desk's colours, with the 50% gray.
+fn liza_look(data: &Data) -> crate::kit::liza::Look<'_> {
+    crate::kit::liza::Look {
+        ink: ink(),
+        paper: shadow(),
+        font: font(),
+        stripes: None,
+        gray: data.pattern("p50"),
+    }
+}
+
+/// Draws the Sense/Net's TRAX: a System 6 desk accessory with Winamp 2's transport. The tune
+/// and its crew, a position slider, ◀◀ ▶ ■ ▶▶, a volume thermometer, Repeat and Shuffle, the
+/// spectrum in 1-bit bars, and the playlist in a list box. `keys`: the window is in front
+/// with the keyboard.
+#[allow(clippy::too_many_arguments)]
+pub fn liza_face(
+    ui: &mut Ui,
+    data: &Data,
+    save: &Save,
+    t: &Transport,
+    pui: &mut PlayerUi,
+    heard: &Heard,
+    keys_on: bool,
+    out: &mut Vec<WbOut>,
+) {
+    use crate::kit::liza as kit;
+    use egui::{Align2, Id, UiBuilder, pos2, vec2};
+    pui.drawn = Some(ui.ctx().cumulative_pass_nr());
+    let look = liza_look(data);
+    let rows = player::rows(save, data);
+    if pui.sel.is_none_or(|s| s >= rows.len()) {
+        pui.sel = player::current(save, data).or((!rows.is_empty()).then_some(0));
+    }
+    let list_id = Id::new("trax-liza-list");
+    if keys_on {
+        // Its keys are the player's: nothing behind it types them.
+        ui.ctx().memory_mut(|m| m.stop_text_input());
+        let walks = ui.memory(|m| m.has_focus(list_id));
+        for a in keys(ui, rows.len(), &mut pui.sel, !walks) {
+            out.push(WbOut::Player(a));
+        }
+    }
+    // The face, centred across the window's room.
+    let room = ui.available_width().max(LIZA_SIZE.x);
+    let (row, _) = ui.allocate_exact_size(vec2(room, LIZA_SIZE.y), Sense::hover());
+    let left = (row.left() + (row.width() - LIZA_SIZE.x) / 2.0).round();
+    let rect = Rect::from_min_size(pos2(left, row.top().round()), LIZA_SIZE);
+    let p = ui.painter_at(rect.expand(1.0));
+    let (x0, w) = (rect.left(), rect.width());
+    let line = 20.0;
+    let mut y = rect.top();
+
+    // The tune in bold (struck twice a pixel apart, as a bitmap face bolds) and its crew.
+    let tune = player::current_tune(save, data);
+    let (title, by) = tune.map_or(("No tune", ""), |t| (t.title.as_str(), t.by.as_str()));
+    for dx in [0.0, 1.0] {
+        p.text(
+            pos2(x0 + dx, y),
+            Align2::LEFT_TOP,
+            title,
+            look.font.clone(),
+            look.ink,
+        );
+    }
+    p.text(
+        pos2(x0, y + line),
+        Align2::LEFT_TOP,
+        by,
+        look.font.clone(),
+        look.ink,
+    );
+    y += 2.0 * line + 6.0;
+
+    // Where it is: elapsed, the slider, the length.
+    let (at, total) = player::now(save, data, t).map_or((0.0, 0.0), |(_, a, b)| (a, b));
+    let clock_w = 48.0;
+    p.text(
+        pos2(x0, y + 8.0),
+        Align2::LEFT_CENTER,
+        player::clock(at),
+        look.font.clone(),
+        look.ink,
+    );
+    p.text(
+        pos2(x0 + w, y + 8.0),
+        Align2::RIGHT_CENTER,
+        player::clock(total),
+        look.font.clone(),
+        look.ink,
+    );
+    let bar = Rect::from_min_size(
+        pos2(x0 + clock_w, y),
+        vec2(w - 2.0 * clock_w, kit::size::SCROLL_W),
+    );
+    let place = if total > 0.0 { at / total } else { 0.0 };
+    if let Some(v) = kit::hslider(ui, bar, Id::new("trax-liza-seek"), place, &look)
+        && total > 0.0
+    {
+        out.push(WbOut::Player(Act::Seek((v * total * 1000.0) as u32)));
+    }
+    y += kit::size::SCROLL_W + 10.0;
+
+    // The transport: Winamp's four buttons, ▶ reading ‖ while it plays.
+    let play = if t.play == player::Play::Playing {
+        "‖"
+    } else {
+        "▶"
+    };
+    let row_h = kit::size::BUTTON_H + 2.0 * kit::size::RING_OUT;
+    let mut buttons = ui.new_child(
+        UiBuilder::new()
+            .max_rect(Rect::from_min_size(pos2(x0, y), vec2(w, row_h)))
+            .layout(egui::Layout::left_to_right(egui::Align::Min)),
+    );
+    buttons.spacing_mut().item_spacing.x = 4.0;
+    for (label, act) in [
+        ("◀◀", Act::Prev),
+        (play, Act::Toggle),
+        ("■", Act::Stop),
+        ("▶▶", Act::Next),
+    ] {
+        if kit::push_button(&mut buttons, label, false, &look).clicked() {
+            out.push(WbOut::Player(act));
+        }
+    }
+    y += row_h + 6.0;
+
+    // The level as a thermometer, then the modes as check boxes.
+    p.text(
+        pos2(x0, y + 8.0),
+        Align2::LEFT_CENTER,
+        "Volume",
+        look.font.clone(),
+        look.ink,
+    );
+    let therm = Rect::from_min_size(pos2(x0 + 70.0, y + 2.0), vec2(120.0, 12.0));
+    let level = if save.sound {
+        f32::from(save.volume.min(100)) / 100.0
+    } else {
+        0.0
+    };
+    if let Some(v) = kit::thermometer(ui, therm, Id::new("trax-liza-volume"), level, &look) {
+        out.push(WbOut::Player(Act::Volume((v * 100.0).round() as u8)));
+    }
+    let mut modes = ui.new_child(
+        UiBuilder::new()
+            .max_rect(Rect::from_min_size(
+                pos2(x0 + 210.0, y),
+                vec2(w - 210.0, line),
+            ))
+            .layout(egui::Layout::left_to_right(egui::Align::Center)),
+    );
+    modes.spacing_mut().item_spacing.x = 14.0;
+    let (mut repeat, mut shuffle) = (save.player.repeat, save.player.shuffle);
+    if kit::check_box(&mut modes, &mut repeat, "Repeat", &look).changed() {
+        out.push(WbOut::Player(Act::Repeat));
+    }
+    if kit::check_box(&mut modes, &mut shuffle, "Shuffle", &look).changed() {
+        out.push(WbOut::Player(Act::Shuffle));
+    }
+    y += line + 10.0;
+
+    // The spectrum: 1-bit bars, ink on paper, in a sunken box (a frame with a second rule
+    // inside its top and left edges).
+    let vis = Rect::from_min_size(pos2(x0, y), vec2(w, LIZA_VIS_H));
+    p.rect_filled(vis, 0.0, look.paper);
+    p.rect_stroke(
+        vis,
+        0.0,
+        egui::Stroke::new(1.0, look.ink),
+        egui::StrokeKind::Inside,
+    );
+    let inner = vis.shrink(4.0);
+    p.line_segment(
+        [
+            vis.left_top() + vec2(1.5, 1.5),
+            vis.right_top() + vec2(-1.5, 1.5),
+        ],
+        egui::Stroke::new(1.0, look.ink),
+    );
+    p.line_segment(
+        [
+            vis.left_top() + vec2(1.5, 1.5),
+            vis.left_bottom() + vec2(1.5, -1.5),
+        ],
+        egui::Stroke::new(1.0, look.ink),
+    );
+    let n = ((inner.width() + LIZA_GAP) / (LIZA_BAR + LIZA_GAP))
+        .floor()
+        .max(1.0) as usize;
+    let samples: &[f32] = if heard.samples.is_empty() {
+        &[0.0; 64]
+    } else {
+        &heard.samples
+    };
+    let bars = crate::vispane::bars(ui, "trax-liza", samples, heard.rate.max(1), n);
+    let left = inner.left()
+        + ((inner.width() - (n as f32 * (LIZA_BAR + LIZA_GAP) - LIZA_GAP)) / 2.0).round();
+    for (i, b) in bars.iter().enumerate() {
+        let h = (b.clamp(0.0, 1.0) * inner.height()).round();
+        if h >= 1.0 {
+            let x = left + i as f32 * (LIZA_BAR + LIZA_GAP);
+            p.rect_filled(
+                Rect::from_min_max(
+                    pos2(x, inner.bottom() - h),
+                    pos2(x + LIZA_BAR, inner.bottom()),
+                ),
+                0.0,
+                look.ink,
+            );
+        }
+    }
+    y += LIZA_VIS_H + 8.0;
+
+    // The playlist: a list box, the cursor inverted, the playing tune marked; a double-click
+    // (or Enter) plays.
+    let mut list =
+        ui.new_child(UiBuilder::new().max_rect(Rect::from_min_max(pos2(x0, y), rect.max)));
+    let sel = pui.sel.unwrap_or(0);
+    let font = look.font.clone();
+    let picked = kit::list_box(
+        &mut list,
+        vec2(w, rect.bottom() - y),
+        list_id,
+        rows.len(),
+        LIZA_CELL_H,
+        0.0,
+        sel,
+        &look,
+        |p, cell, i, on| {
+            let row = &rows[i];
+            let (fg, bg) = if on {
+                (look.paper, look.ink)
+            } else {
+                (look.ink, look.paper)
+            };
+            p.rect_filled(cell, 0.0, bg);
+            let mid = cell.center().y;
+            let mark = if row.current { "▶" } else { "" };
+            p.text(
+                pos2(cell.left() + 4.0, mid),
+                Align2::LEFT_CENTER,
+                mark,
+                font.clone(),
+                fg,
+            );
+            p.text(
+                pos2(cell.left() + 20.0, mid),
+                Align2::LEFT_CENTER,
+                row.title,
+                font.clone(),
+                fg,
+            );
+            p.text(
+                pos2(cell.left() + 240.0, mid),
+                Align2::LEFT_CENTER,
+                crate::kit::cells::cut(row.by, 14),
+                font.clone(),
+                fg,
+            );
+            p.text(
+                pos2(cell.right() - 6.0, mid),
+                Align2::RIGHT_CENTER,
+                &row.length,
+                font.clone(),
+                fg,
+            );
+            row.title.to_string()
+        },
+    );
+    if let Some(i) = picked {
+        pui.sel = Some(i);
+        if ui.input(|i| {
+            i.pointer
+                .button_double_clicked(egui::PointerButton::Primary)
+        }) {
+            out.push(WbOut::Player(Act::Pick(i)));
         }
     }
 }
@@ -611,5 +905,174 @@ mod tests {
             .position(|(r, _)| r.contains(&format!("2/{}", data.tunes.len())))
             .unwrap_or_else(|| panic!("{rows:?}"));
         assert_eq!(mark, title + 4, "on the bottom edge, under three rows");
+    }
+
+    mod liza {
+        use super::*;
+        use crate::uitest::click;
+
+        /// A Sense/Net owning TRAX and three tunes.
+        fn sensenet(data: &Data) -> Save {
+            let mut s = deck(data);
+            s.learn_tool("player");
+            s.tunes = vec!["chroma".into(), "welcome".into(), "trap-line".into()];
+            s
+        }
+
+        /// One frame of the desk accessory, with the keyboard or without; what it sent.
+        fn da(
+            h: &mut Harness,
+            home: &mut Home,
+            data: &Data,
+            save: &Save,
+            keys: bool,
+            events: Vec<egui::Event>,
+        ) -> Vec<Act> {
+            frame_keys(
+                h,
+                home,
+                data,
+                save,
+                Tool::Player,
+                rect(600.0, 600.0),
+                keys,
+                events,
+            )
+            .into_iter()
+            .filter_map(|o| match o {
+                WbOut::Player(a) => Some(a),
+                _ => None,
+            })
+            .collect()
+        }
+
+        /// Clicks the widget labelled `label` (two frames, as a click takes); what it sent.
+        fn press(
+            h: &mut Harness,
+            home: &mut Home,
+            data: &Data,
+            save: &Save,
+            label: &str,
+        ) -> Vec<Act> {
+            let at = h
+                .find(label)
+                .unwrap_or_else(|| panic!("no {label:?}: {:?}", h.texts()))
+                .center();
+            let mut acts = da(h, home, data, save, false, click(at));
+            acts.extend(da(h, home, data, save, false, Vec::new()));
+            acts
+        }
+
+        #[test]
+        fn its_buttons_and_boxes_drive_the_player() {
+            let data = Data::builtin().unwrap();
+            let save = sensenet(&data);
+            let mut h = Harness::new(800.0, 700.0);
+            let mut home = Home::new(Vec::new());
+            da(&mut h, &mut home, &data, &save, false, Vec::new());
+            for (label, act) in [
+                ("◀◀", Act::Prev),
+                ("▶", Act::Toggle),
+                ("■", Act::Stop),
+                ("▶▶", Act::Next),
+                ("Repeat", Act::Repeat),
+                ("Shuffle", Act::Shuffle),
+            ] {
+                assert_eq!(
+                    press(&mut h, &mut home, &data, &save, label),
+                    [act],
+                    "{label}"
+                );
+            }
+        }
+
+        #[test]
+        fn play_reads_pause_while_it_plays() {
+            let data = Data::builtin().unwrap();
+            let mut save = sensenet(&data);
+            let mut h = Harness::new(800.0, 700.0);
+            let mut home = Home::new(Vec::new());
+            player::apply(&mut save, &data, &mut home.player, Act::Pick(0));
+            da(&mut h, &mut home, &data, &save, false, Vec::new());
+            assert!(h.find("‖").is_some(), "{:?}", h.texts());
+            assert_eq!(press(&mut h, &mut home, &data, &save, "‖"), [Act::Toggle]);
+        }
+
+        #[test]
+        fn the_slider_seeks_and_the_thermometer_sets_the_level() {
+            let data = Data::builtin().unwrap();
+            let mut save = sensenet(&data);
+            let mut h = Harness::new(800.0, 700.0);
+            let mut home = Home::new(Vec::new());
+            player::apply(&mut save, &data, &mut home.player, Act::Pick(0));
+            da(&mut h, &mut home, &data, &save, false, Vec::new());
+            let total = data.tune("chroma").unwrap().secs;
+            let rects = h.rects();
+            // The slider is the one rect 16 tall framed in ink that spans most of the face.
+            let bar = rects
+                .iter()
+                .map(|(r, _, _)| *r)
+                .find(|r| r.height() == 16.0 && r.width() > 300.0)
+                .expect("the slider");
+            let acts = da(&mut h, &mut home, &data, &save, false, click(bar.center()));
+            match acts.as_slice() {
+                [Act::Seek(ms)] => {
+                    let half = total * 500;
+                    assert!(ms.abs_diff(half) < total * 20, "{ms} vs {half}");
+                }
+                other => panic!("{other:?}"),
+            }
+            // The thermometer, 120 wide, beside "Volume": a click three quarters along.
+            let therm = rects
+                .iter()
+                .map(|(r, _, _)| *r)
+                .find(|r| r.width() == 120.0 && r.height() == 12.0)
+                .expect("the thermometer");
+            let at = egui::pos2(therm.left() + 90.0, therm.center().y);
+            let acts = da(&mut h, &mut home, &data, &save, false, click(at));
+            assert_eq!(acts, [Act::Volume(75)]);
+        }
+
+        #[test]
+        fn its_keys_work_only_with_the_keyboard() {
+            let data = Data::builtin().unwrap();
+            let save = sensenet(&data);
+            let mut h = Harness::new(800.0, 700.0);
+            let mut home = Home::new(Vec::new());
+            assert!(da(&mut h, &mut home, &data, &save, false, key(Key::Space)).is_empty());
+            assert_eq!(
+                da(&mut h, &mut home, &data, &save, true, key(Key::Space)),
+                [Act::Toggle]
+            );
+            assert!(!h.ctx.egui_wants_keyboard_input());
+            da(&mut h, &mut home, &data, &save, true, key(Key::ArrowDown));
+            assert_eq!(home.player_ui.sel, Some(1));
+            assert_eq!(
+                da(&mut h, &mut home, &data, &save, true, key(Key::Enter)),
+                [Act::Pick(1)]
+            );
+        }
+
+        #[test]
+        fn it_shows_whole_in_its_window_and_desktop_keeps_the_plain_listing() {
+            let data = Data::builtin().unwrap();
+            let save = sensenet(&data);
+            let mut h = Harness::new(800.0, 700.0);
+            let mut home = Home::new(Vec::new());
+            da(&mut h, &mut home, &data, &save, false, Vec::new());
+            assert!(h.cut_text().is_empty(), "{:?}", h.cut_text());
+            assert!(h.find("Play/Pause").is_none(), "not the plain listing");
+            // On Desktop (the Ono-Sendai's classic firmware), still the plain listing.
+            let mut wb = save.clone();
+            wb.decks.push("onosendai".into());
+            wb.deck = "onosendai".into();
+            wb.firmware = "6.2".into();
+            assert_eq!(
+                wb.firmware_def(&data).desktop,
+                ninsei_core::hardware::Desktop::Workbench
+            );
+            da(&mut h, &mut home, &data, &wb, false, Vec::new());
+            assert!(h.find("Play/Pause").is_some());
+        }
     }
 }
