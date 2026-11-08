@@ -432,17 +432,19 @@ pub struct Readout {
 
 /// What a module player's number boxes say now.
 pub fn readout(save: &Save, data: &Data, t: &Transport) -> Readout {
-    let list = playlist(save, data);
-    let length = list.len();
-    let Some(cur) = current_in(save, &list) else {
+    // No playlist built: this runs every frame the screen is up.
+    let mut owned = save.tunes.iter().filter(|id| data.tune(id).is_some());
+    let cur = save.player.current.as_deref();
+    let pos = cur.and_then(|c| owned.clone().position(|id| id == c));
+    let length = owned.by_ref().count();
+    let (Some(cur), Some(tune)) = (pos, cur.and_then(|c| data.tune(c))) else {
         return Readout {
             length,
             ..Readout::default()
         };
     };
-    let tune = &list[cur].tune;
-    let rows = tune.loop_steps().max(1);
-    let step = tune.step_secs().max(f32::EPSILON);
+    let rows = tune.loop_steps.max(1);
+    let step = tune.tune.step_secs().max(f32::EPSILON);
     let at = t.at.max(0.0);
     let steps = (at / step) as usize;
     Readout {
