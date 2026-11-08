@@ -1,8 +1,10 @@
-//! TRAX, the music player, as each desktop dresses it. On AnarchyOS it's a TUI player after
-//! cmus 2.x (its playlist view and status line) with Winamp 2's transport and spectrum: three
-//! boxes on the kit's cells, whole cells only, every colour the desk's. What it shows is
+//! TRAX, the music player, as each desktop dresses it ([`show`] picks the face). On AnarchyOS
+//! it's a TUI player after cmus 2.x (its playlist view and status line) with Winamp 2's
+//! transport and spectrum: three boxes on the kit's cells, whole cells only, every colour the
+//! desk's ([`tile`]). On Liza it's a System 6 desk accessory on the Liza kit ([`liza_face`]).
+//! Desktop shows a plain listing until it dresses it ([`plain`]). What any face shows is
 //! core's (`ninsei_core::player`); this only draws and turns keys and clicks into
-//! [`WbOut::Player`] acts. The other desktops show a plain listing until they dress it.
+//! [`WbOut::Player`] acts.
 
 use egui::{Color32, Key, Rect, Sense, Ui};
 use ninsei_core::Data;
@@ -614,8 +616,8 @@ fn seek_at(bar: Rect, x: f32, total: f32) -> u32 {
     (((x - bar.left()) / bar.width().max(1.0)).clamp(0.0, 1.0) * total * 1000.0) as u32
 }
 
-/// The plain listing the other desktops show until they dress the player: the playlist as
-/// rows to click, the status, and the transport as buttons.
+/// The plain listing a desktop without its own face shows (Desktop's, for now):
+/// the playlist as rows to click, the status, and the transport as buttons.
 pub fn plain(ui: &mut Ui, data: &Data, save: &Save, t: &Transport, out: &mut Vec<WbOut>) {
     head(ui, save, data, t);
     ui.separator();
