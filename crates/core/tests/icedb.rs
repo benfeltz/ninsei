@@ -23,7 +23,7 @@ fn fresh(d: &Data) -> Save {
             origin: id.into(),
             hex: ninsei_core::binary::to_hex(&ninsei_core::binary::encode(&d.warez[w], s.key)),
         });
-        s.toggle_stash(&d.rig, item).unwrap();
+        s.toggle_stash(d, item).unwrap();
     }
     s
 }

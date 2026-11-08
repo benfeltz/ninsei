@@ -5,14 +5,13 @@ use serde::{Deserialize, Serialize};
 
 use crate::binary::{self, Bin};
 use crate::data::{Data, IceClass};
-use crate::game::{ContractStatus, Game, Kit, Phase, RunMods, Site};
+use crate::game::{Caps, ContractStatus, Game, Kit, Phase, RunMods, Site};
 use crate::network::{NetParams, Shape};
 use crate::rng::Rng;
 use crate::tuning::{
     BBS_LAYER, DEADMAN_PCT, FRAGMENTS_PER_OPT, HEAT_COOL, HEAT_ICE, HEAT_MAX, HEAT_PER_RUN,
     HEAT_TRACE_PCT, HUB_DRAG_SECS, HUB_PALETTE_CHARS, LOCAL_RANGE, MAX_OPT, NET_MID_LAYERS,
-    PHONEBOOK_START, RESULTS_KEPT, START_HDD, START_WAREZ, STASH_BASE_SLOTS, TRAP_TRACE_PCT,
-    WARDIAL_BLOCK,
+    PHONEBOOK_START, RESULTS_KEPT, START_WAREZ, STASH_BASE_SLOTS, TRAP_TRACE_PCT, WARDIAL_BLOCK,
 };
 
 /// Bump when the save's shape changes incompatibly.
@@ -692,6 +691,18 @@ impl Upgrade {
         Upgrade::Integrity,
         Upgrade::Stash,
     ];
+
+    /// What a line starts at on a deck that doesn't list it: the `tuning` constants. The only
+    /// place they're read for a deck's numbers.
+    pub fn fallback(self) -> u32 {
+        match self {
+            Upgrade::Ram => crate::tuning::START_RAM,
+            Upgrade::Cpu => crate::tuning::START_CPU,
+            Upgrade::Hdd => crate::tuning::START_HDD,
+            Upgrade::Integrity => crate::tuning::START_INTEGRITY,
+            Upgrade::Stash => STASH_BASE_SLOTS,
+        }
+    }
 }
 
 /// One line in the RIG shop (`data/hub/rig.ron`).
@@ -759,13 +770,6 @@ pub struct Rig {
 }
 
 impl Rig {
-    /// The cheapest upgrade still for sale, and what it costs.
-    pub fn next_upgrade(&self, defs: &[UpgradeDef]) -> Option<(Upgrade, u32)> {
-        defs.iter()
-            .filter_map(|d| d.cost(self.level(d.kind)).map(|c| (d.kind, c)))
-            .min_by_key(|&(_, c)| c)
-    }
-
     pub fn level(&self, u: Upgrade) -> u32 {
         match u {
             Upgrade::Ram => self.ram,
@@ -1579,7 +1583,7 @@ impl Save {
         // Tripped traps mean the telco is listening on this call.
         mods.trace_pct += TRAP_TRACE_PCT * self.telco_heat;
         self.telco_heat = 0;
-        let mut kit = self.kit(data, &data.rig);
+        let mut kit = self.kit(data);
         kit.net = net;
         kit.mods = mods;
         kit.board = Self::site_board(data, &e);
@@ -1861,13 +1865,31 @@ impl Save {
         Ok(answer)
     }
 
+    /// What the deck plugged in ships with on a line.
+    pub fn stat_base(&self, data: &Data, line: Upgrade) -> u32 {
+        self.deck_def(data)
+            .stat(line)
+            .map_or(line.fallback(), |s| s.base)
+    }
+
+    /// The most a line can reach on the deck plugged in, or `None` if the deck doesn't cap it.
+    pub fn stat_cap(&self, data: &Data, line: Upgrade) -> Option<u32> {
+        self.deck_def(data).stat(line).map(|s| s.max)
+    }
+
+    /// What a line comes to on the deck plugged in: its base plus RIG, up to the deck's cap.
+    pub fn stat_value(&self, data: &Data, line: Upgrade) -> u32 {
+        let v = self.stat_base(data, line) + self.rig.bonus(line, &data.rig);
+        self.stat_cap(data, line).map_or(v, |c| v.min(c))
+    }
+
     pub fn stash_cap(&self, defs: &[UpgradeDef]) -> u32 {
-        STASH_BASE_SLOTS + self.rig.bonus(Upgrade::Stash, defs)
+        Upgrade::Stash.fallback() + self.rig.bonus(Upgrade::Stash, defs)
     }
 
     /// HDD slots the next run's deck will have: the loadout's limit.
-    pub fn hdd_cap(&self, defs: &[UpgradeDef]) -> u32 {
-        START_HDD + self.rig.bonus(Upgrade::Hdd, defs)
+    pub fn hdd_cap(&self, data: &Data) -> u32 {
+        self.stat_value(data, Upgrade::Hdd)
     }
 
     pub fn loadout_size(&self) -> usize {
@@ -1884,13 +1906,49 @@ impl Save {
         self.stash.iter().find(|s| s.id == id)
     }
 
-    /// Buys the next level of an upgrade with banked credits.
-    pub fn buy(&mut self, defs: &[UpgradeDef], u: Upgrade) -> Result<String, String> {
-        let def = defs.iter().find(|d| d.kind == u).ok_or("no such upgrade")?;
+    /// The cheapest upgrade the deck plugged in can still take, and what it costs.
+    pub fn next_upgrade(&self, data: &Data) -> Option<(Upgrade, u32)> {
+        data.rig
+            .iter()
+            .filter(|d| self.upgrade_blocker(data, d.kind).is_none())
+            .filter_map(|d| d.cost(self.rig.level(d.kind)).map(|c| (d.kind, c)))
+            .min_by_key(|&(_, c)| c)
+    }
+
+    /// Why the deck plugged in can't take the next level of an upgrade, if it can't: the
+    /// level would take the line past the chassis' ceiling.
+    pub fn upgrade_blocker(&self, data: &Data, u: Upgrade) -> Option<String> {
+        let def = data.rig.iter().find(|d| d.kind == u)?;
+        let cap = self.stat_cap(data, u)?;
+        let after = self.stat_base(data, u) + def.step * (self.rig.level(u) + 1);
+        if after <= cap {
+            return None;
+        }
+        let unit = if def.unit.is_empty() {
+            &def.label
+        } else {
+            &def.unit
+        };
+        Some(format!(
+            "the {} tops out at {cap} {unit}. a bigger chassis takes more.",
+            self.deck_def(data).title()
+        ))
+    }
+
+    /// Buys the next level of an upgrade with banked credits, if the deck can take it.
+    pub fn buy(&mut self, data: &Data, u: Upgrade) -> Result<String, String> {
+        let def = data
+            .rig
+            .iter()
+            .find(|d| d.kind == u)
+            .ok_or("no such upgrade")?;
         let level = self.rig.level(u);
         let cost = def
             .cost(level)
             .ok_or_else(|| format!("{} is maxed out.", def.label))?;
+        if let Some(why) = self.upgrade_blocker(data, u) {
+            return Err(why);
+        }
         if self.bank < cost {
             return Err(format!(
                 "{} costs {cost}¢. you have {}¢.",
@@ -1907,12 +1965,7 @@ impl Save {
     }
 
     /// Adds or removes a starter program from the loadout.
-    pub fn toggle_starter(
-        &mut self,
-        data: &Data,
-        defs: &[UpgradeDef],
-        id: &str,
-    ) -> Result<(), String> {
+    pub fn toggle_starter(&mut self, data: &Data, id: &str) -> Result<(), String> {
         if let Some(i) = self.loadout.starters.iter().position(|s| s == id) {
             self.loadout.starters.remove(i);
             return Ok(());
@@ -1920,13 +1973,13 @@ impl Save {
         if !self.free(data).iter().any(|f| f == id) {
             return Err(format!("{id} isn't a starter program."));
         }
-        self.room_in_loadout(defs)?;
+        self.room_in_loadout(data)?;
         self.loadout.starters.push(id.to_string());
         Ok(())
     }
 
     /// Adds or removes a stash program from the loadout.
-    pub fn toggle_stash(&mut self, defs: &[UpgradeDef], id: u32) -> Result<(), String> {
+    pub fn toggle_stash(&mut self, data: &Data, id: u32) -> Result<(), String> {
         if let Some(i) = self.loadout.stash.iter().position(|s| *s == id) {
             self.loadout.stash.remove(i);
             return Ok(());
@@ -1934,13 +1987,13 @@ impl Save {
         if self.item(id).is_none() {
             return Err("no such program in the stash.".into());
         }
-        self.room_in_loadout(defs)?;
+        self.room_in_loadout(data)?;
         self.loadout.stash.push(id);
         Ok(())
     }
 
-    fn room_in_loadout(&self, defs: &[UpgradeDef]) -> Result<(), String> {
-        let cap = self.hdd_cap(defs) as usize;
+    fn room_in_loadout(&self, data: &Data) -> Result<(), String> {
+        let cap = self.hdd_cap(data) as usize;
         if self.loadout_size() >= cap {
             return Err(format!("the deck's HDD only holds {cap} programs."));
         }
@@ -1993,9 +2046,9 @@ impl Save {
         Ok(format!("{} optimized to O{}.", spec.file(), spec.opt))
     }
 
-    /// What the next run starts with: RIG bonuses plus the loadout's programs.
+    /// What the next run starts with: the deck's numbers plus the loadout's programs.
     /// An empty loadout falls back to the starters, so you can never jack in with nothing.
-    pub fn kit(&self, data: &Data, defs: &[UpgradeDef]) -> Kit {
+    pub fn kit(&self, data: &Data) -> Kit {
         let mut programs = Vec::new();
         let mut origins = Vec::new();
         // Only the Security Suite is free: a loadout from an older save loses its breakers.
@@ -2018,13 +2071,18 @@ impl Save {
                 origins.push(Some(*id));
             }
         }
-        programs.truncate(self.hdd_cap(defs) as usize);
+        programs.truncate(self.hdd_cap(data) as usize);
         origins.truncate(programs.len());
         Kit {
-            ram: self.rig.bonus(Upgrade::Ram, defs),
-            cpu: self.rig.bonus(Upgrade::Cpu, defs),
-            hdd: self.rig.bonus(Upgrade::Hdd, defs),
-            integrity: self.rig.bonus(Upgrade::Integrity, defs),
+            ram: self.stat_value(data, Upgrade::Ram),
+            cpu: self.stat_value(data, Upgrade::Cpu),
+            hdd: self.stat_value(data, Upgrade::Hdd),
+            integrity: self.stat_value(data, Upgrade::Integrity),
+            caps: Caps {
+                ram: self.stat_cap(data, Upgrade::Ram),
+                cpu: self.stat_cap(data, Upgrade::Cpu),
+                hdd: self.stat_cap(data, Upgrade::Hdd),
+            },
             programs,
             net: NetParams::default(),
             mods: RunMods::default(),
@@ -2047,8 +2105,8 @@ impl Save {
     /// Starts a run. Stash programs in the loadout leave the stash: they come back only
     /// if you reach the exit and keep them. The loadout itself is remembered: a program that
     /// comes home goes back onto the disk in its place.
-    pub fn jack_in(&mut self, data: &Data, defs: &[UpgradeDef], seed: u64) -> Game {
-        let kit = self.kit(data, defs);
+    pub fn jack_in(&mut self, data: &Data, seed: u64) -> Game {
+        let kit = self.kit(data);
         let taken: Vec<u32> = kit.origins.iter().flatten().copied().collect();
         self.stash.retain(|s| !taken.contains(&s.id));
         Game::start(data.clone(), seed, &kit)

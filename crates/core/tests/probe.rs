@@ -87,3 +87,37 @@ fn careers_shop_take_contracts_and_talk() {
         s.talks
     );
 }
+
+#[test]
+fn careers_buy_a_bigger_chassis() {
+    let mut data = Data::builtin().unwrap();
+    // Every deck all but free, so even a short career outgrows the starter.
+    for d in &mut data.hardware.decks {
+        d.price = d.price.min(1);
+    }
+    let starter = data
+        .hardware
+        .starter_deck()
+        .stat(hub::Upgrade::Cpu)
+        .unwrap()
+        .max;
+    let mut p = Probe::new(
+        &data,
+        Config {
+            spot_runs: 1,
+            careers: 2,
+            career_runs: 20,
+            seed: 11,
+        },
+    );
+    while !p.step(50) {}
+    let s = p.stats();
+    assert!(
+        s.decks.iter().any(|(cap, _, _)| *cap > starter),
+        "a capped career buys a deck that takes more: {:?}",
+        s.decks
+    );
+    let lines = p.report();
+    assert!(lines.iter().any(|l| l.contains("tier 3 on a cpu cap")) || s.career[2].runs == 0);
+    assert!(lines.iter().any(|l| l.trim_start().starts_with("deck ")));
+}

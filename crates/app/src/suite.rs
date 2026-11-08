@@ -1726,7 +1726,7 @@ mod tests {
         let d = Data::builtin().unwrap();
         let mut s = Save::default();
         s.ensure_hardware(&d);
-        let mut g = s.jack_in(&d, &d.rig, 1);
+        let mut g = s.jack_in(&d, 1);
         g.hdd[0].spec.name = "A.MUCH.LONGER.PROGRAM.NAME".into();
         let long = g.hdd[0].spec.file();
         let uid = g.hdd[0].uid;
@@ -1771,7 +1771,7 @@ mod tests {
         let d = Data::builtin().unwrap();
         let mut s = Save::default();
         s.ensure_hardware(&d);
-        let g = s.jack_in(&d, &d.rig, 1);
+        let g = s.jack_in(&d, 1);
         let mut st = State::default();
         let mut h = Harness::new(900.0, 100.0);
         let mut got = Vec::new();
@@ -1844,7 +1844,7 @@ mod tests {
         let d = Data::builtin().unwrap();
         let mut s = Save::default();
         s.ensure_hardware(&d);
-        let g = s.jack_in(&d, &d.rig, 1);
+        let g = s.jack_in(&d, 1);
         let mut st = State::default();
         st.watch.step(&g);
         st.dialogs.push(ninsei_core::suite::Notice {
@@ -1900,7 +1900,7 @@ mod tests {
         let d = Data::builtin().unwrap();
         let mut s = Save::default();
         s.ensure_hardware(&d);
-        let g = s.jack_in(&d, &d.rig, 1);
+        let g = s.jack_in(&d, 1);
         assert!(g.log.len() >= 3);
         let p = Palette::from_def(&d.themes[0]);
         let mut st = State::default();
@@ -2009,7 +2009,7 @@ mod tests {
         let d = Data::builtin().unwrap();
         let mut s = Save::default();
         s.ensure_hardware(&d);
-        let mut g = s.jack_in(&d, &d.rig, 1);
+        let mut g = s.jack_in(&d, 1);
         let line = g.log[0].clone();
         g.log = vec![line; 400];
         let mut st = State::default();

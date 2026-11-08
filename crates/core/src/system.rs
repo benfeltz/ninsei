@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use crate::binary;
 use crate::data::Data;
 use crate::hub::{Save, Upgrade};
-use crate::tuning::{START_CPU, START_INTEGRITY, START_RAM};
 
 /// System's panels, in the order its list shows them.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -122,11 +121,12 @@ pub fn logo(data: &Data, desktop: crate::hardware::Desktop) -> &[String] {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Spec {
     pub label: String,
-    /// What the deck has now, with its unit ("3 cyc", "6 GB").
+    /// What the deck has now, with its unit, out of the chassis' ceiling if it has one
+    /// ("3 of 6 cyc", "6 of 12 GB").
     pub value: String,
     /// A note on how it's used ("the loadout uses 4 GB", "5 of 6 filled").
     pub use_note: String,
-    /// Upgrade level owned, out of the most there is.
+    /// Upgrade level owned, out of the most this deck takes (never below the levels owned).
     pub level: (u32, u32),
     /// What the next upgrade adds, if there's one left ("+1 cyc").
     pub next: Option<String>,
@@ -161,38 +161,55 @@ pub fn overview(save: &Save, data: &Data) -> Overview {
             format!("{n} {unit}")
         }
     };
-    let level = |u: Upgrade| (save.rig.level(u), def(u).map_or(0, |d| d.max));
+    // The meter counts the levels this chassis takes, never more than it holds already.
+    let level = |u: Upgrade| {
+        let owned = save.rig.level(u);
+        let Some(d) = def(u) else { return (owned, 0) };
+        let room = save.stat_cap(data, u).map_or(d.max, |cap| {
+            (cap.saturating_sub(save.stat_base(data, u)) / d.step).min(d.max)
+        });
+        (owned, room.max(owned))
+    };
+    // A line the chassis can't take any further has no next, like a maxed one.
     let next = |u: Upgrade| {
         let d = def(u)?;
         d.cost(save.rig.level(u))?;
+        if save.upgrade_blocker(data, u).is_some() {
+            return None;
+        }
         Some(format!("+{}", with_unit(d.step, u)))
     };
-    let base = |u: Upgrade, start: u32| start + save.rig.bonus(u, defs);
+    let base = |u: Upgrade| save.stat_value(data, u);
+    // What the deck has, against its ceiling when it has one: "4 of 6 cyc".
+    let value = |u: Upgrade| match save.stat_cap(data, u) {
+        Some(cap) => format!("{} of {}", base(u), with_unit(cap, u)),
+        None => with_unit(base(u), u),
+    };
 
     // What the loadout will load: its programs' RAM, from their binaries.
-    let kit = save.kit(data, defs);
-    let ram = base(Upgrade::Ram, START_RAM);
+    let kit = save.kit(data);
+    let ram = base(Upgrade::Ram);
     let ram_used: u32 = kit
         .programs
         .iter()
         .filter_map(|(_, bin)| binary::check(bin, save.key).ok())
         .map(|s| s.ram)
         .sum();
-    let hdd = save.hdd_cap(defs);
+    let hdd = save.hdd_cap(data);
     let filled = kit.programs.len() as u32;
     let stash_cap = save.stash_cap(defs);
 
     let specs = vec![
         Spec {
             label: "CPU".into(),
-            value: with_unit(base(Upgrade::Cpu, START_CPU), Upgrade::Cpu),
+            value: value(Upgrade::Cpu),
             use_note: "per turn".into(),
             level: level(Upgrade::Cpu),
             next: next(Upgrade::Cpu),
         },
         Spec {
             label: "RAM".into(),
-            value: with_unit(ram, Upgrade::Ram),
+            value: value(Upgrade::Ram),
             use_note: format!(
                 "{} in use, {} free",
                 with_unit(ram_used.min(ram), Upgrade::Ram),
@@ -203,7 +220,7 @@ pub fn overview(save: &Save, data: &Data) -> Overview {
         },
         Spec {
             label: "HDD".into(),
-            value: with_unit(hdd, Upgrade::Hdd),
+            value: value(Upgrade::Hdd),
             use_note: format!(
                 "{filled} of {hdd} filled, {}% fragmented",
                 crate::disk::fragmentation(save, data)
@@ -213,10 +230,7 @@ pub fn overview(save: &Save, data: &Data) -> Overview {
         },
         Spec {
             label: "Integrity".into(),
-            value: with_unit(
-                base(Upgrade::Integrity, START_INTEGRITY),
-                Upgrade::Integrity,
-            ),
+            value: value(Upgrade::Integrity),
             use_note: String::new(),
             level: level(Upgrade::Integrity),
             next: next(Upgrade::Integrity),

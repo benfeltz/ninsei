@@ -5,6 +5,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::data::Data;
+use crate::hub::Upgrade;
 use crate::netview::MapView;
 
 /// How the run screen is dressed: its panes, menus, status line and default layout. A new
@@ -75,6 +76,15 @@ fn default_sounds() -> String {
     "ono".into()
 }
 
+/// What a deck does for one RIG line: what it ships with and the most that line can reach on
+/// it, counting RIG levels, deck mods bought on a board and loot.
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StatDef {
+    pub line: Upgrade,
+    pub base: u32,
+    pub max: u32,
+}
+
 #[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct DeckDef {
     pub id: String,
@@ -88,9 +98,18 @@ pub struct DeckDef {
     /// Its picture in ads (`data/art/<id>.txt`), if it has one.
     #[serde(default)]
     pub art: Option<String>,
+    /// The chassis: per RIG line, what it ships with and its ceiling. A line not listed
+    /// starts at its `tuning` constant with no ceiling.
+    #[serde(default)]
+    pub stats: Vec<StatDef>,
 }
 
 impl DeckDef {
+    /// The deck's row for a RIG line, if it lists one.
+    pub fn stat(&self, line: Upgrade) -> Option<&StatDef> {
+        self.stats.iter().find(|s| s.line == line)
+    }
+
     /// "Ono-Sendai Cyberspace VII".
     pub fn title(&self) -> String {
         format!("{} {}", self.maker, self.name)
@@ -207,6 +226,46 @@ impl HardwareDef {
                     return Err(format!("deck `{}` lists firmware `{}` twice", d.id, f.id));
                 }
             }
+            for (j, s) in d.stats.iter().enumerate() {
+                if d.stats[..j].iter().any(|o| o.line == s.line) {
+                    return Err(format!("deck `{}` lists {:?} twice", d.id, s.line));
+                }
+                if s.line == Upgrade::Stash {
+                    return Err(format!(
+                        "deck `{}` lists Stash: the stash is home storage, not the deck",
+                        d.id
+                    ));
+                }
+                if s.base > s.max {
+                    return Err(format!(
+                        "deck `{}` ships {:?} at {} but tops out at {}",
+                        d.id, s.line, s.base, s.max
+                    ));
+                }
+                // The ceiling is a level RIG can stop on, and RIG sells enough to reach it.
+                if let Some(r) = data.rig.iter().find(|r| r.kind == s.line) {
+                    let room = s.max - s.base;
+                    if room % r.step != 0 || room > r.step * r.max {
+                        return Err(format!(
+                            "deck `{}` tops {:?} out at {}, which RIG can't stop on: \
+                             it starts at {} and sells {} levels of +{}",
+                            d.id, s.line, s.max, s.base, r.max, r.step
+                        ));
+                    }
+                }
+            }
+            // Every deck governs the same lines, so none silently runs uncapped where the
+            // others stop.
+            let first = &self.decks[0];
+            if let Some(line) = Upgrade::ALL
+                .into_iter()
+                .find(|&u| first.stat(u).is_some() != d.stat(u).is_some())
+            {
+                return Err(format!(
+                    "deck `{}` and deck `{}` disagree on whether {line:?} is a stat",
+                    first.id, d.id
+                ));
+            }
         }
         Ok(())
     }
@@ -292,9 +351,14 @@ impl Save {
             .unwrap_or(&deck.firmware[0])
     }
 
-    /// The key a layout is saved under: the deck and its firmware.
+    /// The key a layout is saved under: the firmware, by its maker. A brand's models share
+    /// their firmware, so a layout follows you up the line.
     pub fn layout_key(&self, data: &Data) -> String {
-        format!("{}/{}", self.deck_def(data).id, self.firmware_def(data).id)
+        format!(
+            "{}/{}",
+            self.deck_def(data).maker,
+            self.firmware_def(data).id
+        )
     }
 
     /// The saved pane layout for the deck and firmware in use, if there is one.
@@ -404,14 +468,19 @@ impl Save {
         Ok(format!("monitor: {}", m.title()))
     }
 
-    /// Runs with a deck you own, on its first firmware.
+    /// Runs with a deck you own: on the firmware you're running if it has it (a brand's
+    /// models share theirs), else on its first.
     pub fn use_deck(&mut self, data: &Data, id: &str) -> Result<String, String> {
         if !self.decks.iter().any(|d| d == id) {
             return Err(format!("{id}: you don't own that deck."));
         }
         let d = data.hardware.deck(id).ok_or("no such deck.")?;
+        let same = self.deck_def(data).maker == d.maker;
+        let keep = same && d.firmware.iter().any(|f| f.id == self.firmware);
         self.deck = d.id.clone();
-        self.firmware = d.firmware[0].id.clone();
+        if !keep {
+            self.firmware = d.firmware[0].id.clone();
+        }
         Ok(format!("deck: {}", d.title()))
     }
 

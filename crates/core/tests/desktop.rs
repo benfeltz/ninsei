@@ -342,13 +342,40 @@ fn liza_sells_its_own_add_ons() {
 fn the_calculator_knows_the_next_upgrade() {
     let d = data();
     let s = Save::default();
-    let (u, cost) = s.rig.next_upgrade(&d.rig).unwrap();
+    let (u, cost) = s.next_upgrade(&d).unwrap();
     let cheapest = d.rig.iter().filter_map(|r| r.cost(0)).min().unwrap();
     assert_eq!(cost, cheapest);
     assert_eq!(
         d.rig.iter().find(|r| r.kind == u).unwrap().cost(0),
         Some(cost)
     );
+}
+
+#[test]
+fn the_calculator_skips_what_the_chassis_refuses() {
+    let d = data();
+    let mut s = Save {
+        bank: 100_000,
+        ..Save::default()
+    };
+    s.ensure_hardware(&d);
+    // Buy the cheapest line until the deck takes nothing more.
+    while let Some((u, _)) = s.next_upgrade(&d) {
+        assert_eq!(
+            s.upgrade_blocker(&d, u),
+            None,
+            "{u:?} is offered, so it fits"
+        );
+        s.buy(&d, u).unwrap();
+    }
+    // Whatever's left either the chassis refuses or RIG has sold out.
+    for r in &d.rig {
+        assert!(
+            r.cost(s.rig.level(r.kind)).is_none() || s.upgrade_blocker(&d, r.kind).is_some(),
+            "{:?} could still be bought",
+            r.kind
+        );
+    }
 }
 
 #[test]

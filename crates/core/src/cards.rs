@@ -55,15 +55,18 @@ pub const PLACEHOLDERS: &[&str] = &[
 ];
 
 fn value(key: &str, data: &Data) -> Option<String> {
-    use crate::tuning::*;
+    use crate::hub::{Save, Upgrade};
+    use crate::tuning::TRACE_MAX;
     let gutter = data.boards.first();
+    let first = Save::default();
     Some(match key {
         "trace_max" => TRACE_MAX.to_string(),
-        "cpu" => START_CPU.to_string(),
-        "ram" => START_RAM.to_string(),
-        "hdd" => START_HDD.to_string(),
-        "integrity" => START_INTEGRITY.to_string(),
-        "stash" => crate::hub::Save::default().stash_cap(&data.rig).to_string(),
+        // The card speaks of everybody's first deck: the starter's numbers.
+        "cpu" => first.stat_base(data, Upgrade::Cpu).to_string(),
+        "ram" => first.stat_base(data, Upgrade::Ram).to_string(),
+        "hdd" => first.stat_base(data, Upgrade::Hdd).to_string(),
+        "integrity" => first.stat_base(data, Upgrade::Integrity).to_string(),
+        "stash" => first.stash_cap(&data.rig).to_string(),
         "gutter" => gutter?.name.clone(),
         "gutter_phone" => gutter?.phone.clone(),
         "call_cost" => gutter?.call_cost.to_string(),

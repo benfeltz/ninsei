@@ -6,7 +6,12 @@
 //             true:  a colour tube, any theme
 //   starter   exactly one monitor is yours from the start
 //
-// decks: the cyberdeck you run with. Look and feel only: stats stay with RIG upgrades.
+// decks: the cyberdeck you run with: its look and feel, plus the chassis.
+//   stats     per RIG line (Cpu, Ram, Hdd, Integrity): what the deck ships with (`base`) and the
+//             most that line can reach on it (`max`), counting RIG levels, deck mods bought on
+//             a board and loot. A line not listed starts at its tuning.rs constant with no
+//             ceiling; every deck lists the same lines. Stash is home storage, never a deck's.
+//             These rows are the only numbers on hardware that change play.
 //   firmware  one or more UX versions, each built from named parts:
 //               map:     Iso (wireframes over a grid) | Draft (a flat technical drawing) |
 //                        Paint (a 1-bit picture, nodes filled with patterns)
@@ -33,20 +38,58 @@
         (id: "vga",    name: "8513 VGA",          maker: "IBM",       price: 420, display: "vga",    colour: true,
          blurb: "Crisp 640x480. Business-grade colour for any theme."),
     ],
+    // One entry per model. A brand's models share its firmware (the look) and its art, and
+    // differ only in price and chassis.
     decks: [
         (id: "sensenet", art: Some("deck-sensenet"), name: "Personal Deck", maker: "Sense/Net", price: 0, starter: true,
          blurb: "Everybody's first deck. Friendly, tidy, 1-bit: the net as a stack of cards you page through.",
+         stats: [(line: Cpu, base: 3, max: 3), (line: Ram, base: 6, max: 8),
+                 (line: Hdd, base: 6, max: 8), (line: Integrity, base: 18, max: 21)],
          firmware: [
             (id: "1.0", label: "Liza 1.0", map: Paint, chrome: Stack, desktop: Liza, sounds: "sensenet"),
          ]),
-        (id: "onosendai", art: Some("deck-onosendai"), name: "Cyberspace VII", maker: "Ono-Sendai", price: 400,
-         blurb: "The cowboy's deck. Jacks you straight into the matrix: wireframes over a glowing grid.",
+        (id: "onosendai5", art: Some("deck-onosendai"), name: "Cyberspace V", maker: "Ono-Sendai", price: 250,
+         blurb: "The cowboy's first real deck. Same matrix, same grid, a smaller board inside the case.",
+         stats: [(line: Cpu, base: 3, max: 3), (line: Ram, base: 6, max: 8),
+                 (line: Hdd, base: 6, max: 8), (line: Integrity, base: 18, max: 21)],
          firmware: [
             (id: "7.0", label: "Cyberspace 7.0", map: Iso, chrome: Btop, desktop: Tiling, sounds: "ono", panes: ["net"]),
             (id: "6.2", label: "Cyberspace 6.2 (classic panes)", map: Iso, chrome: Classic, desktop: Workbench, sounds: "ono"),
          ]),
+        (id: "onosendai", art: Some("deck-onosendai"), name: "Cyberspace VII", maker: "Ono-Sendai", price: 400,
+         blurb: "The cowboy's deck. Jacks you straight into the matrix: wireframes over a glowing grid.",
+         stats: [(line: Cpu, base: 3, max: 4), (line: Ram, base: 6, max: 10),
+                 (line: Hdd, base: 6, max: 10), (line: Integrity, base: 18, max: 27)],
+         firmware: [
+            (id: "7.0", label: "Cyberspace 7.0", map: Iso, chrome: Btop, desktop: Tiling, sounds: "ono", panes: ["net"]),
+            (id: "6.2", label: "Cyberspace 6.2 (classic panes)", map: Iso, chrome: Classic, desktop: Workbench, sounds: "ono"),
+         ]),
+        (id: "onosendai9", art: Some("deck-onosendai"), name: "Cyberspace IX", maker: "Ono-Sendai", price: 3000,
+         blurb: "The top of the line. Every slot on the board wired, every bay open. For cowboys who stay in.",
+         stats: [(line: Cpu, base: 3, max: 6), (line: Ram, base: 6, max: 12),
+                 (line: Hdd, base: 6, max: 12), (line: Integrity, base: 18, max: 36)],
+         firmware: [
+            (id: "7.0", label: "Cyberspace 7.0", map: Iso, chrome: Btop, desktop: Tiling, sounds: "ono", panes: ["net"]),
+            (id: "6.2", label: "Cyberspace 6.2 (classic panes)", map: Iso, chrome: Classic, desktop: Workbench, sounds: "ono"),
+         ]),
+        (id: "hosaka2", art: Some("deck-hosaka"), name: "Executive 2", maker: "Hosaka", price: 400,
+         blurb: "The branch-office workstation. The same plans, drafted on a smaller budget.",
+         stats: [(line: Cpu, base: 3, max: 3), (line: Ram, base: 6, max: 8),
+                 (line: Hdd, base: 6, max: 8), (line: Integrity, base: 18, max: 21)],
+         firmware: [
+            (id: "4.0", label: "PlanView 4.0", map: Draft, chrome: Suite, desktop: Workbench, sounds: "hosaka"),
+         ]),
         (id: "hosaka", art: Some("deck-hosaka"), name: "Executive 4", maker: "Hosaka", price: 650,
          blurb: "A corporate workstation. Sees the net as a plan: every node drafted, dimensioned and filed.",
+         stats: [(line: Cpu, base: 3, max: 4), (line: Ram, base: 6, max: 10),
+                 (line: Hdd, base: 6, max: 10), (line: Integrity, base: 18, max: 27)],
+         firmware: [
+            (id: "4.0", label: "PlanView 4.0", map: Draft, chrome: Suite, desktop: Workbench, sounds: "hosaka"),
+         ]),
+        (id: "hosaka6", art: Some("deck-hosaka"), name: "Executive 6", maker: "Hosaka", price: 4000,
+         blurb: "The boardroom model. Expansion for every department, a service contract for every bay.",
+         stats: [(line: Cpu, base: 3, max: 6), (line: Ram, base: 6, max: 12),
+                 (line: Hdd, base: 6, max: 12), (line: Integrity, base: 18, max: 36)],
          firmware: [
             (id: "4.0", label: "PlanView 4.0", map: Draft, chrome: Suite, desktop: Workbench, sounds: "hosaka"),
          ]),

@@ -175,6 +175,51 @@ fn bad_hardware_is_caught() {
 }
 
 #[test]
+fn stats_are_read() {
+    let d = data();
+    let cpu = |deck: &ninsei_core::hardware::DeckDef| *deck.stat(hub::Upgrade::Cpu).unwrap();
+    let first = cpu(d.hardware.starter_deck());
+    assert!(first.base <= first.max);
+    assert!(
+        d.hardware.decks.iter().any(|x| cpu(x).max > first.max),
+        "a bigger chassis is for sale"
+    );
+    assert!(
+        d.hardware
+            .decks
+            .iter()
+            .all(|deck| deck.stat(hub::Upgrade::Stash).is_none())
+    );
+}
+
+#[test]
+fn bad_stats_are_caught() {
+    let src = include_str!("../../../data/hub/hardware.ron");
+    let parse = |hardware: &str| {
+        Data::parse(Sources {
+            hardware,
+            ..Sources::builtin()
+        })
+    };
+    let err = |s: String| parse(&s).unwrap_err();
+    // The first deck's CPU row, as written.
+    let at = src.find("(line: Cpu,").unwrap();
+    let cpu = &src[at..at + src[at..].find(')').unwrap() + 1];
+    assert!(err(src.replacen(cpu, "(line: Ram, base: 3, max: 6)", 1)).contains("twice"));
+    assert!(err(src.replacen(cpu, "(line: Cpu, base: 7, max: 6)", 1)).contains("tops out"));
+    assert!(err(src.replacen(cpu, "(line: Stash, base: 2, max: 6)", 1)).contains("home storage"));
+    // Integrity steps by 3 from 18: 22 is between levels, and 99 is past what RIG sells.
+    let integ = "(line: Integrity, base: 18, max: 21)";
+    assert!(src.contains(integ), "the starter's integrity row");
+    for bad in ["22", "99"] {
+        let row = format!("(line: Integrity, base: 18, max: {bad})");
+        assert!(err(src.replacen(integ, &row, 1)).contains("can't stop on"));
+    }
+    let missing = src.replacen(&format!("{cpu}, "), "", 1);
+    assert!(err(missing).contains("disagree"));
+}
+
+#[test]
 fn the_dev_key_fills_the_bank() {
     let mut s = fresh(5);
     let msg = s.dev_credits();
@@ -211,4 +256,52 @@ fn layouts_are_kept_per_deck_firmware() {
     assert_eq!(back.layouts.len(), 1);
     // Old saves have none.
     assert!(Save::load("(version: 1)").unwrap().layouts.is_empty());
+}
+
+#[test]
+fn models_share_a_brands_firmware() {
+    let d = data();
+    for deck in &d.hardware.decks {
+        let ids = |m: &ninsei_core::hardware::DeckDef| m.firmware.to_vec();
+        for other in d.hardware.decks.iter().filter(|o| o.maker == deck.maker) {
+            assert_eq!(ids(deck), ids(other), "{} vs {}", deck.id, other.id);
+            assert_eq!(deck.art, other.art, "{} vs {}", deck.id, other.id);
+        }
+    }
+}
+
+#[test]
+fn climbing_a_brand_keeps_the_firmware_and_the_layout() {
+    let d = data();
+    // Two models of one brand whose firmware has a second version to switch to.
+    let (a, b) = d
+        .hardware
+        .decks
+        .iter()
+        .filter(|x| x.firmware.len() > 1)
+        .find_map(|x| {
+            let y = d
+                .hardware
+                .decks
+                .iter()
+                .find(|y| y.id != x.id && y.maker == x.maker)?;
+            Some((x.clone(), y.clone()))
+        })
+        .expect("a brand with two models and two firmware versions");
+    let mut s = fresh(100_000);
+    for id in [&a.id, &b.id] {
+        s.buy_hardware(&d, &Hardware::Deck(id.clone())).unwrap();
+    }
+    s.use_deck(&d, &a.id).unwrap();
+    let second = a.firmware[1].id.clone();
+    s.use_firmware(&d, &second).unwrap();
+    s.set_layout(&d, "my tiles".into());
+    s.use_deck(&d, &b.id).unwrap();
+    assert_eq!(s.firmware, second, "the same firmware on the bigger model");
+    assert_eq!(s.layout(&d), Some("my tiles"));
+    // Another brand starts on its own first firmware.
+    let other = d.hardware.starter_deck();
+    assert_ne!(other.maker, b.maker);
+    s.use_deck(&d, &other.id).unwrap();
+    assert_eq!(s.firmware, other.firmware[0].id);
 }

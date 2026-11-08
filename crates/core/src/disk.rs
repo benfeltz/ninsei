@@ -9,7 +9,6 @@ use serde::{Deserialize, Serialize};
 use crate::binary::{self, Spec};
 use crate::data::{Data, Effect, WarezKind};
 use crate::hub::{Save, Upgrade};
-use crate::tuning::START_RAM;
 
 /// Blocks per HDD slot on the map. The map is `hdd_cap * BLOCKS_PER_SLOT` blocks; a program
 /// takes `blocks(spec)` of them. Display only: the HDD's rule is still one program a slot.
@@ -125,7 +124,7 @@ pub fn installed(save: &Save, data: &Data) -> Vec<Program> {
         .map(|id| Disk::Free(id.clone()))
         .chain(save.loadout.stash.iter().map(|id| Disk::Stash(*id)))
         .filter_map(|at| program(save, data, at))
-        .take(save.hdd_cap(&data.rig) as usize)
+        .take(save.hdd_cap(data) as usize)
         .collect()
 }
 
@@ -164,7 +163,7 @@ fn compact(on: &[Program], total: usize) -> Vec<Option<Disk>> {
 /// changed size) lies compact.
 pub fn layout(save: &Save, data: &Data) -> Vec<Option<Disk>> {
     let on = installed(save, data);
-    let total = save.hdd_cap(&data.rig) as usize * BLOCKS_PER_SLOT;
+    let total = save.hdd_cap(data) as usize * BLOCKS_PER_SLOT;
     if save.disk_map.len() != total {
         return compact(&on, total);
     }
@@ -230,7 +229,7 @@ pub fn fragmentation(save: &Save, data: &Data) -> u32 {
 /// An unfragmented disk still gets a short pass: it reads every block, moves none.
 pub fn defrag_steps(save: &Save, data: &Data) -> Vec<Vec<Option<usize>>> {
     let on = installed(save, data);
-    let total = save.hdd_cap(&data.rig) as usize * BLOCKS_PER_SLOT;
+    let total = save.hdd_cap(data) as usize * BLOCKS_PER_SLOT;
     let index = |m: &[Option<Disk>]| -> Vec<Option<usize>> {
         m.iter()
             .map(|b| b.as_ref().and_then(|d| on.iter().position(|p| &p.at == d)))
@@ -264,7 +263,7 @@ pub struct InRam {
 
 /// The RAM strip: each installed program, whether it'll load, and the deck's RAM.
 pub fn ram_preview(save: &Save, data: &Data) -> (Vec<InRam>, u32) {
-    let ram_max = START_RAM + save.rig.bonus(Upgrade::Ram, &data.rig);
+    let ram_max = save.stat_value(data, Upgrade::Ram);
     let mut used = 0;
     let strip = installed(save, data)
         .iter()
@@ -324,7 +323,7 @@ impl Save {
         if !known {
             return Some("no such program.".into());
         }
-        let cap = self.hdd_cap(&data.rig) as usize;
+        let cap = self.hdd_cap(data) as usize;
         if installed(self, data).len() >= cap {
             return Some(format!(
                 "Disk full: {cap} of {cap} slots used. Remove a program first."

@@ -190,6 +190,44 @@ fn the_volume_starts_full_stays_in_range_and_comes_back() {
 }
 
 #[test]
+fn stat_value_is_base_plus_rig_up_to_the_cap() {
+    let d = starter_cpu(3, 4);
+    let mut s = Save::default();
+    s.ensure_hardware(&d);
+    assert_eq!(s.deck, d.hardware.starter_deck().id);
+    s.rig.ram = 2;
+    s.rig.cpu = 3;
+    assert_eq!(s.stat_base(&d, hub::Upgrade::Cpu), 3);
+    assert_eq!(s.stat_cap(&d, hub::Upgrade::Cpu), Some(4));
+    assert_eq!(s.stat_value(&d, hub::Upgrade::Cpu), 4, "capped");
+    assert_eq!(s.stat_value(&d, hub::Upgrade::Ram), 8, "base 6 + 2 levels");
+    assert_eq!(s.stat_cap(&d, hub::Upgrade::Stash), None);
+    assert_eq!(
+        s.stat_value(&d, hub::Upgrade::Stash),
+        ninsei_core::tuning::STASH_BASE_SLOTS
+    );
+}
+
+/// The shipped data with the starter deck's CPU row set to `base` and `max`.
+fn starter_cpu(base: u32, max: u32) -> Data {
+    let mut d = Data::builtin().unwrap();
+    let starter = d.hardware.starter_deck().id.clone();
+    let deck = d
+        .hardware
+        .decks
+        .iter_mut()
+        .find(|x| x.id == starter)
+        .unwrap();
+    let row = deck
+        .stats
+        .iter_mut()
+        .find(|s| s.line == ninsei_core::hub::Upgrade::Cpu)
+        .unwrap();
+    (row.base, row.max) = (base, max);
+    d
+}
+
+#[test]
 fn a_new_deck_comes_with_the_shops_disk_once() {
     let d = Data::builtin().unwrap();
     let mut s = Save::default();

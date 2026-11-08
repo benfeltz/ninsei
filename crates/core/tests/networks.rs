@@ -185,10 +185,11 @@ fn heat_builds_on_a_network_and_cools_elsewhere() {
 #[test]
 fn dialing_brings_the_loadout() {
     let (d, mut s) = book();
-    s.rig.cpu = 1;
+    s.rig.ram = 1;
     let id = s.phonebook[0].id;
+    let ram = s.stat_base(&d, hub::Upgrade::Ram);
     let g = s.dial(&d, id, 5).unwrap();
-    assert_eq!(g.deck.cpu_max, tuning::START_CPU + 1);
+    assert_eq!(g.deck.ram_max, ram + 1);
     assert_eq!(g.hdd.len(), tuning::START_WAREZ.len());
     assert!(s.dial(&d, 999, 5).is_err());
 }
