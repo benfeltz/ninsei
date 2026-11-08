@@ -413,3 +413,44 @@ pub const KEYS: [(&str, &str); 6] = [
     ("s", "shuffle"),
     ("⏎", "pick"),
 ];
+
+/// Protracker's number boxes, as a module player's screen shows them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Readout {
+    /// The current tune's place in the playlist, from 1 (0 with none).
+    pub pos: usize,
+    /// How many tunes the playlist holds.
+    pub length: usize,
+    /// Which pass of the tune's loop is playing, from 0.
+    pub pattern: usize,
+    /// The step within that pass, and how many steps a pass has.
+    pub row: usize,
+    pub rows: usize,
+    /// Seconds into the tune.
+    pub time: u32,
+}
+
+/// What a module player's number boxes say now.
+pub fn readout(save: &Save, data: &Data, t: &Transport) -> Readout {
+    let list = playlist(save, data);
+    let length = list.len();
+    let Some(cur) = current_in(save, &list) else {
+        return Readout {
+            length,
+            ..Readout::default()
+        };
+    };
+    let tune = &list[cur].tune;
+    let rows = tune.loop_steps().max(1);
+    let step = tune.step_secs().max(f32::EPSILON);
+    let at = t.at.max(0.0);
+    let steps = (at / step) as usize;
+    Readout {
+        pos: cur + 1,
+        length,
+        pattern: steps / rows,
+        row: steps % rows,
+        rows,
+        time: at as u32,
+    }
+}
