@@ -384,6 +384,7 @@ pub fn hslider(ui: &Ui, r: Rect, id: Id, value: f32, look: &Look) -> Option<f32>
     }
     let to = to.map(|v| v.clamp(0.0, 1.0)).filter(|v| *v != value);
     let (left, right, track, thumb) = slider_parts(r, held.or(to).unwrap_or(value));
+    // Disabled, egui paints the Ui at half strength: a dimmed control, as the Mac's was.
     let (ink, paper) = (look.ink, look.paper);
     let p = ui.painter();
     p.rect_filled(r, 0.0, paper);
@@ -405,16 +406,17 @@ pub fn hslider(ui: &Ui, r: Rect, id: Id, value: f32, look: &Look) -> Option<f32>
 /// (solid ink without it), left to right. A click sets it from where it lands; returns that.
 pub fn thermometer(ui: &Ui, r: Rect, id: Id, value: f32, look: &Look) -> Option<f32> {
     let r = snap(r);
+    // The level runs across the inside, where the fill is drawn: a click there lands on it.
+    let inner = r.shrink(2.0);
     let hit = ui.interact(r, id, Sense::click());
     let to = hit
         .clicked()
         .then(|| hit.interact_pointer_pos())
         .flatten()
-        .map(|p| ((p.x - r.left()) / r.width().max(1.0)).clamp(0.0, 1.0));
+        .map(|p| ((p.x - inner.left()) / inner.width().max(1.0)).clamp(0.0, 1.0));
     let shown = to.unwrap_or(value).clamp(0.0, 1.0);
     let p = ui.painter();
     p.rect_filled(r, 0.0, look.paper);
-    let inner = r.shrink(2.0);
     let fill = Rect::from_min_size(
         inner.min,
         vec2((inner.width() * shown).round(), inner.height()),
@@ -1032,7 +1034,31 @@ mod tests {
         h.frame(click(Pos2::new(10.0 + 78.0, 16.0)), |ui| {
             got = thermometer(ui, r, Id::new("t"), 0.25, &look())
         });
-        assert!((got.unwrap() - 0.75).abs() < 1e-4);
+        assert!((got.unwrap() - (78.0 - 2.0) / 100.0).abs() < 1e-4);
+        // The inside's last pixel is full; the inside runs 12..112.
+        h.frame(click(Pos2::new(10.0 + 101.5, 16.0)), |ui| {
+            got = thermometer(ui, r, Id::new("t"), 0.25, &look())
+        });
+        assert_eq!((got.unwrap() * 100.0).round(), 100.0, "the full level");
+    }
+
+    #[test]
+    fn a_disabled_slider_and_thermometer_are_drawn_at_half_strength() {
+        let mut h = Harness::new(400.0, 200.0);
+        h.frame(Vec::new(), |ui| {
+            ui.disable();
+            let r = Rect::from_min_size(pos2(10.0, 10.0), vec2(216.0, 16.0));
+            hslider(ui, r, Id::new("s"), 0.5, &look());
+            let t = Rect::from_min_size(pos2(10.0, 40.0), vec2(104.0, 12.0));
+            thermometer(ui, t, Id::new("t"), 0.5, &look());
+        });
+        let outlines: Vec<Color32> = h.rects().into_iter().map(|(_, _, s)| s).collect();
+        // egui paints a disabled Ui faded, as it does the buttons and the check boxes.
+        assert!(!outlines.is_empty());
+        assert!(
+            !outlines.contains(&Color32::WHITE),
+            "nothing at full strength"
+        );
     }
 
     fn look() -> Look<'static> {
