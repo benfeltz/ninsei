@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::binary::{self, Spec};
 use crate::data::{Data, Effect, WarezKind};
-use crate::hub::{Save, Upgrade};
+use crate::hub::Save;
 
 /// Blocks per HDD slot on the map. The map is `hdd_cap * BLOCKS_PER_SLOT` blocks; a program
 /// takes `blocks(spec)` of them. Display only: the HDD's rule is still one program a slot.
@@ -68,9 +68,10 @@ pub struct Program {
 }
 
 impl Program {
-    /// Blocks it takes on the map: its RAM, at least one, at most a slot's worth.
+    /// Blocks it takes on the map: half its effect's budget cost (a bigger program is a
+    /// bigger file), at least one, at most a slot's worth.
     pub fn blocks(&self) -> usize {
-        (self.spec.ram as usize).clamp(1, BLOCKS_PER_SLOT)
+        (binary::cost(self.spec.effect).div_ceil(2) as usize).clamp(1, BLOCKS_PER_SLOT)
     }
 
     /// Power, for the info box: what a breaker breaks, a shield holds or a utility does.
@@ -247,40 +248,6 @@ pub fn defrag_steps(save: &Save, data: &Data) -> Vec<Vec<Option<usize>>> {
         }
     }
     frames
-}
-
-/// How an installed program will sit in RAM at jack-in.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub struct InRam {
-    /// Index into `installed`.
-    pub program: usize,
-    /// Its RAM.
-    pub ram: u32,
-    /// Whether it loads at jack-in. The run loads programs in order while they fit, like
-    /// `Game::start`; the rest wait on the HDD.
-    pub loads: bool,
-}
-
-/// The RAM strip: each installed program, whether it'll load, and the deck's RAM.
-pub fn ram_preview(save: &Save, data: &Data) -> (Vec<InRam>, u32) {
-    let ram_max = save.stat_value(data, Upgrade::Ram);
-    let mut used = 0;
-    let strip = installed(save, data)
-        .iter()
-        .enumerate()
-        .map(|(i, p)| {
-            let loads = used + p.spec.ram <= ram_max;
-            if loads {
-                used += p.spec.ram;
-            }
-            InRam {
-                program: i,
-                ram: p.spec.ram,
-                loads,
-            }
-        })
-        .collect();
-    (strip, ram_max)
 }
 
 impl Save {

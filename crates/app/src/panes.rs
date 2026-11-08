@@ -268,14 +268,13 @@ impl Panes<'_> {
             format!("{cpu}/{} cyc", d.cpu_max),
             false,
         );
-        let ram = g.ram_used();
         self.meter(
             ui,
             "RAM",
-            ram,
             d.ram_max,
-            format!("{ram}/{} GB", d.ram_max),
-            ram == d.ram_max,
+            d.ram_max,
+            format!("{} GB", d.ram_max),
+            false,
         );
         let hdd = g.hdd.len() as u32;
         self.meter(
@@ -327,105 +326,69 @@ impl Panes<'_> {
         let p = self.pal;
         let fighting = g.phase == Phase::Combat;
         let cpu = g.combat.as_ref().map_or(0, |c| c.cpu);
-        for (heading, loaded) in [("▾ ram/", true), ("▾ hdd/", false)] {
-            let note = if loaded {
-                format!("{}/{} GB", g.ram_used(), g.deck.ram_max)
-            } else {
-                format!("{}/{} slots", g.hdd.len(), g.deck.hdd_max)
-            };
+        let note = format!("{}/{} slots", g.hdd.len(), g.deck.hdd_max);
+        ui.horizontal(|ui| {
+            ui.label(RichText::new("▾ hdd/").color(p.bright));
+            ui.label(RichText::new(note).small().color(p.dim));
+        });
+        for (i, s) in g.hdd.iter().enumerate() {
+            let w = &s.spec;
+            let blurb = &g.data.warez[s.warez].blurb;
             ui.horizontal(|ui| {
-                ui.label(RichText::new(heading).color(p.bright));
-                ui.label(RichText::new(note).small().color(p.dim));
-            });
-            let mut any = false;
-            for (i, s) in g.hdd.iter().enumerate().filter(|(_, s)| s.loaded == loaded) {
-                any = true;
-                let w = &s.spec;
-                let blurb = &g.data.warez[s.warez].blurb;
-                ui.horizontal(|ui| {
-                    ui.add_space(12.0);
-                    let icon = match w.effect {
-                        Effect::Break { .. } => "⚔",
-                        Effect::Shield(_) => "◘",
-                        _ => "⚙",
-                    };
-                    let opt = if w.opt > 0 {
-                        format!(" O{}", w.opt)
-                    } else {
-                        String::new()
-                    };
-                    let name = RichText::new(format!("[{i}] {icon} {}{opt}", w.file()))
-                        .color(if loaded { p.fg } else { p.dim });
-                    let hover = format!(
-                        "{}\n{}\nram {}  cpu {}  {}",
-                        w.name,
-                        blurb,
-                        w.ram,
-                        w.cpu,
-                        w.effect.describe()
-                    );
-                    // Buttons first, from the right; the name and stats get what's left and
-                    // shorten rather than run under the buttons.
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        if self.game.has_tool("hexed")
-                            && ui
-                                .small_button("hex")
-                                .on_hover_text("open in hexedit")
-                                .clicked()
+                ui.add_space(12.0);
+                let icon = match w.effect {
+                    Effect::Break { .. } => "⚔",
+                    Effect::Shield(_) => "◘",
+                    _ => "⚙",
+                };
+                let opt = if w.opt > 0 {
+                    format!(" O{}", w.opt)
+                } else {
+                    String::new()
+                };
+                let name = RichText::new(format!("[{i}] {icon} {}{opt}", w.file())).color(p.fg);
+                let hover = format!(
+                    "{}\n{}\ncpu {}  {}",
+                    w.name,
+                    blurb,
+                    w.cpu,
+                    w.effect.describe()
+                );
+                // Buttons first, from the right; the name and stats get what's left and
+                // shorten rather than run under the buttons.
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if self.game.has_tool("hexed")
+                        && ui
+                            .small_button("hex")
+                            .on_hover_text("open in hexedit")
+                            .clicked()
+                    {
+                        self.out.push(Request::OpenHex(i));
+                    }
+                    if fighting {
+                        let ok = cpu >= w.cpu;
+                        if ui
+                            .add_enabled(ok, egui::Button::new("run").small())
+                            .clicked()
                         {
-                            self.out.push(Request::OpenHex(i));
+                            self.act(Action::Run(i));
                         }
-                        if loaded {
-                            if ui.small_button("unload").clicked() {
-                                self.act(Action::Unload(i));
-                            }
-                            if fighting {
-                                let ok = cpu >= w.cpu;
-                                if ui
-                                    .add_enabled(ok, egui::Button::new("run").small())
-                                    .clicked()
-                                {
-                                    self.act(Action::Run(i));
-                                }
-                            }
-                        } else {
-                            let fits = g.ram_used() + w.ram <= g.deck.ram_max;
-                            if ui
-                                .add_enabled(fits, egui::Button::new("load").small())
-                                .clicked()
-                            {
-                                self.act(Action::Load(i));
-                            }
-                        }
-                        ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
-                            ui.add(egui::Label::new(name).truncate())
-                                .on_hover_text(hover);
-                            ui.add(
-                                egui::Label::new(
-                                    RichText::new(format!("r{} c{}", w.ram, w.cpu))
-                                        .small()
-                                        .color(p.dim),
-                                )
-                                .truncate(),
-                            );
-                        });
+                    }
+                    ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                        ui.add(egui::Label::new(name).truncate())
+                            .on_hover_text(hover);
+                        ui.add(
+                            egui::Label::new(
+                                RichText::new(format!("c{}", w.cpu)).small().color(p.dim),
+                            )
+                            .truncate(),
+                        );
                     });
                 });
-            }
-            if !any {
-                ui.label(RichText::new("    (empty)").color(p.faint));
-            }
-            ui.add_space(6.0);
+            });
         }
-        if fighting {
-            ui.label(
-                RichText::new(format!(
-                    "loading mid-fight costs {} cpu",
-                    tuning::COMBAT_LOAD_CPU
-                ))
-                .small()
-                .color(p.dim),
-            );
+        if g.hdd.is_empty() {
+            ui.label(RichText::new("    (empty)").color(p.faint));
         }
     }
 
@@ -548,7 +511,7 @@ impl Panes<'_> {
         });
         ui.separator();
         ui.horizontal_wrapped(|ui| {
-            for (i, s) in g.hdd.iter().enumerate().filter(|(_, s)| s.loaded) {
+            for (i, s) in g.hdd.iter().enumerate() {
                 let w = &s.spec;
                 let class_hit =
                     matches!(w.effect, Effect::Break { vs: Some(v), .. } if v == ice.class);

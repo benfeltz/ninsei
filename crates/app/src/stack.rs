@@ -77,7 +77,7 @@ pub fn meter_pattern(frac: f32) -> &'static str {
     }
 }
 
-/// The program a fight's alert offers first: the loaded program that breaks the most now.
+/// The program a fight's alert offers first: the program that breaks the most now.
 pub fn best_move(g: &Game) -> Option<usize> {
     (0..g.hdd.len())
         .filter_map(|i| g.preview(i).ok().map(|p| (i, p.hit())))
@@ -86,7 +86,7 @@ pub fn best_move(g: &Game) -> Option<usize> {
         .map(|(i, _)| i)
 }
 
-/// The first loaded shield that can go up now.
+/// The first shield that can go up now.
 fn shield_move(g: &Game) -> Option<usize> {
     (0..g.hdd.len())
         .find(|&i| matches!(g.hdd[i].spec.effect, Effect::Shield(_)) && g.preview(i).is_ok())
@@ -184,14 +184,13 @@ impl ChromeView for Stack {
         field(ui, ink, |ui| {
             let cpu = g.combat.as_ref().map_or(d.cpu_max, |c| c.cpu);
             meter(ui, p, "CPU", cpu, d.cpu_max, format!("{cpu}/{}", d.cpu_max));
-            let ram = g.ram_used();
             meter(
                 ui,
                 p,
                 "RAM",
-                ram,
                 d.ram_max,
-                format!("{ram}/{} GB", d.ram_max),
+                d.ram_max,
+                format!("{} GB", d.ram_max),
             );
             let hdd = g.hdd.len() as u32;
             meter(ui, p, "HDD", hdd, d.hdd_max, format!("{hdd}/{}", d.hdd_max));
@@ -239,45 +238,29 @@ impl ChromeView for Stack {
         let g = p.game;
         let fighting = g.phase == Phase::Combat;
         let best = if fighting { best_move(g) } else { None };
-        for loaded in [true, false] {
-            ui.label(
-                RichText::new(if loaded {
-                    format!("Loaded  {}/{} GB", g.ram_used(), g.deck.ram_max)
-                } else {
-                    format!("On disk  {}/{}", g.hdd.len(), g.deck.hdd_max)
-                })
+        ui.label(
+            RichText::new(format!("On disk  {}/{}", g.hdd.len(), g.deck.hdd_max))
                 .strong()
                 .color(p.pal.fg),
-            );
-            let mut any = false;
-            for i in (0..g.hdd.len()).filter(|&i| g.hdd[i].loaded == loaded) {
-                any = true;
-                let s = &g.hdd[i];
-                let w = &s.spec;
-                let (what, on, a) = if !loaded {
-                    let fits = g.ram_used() + w.ram <= g.deck.ram_max;
-                    ("load", fits, Action::Load(i))
-                } else if fighting {
-                    ("run", g.preview(i).is_ok(), Action::Run(i))
-                } else {
-                    ("unload", true, Action::Unload(i))
-                };
-                let sub = format!("{what} · ram {} cpu {}", w.ram, w.cpu);
-                let id = ui.id().with(("stack-prog", s.uid));
-                ui.horizontal(|ui| {
-                    if button(ui, p, id, &w.file(), &sub, on, best == Some(i)) {
-                        p.act(a);
-                    }
-                    if p.game.has_tool("hexed") && ui.small_button("hex").clicked() {
-                        p.out.push(Request::OpenHex(i));
-                    }
-                });
-            }
-            if !any {
-                ui.label(RichText::new("(none)").color(p.pal.fg));
-            }
-            ui.add_space(6.0);
+        );
+        for (i, s) in g.hdd.iter().enumerate() {
+            let w = &s.spec;
+            let on = fighting && g.preview(i).is_ok();
+            let sub = format!("run · cpu {}", w.cpu);
+            let id = ui.id().with(("stack-prog", s.uid));
+            ui.horizontal(|ui| {
+                if button(ui, p, id, &w.file(), &sub, on, best == Some(i)) {
+                    p.act(Action::Run(i));
+                }
+                if p.game.has_tool("hexed") && ui.small_button("hex").clicked() {
+                    p.out.push(Request::OpenHex(i));
+                }
+            });
         }
+        if g.hdd.is_empty() {
+            ui.label(RichText::new("(none)").color(p.pal.fg));
+        }
+        ui.add_space(6.0);
     }
 
     fn terminal(&self, p: &mut Panes, ui: &mut Ui) {
@@ -792,7 +775,7 @@ pub(crate) mod tests {
     fn enter_runs_the_best_move_and_esc_tucks_the_alert_away() {
         let d = Data::builtin().unwrap();
         let g = a_fight(&d);
-        let best = best_move(&g).expect("a breaker is loaded");
+        let best = best_move(&g).expect("a breaker is on the disk");
         let mut h = crate::uitest::Harness::new(1280.0, 800.0);
         overlay(&mut h, &g, true, vec![]);
         let out = overlay(&mut h, &g, true, crate::uitest::key(egui::Key::Enter));
@@ -841,7 +824,7 @@ pub(crate) mod tests {
             "nothing to hit out of a fight"
         );
         let g = a_fight(&d);
-        let b = best_move(&g).expect("a breaker is loaded");
+        let b = best_move(&g).expect("a breaker is on the disk");
         let hit = g.preview(b).unwrap().hit();
         assert!(hit > 0);
         assert!((0..g.hdd.len()).all(|i| g.preview(i).map_or(0, |p| p.hit()) <= hit));

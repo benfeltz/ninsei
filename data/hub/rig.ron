@@ -1,7 +1,7 @@
 // RIG deck shop. Each purchase of an upgrade adds `step` and costs more than the last:
 // cost(level) = base_cost grown by growth_pct per level already owned. `max` caps the level.
 [
-    (kind: Ram,       label: "RAM",   unit: "GB",    step: 1, max: 6, base_cost: 150, growth_pct: 90, blurb: "More programs loaded at once."),
+    (kind: Ram,       label: "RAM",   unit: "GB",    step: 1, max: 6, base_cost: 150, growth_pct: 90, blurb: "More IFs a turn: smarter programs."),
     (kind: Cpu,       label: "CPU",   unit: "cyc",   step: 1, max: 3, base_cost: 600, growth_pct: 150, blurb: "One more action every turn."),
     (kind: Hdd,       label: "HDD",   unit: "slots", step: 1, max: 6, base_cost: 100, growth_pct: 85, blurb: "Carry more programs into a run."),
     (kind: Integrity, label: "INTEG", unit: "",      step: 3, max: 6, base_cost: 110, growth_pct: 85, blurb: "Take more hits before you flatline."),

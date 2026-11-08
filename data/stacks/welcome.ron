@@ -156,9 +156,8 @@
                 "  PATCH repairs your deck when something gets through.",
                 "  ICEPICK, a diagnostic tool for stubborn connections.",
                 "",
-                "Load them from your warez and run them when you need",
-                "them. They're yours to keep, free, for as long as you",
-                "own your deck.",
+                "Run them from your warez when you need them. They're",
+                "yours to keep, free, for as long as you own your deck.",
             ]),
             (title: "That's the tour", picture: Some("deck"), text: [
                 "That's everything you need to get started.",

@@ -40,7 +40,13 @@ fn factory_binaries_decode_to_their_definitions() {
     for (i, def) in g.data.warez.iter().enumerate() {
         let s = g.factory_slot(i).expect("factory binary is legal");
         assert_eq!(s.spec.effect, def.effect, "{}", def.id);
-        assert_eq!((s.spec.cpu, s.spec.ram, s.spec.opt), (def.cpu, def.ram, 0));
+        assert_eq!((s.spec.cpu, s.spec.opt), (def.cpu, 0));
+        assert_eq!(
+            s.bin[binary::OFF_SPARE],
+            0,
+            "{}: byte 07 is reserved",
+            def.id
+        );
         assert_eq!(s.spec.name, def.name);
     }
 }
@@ -152,17 +158,30 @@ fn renaming_works_and_padding_is_checked() {
 }
 
 #[test]
-fn growing_ram_cost_unloads_if_it_no_longer_fits() {
+fn byte_07_is_reserved() {
     let mut g = game();
     let i = slot_of(&g, "icepick");
-    assert!(g.hdd[i].loaded);
     let mut b = g.hdd[i].bin;
-    b[binary::OFF_RAM] = 9;
+    b[binary::OFF_SPARE] = 9;
     fix_checksum(&mut b);
+    let faults = binary::check(&b, g.key()).unwrap_err();
+    assert!(faults.iter().any(|f| f.contains("07")), "{faults:?}");
     g.apply(Action::Patch { slot: i, bin: b });
-    assert_eq!(g.hdd[i].spec.ram, 9);
-    assert!(!g.hdd[i].loaded);
-    assert!(g.ram_used() <= g.deck.ram_max);
+    assert_eq!(g.hdd[i].bin[binary::OFF_SPARE], 0, "the patch is refused");
+}
+
+#[test]
+fn every_shipped_program_fits_its_budget() {
+    let g = game();
+    for def in &g.data.warez {
+        assert!(
+            binary::cost(def.effect) <= binary::budget(def.cpu, 0),
+            "{} costs {} on {} cpu",
+            def.id,
+            binary::cost(def.effect),
+            def.cpu
+        );
+    }
 }
 
 #[test]
@@ -196,7 +215,6 @@ fn specialised_breakers_halve_against_other_classes() {
     let mut g = game();
     fight(&mut g, "icewall"); // barrier
     let i = slot_of(&g, "decoder"); // code gate breaker, power 4
-    g.hdd[i].loaded = true;
     let before = g.combat.as_ref().unwrap().strength;
     g.apply(Action::Run(i));
     assert_eq!(before - g.combat.as_ref().unwrap().strength, 2);
@@ -207,9 +225,7 @@ fn stun_cannot_land_two_turns_running() {
     let mut g = game();
     g.deck.cpu_max = 9;
     let lag = g.data.warez_ix("lagspike").unwrap();
-    let mut s = g.factory_slot(lag).unwrap();
-    s.loaded = true;
-    g.deck.ram_max = 20;
+    let s = g.factory_slot(lag).unwrap();
     g.hdd.push(s);
     let i = g.hdd.len() - 1;
     fight(&mut g, "rototurret");

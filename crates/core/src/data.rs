@@ -54,7 +54,6 @@ pub struct WarezDef {
     pub id: String,
     pub name: String,
     pub kind: WarezKind,
-    pub ram: u32,
     pub cpu: u32,
     pub effect: Effect,
     pub blurb: String,
@@ -583,9 +582,9 @@ pub enum ChoiceEffect {
     Trade {
         pool: Vec<String>,
     },
-    /// Sell a program for `per_ram` credits per GB of its ram cost.
+    /// Sell a program for `per_cpu` credits per CPU it takes to run.
     Sell {
-        per_ram: u32,
+        per_cpu: u32,
     },
     /// Take a contract on a node ahead.
     Contract,

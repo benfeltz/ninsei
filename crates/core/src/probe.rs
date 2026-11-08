@@ -59,7 +59,7 @@ pub enum Bot {
     /// First route, first affordable breaker, never shields, walks away from everyone.
     Dumb,
     /// Picks routes, breaks with the best hit per cycle, shields before attacks, repairs,
-    /// scrubs trace, loads what it carries, walks away from encounters.
+    /// scrubs trace, walks away from encounters.
     Smart,
 }
 
@@ -107,12 +107,10 @@ pub fn play_knowing(mut g: Game, bot: Bot, known: &[String]) -> (Game, RunLog) {
         match g.phase {
             Phase::Exploring => {
                 if bot == Bot::Smart {
-                    load_what_fits(&mut g);
                     let here = (g.outer.is_some(), g.at);
                     if g.at_bbs() && !shopped.contains(&here) {
                         shopped.push(here);
                         shop_bbs(&mut g, known, &mut log);
-                        load_what_fits(&mut g);
                     }
                 }
                 let to = match bot {
@@ -176,9 +174,7 @@ fn dumb_move(g: &Game) -> Action {
     g.hdd
         .iter()
         .enumerate()
-        .find(|(_, s)| {
-            s.loaded && s.spec.cpu <= cpu && matches!(s.spec.effect, Effect::Break { .. })
-        })
+        .find(|(_, s)| s.spec.cpu <= cpu && matches!(s.spec.effect, Effect::Break { .. }))
         .map_or(Action::EndTurn, |(i, _)| Action::Run(i))
 }
 
@@ -230,26 +226,6 @@ fn smart_move(g: &Game) -> Action {
         return Action::Run(i);
     }
     Action::EndTurn
-}
-
-/// Loads programs while RAM allows, breakers first.
-fn load_what_fits(g: &mut Game) {
-    loop {
-        let free = g.deck.ram_max.saturating_sub(g.ram_used());
-        let pick = g
-            .hdd
-            .iter()
-            .enumerate()
-            .filter(|(_, s)| !s.loaded && s.spec.ram <= free)
-            .max_by_key(|(_, s)| matches!(s.spec.effect, Effect::Break { .. }))
-            .map(|(i, _)| i);
-        let Some(i) = pick else { return };
-        let before = g.ram_used();
-        g.apply(Action::Load(i));
-        if g.ram_used() == before {
-            return;
-        }
-    }
 }
 
 /// The route a careful runner takes: the exit when it's there, loot when trace allows, and
@@ -513,7 +489,7 @@ fn talk(g: &Game, known: &[String], log: &mut RunLog) -> Option<usize> {
     let healthy = d.integrity * 3 >= d.integrity_max * 2
         && g.hdd
             .iter()
-            .any(|s| s.loaded && matches!(s.spec.effect, Effect::Break { .. }));
+            .any(|s| matches!(s.spec.effect, Effect::Break { .. }));
     let hurt = |p: &Penalty| match p {
         Penalty::Trace(n) => 4 * i64::from(*n),
         Penalty::Damage(n) => 8 * i64::from(*n),

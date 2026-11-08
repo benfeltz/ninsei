@@ -55,9 +55,6 @@ impl Game {
             .get(slot)
             .ok_or_else(|| format!("no program in slot {slot}."))?;
         let w = &s.spec;
-        if !s.loaded {
-            return Err(format!("{} is not loaded.", w.name));
-        }
         let Some(c) = self.combat.as_ref() else {
             return Err("nothing to run against.".into());
         };

@@ -482,13 +482,11 @@ fn disk_panel(
         save.fragments
     )));
     ui.add_space(4.0);
-    // Top: the drive (map, legend, RAM). Bottom: the box of disks beside the picked
+    // Top: the drive (map, legend). Bottom: the box of disks beside the picked
     // program's details and its buttons.
     block_map(ui, data, look, st, &on, &shelf, &map);
     ui.add_space(4.0);
     legend(ui, data, look);
-    ui.add_space(6.0);
-    ram_strip(ui, save, data, &on, look);
     ui.add_space(8.0);
     ui.horizontal_top(|ui| {
         ui.vertical(|ui| {
@@ -725,49 +723,6 @@ fn legend(ui: &mut Ui, data: &Data, look: Look) {
     });
 }
 
-/// RAM at jack-in: the installed programs that load, in order, then the ones that won't fit.
-fn ram_strip(ui: &mut Ui, save: &Save, data: &Data, on: &[Program], look: Look) {
-    let (strip, ram_max) = disk::ram_preview(save, data);
-    let used: u32 = strip.iter().filter(|r| r.loads).map(|r| r.ram).sum();
-    ui.label(RichText::new(format!("RAM at jack-in: {used} of {ram_max} GB")).color(ink()));
-    let w = MAP_COLS as f32 * BLOCK;
-    let (rect, _) = ui.allocate_exact_size(egui::vec2(w, 18.0), egui::Sense::hover());
-    let p = ui.painter();
-    let per = w / ram_max.max(1) as f32;
-    let mut x = rect.left();
-    for r in strip.iter().filter(|r| r.loads) {
-        let seg = egui::Rect::from_min_size(
-            egui::pos2(x, rect.top()),
-            egui::vec2(per * r.ram as f32, rect.height()),
-        );
-        paint_kind(p, data, look, on[r.program].kind, seg.shrink(1.0));
-        p.rect_stroke(
-            seg,
-            0.0,
-            egui::Stroke::new(1.0, ink()),
-            egui::StrokeKind::Inside,
-        );
-        x += per * r.ram as f32;
-    }
-    p.rect_stroke(
-        rect,
-        0.0,
-        egui::Stroke::new(1.0, ink()),
-        egui::StrokeKind::Inside,
-    );
-    let wont: Vec<String> = strip
-        .iter()
-        .filter(|r| !r.loads)
-        .map(|r| on[r.program].spec.file())
-        .collect();
-    if !wont.is_empty() {
-        ui.label(dim(format!(
-            "Won't fit in RAM, stays on disk: {}",
-            wont.join(", ")
-        )));
-    }
-}
-
 /// The box of disks beside the drive: stash programs and free programs not installed.
 fn box_list(ui: &mut Ui, save: &Save, data: &Data, st: &mut SystemUi, shelf: &[Program]) {
     let cap = save.stash_cap(&data.rig);
@@ -880,7 +835,7 @@ fn info(ui: &mut Ui, data: &Data, st: &SystemUi, on: &[Program], shelf: &[Progra
     ui.label(RichText::new(s.file()).color(ink()).strong());
     ui.label(dim(&data.warez[prog.warez].blurb));
     ui.label(RichText::new(s.effect.describe()).color(ink()));
-    let mut line = format!("{:?} · RAM {} · CPU {}", prog.kind, s.ram, s.cpu);
+    let mut line = format!("{:?} · CPU {}", prog.kind, s.cpu);
     if let Some(pw) = prog.power() {
         line.push_str(&format!(" · power {pw}"));
     }

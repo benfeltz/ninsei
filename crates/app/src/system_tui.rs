@@ -793,42 +793,7 @@ fn disk_panel(
     g.put(x + 3, ly, "free", muted());
     y += rows + 3;
 
-    let (strip, ram_max) = disk::ram_preview(save, data);
-    let loaded: u32 = strip.iter().filter(|r| r.loads).map(|r| r.ram).sum();
-    let c = g.put(1, y, "ram", accent());
-    let per = (w / ram_max.max(1) as usize).max(1);
-    let mut cc = g.put(c + 2, y, "▕", muted());
-    for r in strip.iter().filter(|r| r.loads) {
-        let (ch, fg) = glyph(on[r.program].kind);
-        cc = g.put(cc, y, &ch.to_string().repeat(per * r.ram as usize), fg);
-    }
-    let free = ram_max.saturating_sub(loaded) as usize;
-    cc = g.put(cc, y, &"·".repeat(per * free), fill());
-    cc = g.put(cc, y, "▏", muted());
-    g.put(
-        cc + 1,
-        y,
-        &format!("{loaded} of {ram_max} GB at jack-in"),
-        ink(),
-    );
-    y += 1;
-    let wont: Vec<String> = strip
-        .iter()
-        .filter(|r| !r.loads)
-        .map(|r| on[r.program].spec.file())
-        .collect();
-    if !wont.is_empty() {
-        y = wrap(
-            g,
-            5,
-            y,
-            &format!("won't fit in ram, stays on disk: {}", wont.join(", ")),
-            muted(),
-        );
-    }
-    y += 1;
-
-    // The disk in load order, the box, and the pick.
+    // The disk, the box, and the pick.
     // The pick's details right of the lists, or under them in a narrow tile.
     let (dx, bx, ix) = (1, 22, 44);
     let below = g.cols < ix + 34;
@@ -902,7 +867,7 @@ fn info(
     let n = wrap(&mut sub, 0, n, &s.effect.describe(), ink());
     g.stamp(sub, x, y);
     y += n;
-    let mut line = format!("{:?} · ram {} · cpu {}", prog.kind, s.ram, s.cpu).to_lowercase();
+    let mut line = format!("{:?} · cpu {}", prog.kind, s.cpu).to_lowercase();
     if let Some(pw) = prog.power() {
         line.push_str(&format!(" · power {pw}"));
     }

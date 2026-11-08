@@ -33,7 +33,7 @@
     cover: [
         (kicker: Some("TESTED"), headline: "ONO-SENDAI CYBERSPACE VII",
          line: "Is the hacker's deck worth it? Our lab jacks in.", section: Decks),
-        (headline: "HOW MUCH RAM IS ENOUGH?", line: "Six programs, one deck, no excuses.", section: Upgrades),
+        (headline: "HOW MUCH RAM IS ENOUGH?", line: "Six decisions a turn, one deck, no excuses.", section: Upgrades),
         (headline: "MONITOR SHOOTOUT", line: "Amber vs. green vs. IBM VGA. Your eyes will thank you.", section: Monitors),
         (headline: "MAIL-ORDER MADNESS", line: "Software in a plain wrapper. No questions asked.", section: Software),
         (kicker: Some("NEW"), headline: "BLOX 2.0 IS HERE", line: "The falling-block craze, boxed. We played it all night.", section: Games),

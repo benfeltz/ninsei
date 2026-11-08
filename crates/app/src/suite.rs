@@ -44,14 +44,13 @@ pub mod size {
 }
 
 /// What the suite remembers between frames: the spreadsheet's cursor (by program uid, since the
-/// HDD reshuffles), its sort and filter, and the dialogs waiting to be dismissed.
+/// HDD reshuffles), its sort, and the dialogs waiting to be dismissed.
 #[derive(Default)]
 pub struct State {
     pub sel: Option<u32>,
     pub col: SheetCol,
     pub sort: SheetCol,
     pub desc: bool,
-    pub loaded_only: bool,
     pub watch: Watch,
     pub dialogs: Vec<Notice>,
 }
@@ -59,7 +58,7 @@ pub struct State {
 impl State {
     /// The sheet's rows in order.
     fn rows(&self, g: &Game) -> Vec<usize> {
-        rules::sheet_rows(&g.hdd, self.sort, !self.desc, self.loaded_only)
+        rules::sheet_rows(&g.hdd, self.sort, !self.desc)
     }
 
     /// The slot under the cursor, or the sheet's first row.
@@ -450,9 +449,9 @@ impl Panes<'_> {
                     ),
                     (
                         "MEMORY GB ",
-                        format!("{} / {}", g.ram_used(), d.ram_max),
-                        "programs loaded in RAM",
-                        g.ram_used() == d.ram_max,
+                        d.ram_max.to_string(),
+                        "decisions a turn",
+                        false,
                     ),
                     (
                         "STORAGE   ",
@@ -498,7 +497,6 @@ impl Panes<'_> {
                     &p,
                     &[
                         ("CPU", d.cpu_max - cpu.min(d.cpu_max), d.cpu_max, false),
-                        ("RAM", g.ram_used(), d.ram_max, g.ram_used() == d.ram_max),
                         ("HDD", hdd, d.hdd_max, hdd == d.hdd_max),
                         ("INTEG", d.integrity, d.integrity_max, low),
                         ("TRACE", d.trace, tuning::TRACE_MAX, trace_hot),
@@ -545,22 +543,10 @@ impl Panes<'_> {
                         ui.add(egui::Label::new(t(format!("{cell}   {formula}"), p.fg)).truncate());
                     });
                 });
-            ui.horizontal(|ui| {
-                let mark = if st.loaded_only { "[x]" } else { "[ ]" };
-                if ui
-                    .add(
-                        egui::Label::new(t(format!("{mark} LOADED ONLY"), p.fg))
-                            .sense(Sense::click()),
-                    )
-                    .clicked()
-                {
-                    st.loaded_only = !st.loaded_only;
-                }
-                ui.label(small(
-                    "click a header to sort, double-click a row to load, run or unload",
-                    p.dim,
-                ));
-            });
+            ui.label(small(
+                "click a header to sort, double-click a row to run",
+                p.dim,
+            ));
             // Columns in whole cells, each its widest real value (core's `sheet_widths`) with a
             // cell of padding either side, so nothing is cut.
             let (rownum, value_w) = rules::sheet_widths(&g.hdd);
@@ -694,13 +680,11 @@ impl Panes<'_> {
                                     p.bg
                                 } else if on {
                                     p.bright
-                                } else if s.loaded {
-                                    p.fg
                                 } else {
-                                    p.dim
+                                    p.fg
                                 };
                                 let align = match c {
-                                    SheetCol::File | SheetCol::Status => Align2::LEFT_CENTER,
+                                    SheetCol::File => Align2::LEFT_CENTER,
                                     _ => Align2::RIGHT_CENTER,
                                 };
                                 put(&cells, &painter, k, &c.cell(slot, s), align, colour);
@@ -712,14 +696,8 @@ impl Panes<'_> {
                                 st.col = SheetCol::ALL[k - 1];
                             }
                         }
-                        if resp.double_clicked() {
-                            acts.push(if !s.loaded {
-                                act(Action::Load(slot))
-                            } else if fighting {
-                                act(Action::Run(slot))
-                            } else {
-                                act(Action::Unload(slot))
-                            });
+                        if resp.double_clicked() && fighting {
+                            acts.push(act(Action::Run(slot)));
                         }
                         let w = &s.spec;
                         resp.on_hover_text(format!(
@@ -729,14 +707,7 @@ impl Panes<'_> {
                             w.effect.describe()
                         ))
                         .context_menu(|ui| {
-                            if !s.loaded && ui.button("Load        F2").clicked() {
-                                acts.push(act(Action::Load(slot)));
-                            }
-                            if s.loaded && ui.button("Unload      F3").clicked() {
-                                acts.push(act(Action::Unload(slot)));
-                            }
-                            if s.loaded
-                                && fighting
+                            if fighting
                                 && ui
                                     .add_enabled(cpu_left >= w.cpu, egui::Button::new("Run"))
                                     .clicked()
@@ -753,27 +724,7 @@ impl Panes<'_> {
                     }
                 });
             // The totals row.
-            let ram = g.ram_used();
-            ui.horizontal(|ui| {
-                ui.label(t(
-                    format!("RAM USED {ram} / {}", g.deck.ram_max),
-                    if ram == g.deck.ram_max {
-                        p.bright
-                    } else {
-                        p.fg
-                    },
-                ));
-                ui.label(t(
-                    format!("   HDD {} / {}", g.hdd.len(), g.deck.hdd_max),
-                    p.dim,
-                ));
-            });
-            if fighting {
-                ui.label(small(
-                    format!("loading mid-fight costs {} cpu", tuning::COMBAT_LOAD_CPU),
-                    p.dim,
-                ));
-            }
+            ui.label(t(format!("HDD {} / {}", g.hdd.len(), g.deck.hdd_max), p.fg));
         });
         self.out.extend(acts);
     }
@@ -798,7 +749,7 @@ impl Panes<'_> {
         window(ui, &p, Tab::Target.number(), "INCIDENT REPORT", |ui| {
             // The toolbar: run buttons and End Turn, always in view above the report.
             ui.horizontal_wrapped(|ui| {
-                for (i, s) in g.hdd.iter().enumerate().filter(|(_, s)| s.loaded) {
+                for (i, s) in g.hdd.iter().enumerate() {
                     let w = &s.spec;
                     let class_hit =
                         matches!(w.effect, Effect::Break { vs: Some(v), .. } if v == ice.class);
@@ -1187,10 +1138,8 @@ impl Panes<'_> {
 }
 
 /// The F-key legend: what each key does, wired to the same requests as the keys.
-const FKEYS: [(Key, &str, &str); 6] = [
+const FKEYS: [(Key, &str, &str); 4] = [
     (Key::F1, "F1", "Help"),
-    (Key::F2, "F2", "Load"),
-    (Key::F3, "F3", "Unload"),
     (Key::F4, "F4", "Hex"),
     (Key::F8, "F8", "Jack"),
     (Key::F10, "F10", "End turn"),
@@ -1201,8 +1150,6 @@ fn fkey(k: Key, st: &State, g: &Game) -> Option<Request> {
     let slot = st.picked(g);
     Some(match k {
         Key::F1 => Request::Cmd(Command::Help),
-        Key::F2 => act(Action::Load(slot?)),
-        Key::F3 => act(Action::Unload(slot?)),
         Key::F4 if g.has_tool("hexed") => Request::OpenHex(slot?),
         Key::F8 => Request::Type("jack ".into()),
         Key::F10 => act(Action::EndTurn),
@@ -1761,9 +1708,9 @@ mod tests {
             })
             .expect("the headers");
         let joined: String = head.iter().map(|g| g.1.as_str()).collect();
-        let ram = head[joined[..joined.find("RAM").unwrap()].chars().count()].0;
-        sheet(&mut h, &d, &g, &mut st, click(ram.center()));
-        assert_eq!(st.sort, SheetCol::Ram);
+        let cpu = head[joined[..joined.find("CPU").unwrap()].chars().count()].0;
+        sheet(&mut h, &d, &g, &mut st, click(cpu.center()));
+        assert_eq!(st.sort, SheetCol::Cpu);
     }
 
     #[test]
@@ -1793,13 +1740,15 @@ mod tests {
             });
         };
         draw(&mut h, &mut st, Vec::new());
-        let load = h
-            .find("F2 Load")
+        let end = h
+            .find("F10 End turn")
             .unwrap_or_else(|| panic!("{:?}", h.texts()));
-        draw(&mut h, &mut st, click(load.center()));
-        let slot = st.picked(&g).unwrap();
+        draw(&mut h, &mut st, click(end.center()));
         assert!(
-            matches!(got.as_slice(), [Request::Cmd(Command::Game(Action::Load(s)))] if *s == slot),
+            matches!(
+                got.as_slice(),
+                [Request::Cmd(Command::Game(Action::EndTurn))]
+            ),
             "{:?}",
             got.len()
         );

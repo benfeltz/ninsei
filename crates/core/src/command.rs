@@ -19,11 +19,9 @@ pub enum Command {
 }
 
 pub const HELP: &[&str] = &[
-    "run <slot>      run a loaded program        (r)",
+    "run <slot>      run a program               (r)",
     "end             end your turn               (e)",
     "jack <node>     move to a linked node       (j)",
-    "load <slot>     load a program into ram",
-    "unload <slot>   free its ram",
     "hex <slot>      open a program in the hex editor",
     "opt <slot>      spend a fragment: +budget",
     "newrun [seed]   start a new run",
@@ -35,12 +33,11 @@ pub const HELP: &[&str] = &[
 
 /// Every verb the run terminal knows, for Tab completion.
 pub const VERBS: &[&str] = &[
-    "run", "end", "jack", "load", "unload", "hex", "opt", "newrun", "theme", "crt", "sound",
-    "clear", "help",
+    "run", "end", "jack", "hex", "opt", "newrun", "theme", "crt", "sound", "clear", "help",
 ];
 
 /// Verbs whose argument is an HDD slot.
-pub const SLOT_VERBS: &[&str] = &["run", "load", "unload", "hex", "opt"];
+pub const SLOT_VERBS: &[&str] = &["run", "hex", "opt"];
 
 /// Commands kept in the terminal's history (`Save::term_history`).
 pub const HISTORY_KEEP: usize = 100;
@@ -92,8 +89,6 @@ pub fn parse_command(line: &str) -> Result<Command, String> {
         "run" | "r" | "exec" => Command::Game(Action::Run(num("slot")?)),
         "end" | "e" | "pass" => Command::Game(Action::EndTurn),
         "jack" | "j" | "cd" | "ssh" => Command::Game(Action::Move(num("node")?)),
-        "load" => Command::Game(Action::Load(num("slot")?)),
-        "unload" | "kill" => Command::Game(Action::Unload(num("slot")?)),
         "newrun" | "reboot" => match arg {
             Some(s) => Command::Game(Action::NewRun(
                 u64::from_str_radix(s.trim_start_matches("0x"), 16)

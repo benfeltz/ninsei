@@ -76,30 +76,19 @@ pub enum SheetCol {
     #[default]
     Slot,
     File,
-    Ram,
     Cpu,
     Opt,
-    Status,
 }
 
 impl SheetCol {
-    pub const ALL: [SheetCol; 6] = [
-        SheetCol::Slot,
-        SheetCol::File,
-        SheetCol::Ram,
-        SheetCol::Cpu,
-        SheetCol::Opt,
-        SheetCol::Status,
-    ];
+    pub const ALL: [SheetCol; 4] = [SheetCol::Slot, SheetCol::File, SheetCol::Cpu, SheetCol::Opt];
 
     pub fn header(self) -> &'static str {
         match self {
             SheetCol::Slot => "SLOT",
             SheetCol::File => "FILE",
-            SheetCol::Ram => "RAM",
             SheetCol::Cpu => "CPU",
             SheetCol::Opt => "OPT",
-            SheetCol::Status => "STATUS",
         }
     }
 
@@ -108,10 +97,8 @@ impl SheetCol {
         match self {
             SheetCol::Slot => i.to_string(),
             SheetCol::File => s.spec.file(),
-            SheetCol::Ram => s.spec.ram.to_string(),
             SheetCol::Cpu => s.spec.cpu.to_string(),
             SheetCol::Opt => s.spec.opt.to_string(),
-            SheetCol::Status => if s.loaded { "LOADED" } else { "STORED" }.to_string(),
         }
     }
 }
@@ -119,9 +106,9 @@ impl SheetCol {
 /// Characters each sheet column needs to show every value and its header with a sort arrow
 /// (` ▲`) whole: the row-number column (the last row's number, or the header row's `1`),
 /// then `SheetCol::ALL`'s, sized from the widest real value so nothing is cut.
-pub fn sheet_widths(hdd: &[Slot]) -> (usize, [usize; 6]) {
+pub fn sheet_widths(hdd: &[Slot]) -> (usize, [usize; 4]) {
     let rownum = (hdd.len() + 1).to_string().len();
-    let mut w = [0; 6];
+    let mut w = [0; 4];
     for (k, c) in SheetCol::ALL.iter().enumerate() {
         w[k] = hdd
             .iter()
@@ -134,21 +121,16 @@ pub fn sheet_widths(hdd: &[Slot]) -> (usize, [usize; 6]) {
     (rownum, w)
 }
 
-/// HDD slot indices in spreadsheet order: sorted by `col` (ties by slot), optionally only the
-/// loaded rows.
-pub fn sheet_rows(hdd: &[Slot], col: SheetCol, ascending: bool, loaded_only: bool) -> Vec<usize> {
-    let mut rows: Vec<usize> = (0..hdd.len())
-        .filter(|&i| !loaded_only || hdd[i].loaded)
-        .collect();
+/// HDD slot indices in spreadsheet order: sorted by `col` (ties by slot).
+pub fn sheet_rows(hdd: &[Slot], col: SheetCol, ascending: bool) -> Vec<usize> {
+    let mut rows: Vec<usize> = (0..hdd.len()).collect();
     rows.sort_by(|&a, &b| {
         let (x, y) = (&hdd[a], &hdd[b]);
         let ord = match col {
             SheetCol::Slot => a.cmp(&b),
             SheetCol::File => x.spec.file().cmp(&y.spec.file()),
-            SheetCol::Ram => x.spec.ram.cmp(&y.spec.ram),
             SheetCol::Cpu => x.spec.cpu.cmp(&y.spec.cpu),
             SheetCol::Opt => x.spec.opt.cmp(&y.spec.opt),
-            SheetCol::Status => y.loaded.cmp(&x.loaded),
         };
         let ord = if ascending { ord } else { ord.reverse() };
         ord.then(a.cmp(&b))

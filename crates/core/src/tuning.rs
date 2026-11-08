@@ -6,7 +6,6 @@ pub const START_RAM: u32 = 6;
 pub const START_HDD: u32 = 6;
 pub const START_INTEGRITY: u32 = 18;
 
-/// Warez on the HDD at the start of a run. The first ones that fit in RAM start loaded.
 /// What a new deck ships with before its kit is applied: the default kit's free programs
 /// (`data/hub/starts.ron`; `Data::validate` keeps them the same). The Security Suite and a
 /// generic breaker; the specialists come from the boards.
@@ -19,9 +18,6 @@ pub const CLASSIC_WAREZ: &[&str] = &["icepick", "firewall", "patch", "decoder"];
 pub const TRACE_MAX: u32 = 100;
 pub const TRACE_PER_HOP: u32 = 4;
 pub const TRACE_PER_COMBAT_TURN: u32 = 2;
-
-/// CPU it costs to load a program in the middle of a fight. Loading outside a fight is free.
-pub const COMBAT_LOAD_CPU: u32 = 1;
 
 /// Network shape: entry layer, `NET_MID_LAYERS` layers of nodes, exit layer.
 pub const NET_MID_LAYERS: usize = 5;
@@ -87,15 +83,14 @@ pub const BBS_CPS: f32 = 42_000.0;
 pub const LOG_LIMIT: usize = 400;
 
 /// Hex-editor crafting. A program's effect cost must fit in
-/// `BUDGET_PER_CPU * cpu + ram / BUDGET_RAM_DIV + BUDGET_PER_OPT * opt`.
-pub const BUDGET_PER_CPU: u32 = 3;
-pub const BUDGET_RAM_DIV: u32 = 2;
+/// `BUDGET_PER_CPU * cpu + BUDGET_PER_OPT * opt`. 4 a CPU keeps every shipped program in
+/// budget now that RAM is no longer a program's cost (a class breaker costs 4 on 1 CPU).
+pub const BUDGET_PER_CPU: u32 = 4;
 pub const BUDGET_PER_OPT: u32 = 2;
 /// Flat budget cost of a stun.
 pub const COST_STUN: u32 = 7;
 pub const MAX_POWER: u32 = 40;
 pub const MAX_CPU: u32 = 9;
-pub const MAX_RAM: u32 = 16;
 pub const MAX_OPT: u32 = 5;
 /// Optimizer fragments consumed per opt level.
 pub const FRAGMENTS_PER_OPT: u32 = 1;

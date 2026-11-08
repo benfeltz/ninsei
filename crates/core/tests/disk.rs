@@ -105,24 +105,6 @@ fn a_full_disk_refuses_with_the_reason() {
 }
 
 #[test]
-fn the_ram_strip_loads_in_order_while_it_fits() {
-    let (d, mut s, id) = with_torch();
-    s.install(&d, &Disk::Stash(id)).unwrap();
-    let (strip, ram_max) = disk::ram_preview(&s, &d);
-    let used: u32 = strip.iter().filter(|r| r.loads).map(|r| r.ram).sum();
-    assert!(used <= ram_max);
-    // Whatever didn't load wouldn't have fitted at its turn.
-    let mut so_far = 0;
-    for r in &strip {
-        if r.loads {
-            so_far += r.ram;
-        } else {
-            assert!(so_far + r.ram > ram_max);
-        }
-    }
-}
-
-#[test]
 fn scrap_takes_a_program_off_the_disk_and_out_of_the_box() {
     let (d, mut s, id) = with_torch();
     s.install(&d, &Disk::Stash(id)).unwrap();

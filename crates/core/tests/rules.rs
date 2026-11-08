@@ -61,10 +61,24 @@ fn every_node_is_reachable_and_leads_to_exit() {
 }
 
 #[test]
-fn starting_loadout_fits_in_ram() {
-    let g = game(1);
-    assert!(g.ram_used() <= g.deck.ram_max);
-    assert!(g.hdd.iter().any(|s| s.loaded));
+fn every_program_on_the_hdd_can_run() {
+    // Nothing loads: in a fight, every program on the HDD is a verb, whatever the deck's RAM.
+    let mut g = game(1);
+    g.deck.ram_max = 1;
+    let target = g.net.nodes[g.at].links[0];
+    g.net.nodes[target].kind = NodeKind::Ice;
+    g.net.nodes[target].ice = Some(0);
+    g.net.nodes[target].cleared = false;
+    g.apply(Action::Move(target));
+    assert_eq!(g.phase, Phase::Combat);
+    assert!(g.hdd.len() >= 4);
+    for slot in 0..g.hdd.len() {
+        assert!(
+            g.preview(slot).is_ok(),
+            "slot {slot}: {:?}",
+            g.preview(slot)
+        );
+    }
 }
 
 #[test]
@@ -98,7 +112,7 @@ fn autoplay(seed: u64) -> Game {
                 let cpu = g.combat.as_ref().unwrap().cpu;
                 let pick = g.hdd.iter().enumerate().find(|(_, s)| {
                     let w = &s.spec;
-                    s.loaded && w.cpu <= cpu && matches!(w.effect, Effect::Break { .. })
+                    w.cpu <= cpu && matches!(w.effect, Effect::Break { .. })
                 });
                 match pick {
                     Some((i, _)) => g.apply(Action::Run(i)),
@@ -151,7 +165,6 @@ fn class_matched_breaker_hits_double() {
         .iter()
         .position(|s| g.data.warez[s.warez].id == "decoder")
         .unwrap();
-    g.hdd[decoder].loaded = true;
     let before = g.combat.as_ref().unwrap().strength;
     g.apply(Action::Run(decoder));
     let after = g.combat.as_ref().map_or(0, |c| c.strength);

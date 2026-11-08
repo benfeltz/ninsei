@@ -8,7 +8,7 @@
 //! 04     power
 //! 05     vs class     00 any  01 barrier  02 code gate  03 sentry   (breakers only)
 //! 06     cpu cost     1..=MAX_CPU
-//! 07     ram cost     1..=MAX_RAM
+//! 07     reserved     must be 00 (was the RAM cost, before programs stopped loading)
 //! 08     opt level    raised only by optimizer fragments
 //! 09-0A  signature    u16 LE, signs the opt level with the run's key
 //! 0B-0F  reserved     free scratch space, ignored
@@ -26,7 +26,8 @@ pub const OFF_OPCODE: usize = 0x03;
 pub const OFF_POWER: usize = 0x04;
 pub const OFF_VS: usize = 0x05;
 pub const OFF_CPU: usize = 0x06;
-pub const OFF_RAM: usize = 0x07;
+/// Byte 07: reserved, must be zero.
+pub const OFF_SPARE: usize = 0x07;
 pub const OFF_OPT: usize = 0x08;
 pub const OFF_SIG: usize = 0x09;
 pub const OFF_NAME: usize = 0x10;
@@ -43,7 +44,8 @@ pub enum Field {
     Power,
     Vs,
     Cpu,
-    Ram,
+    /// Byte 07: must be zero.
+    Spare,
     Opt,
     Signature,
     Reserved,
@@ -59,7 +61,7 @@ impl Field {
             OFF_POWER => Field::Power,
             OFF_VS => Field::Vs,
             OFF_CPU => Field::Cpu,
-            OFF_RAM => Field::Ram,
+            OFF_SPARE => Field::Spare,
             OFF_OPT => Field::Opt,
             0x09..=0x0A => Field::Signature,
             0x0B..=0x0F => Field::Reserved,
@@ -75,7 +77,7 @@ impl Field {
             Field::Power => "power",
             Field::Vs => "vs class",
             Field::Cpu => "cpu cost",
-            Field::Ram => "ram cost",
+            Field::Spare => "reserved",
             Field::Opt => "opt level",
             Field::Signature => "signature",
             Field::Reserved => "reserved",
@@ -91,7 +93,6 @@ pub struct Spec {
     pub name: String,
     pub effect: Effect,
     pub cpu: u32,
-    pub ram: u32,
     pub opt: u32,
 }
 
@@ -173,7 +174,6 @@ pub fn encode(def: &WarezDef, key: u64) -> Bin {
     b[OFF_POWER] = power.min(255) as u8;
     b[OFF_VS] = vs;
     b[OFF_CPU] = def.cpu.min(255) as u8;
-    b[OFF_RAM] = def.ram.min(255) as u8;
     for (i, ch) in def
         .name
         .bytes()
@@ -198,8 +198,8 @@ pub fn cost(effect: Effect) -> u32 {
 }
 
 /// Budget points a program with these costs may spend.
-pub fn budget(cpu: u32, ram: u32, opt: u32) -> u32 {
-    BUDGET_PER_CPU * cpu + ram / BUDGET_RAM_DIV + BUDGET_PER_OPT * opt
+pub fn budget(cpu: u32, opt: u32) -> u32 {
+    BUDGET_PER_CPU * cpu + BUDGET_PER_OPT * opt
 }
 
 /// Hex text for saving a binary.
@@ -255,13 +255,15 @@ pub fn check(b: &Bin, key: u64) -> Result<Spec, Vec<String>> {
         faults.push(format!("power {power} out of range (1-{MAX_POWER})"));
     }
     let cpu = u32::from(b[OFF_CPU]);
-    let ram = u32::from(b[OFF_RAM]);
     let opt = u32::from(b[OFF_OPT]);
     if !(1..=MAX_CPU).contains(&cpu) {
         faults.push(format!("cpu cost {cpu} out of range (1-{MAX_CPU})"));
     }
-    if !(1..=MAX_RAM).contains(&ram) {
-        faults.push(format!("ram cost {ram} out of range (1-{MAX_RAM})"));
+    if b[OFF_SPARE] != 0 {
+        faults.push(format!(
+            "byte 07 is reserved: must be 00, not {:02X}",
+            b[OFF_SPARE]
+        ));
     }
     if opt > MAX_OPT {
         faults.push(format!("opt level {opt} out of range (0-{MAX_OPT})"));
@@ -280,10 +282,10 @@ pub fn check(b: &Bin, key: u64) -> Result<Spec, Vec<String>> {
         faults.push("name must be zero padded".to_string());
     }
     if let Some(e) = effect {
-        let (c, bud) = (cost(e), budget(cpu, ram, opt));
+        let (c, bud) = (cost(e), budget(cpu, opt));
         if c > bud {
             faults.push(format!(
-                "over budget: effect costs {c}, cpu/ram/opt allow {bud}"
+                "over budget: effect costs {c}, cpu/opt allow {bud}"
             ));
         }
     }
@@ -299,7 +301,6 @@ pub fn check(b: &Bin, key: u64) -> Result<Spec, Vec<String>> {
             name: String::from_utf8_lossy(name).into_owned(),
             effect,
             cpu,
-            ram,
             opt,
         }),
         _ => Err(faults),

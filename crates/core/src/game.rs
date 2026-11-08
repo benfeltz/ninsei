@@ -48,14 +48,13 @@ impl Deck {
     }
 }
 
-/// One program on the HDD. Loaded programs occupy RAM and can be run.
+/// One program on the HDD. Every program on the HDD can run.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Slot {
     /// Unique per run, so the UI can tell programs apart after the HDD reshuffles.
     pub uid: u32,
     /// The factory program this binary started as (index into `Data::warez`), for its blurb.
     pub warez: usize,
-    pub loaded: bool,
     /// The program itself. Edit it in the hex editor with [`Action::Patch`].
     pub bin: Bin,
     /// What `bin` decodes to. Kept in step with `bin`; a slot never holds an invalid binary.
@@ -303,12 +302,8 @@ pub enum Action {
     },
     /// Jack into a linked node.
     Move(usize),
-    /// Run the loaded program in HDD slot `n`.
+    /// Run the program in HDD slot `n`.
     Run(usize),
-    /// Load the program in HDD slot `n` into RAM.
-    Load(usize),
-    /// Unload the program in HDD slot `n`.
-    Unload(usize),
     EndTurn,
     NewRun(u64),
     /// Pick choice `choice` in the current encounter; `slot` names the program for trades and sales.
@@ -498,11 +493,9 @@ impl Game {
             // Home binaries carry home's signature; the run signs its own.
             binary::seal(&mut bin, game.key());
             if let Ok(spec) = binary::check(&bin, game.key()) {
-                let loaded = game.ram_used() + spec.ram <= game.deck.ram_max;
                 game.add_slot(Slot {
                     uid: 0,
                     warez: w,
-                    loaded,
                     bin,
                     spec,
                 });
@@ -552,14 +545,6 @@ impl Game {
         }
     }
 
-    pub fn ram_used(&self) -> u32 {
-        self.hdd
-            .iter()
-            .filter(|s| s.loaded)
-            .map(|s| s.spec.ram)
-            .sum()
-    }
-
     /// The key binaries are signed with this run.
     pub fn key(&self) -> u64 {
         self.seed
@@ -581,7 +566,6 @@ impl Game {
         Some(Slot {
             uid: 0,
             warez: w,
-            loaded: false,
             bin,
             spec,
         })
@@ -723,8 +707,6 @@ impl Game {
             Action::TakeJob { job } => self.take_job(job),
             Action::Read(r) => self.read(r),
             Action::Run(slot) => self.run(slot),
-            Action::Load(slot) => self.load(slot),
-            Action::Unload(slot) => self.unload(slot),
             Action::EndTurn => self.end_turn(),
             Action::Buy { area, file } => self.buy(area, file),
             Action::Patch { slot, bin } => self.patch(slot, bin),
@@ -1055,7 +1037,7 @@ impl Game {
         self.say(LogKind::Info, line);
     }
 
-    /// Fills `{offer}`, `{per_ram}` and `{cost}` in an event's text.
+    /// Fills `{offer}`, `{per_cpu}` and `{cost}` in an event's text.
     pub fn fill(&self, text: &str, choice: Option<usize>) -> String {
         let Some(e) = &self.encounter else {
             return text.to_string();
@@ -1071,8 +1053,8 @@ impl Game {
         };
         for eff in effects {
             match eff {
-                ChoiceEffect::Sell { per_ram } => {
-                    out = out.replace("{per_ram}", &per_ram.to_string())
+                ChoiceEffect::Sell { per_cpu } => {
+                    out = out.replace("{per_cpu}", &per_cpu.to_string())
                 }
                 ChoiceEffect::Pay { cost, .. } => out = out.replace("{cost}", &cost.to_string()),
                 _ => {}
@@ -1140,11 +1122,11 @@ impl Game {
         }
     }
 
-    /// What a program fetches from a fence paying `per_ram` a GB.
-    pub fn sale_price(&self, slot: usize, per_ram: u32) -> u32 {
+    /// What a program fetches from a fence paying `per_cpu` for each CPU it takes.
+    pub fn sale_price(&self, slot: usize, per_cpu: u32) -> u32 {
         self.hdd
             .get(slot)
-            .map_or(0, |s| per_ram * s.spec.ram + SELL_PER_OPT * s.spec.opt)
+            .map_or(0, |s| per_cpu * s.spec.cpu + SELL_PER_OPT * s.spec.opt)
     }
 
     fn choose(&mut self, c: usize, slot: Option<usize>) -> Result<(), String> {
@@ -1178,9 +1160,9 @@ impl Game {
                     self.say(LogKind::Loot, format!("traded {gave} for {got}."));
                 }
             }
-            ChoiceEffect::Sell { per_ram } => {
+            ChoiceEffect::Sell { per_cpu } => {
                 let Some(i) = slot else { return Ok(()) };
-                let price = self.sale_price(i, per_ram);
+                let price = self.sale_price(i, per_cpu);
                 let gone = self.hdd.remove(i);
                 self.deck.credits += price;
                 self.say(
@@ -1526,40 +1508,6 @@ impl Game {
         false
     }
 
-    fn load(&mut self, slot: usize) -> Result<(), String> {
-        let s = self.slot(slot)?;
-        let name = s.spec.name.clone();
-        if s.loaded {
-            return Err(format!("{name} is already loaded."));
-        }
-        if self.ram_used() + s.spec.ram > self.deck.ram_max {
-            return Err(format!(
-                "not enough ram for {name} ({} needed).",
-                s.spec.ram
-            ));
-        }
-        if let Some(c) = self.combat.as_mut() {
-            if c.cpu < COMBAT_LOAD_CPU {
-                return Err(format!("loading mid-fight costs {COMBAT_LOAD_CPU} cpu."));
-            }
-            c.cpu -= COMBAT_LOAD_CPU;
-        }
-        self.hdd[slot].loaded = true;
-        self.say(LogKind::Info, format!("{name} loaded."));
-        Ok(())
-    }
-
-    fn unload(&mut self, slot: usize) -> Result<(), String> {
-        let s = self.slot(slot)?;
-        let name = s.spec.name.clone();
-        if !s.loaded {
-            return Err(format!("{name} is not loaded."));
-        }
-        self.hdd[slot].loaded = false;
-        self.say(LogKind::Info, format!("{name} unloaded."));
-        Ok(())
-    }
-
     pub fn credits_ok(&self, price: u32) -> bool {
         self.deck.credits >= price
     }
@@ -1697,29 +1645,17 @@ impl Game {
         let s = self.slot(slot)?;
         let spec = binary::check(&bin, self.key())
             .map_err(|f| format!("link failed: {}", f.join("; ")))?;
-        let others = self.ram_used() - if s.loaded { s.spec.ram } else { 0 };
-        let still_fits = others + spec.ram <= self.deck.ram_max;
         let old = s.spec.file();
         let new = spec.file();
         let target = &mut self.hdd[slot];
         target.bin = bin;
         target.spec = spec;
-        let unloaded = target.loaded && !still_fits;
-        if unloaded {
-            target.loaded = false;
-        }
         let renamed = if old == new {
             String::new()
         } else {
             format!(" (was {old})")
         };
         self.say(LogKind::Good, format!("wrote {new}{renamed}. link ok."));
-        if unloaded {
-            self.say(
-                LogKind::Sys,
-                format!("{new} no longer fits in ram. unloaded."),
-            );
-        }
         Ok(())
     }
 
