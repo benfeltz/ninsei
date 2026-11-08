@@ -1400,6 +1400,14 @@ impl Game {
         }
     }
 
+    /// Whether this turn's pass carries on at the next line: under way, in a fight, and not
+    /// handed over by a STOP or a hang.
+    pub fn pass_open(&self) -> bool {
+        self.phase == Phase::Combat
+            && self.exec.open
+            && !matches!(self.exec.state, ExecState::Stopped(_))
+    }
+
     /// No pass is under way: the turn or the fight is over. The next line starts at the top.
     fn end_pass(&mut self) {
         self.exec.open = false;

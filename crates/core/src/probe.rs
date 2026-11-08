@@ -198,9 +198,7 @@ pub fn play_knowing(mut g: Game, bot: Bot, known: &[String]) -> (Game, RunLog) {
                     true
                 } else {
                     g.apply(Action::Play);
-                    g.phase == Phase::Combat
-                        && g.exec.open
-                        && !matches!(g.exec.state, ExecState::Stopped(_))
+                    g.pass_open()
                 };
                 if carry_on {
                     g.apply(Action::Finish);

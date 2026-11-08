@@ -563,3 +563,22 @@ fn the_cursor_never_rests_on_a_rem() {
     ));
     assert_eq!(g.exec.pc, Some(30));
 }
+
+#[test]
+fn core_says_whether_the_pass_carries_on() {
+    let mut g = fight_with("10 IF INTEG > 0\n20 STOP\n30 GOTO 40\n40 GOTO 30");
+    assert!(!g.pass_open(), "nothing has run this turn");
+    g.apply(Action::Step);
+    assert!(g.pass_open());
+    g.apply(Action::Step);
+    assert!(!g.pass_open(), "a STOP hands it over");
+    g.apply(Action::Finish);
+    assert_eq!(g.exec.broke, Some(30));
+    assert!(!g.pass_open(), "and so does a hang");
+    // A fight that's over has no pass.
+    let mut g = fight_with(LOOP);
+    g.combat.as_mut().unwrap().strength = 1;
+    g.apply(Action::Step);
+    g.apply(Action::Step);
+    assert!(!g.pass_open());
+}
