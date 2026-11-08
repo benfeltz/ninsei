@@ -194,7 +194,7 @@ fn stat_value_is_base_plus_rig_up_to_the_cap() {
     let d = starter_cpu(3, 4);
     let mut s = Save::default();
     s.ensure_hardware(&d);
-    assert_eq!(s.deck, "sensenet");
+    assert_eq!(s.deck, d.hardware.starter_deck().id);
     s.rig.ram = 2;
     s.rig.cpu = 3;
     assert_eq!(s.stat_base(&d, hub::Upgrade::Cpu), 3);

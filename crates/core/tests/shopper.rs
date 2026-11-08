@@ -518,7 +518,14 @@ fn every_deck_model_is_listed_and_orderable() {
     assert_eq!(decks.len(), d.hardware.decks.len());
     assert_eq!(decks.len(), 7);
     // Within a brand the models climb in price, in the order the magazine prints them.
-    for maker in ["Ono-Sendai", "Hosaka"] {
+    let mut makers: Vec<&str> = d.hardware.decks.iter().map(|m| m.maker.as_str()).collect();
+    makers.dedup();
+    let lines = makers
+        .iter()
+        .filter(|&&mk| d.hardware.decks.iter().filter(|m| m.maker == mk).count() > 1)
+        .count();
+    assert!(lines >= 2, "brands sell lines of models");
+    for maker in makers {
         let prices: Vec<u32> = d
             .hardware
             .decks
@@ -526,7 +533,6 @@ fn every_deck_model_is_listed_and_orderable() {
             .filter(|m| m.maker == maker)
             .map(|m| m.price)
             .collect();
-        assert!(prices.len() >= 2, "{maker} sells a line of models");
         assert!(
             prices.windows(2).all(|w| w[0] < w[1]),
             "{maker}: {prices:?}"
