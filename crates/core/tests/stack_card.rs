@@ -140,7 +140,7 @@ fn the_deck_card_words_the_limits_from_the_deck() {
     );
     // A true IF, so the STOP it guards runs and the turn waits.
     g.apply(Action::Program("10 IF TURN < 9\n20 STOP".into()));
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     let b = stack_fight::budgets(&g);
     assert_eq!(b.ifs.0, g.deck.ram_max - 1, "the IF spent a GB");
     assert!(b.left_words().starts_with(&format!(

@@ -58,7 +58,7 @@ fn a_fresh_deck_fights_with_safe_and_a_pass_is_one_turn() {
         "the cursor on the first line"
     );
     let cpu = g.deck.cpu_max;
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     // SAFE only defends: at full integrity against a fortify it has nothing to do, comes
     // round to line 20 having run nothing, and hands the turn over.
     assert_eq!(ran(&g), 0, "{:?}", g.exec.trace);
@@ -74,10 +74,10 @@ fn a_fresh_deck_fights_with_safe_and_a_pass_is_one_turn() {
         "{}\n55 RUN icepick",
         g.program.text()
     )));
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     assert_eq!(g.combat.as_ref().unwrap().turn, 2, "the ICE acted once");
     // A whole turn: two IFs a loop, and the deck's RAM covers a loop per cycle.
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     assert_eq!(ran(&g) as u32, cpu, "{:?}", g.exec.trace);
     assert_eq!(g.combat.as_ref().unwrap().turn, 3);
 }
@@ -119,7 +119,7 @@ fn ram_is_the_ifs_a_turn_and_grows_with_the_rig() {
         .map(|n| format!("{} IF TURN = 99\n{} REM\n", n * 10, n * 10 + 5))
         .collect();
     g.apply(Action::Program(format!("{ifs}200 RUN icepick")));
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     assert_eq!(g.exec.trace.last().unwrap().what, StepWhat::OutOfRam);
     let ifs_run = g
         .exec
@@ -152,7 +152,7 @@ fn nothing_loads_every_program_on_the_disk_is_a_verb() {
     let why = g.preview(pick).unwrap_err();
     g.apply(Action::Program("10 RUN icepick\n20 STOP".into()));
     let before = g.combat.as_ref().unwrap().turn;
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     // CPU is already 0: the pass ends at once, the turn with it.
     assert!(why.contains("cpu"), "{why}");
     assert_eq!(g.exec.trace[0].what, StepWhat::OutOfCpu);
@@ -171,7 +171,7 @@ fn stop_and_hang_hand_the_turn_to_the_hotbar() {
     let shield = g.slot_named("firewall").unwrap();
     g.apply(Action::Run(shield));
     assert_eq!(g.combat.as_ref().unwrap().shield, 10, "the hotbar is live");
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     assert_eq!(g.exec.trace.last().unwrap().what, StepWhat::Break);
     assert!(g.log.iter().any(|l| l.text == "?BREAK IN 30"));
     assert_eq!(g.exec.state, ExecState::Paused);
@@ -248,7 +248,7 @@ fn safe_patches_when_low_and_raises_the_firewall_before_an_attack() {
     g.combat.as_mut().unwrap().intent_ix = 1;
     assert!(matches!(g.intent(), Some(Intent::Attack(_))));
     g.deck.integrity = 5;
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     let ran = ran_names(&g);
     assert_eq!(ran[..2], ["patch", "firewall"], "{:?}", g.exec.trace);
     assert!(
