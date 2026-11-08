@@ -1262,13 +1262,29 @@ impl Probe {
         let mut buys = s.buys.clone();
         buys.sort_by_key(|(_, n, sum)| *sum / u64::from((*n).max(1)));
         let careers = s.first_exit.len().max(1) as u64;
+        // "Of" counts the levels the deck the careers climbed to takes, not every level RIG
+        // sells: a deck that ships with more of a line takes fewer levels of it.
+        let top = self
+            .climbs_to()
+            .or_else(|| {
+                let (title, _, _) = s.decks.iter().max_by_key(|d| d.1)?;
+                self.data
+                    .hardware
+                    .decks
+                    .iter()
+                    .find(|d| &d.title() == title)
+            })
+            .unwrap_or(self.data.hardware.starter_deck());
         for (u, n, sum) in buys {
             let def = self.data.rig.iter().find(|d| d.kind == u);
+            let room = def.map_or(0, |d| match top.stat(u) {
+                Some(st) => (st.max.saturating_sub(st.base) / d.step).min(d.max),
+                None => d.max,
+            });
             out.push(format!(
-                "  {:<6} {:>4.1} bought a career (of {}), around run {}",
+                "  {:<6} {:>4.1} bought a career (of {room}), around run {}",
                 def.map_or("?".to_string(), |d| d.label.clone()),
                 f64::from(n) / careers as f64,
-                def.map_or(0, |d| d.max),
                 sum / u64::from(n.max(1))
             ));
         }

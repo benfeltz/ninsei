@@ -151,6 +151,21 @@ fn careers_climb_to_the_deck_they_are_given() {
                 .any(|l| l.contains(&format!("careers climb to {}", deck.title()))),
             "the report says which: {lines:?}"
         );
+        // RIG lines count the levels this deck takes, not every level RIG sells.
+        for def in &data.rig {
+            let Some(st) = deck.stat(def.kind) else {
+                continue;
+            };
+            let room = ((st.max - st.base) / def.step).min(def.max);
+            let label = format!("{} ", def.label);
+            if let Some(line) = lines.iter().find(|l| l.trim_start().starts_with(&label)) {
+                assert!(
+                    line.contains(&format!("(of {room})")),
+                    "{}: {line}",
+                    deck.id
+                );
+            }
+        }
     }
 }
 
