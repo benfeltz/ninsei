@@ -153,26 +153,22 @@ fn step(save: &Save, list: &[&TuneFile], forward: bool) -> Option<usize> {
     }
 }
 
+/// The one rule for the master level a player sets: whole percent, at most 100. True if it
+/// changed.
+fn set_volume(save: &mut Save, pct: u8) -> bool {
+    let v = pct.min(100);
+    let changed = v != save.volume;
+    save.volume = v;
+    changed
+}
+
 /// Carries out one act. Returns false if it did nothing (nothing to play, an end of the list).
 pub fn apply(save: &mut Save, data: &Data, t: &mut Transport, act: Act) -> bool {
     // The level and the modes need no playlist.
     match act {
-        Act::Louder | Act::Softer => {
-            let v = if act == Act::Louder {
-                save.volume.saturating_add(VOLUME_STEP).min(100)
-            } else {
-                save.volume.saturating_sub(VOLUME_STEP)
-            };
-            let changed = v != save.volume;
-            save.volume = v;
-            return changed;
-        }
-        Act::Volume(pct) => {
-            let v = pct.min(100);
-            let changed = v != save.volume;
-            save.volume = v;
-            return changed;
-        }
+        Act::Louder => return set_volume(save, save.volume.saturating_add(VOLUME_STEP)),
+        Act::Softer => return set_volume(save, save.volume.saturating_sub(VOLUME_STEP)),
+        Act::Volume(pct) => return set_volume(save, pct),
         Act::Repeat => {
             save.player.repeat = !save.player.repeat;
             return true;
