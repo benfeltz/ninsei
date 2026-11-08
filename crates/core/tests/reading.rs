@@ -160,3 +160,58 @@ fn the_sense_net_post_still_teaches_the_gutter_and_the_cracktro_then_adds_nothin
             .any(|k| k.id == "gutter" && k.source.contains("Sense/Net"))
     );
 }
+
+// Acceptance tests for 47.6 (The starter disk teaches the Gutter).
+
+#[test]
+fn acceptance_a_new_deck_shows_the_disk_and_its_cracktro_puts_the_gutter_in_the_phonebook() {
+    let d = data();
+    let mut s = fresh(&d);
+    let labels: Vec<String> = s.icons(&d).iter().map(|i| i.label.to_string()).collect();
+    assert!(labels.contains(&"NIBBLER [2K4]".to_string()), "{labels:?}");
+    let gutter = d.board("gutter").unwrap();
+    assert!(!s.known_boards(&d).contains(&gutter));
+    let crack = d
+        .game("nibbler")
+        .unwrap()
+        .intro(hub::GameCopy::Cracked)
+        .to_string();
+    s.saw_intro(&d, &crack);
+    assert!(s.known_boards(&d).contains(&gutter));
+    // The phonebook finds it by its number, as CarrierTerm and the Shell's `dial` do.
+    let phone = d.boards[gutter].phone.clone();
+    assert_eq!(s.lookup_board(&d, &phone), Some(gutter));
+    // Played again and again: still one entry, from the first time.
+    for _ in 0..3 {
+        s.saw_intro(&d, &crack);
+    }
+    let found: Vec<&str> = s
+        .boards
+        .iter()
+        .filter(|k| k.id == "gutter")
+        .map(|k| k.source.as_str())
+        .collect();
+    assert_eq!(found, ["a cracktro"]);
+}
+
+#[test]
+fn acceptance_the_welcome_stack_never_mentions_the_disk() {
+    // Sense/Net didn't ship the disk; the shop threw it in. Its manual knows nothing of it.
+    let text = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../data/stacks/welcome.ron"
+    ))
+    .unwrap()
+    .to_uppercase();
+    let d = data();
+    let mut words = vec!["GUTTER".to_string(), "CRACK".to_string()];
+    for g in &d.games {
+        words.push(g.name.to_uppercase());
+        let i = d.intro(&g.crack).unwrap();
+        words.push(i.group.to_uppercase());
+        words.push(format!("[{}]", i.tag.clone().unwrap()));
+    }
+    for w in words {
+        assert!(!text.contains(&w), "the welcome stack mentions {w}");
+    }
+}
