@@ -54,8 +54,8 @@ fn a_fresh_deck_fights_with_safe_and_a_pass_is_one_turn() {
         "the kit's program is loaded"
     );
     assert!(
-        g.program_view().lines[0].current,
-        "the cursor on the first line"
+        g.program_view().lines[1].current,
+        "the cursor on the first line that runs, past SAFE's REM"
     );
     let cpu = g.deck.cpu_max;
     g.apply(Action::Finish);
@@ -334,7 +334,7 @@ fn a_hang_holds_the_line_until_an_edit() {
     // An edit clears it, and the next pass starts at the top.
     g.apply(Action::Program(g.program.text()));
     assert_eq!(g.exec.broke, None);
-    assert_eq!(g.exec.pc, g.program.first());
+    assert_eq!(g.exec.pc, Some(20), "the top, past the REM");
 }
 
 /// A fight against an ICE that won't fall, running `program`.
@@ -538,4 +538,28 @@ fn a_run_that_wins_the_fight_leaves_no_pass_open() {
     // An edit out of the fight puts the cursor at the top, not where the pass left it.
     g.apply(Action::Program(LOOP.into()));
     assert_eq!(g.exec.pc, Some(10));
+}
+
+#[test]
+fn the_cursor_never_rests_on_a_rem() {
+    let mut g = fight_with("10 REM setup\n20 RUN icepick\n30 GOTO 10");
+    // At the top of a fight the ▶ is on the line that runs first.
+    assert_eq!(g.exec.pc, Some(20));
+    g.apply(Action::Step);
+    let lines: Vec<u32> = g.exec.trace.iter().map(|s| s.line).collect();
+    assert_eq!(lines, [20], "the line under the ▶, and only it");
+    assert_eq!(g.exec.pc, Some(30));
+    g.apply(Action::Step);
+    assert_eq!(g.exec.pc, Some(20), "back round, past the REM");
+    // At the top of the next turn too.
+    g.apply(Action::EndTurn);
+    assert_eq!(g.exec.pc, Some(20));
+    // After a STOP, and after an edit.
+    let mut g = fight_with("10 STOP\n20 REM after\n30 RUN icepick");
+    g.apply(Action::Step);
+    assert_eq!(g.exec.pc, Some(30));
+    g.apply(Action::Program(
+        "5 REM new\n10 STOP\n20 REM after\n30 RUN icepick".into(),
+    ));
+    assert_eq!(g.exec.pc, Some(30));
 }

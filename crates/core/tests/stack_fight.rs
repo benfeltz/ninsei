@@ -55,14 +55,14 @@ fn the_card_mirrors_the_program() {
     assert_eq!(value, "torch");
     assert!(!options.contains(&"torch".to_string()));
     assert!(c.blocks[6].fault.is_some(), "the bad line names its fault");
-    // The ▶ is on the line about to run, and only there.
+    // The ▶ is on the line about to run, and only there: never on a REM.
     let current: Vec<u32> = c
         .blocks
         .iter()
         .filter(|b| b.current)
         .map(|b| b.no)
         .collect();
-    assert_eq!(current, [5]);
+    assert_eq!(current, [10]);
 }
 
 #[test]

@@ -1772,6 +1772,8 @@ mod script_tests {
         frame(&mut h, &g, size, vec![]);
         script::take_keys(&h.ctx);
         frame(&mut h, &g, size, vec![]);
+        // The cursor starts on the ▶ (line 20, past the REM): up to the REM.
+        frame(&mut h, &g, size, letter('k'));
         frame(&mut h, &g, size, letter('e'));
         frame(&mut h, &g, size, vec![]);
         assert!(h.ctx.memory(|m| m.has_focus(script::edit_id())), "retyping");
