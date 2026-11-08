@@ -66,7 +66,7 @@
     ],
     ads: [
         (item: Deck("onosendai5"), size: Full, vendor: Some("onosendai"), headline: Some("CYBERSPACE V"),
-         bullets: ["Cyberspace 7.0 firmware", "The same matrix as the VII", "Upgradeable", "Your first real deck"],
+         bullets: ["Cyberspace 7.0 firmware", "The same matrix as the VII", "An entry-level case", "Your first real deck"],
          note: Some("trodes not included")),
         (item: Deck("onosendai9"), size: Full, vendor: Some("onosendai"), headline: Some("CYBERSPACE IX"),
          bullets: ["Cyberspace 7.0 firmware", "Every expansion slot wired", "Room for every upgrade we sell", "Built for the long jack-in"],
@@ -75,7 +75,7 @@
          bullets: ["Cyberspace 7.0 firmware", "Isometric wireframe map", "btop-style run screen", "AnarchyOS tiling desktop", "net traffic pane included", "6.2 classic panes, free"],
          note: Some("trodes not included")),
         (item: Deck("hosaka2"), size: Full, vendor: Some("hosaka"), headline: Some("Executive 2"),
-         bullets: ["PlanView 4.0 firmware", "Branch-office expansion", "Desktop (Workbench) OS"],
+         bullets: ["PlanView 4.0 firmware", "A branch-office case", "Desktop (Workbench) OS"],
          callout: Some("ASK ABOUT VOLUME LICENCES")),
         (item: Deck("hosaka6"), size: Full, vendor: Some("hosaka"), headline: Some("Executive 6"),
          bullets: ["PlanView 4.0 firmware", "Full expansion in every bay", "On-site service contract", "Desktop (Workbench) OS"],
