@@ -150,6 +150,25 @@ impl Program {
         self.lines.first().map(|l| l.no)
     }
 
+    /// A free line number between the line `above` and the line `below` (either may be the
+    /// program's edge): halfway between two lines, half of the first line's number before it,
+    /// ten on from the last after it, ten in an empty program. `None` when no number is free
+    /// there. Every deck numbers a new line through this, so none overwrites a neighbour.
+    pub fn free_line_between(above: Option<u32>, below: Option<u32>) -> Option<u32> {
+        match (above, below) {
+            (Some(a), Some(b)) => (b > a && b - a >= 2).then(|| a + (b - a) / 2),
+            (None, Some(b)) => (b >= 1).then_some(b / 2),
+            (Some(a), None) => (a < MAX_LINE).then(|| (a + 10).min(MAX_LINE)),
+            (None, None) => Some(10),
+        }
+    }
+
+    /// The number a new line opened after line `no` takes: between it and the line after it,
+    /// or ten on at the end. `None` when there's no number free.
+    pub fn next_line_after(&self, no: u32) -> Option<u32> {
+        Program::free_line_between(Some(no), self.after(no))
+    }
+
     /// The program as text, one numbered line each, then the stray lines as typed.
     pub fn text(&self) -> String {
         self.lines

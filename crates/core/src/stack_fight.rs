@@ -403,11 +403,7 @@ pub fn insert_before(g: &Game, no: u32, kind: BlockKind) -> Option<Action> {
         .map(|l| l.no)
         .take_while(|&n| n < no)
         .last();
-    let free = match above {
-        Some(a) if no - a >= 2 => Some(a + (no - a) / 2),
-        None if no >= 1 => Some(no / 2),
-        _ => None,
-    };
+    let free = basic::Program::free_line_between(above, Some(no));
     match free {
         Some(n) => {
             let text = fresh(g, kind);
