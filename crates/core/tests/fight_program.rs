@@ -226,3 +226,54 @@ fn the_bots_play_programs_and_the_probe_still_tells_the_same_story() {
     };
     assert_eq!(report(), report());
 }
+
+/// The names of the programs a pass ran, in order.
+fn ran_names(g: &Game) -> Vec<String> {
+    g.exec
+        .trace
+        .iter()
+        .filter_map(|s| match s.what {
+            StepWhat::Ran { uid, .. } => g.hdd.iter().find(|w| w.uid == uid),
+            _ => None,
+        })
+        .map(|w| w.spec.name.to_ascii_lowercase())
+        .collect()
+}
+
+#[test]
+fn safe_patches_when_low_and_raises_the_firewall_before_an_attack() {
+    let mut s = fresh();
+    let mut g = fight_from(&mut s, "bulwark");
+    // Bulwark's second move is an attack: put it next, and the deck low.
+    g.combat.as_mut().unwrap().intent_ix = 1;
+    assert!(matches!(g.intent(), Some(Intent::Attack(_))));
+    g.deck.integrity = 5;
+    g.apply(Action::Step);
+    let ran = ran_names(&g);
+    assert_eq!(ran[..2], ["patch", "firewall"], "{:?}", g.exec.trace);
+    assert!(
+        ran.iter().all(|n| n == "patch" || n == "firewall"),
+        "SAFE never attacks: {ran:?}"
+    );
+}
+
+#[test]
+fn play_with_safe_hands_back_every_quiet_turn() {
+    let mut s = fresh();
+    let mut g = fight_from(&mut s, "bulwark");
+    // Fortify next, the deck whole: nothing to defend against.
+    assert!(matches!(g.intent(), Some(Intent::Fortify(_))));
+    g.apply(Action::Play);
+    assert_ne!(g.exec.state, ExecState::Running, "a hang stops Run");
+    assert_eq!(
+        g.combat.as_ref().unwrap().turn,
+        1,
+        "the turn is the player's"
+    );
+    assert!(g.log.iter().any(|l| l.text == "?BREAK IN 20"));
+    // The hotbar still plays it by hand.
+    let pick = g.slot_named("icepick").unwrap();
+    let before = g.combat.as_ref().unwrap().strength;
+    g.apply(Action::Run(pick));
+    assert!(g.combat.as_ref().unwrap().strength < before);
+}
