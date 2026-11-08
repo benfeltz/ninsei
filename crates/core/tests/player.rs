@@ -318,13 +318,13 @@ fn the_readout_counts_a_tune_s_passes_and_rows() {
     let d = data();
     let mut s = owning(&THREE);
     let mut t = Transport::default();
-    let r = player::readout(&s, &d, &t);
+    let r = player::readout(&s, &d, &t, 0);
     assert_eq!((r.pos, r.length, r.pattern, r.row, r.time), (0, 3, 0, 0, 0));
     player::apply(&mut s, &d, &mut t, Act::Pick(1));
     let chroma = &d.tune("chroma").unwrap().tune;
     let (rows, step) = (chroma.loop_steps(), chroma.step_secs());
     player::tick(&mut s, &d, &mut t, 10.0, true);
-    let r = player::readout(&s, &d, &t);
+    let r = player::readout(&s, &d, &t, 0);
     let steps = (10.0 / step) as usize;
     assert_eq!((r.pos, r.length, r.rows), (2, 3, rows));
     assert_eq!((r.pattern, r.row, r.time), (steps / rows, steps % rows, 10));
@@ -336,6 +336,24 @@ fn the_readout_counts_a_tune_s_passes_and_rows() {
         &mut t,
         Act::Seek(((lap + step * 0.5) * 1000.0) as u32),
     );
-    let r = player::readout(&s, &d, &t);
+    let r = player::readout(&s, &d, &t, 0);
     assert_eq!((r.pattern, r.row), (1, 0));
+}
+
+#[test]
+fn the_readout_keeps_time_with_the_samples_the_speaker_renders() {
+    // A step is a whole number of samples when it's rendered: late in a tune the rows follow
+    // those, not the exact step.
+    let d = data();
+    let mut s = owning(&THREE);
+    let mut t = Transport::default();
+    player::apply(&mut s, &d, &mut t, Act::Pick(1));
+    let chroma = &d.tune("chroma").unwrap().tune;
+    let rate = 48_000;
+    let samples = (chroma.step_secs() * rate as f32).floor();
+    let rows = chroma.loop_steps();
+    // Just past the 500th rendered step.
+    t.at = (500.0 * samples + 1.0) / rate as f32;
+    let r = player::readout(&s, &d, &t, rate);
+    assert_eq!((r.pattern, r.row), (500 / rows, 500 % rows));
 }

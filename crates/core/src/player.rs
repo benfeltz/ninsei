@@ -430,8 +430,10 @@ pub struct Readout {
     pub time: u32,
 }
 
-/// What a module player's number boxes say now.
-pub fn readout(save: &Save, data: &Data, t: &Transport) -> Readout {
+/// What a module player's number boxes say now. `rate`: the speaker's sample rate, so a step
+/// is the whole number of samples the speaker renders it in and the rows keep time with what's
+/// heard (0: the exact step, with nothing playing to keep time with).
+pub fn readout(save: &Save, data: &Data, t: &Transport, rate: u32) -> Readout {
     // No playlist built: this runs every frame the screen is up.
     let mut owned = save.tunes.iter().filter(|id| data.tune(id).is_some());
     let cur = save.player.current.as_deref();
@@ -444,7 +446,13 @@ pub fn readout(save: &Save, data: &Data, t: &Transport) -> Readout {
         };
     };
     let rows = tune.loop_steps.max(1);
-    let step = tune.tune.step_secs().max(f32::EPSILON);
+    let exact = tune.tune.step_secs();
+    let step = if rate > 0 {
+        (exact * rate as f32).max(1.0).floor() / rate as f32
+    } else {
+        exact
+    }
+    .max(f32::EPSILON);
     let at = t.at.max(0.0);
     let steps = (at / step) as usize;
     Readout {

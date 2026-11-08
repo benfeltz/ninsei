@@ -658,7 +658,7 @@ pub fn workbench_face(
     };
 
     // The number boxes: a raised label and a recessed value each, Protracker's four digits.
-    let rd = player::readout(save, data, t);
+    let rd = player::readout(save, data, t, heard.rate);
     let label_w = adv * WB_LABEL as f32 + 8.0;
     let value_w = adv * WB_VALUE as f32 + 8.0;
     let boxes = [
@@ -1474,7 +1474,7 @@ mod tests {
             player::tick(&mut save, &data, &mut home.player, 12.0, true);
             wb(&mut h, &mut home, &data, &save, false, Vec::new());
             assert!(h.find("STOP").is_some() && h.find("PLAY").is_none());
-            let rd = player::readout(&save, &data, &home.player);
+            let rd = player::readout(&save, &data, &home.player, home.heard.rate);
             for s in [
                 "POS".to_string(),
                 format!("{:04}", rd.pos),
