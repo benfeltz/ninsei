@@ -937,10 +937,8 @@ pub mod script {
     pub(crate) struct View {
         /// The line the cursor is on.
         pub cursor: Option<u32>,
-        /// The first row in view.
-        pub top: usize,
-        /// The line last kept in view: it's only scrolled to when it changes.
-        pub followed: Option<u32>,
+        /// The listing's window: core's one scroll rule, the wheel's leftover travel.
+        pub list: crate::kit::List,
         /// The line being retyped where it stands, if one is.
         pub edit: Option<Edit>,
     }
@@ -1204,20 +1202,6 @@ pub mod script {
             .max(2)
     }
 
-    /// The first row in view that keeps row `at` on screen in `n` rows, from `top`.
-    pub(crate) fn scrolled(top: usize, at: usize, n: usize) -> usize {
-        if n == 0 {
-            return top;
-        }
-        if at < top {
-            at
-        } else if at >= top + n {
-            at + 1 - n
-        } else {
-            top
-        }
-    }
-
     /// The tile: the listing on whole cells, the line about to run lit with `▶` in the gutter,
     /// a STOP's `●`, bad lines dim with their fault after them, the cursor in inverse while the
     /// tile has the keyboard; the budgets cut into the bottom edge. A click puts the cursor on
@@ -1263,34 +1247,28 @@ pub mod script {
             // The legend goes before the listing does when the tile is short.
             let legend = c.rows >= LEGEND_ROWS + 3;
             let n = c.rows - if legend { LEGEND_ROWS } else { 0 };
-            // Kept in view: the cursor while the tile has the keys, else the line about to run.
+            // Kept in view: the row being retyped, the cursor while the tile has the keys, else
+            // the line about to run. Out of a fight and unfocused, the wheel is free.
             let current = rows.iter().find(|r| r.gutter == Gutter::Current);
             let follow = if let Some(e) = &v.edit {
                 Some(e.no)
             } else if focused {
                 v.cursor
             } else {
-                current.and_then(|r| r.no).or(v.cursor)
+                current.and_then(|r| r.no)
             };
-            if follow != v.followed
-                && let Some(at) = rows.iter().position(|r| r.no.is_some() && r.no == follow)
+            let sel = follow.and_then(|no| rows.iter().position(|r| r.no == Some(no)));
+            // The wheel scrolls whole rows and keeps the rest; while retyping it stays put.
+            if let Some(dy) = crate::kit::scrollbar::take_wheel(ui, c.rect, id())
+                && v.edit.is_none()
             {
-                v.top = scrolled(v.top, at, n);
-                v.followed = follow;
+                v.list.wheel(dy / c.ch);
             }
-            // The wheel scrolls whole rows.
-            if tile.hovered() {
-                let dy = ctx.input(|i| i.smooth_scroll_delta.y);
-                if dy.abs() >= c.ch * 0.5 {
-                    let by = (dy / c.ch).round() as i64;
-                    v.top = (v.top as i64 - by).max(0) as usize;
-                }
-            }
-            v.top = v.top.min(rows.len().saturating_sub(n));
+            let shown = v.list.view(rows.len(), sel, n);
             let w = number_w(&rows);
             let text_c = 2 + w + 2;
-            for (i, r) in rows.iter().enumerate().skip(v.top).take(n) {
-                let y = i - v.top;
+            for i in shown {
+                let (r, y) = (&rows[i], v.list.row(i));
                 let cursor = focused && r.no.is_some() && r.no == v.cursor;
                 let lit = r.gutter == Gutter::Current;
                 let (num, ink) = if r.dim {
@@ -1352,7 +1330,7 @@ pub mod script {
             if tile.clicked()
                 && let Some(pos) = tile.interact_pointer_pos()
                 && let Some((_, y)) = c.cell_at(pos)
-                && let Some(r) = rows.get(v.top + y).filter(|_| y < n)
+                && let Some(r) = rows.get(v.list.top + y).filter(|_| y < n)
                 && let Some(no) = r.no
             {
                 v.cursor = Some(no);
@@ -1966,6 +1944,54 @@ mod script_tests {
             !left,
             "the run's hotkeys would have sent it to the terminal"
         );
+    }
+
+    fn long_program() -> String {
+        (1..=60)
+            .map(|i| format!("{} REM line{i}\n", i * 10))
+            .chain(["610 STOP".to_string()])
+            .collect()
+    }
+
+    #[test]
+    fn a_trackpads_little_deltas_scroll_the_listing() {
+        let mut g = fight(&long_program());
+        g.phase = ninsei_core::Phase::Exploring;
+        let mut h = Harness::new(1280.0, 800.0);
+        let size = (380.0, 300.0);
+        frame(&mut h, &g, size, vec![]);
+        let at = pane_rect(size).center();
+        // A fifth of a row a frame, under any one frame's half row.
+        for _ in 0..40 {
+            let ev = vec![
+                egui::Event::PointerMoved(at),
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: vec2(0.0, -3.0),
+                    modifiers: egui::Modifiers::NONE,
+                    phase: egui::TouchPhase::Move,
+                },
+            ];
+            frame(&mut h, &g, size, ev);
+        }
+        assert!(
+            script::view(&h.ctx, &g).list.top > 0,
+            "the listing scrolled"
+        );
+    }
+
+    #[test]
+    fn a_smaller_tile_keeps_the_line_about_to_run_in_view() {
+        let mut g = fight(&long_program());
+        g.exec.pc = Some(400);
+        let mut h = Harness::new(1280.0, 1400.0);
+        let tall = (380.0, 900.0);
+        frame(&mut h, &g, tall, vec![]);
+        let small = (380.0, 300.0);
+        frame(&mut h, &g, small, vec![]);
+        let rows = rows_painted(&h, pane_rect(small));
+        let (s, _) = row_with(&rows, "400");
+        assert!(s.starts_with('▶'), "{s}");
     }
 
     #[test]
