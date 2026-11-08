@@ -197,3 +197,39 @@ fn a_moved_block_lands_on_its_neighbours_number() {
         "the STOP went where it said"
     );
 }
+
+#[test]
+fn the_script_is_one_program_before_during_and_after_a_fight() {
+    let d = data();
+    let mut s = Save::default();
+    s.ensure_key(0x5AFE);
+    s.ensure_phonebook(&d, 0);
+    s.ensure_hardware(&d);
+    let mut g = s.jack_in(&d, 21);
+    // Between fights: the card is there, greyed, and it edits.
+    let card = stack_fight::card(&g);
+    assert!(!card.fighting && !card.buttons.run && !card.buttons.step);
+    g.apply(stack_fight::add(&g, BlockKind::Stop).unwrap());
+    let edited = g.program.text();
+    assert!(edited.ends_with("STOP"), "{edited}");
+    // Into ICE: the same program, the cursor on its first line, the buttons live.
+    let target = g.net.nodes[g.at].links[0];
+    g.net.nodes[target].kind = NodeKind::Ice;
+    g.net.nodes[target].ice = Some(0);
+    g.net.nodes[target].cleared = false;
+    g.apply(Action::Move(target));
+    assert_eq!(g.phase, Phase::Combat);
+    let card = stack_fight::card(&g);
+    assert!(card.fighting && card.buttons.run && card.buttons.step);
+    assert_eq!(
+        g.program.text(),
+        edited,
+        "the fight opens with what was edited"
+    );
+    assert!(card.blocks[0].current);
+    assert!(card.blocks.iter().any(|b| b.kind == BlockKind::Stop));
+    // And the deck keeps it.
+    g.phase = Phase::JackedOut;
+    s.record(&g, &[], &d.rig).unwrap();
+    assert_eq!(s.program_text(&d), edited);
+}
