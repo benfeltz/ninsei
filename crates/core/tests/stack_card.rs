@@ -90,6 +90,10 @@ fn every_field_of_every_block_edits_one_line_into_a_program_that_reads() {
 fn the_buttons_play_the_fight_and_the_card_follows() {
     let (mut s, mut g) = fight();
     let d = data();
+    // SAFE only defends: the player's first edit puts a breaker in its loop.
+    let icepick = g.hdd[g.slot_named("icepick").unwrap()].spec.name.clone();
+    let looped = format!("{}\n55 RUN {icepick}", g.program.text());
+    g.apply(Action::Program(looped));
     // A STOP block added from the palette, after SAFE's first IF.
     let first_if = stack_fight::card(&g)
         .blocks
@@ -144,4 +148,52 @@ fn the_deck_card_words_the_limits_from_the_deck() {
         g.deck.ram_max - 1,
         g.deck.ram_max
     )));
+}
+
+#[test]
+fn outside_a_fight_the_card_shows_the_program_and_wont_play() {
+    let d = data();
+    let mut s = Save::default();
+    s.ensure_key(0x5AFE);
+    s.ensure_phonebook(&d, 0);
+    s.ensure_hardware(&d);
+    let g = s.jack_in(&d, 21);
+    assert_ne!(g.phase, Phase::Combat);
+    let card = stack_fight::card(&g);
+    assert_eq!(
+        card.blocks.len(),
+        g.program.lines.len(),
+        "the program is there"
+    );
+    assert!(!card.fighting);
+    let b = card.buttons;
+    assert!(!b.step && !b.run && !b.pause, "nothing to play against");
+    assert!(
+        card.blocks.iter().all(|b| !b.current),
+        "no line about to run"
+    );
+    // The deck's limits a turn, not a countdown.
+    assert_eq!(card.budget_words(), "6 IFs, 3 cycles/turn");
+    let (_, g) = fight();
+    let card = stack_fight::card(&g);
+    assert!(card.fighting);
+    assert_eq!(card.budget_words(), card.budgets.left_words());
+}
+
+#[test]
+fn a_moved_block_lands_on_its_neighbours_number() {
+    let (_, mut g) = fight();
+    g.apply(Action::Program(
+        "10 RUN icepick\n20 STOP\n30 GOTO 10".into(),
+    ));
+    assert_eq!(stack_fight::moved_to(&g, 20, true), Some(10));
+    assert_eq!(stack_fight::moved_to(&g, 20, false), Some(30));
+    assert_eq!(stack_fight::moved_to(&g, 10, true), None, "the top");
+    assert_eq!(stack_fight::moved_to(&g, 30, false), None, "the bottom");
+    g.apply(stack_fight::swap(&g, 20, true).unwrap());
+    assert_eq!(
+        g.program.line(10).unwrap().text,
+        "STOP",
+        "the STOP went where it said"
+    );
 }

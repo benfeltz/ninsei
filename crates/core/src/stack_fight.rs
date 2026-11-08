@@ -1,6 +1,7 @@
 //! The Sense/Net's fight screen, decided here and drawn by the app's Stack chrome: the Script
-//! card. The deck's program is a stack of operator blocks (RUN, IF, GOTO, STOP), each with
-//! fields for its parameters; a gutter mark on the line about to run; Step, Run and Pause.
+//! card, the Script pane's face, on screen for the whole run. The deck's program is a stack of
+//! operator blocks (RUN, IF, GOTO, STOP), each with fields for its parameters; a gutter mark on
+//! the line about to run; Step, Run and Pause, which only press with ICE in front.
 //! Every edit is an `Action::Program` with one line rewritten, so the card never holds a
 //! program of its own. Reference: HyperCard 1.2's button script editor, 1-bit.
 
@@ -147,6 +148,20 @@ pub struct Card {
     pub buttons: Buttons,
     pub budgets: Budgets,
     pub state: ExecState,
+    /// ICE is in front: the program plays and the title line counts down this turn.
+    pub fighting: bool,
+}
+
+impl Card {
+    /// The title line's right side: what's left this turn in a fight, the deck's limits a
+    /// turn outside one.
+    pub fn budget_words(&self) -> String {
+        if self.fighting {
+            self.budgets.left_words()
+        } else {
+            format!("{}, {}", self.budgets.ifs_words(), self.budgets.cpu_words())
+        }
+    }
 }
 
 /// The programs a RUN or HAVE menu offers: what's on the disk, by name, once each.
@@ -274,6 +289,7 @@ pub fn card(g: &Game) -> Card {
         buttons: buttons(g),
         budgets: budgets(g),
         state: g.exec.state,
+        fighting,
     }
 }
 
@@ -419,4 +435,13 @@ pub fn swap(g: &Game, no: u32, up: bool) -> Option<Action> {
         p.set_line(no, &b);
         p.set_line(other, &a);
     }))
+}
+
+/// Where the block on line `no` lands when [`swap`] moves it: the line above (`up`) or below.
+/// A selection follows it there.
+pub fn moved_to(g: &Game, no: u32, up: bool) -> Option<u32> {
+    let lines = &g.program.lines;
+    let i = lines.iter().position(|l| l.no == no)?;
+    let j = if up { i.checked_sub(1)? } else { i + 1 };
+    lines.get(j).map(|l| l.no)
 }
