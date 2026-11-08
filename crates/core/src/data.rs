@@ -1639,6 +1639,14 @@ impl Data {
         self.games.iter().find(|g| g.id == id)
     }
 
+    /// Every tune's id with its title.
+    pub fn tune_titles(&self) -> Vec<(String, String)> {
+        self.tunes
+            .iter()
+            .map(|t| (t.id.clone(), t.title.clone()))
+            .collect()
+    }
+
     /// Every game's id with its crack's label.
     pub fn crack_labels(&self) -> Vec<(String, String)> {
         self.games

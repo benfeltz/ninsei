@@ -1975,9 +1975,13 @@ impl Game {
         if matches!(def.item, Drop::Warez(_)) && self.hdd.len() as u32 >= self.deck.hdd_max {
             return Some("hdd full. free a slot before downloading warez.".into());
         }
-        if let Some(why) =
-            tool_blocker(&self.data.tools, &self.data.crack_labels(), &def.item, self)
-        {
+        if let Some(why) = tool_blocker(
+            &self.data.tools,
+            &self.data.crack_labels(),
+            &self.data.tune_titles(),
+            &def.item,
+            self,
+        ) {
             return Some(why);
         }
         None
@@ -2235,6 +2239,7 @@ impl Game {
 pub fn tool_blocker(
     tools: &[crate::data::ToolDef],
     cracks: &[(String, String)],
+    tunes: &[(String, String)],
     item: &Drop,
     line: &dyn crate::bbs::Line,
 ) -> Option<String> {
@@ -2245,6 +2250,7 @@ pub fn tool_blocker(
         _ if !line.owns(item) => return None,
         Drop::Tool(id) => tools.iter().find(|t| t.id == *id).map(|t| &t.name),
         Drop::Game(id) => cracks.iter().find(|(g, _)| g == id).map(|(_, l)| l),
+        Drop::Tune(id) => tunes.iter().find(|(t, _)| t == id).map(|(_, l)| l),
         _ => None,
     };
     Some(format!("you already have {}.", name.map_or("that", |n| n)))

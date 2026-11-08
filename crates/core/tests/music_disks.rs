@@ -124,7 +124,10 @@ fn a_tune_downloaded_in_a_run_comes_home_once_even_on_a_flatline() {
     let kit = save.kit(&d);
     let mut g = run_on_board(&d, board, kit.tunes);
     let (area, file) = tune_file(&g, "chroma");
-    assert!(g.buy_blocker(area, file).is_some());
+    assert_eq!(
+        g.buy_blocker(area, file).unwrap(),
+        "you already have CHROMA."
+    );
     g.phase = Phase::JackedOut;
     let report = save.record(&g, &[], &d.rig).unwrap();
     assert!(report.tunes.is_empty());
@@ -151,6 +154,17 @@ fn a_tune_downloaded_at_home_goes_on_the_end_of_the_playlist_once() {
     let call = s.home_call(&d, &d.rig, board);
     let (area, file) = tune_file(&call, "trap-line");
     assert!(call.buy_blocker(area, file).is_some(), "once");
+    // A tune you came by elsewhere is listed as yours, by its title.
+    let mut other = Save::default();
+    other.ensure_key(0xD15D);
+    other.learn_board("deadsector", "a test");
+    other.learn_tune("trap-line");
+    let call = other.home_call(&d, &d.rig, board);
+    let (area, file) = tune_file(&call, "trap-line");
+    assert_eq!(
+        call.buy_blocker(area, file).unwrap(),
+        "you already have trap line."
+    );
 }
 
 #[test]
