@@ -312,15 +312,17 @@ pub enum Action {
     Move(usize),
     /// Run the program in HDD slot `n`: the hotbar, the manual override.
     Run(usize),
-    /// The deck's program: run one pass (one turn, unless it STOPs or hangs).
+    /// The deck's program: run the line under the cursor and stop on the next (gdb's `step`).
+    /// The line that ends the pass ends the turn too, and the ICE acts.
     Step,
     /// The deck's program: run the rest of this turn's pass (gdb's `finish`), until the turn
     /// ends, a STOP or a hang. Leaves the program running or paused as it was.
     Finish,
-    /// The deck's program: keep running passes (the driver applies `Step` while
-    /// `ExecState::Running`); runs the first one now.
+    /// The deck's program: keep running, a line at a time, turn after turn (the driver
+    /// applies `Step` while `ExecState::Running`); runs the first line now.
     Play,
-    /// The deck's program: stop running passes and hand the turn to the hotbar.
+    /// The deck's program: stop where it is, partway through a pass or not, and hand the turn
+    /// to the hotbar. Step or Play carry on from there.
     Pause,
     /// Replace the deck's program with this text. Allowed any time, mid-fight too.
     Program(String),
@@ -829,8 +831,12 @@ impl Game {
             Action::TakeJob { job } => self.take_job(job),
             Action::Read(r) => self.read(r),
             Action::Run(slot) => self.run(slot),
-            Action::Step => self.pass(false),
-            Action::Play => self.pass(true),
+            Action::Step => self.go(false).map(|()| {
+                self.line();
+            }),
+            Action::Play => self.go(true).map(|()| {
+                self.line();
+            }),
             Action::Finish => self.pass(false),
             Action::Pause => {
                 if self.exec.state == ExecState::Running {
@@ -1248,7 +1254,8 @@ impl Game {
         Ok(())
     }
 
-    /// One line of the deck's program: the line about to run, passing over REMs. A pass runs
+    /// One line of the deck's program: the line about to run, and any REMs after it, so it
+    /// stops on the next line that does something. A pass runs
     /// from the first line (or where a STOP or a pause left it) until the program ends, a STOP,
     /// the cycles run out or there's no GB for another IF. Every RUN resolves through
     /// `preview`, and runs as `Action::Run` would; one that can't run is skipped with the
@@ -1280,7 +1287,12 @@ impl Game {
                 self.trace_step(last, StepWhat::End);
                 return self.close();
             };
-            if ran {
+            // Stop on the next line that does something: a REM is passed over.
+            let rem = self
+                .program
+                .line(no)
+                .is_none_or(|l| matches!(l.stmt, Stmt::Rem));
+            if ran && !rem {
                 return Line::Went;
             }
             last = no;
@@ -1299,7 +1311,7 @@ impl Game {
             };
             let next = self.program.after(no);
             self.exec.pc = next;
-            ran = !matches!(stmt, Stmt::Rem);
+            ran |= !matches!(stmt, Stmt::Rem);
             match stmt {
                 Stmt::Rem => {}
                 Stmt::Bad(why) => self.trace_step(no, StepWhat::Skipped(why)),

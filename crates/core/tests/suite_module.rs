@@ -219,6 +219,7 @@ fn proc_7_is_one_program_before_during_and_after_an_incident() {
     assert!(suite::fkey_live(&g, FKey::Run, None));
     let before = g.combat.as_ref().unwrap().strength;
     g.apply(Action::Play);
+    g.apply(Action::Finish);
     g.apply(Action::Pause);
     assert!(g.combat.as_ref().map_or(0, |c| c.strength) < before);
     assert!(

@@ -167,6 +167,7 @@ fn stop_and_hang_hand_the_turn_to_the_hotbar() {
         "10 RUN firewall\n20 STOP\n30 GOTO 30".into(),
     ));
     g.apply(Action::Play);
+    g.apply(Action::Finish);
     assert_eq!(g.exec.state, ExecState::Stopped(20));
     let shield = g.slot_named("firewall").unwrap();
     g.apply(Action::Run(shield));
@@ -264,6 +265,7 @@ fn play_with_safe_hands_back_every_quiet_turn() {
     // Fortify next, the deck whole: nothing to defend against.
     assert!(matches!(g.intent(), Some(Intent::Fortify(_))));
     g.apply(Action::Play);
+    g.apply(Action::Finish);
     assert_ne!(g.exec.state, ExecState::Running, "a hang stops Run");
     assert_eq!(
         g.combat.as_ref().unwrap().turn,
@@ -333,4 +335,167 @@ fn a_hang_holds_the_line_until_an_edit() {
     g.apply(Action::Program(g.program.text()));
     assert_eq!(g.exec.broke, None);
     assert_eq!(g.exec.pc, g.program.first());
+}
+
+/// A fight against an ICE that won't fall, running `program`.
+fn fight_with(program: &str) -> Game {
+    let mut s = fresh();
+    let mut g = fight_from(&mut s, "bulwark");
+    g.apply(Action::Program(program.into()));
+    g
+}
+
+fn budgets(g: &Game) -> (u32, u32, u32) {
+    let c = g.combat.as_ref().unwrap();
+    (c.cpu, c.ifs, c.turn)
+}
+
+const LOOP: &str = "10 IF INTEG > 0\n20 RUN icepick\n30 GOTO 10";
+
+#[test]
+fn a_step_is_one_line_and_spends_as_it_goes() {
+    let mut g = fight_with(LOOP);
+    let (cpu, ifs, turn) = budgets(&g);
+    let strength = g.combat.as_ref().unwrap().strength;
+    assert_eq!(g.exec.pc, Some(10));
+    g.apply(Action::Step);
+    assert_eq!(g.exec.pc, Some(20), "the ▶ moves to the next line");
+    assert_eq!(budgets(&g), (cpu, ifs - 1, turn), "the IF took its GB");
+    assert!(g.program_view().lines[1].current);
+    g.apply(Action::Step);
+    let pick = g.slot_named("icepick").unwrap();
+    let cost = g.hdd[pick].spec.cpu;
+    assert_eq!(g.exec.pc, Some(30));
+    assert_eq!(
+        budgets(&g),
+        (cpu - cost, ifs - 1, turn),
+        "the RUN took its cycles"
+    );
+    assert!(g.combat.as_ref().unwrap().strength < strength);
+    assert_eq!(g.exec.state, ExecState::Paused, "a step leaves it paused");
+}
+
+#[test]
+fn the_line_that_spends_the_last_cycle_ends_the_turn() {
+    let mut g = fight_with(LOOP);
+    let pick = g.slot_named("icepick").unwrap();
+    g.combat.as_mut().unwrap().cpu = g.hdd[pick].spec.cpu;
+    let turn = budgets(&g).2;
+    g.apply(Action::Step);
+    assert_eq!(budgets(&g).2, turn, "the IF leaves the turn going");
+    g.apply(Action::Step);
+    assert_eq!(budgets(&g).2, turn + 1, "the ICE acted");
+    assert_eq!(g.exec.trace.last().unwrap().what, StepWhat::OutOfCpu);
+    assert_eq!(g.exec.pc, Some(10), "the ▶ is back at the top");
+    assert!(!g.exec.open);
+    // The program's end ends it too, on its last line.
+    let mut g = fight_with("10 IF INTEG > 0\n20 RUN icepick");
+    g.apply(Action::Step);
+    g.apply(Action::Step);
+    assert_eq!(budgets(&g).2, turn + 1);
+    assert_eq!(g.exec.trace.last().unwrap().what, StepWhat::End);
+    // And an IF with no GB left.
+    let mut g = fight_with(LOOP);
+    g.combat.as_mut().unwrap().ifs = 0;
+    g.apply(Action::Step);
+    assert_eq!(budgets(&g).2, turn + 1);
+    assert_eq!(g.exec.trace.last().unwrap().what, StepWhat::OutOfRam);
+}
+
+#[test]
+fn pause_keeps_the_place_and_end_turn_closes_the_pass() {
+    let mut g = fight_with(LOOP);
+    g.apply(Action::Play);
+    assert_eq!(g.exec.state, ExecState::Running);
+    assert_eq!(g.exec.pc, Some(20), "play ran a line");
+    g.apply(Action::Pause);
+    let left = budgets(&g);
+    assert_eq!((g.exec.state, g.exec.pc), (ExecState::Paused, Some(20)));
+    // The hotbar mid-pass spends its cycles and leaves the ▶ alone.
+    let pick = g.slot_named("icepick").unwrap();
+    let cost = g.hdd[pick].spec.cpu;
+    g.apply(Action::Run(pick));
+    assert_eq!(g.exec.pc, Some(20));
+    assert_eq!(budgets(&g), (left.0 - cost, left.1, left.2));
+    // Step carries on where it was, with the budgets as left.
+    g.apply(Action::Step);
+    assert_eq!(g.exec.pc, Some(30));
+    assert_eq!(budgets(&g), (left.0 - 2 * cost, left.1, left.2));
+    let lines: Vec<u32> = g.exec.trace.iter().map(|s| s.line).collect();
+    assert_eq!(lines, [10, 20], "one pass, carried on");
+    // End Turn mid-pass ends it: the ICE acts, the ▶ to the top, and the next Step starts a
+    // pass of its own.
+    g.apply(Action::EndTurn);
+    assert_eq!(budgets(&g).2, left.2 + 1);
+    assert_eq!(g.exec.pc, Some(10));
+    assert!(!g.exec.open);
+    g.apply(Action::Step);
+    let lines: Vec<u32> = g.exec.trace.iter().map(|s| s.line).collect();
+    assert_eq!(lines, [10]);
+}
+
+#[test]
+fn a_step_passes_over_rems() {
+    let mut g = fight_with("10 REM a\n20 REM b\n30 IF INTEG > 0\n40 REM c\n50 RUN icepick");
+    g.apply(Action::Step);
+    let lines: Vec<u32> = g.exec.trace.iter().map(|s| s.line).collect();
+    assert_eq!(lines, [30], "the REMs ran nothing");
+    assert_eq!(g.exec.pc, Some(50), "and the ▶ never rests on one");
+}
+
+#[test]
+fn a_step_after_a_stop_carries_on_after_it() {
+    let mut g = fight_with("10 STOP\n20 IF INTEG > 0\n30 GOTO 10");
+    g.apply(Action::Step);
+    assert_eq!(g.exec.state, ExecState::Stopped(10));
+    assert_eq!(g.exec.pc, Some(20));
+    g.apply(Action::Step);
+    assert_eq!(g.exec.state, ExecState::Paused);
+    assert_eq!(g.exec.trace.last().unwrap().line, 20);
+    g.apply(Action::Step);
+    g.apply(Action::Step);
+    assert_eq!(
+        g.exec.state,
+        ExecState::Stopped(10),
+        "round to the STOP again"
+    );
+}
+
+#[test]
+fn a_hang_found_by_a_step_holds_the_line_until_the_next_one() {
+    let mut g = fight_with("10 GOTO 20\n20 GOTO 10");
+    let turn = budgets(&g).2;
+    g.apply(Action::Step);
+    g.apply(Action::Step);
+    assert_eq!((g.exec.pc, g.exec.broke), (Some(10), None));
+    g.apply(Action::Step);
+    assert_eq!((g.exec.pc, g.exec.broke), (Some(10), Some(10)));
+    assert_eq!(g.exec.trace.last().unwrap().what, StepWhat::Break);
+    assert_eq!(budgets(&g).2, turn, "a hang doesn't end the turn");
+    // Play stops on it too.
+    g.apply(Action::Play);
+    g.apply(Action::Finish);
+    assert_eq!(g.exec.state, ExecState::Paused);
+    assert_eq!(g.exec.broke, Some(10));
+    // The next Step clears it and starts the pass again at the top.
+    g.apply(Action::Step);
+    assert_eq!((g.exec.pc, g.exec.broke), (Some(20), None));
+}
+
+#[test]
+fn the_terminal_steps_a_line_and_finishes_the_turn() {
+    let mut g = fight_with(LOOP);
+    let turn = budgets(&g).2;
+    assert_eq!(
+        command::parse_in(&g, "step").unwrap(),
+        Command::Game(Action::Step)
+    );
+    assert_eq!(
+        command::parse_in(&g, "fin").unwrap(),
+        Command::Game(Action::Finish)
+    );
+    g.apply(Action::Step);
+    g.apply(Action::Finish);
+    assert_eq!(budgets(&g).2, turn + 1);
+    assert!(command::HELP.iter().any(|l| l.starts_with("finish")));
 }

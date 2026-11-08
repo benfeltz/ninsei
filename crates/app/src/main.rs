@@ -239,7 +239,7 @@ fn drive_program(game: &mut Game, now: f64, next: &mut Option<f64>) -> Option<f6
     if now < due {
         return Some(due - now);
     }
-    game.apply(Action::Step);
+    game.apply(Action::Finish);
     *next = Some(now + PASS_SECS);
     drive_program(game, now, next)
 }
@@ -1788,7 +1788,8 @@ mod tests {
             "paused: nothing runs"
         );
         g.apply(Action::Play);
-        assert_eq!(turn(&g), 2, "play runs the first pass");
+        g.apply(Action::Finish);
+        assert_eq!(turn(&g), 2, "play runs, finish ends the turn");
         assert!(drive_program(&mut g, 0.0, &mut next).is_some());
         assert!(drive_program(&mut g, PASS_SECS / 2.0, &mut next).is_some());
         assert_eq!(turn(&g), 2, "not yet: a pass a beat");
