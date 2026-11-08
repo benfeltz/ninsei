@@ -1504,6 +1504,7 @@ name = "ninsei-term"
 version = "0.0.1"
 dependencies = [
  "egui",
+ "ninsei-term",
 ]
 
 [[package]]

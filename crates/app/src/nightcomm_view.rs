@@ -1067,18 +1067,16 @@ pub(crate) fn term(
     let line_rect = g.at(c0 + 2, r0 + h - 2, tw - 4, 1);
     let had_text = !nc.term.text().is_empty();
     let focused = cx.ui.memory(|m| m.has_focus(term_id));
-    // A page key on an empty line switches pages instead of typing.
+    // A page key on an empty line switches pages instead of typing: only when it's the frame's
+    // first edit, so a slow frame's `atdt 5551234` is typing, not a page.
     let mut page = None;
     if focused && !had_text {
-        cx.ui.input(|i| {
-            for e in &i.events {
-                if let Event::Text(t) = e
-                    && let Some(c) = t.chars().next().filter(|c| ('1'..='9').contains(c))
-                {
-                    page = Some(c);
-                }
-            }
-        });
+        page = cx
+            .ui
+            .input(|i| match ninsei_term::widget::edits(&i.events).first() {
+                Some(ninsei_term::Edit::Insert(c)) if ('1'..='9').contains(c) => Some(*c),
+                _ => None,
+            });
     }
     let style = ninsei_term::widget::Style {
         font: egui::TextStyle::Monospace.resolve(cx.ui.style()),
@@ -1334,6 +1332,22 @@ mod tests {
             "it echoes the command"
         );
         assert_eq!(home.nightcomm.term.text(), "", "and clears the line");
+    }
+
+    #[test]
+    fn a_slow_frames_command_is_typing_not_a_page() {
+        // A slow frame: every key of `ATDT 5550420` and Enter arrive together.
+        let data = Data::builtin().unwrap();
+        let save = nightcomm_deck(&data);
+        let (mut h, mut home) = on_term(&data, &save);
+        let mut events: Vec<Event> = "ATDT 5550420"
+            .chars()
+            .map(|c| Event::Text(c.to_string()))
+            .collect();
+        events.extend(key(Key::Enter));
+        let out = frame(&mut h, &mut home, &data, &save, Tool::NightComm, events);
+        assert_eq!(home.nightcomm.tab, Tab::Term, "its digits are typed");
+        assert_eq!(sent(&out), ["ATDT 5550420"]);
     }
 
     #[test]

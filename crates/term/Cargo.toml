@@ -12,3 +12,7 @@ egui = ["dep:egui"]
 
 [dependencies]
 egui = { workspace = true, optional = true }
+
+[dev-dependencies]
+# The widget's tests need the widget, also when this crate is tested on its own.
+ninsei-term = { path = ".", features = ["egui"] }
