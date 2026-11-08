@@ -1365,8 +1365,8 @@ const SUITE_MENUS: Menus = &[
 mod tiles {
     pub const LEFT: f32 = 0.22;
     pub const CENTRE_OF_REST: f32 = 0.56;
-    pub const OVER_LOG: f32 = 0.72;
-    pub const DECK: f32 = 0.55;
+    pub const OVER_LOG: f32 = 0.77;
+    pub const DECK: f32 = 0.6;
     pub const LOG_OF_BOTTOM: f32 = 0.6;
 }
 
