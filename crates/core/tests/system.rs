@@ -39,7 +39,15 @@ fn the_overview_reports_the_deck_and_its_specs() {
     );
     let max = d.rig.iter().find(|u| u.kind == Upgrade::Cpu).unwrap().max;
     assert_eq!(cpu.level, (0, max));
-    assert!(cpu.next.is_some(), "a fresh deck has upgrades left");
+    // Next is offered exactly when the chassis has room for it.
+    assert_eq!(
+        cpu.next.is_some(),
+        s.upgrade_blocker(&d, Upgrade::Cpu).is_none()
+    );
+    assert!(
+        spec(&o, "RAM").next.is_some(),
+        "a fresh deck has upgrades left"
+    );
 }
 
 #[test]

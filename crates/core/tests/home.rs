@@ -68,7 +68,8 @@ fn buying_spends_the_bank() {
 
 #[test]
 fn rig_bonuses_reach_the_deck() {
-    let d = data();
+    // A chassis with room on CPU, so the level shows.
+    let d = starter_cpu(3, 100);
     let mut s = save();
     s.rig.cpu = 1;
     s.rig.ram = 2;

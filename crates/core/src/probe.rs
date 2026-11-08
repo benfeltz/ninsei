@@ -601,6 +601,58 @@ fn pct(n: u32, of: u32) -> u32 {
     (n * 100).checked_div(of).unwrap_or(0)
 }
 
+/// A deck line that's run out of room: the chassis stops the next RIG level.
+fn capped(save: &Save, data: &Data, u: Upgrade) -> bool {
+    save.upgrade_blocker(data, u).is_some()
+}
+
+/// When a core line (CPU, integrity, RAM) is full on this chassis: the cheapest deck that takes
+/// that line further, read from each deck's stats. Owned decks count as free.
+fn bigger_chassis(save: &Save, data: &Data) -> Option<String> {
+    let now = |u: Upgrade| save.stat_cap(data, u);
+    let full: Vec<Upgrade> = [Upgrade::Cpu, Upgrade::Integrity, Upgrade::Ram]
+        .into_iter()
+        .filter(|&u| capped(save, data, u))
+        .collect();
+    data.hardware
+        .decks
+        .iter()
+        .filter(|d| {
+            full.iter()
+                .any(|&u| d.stat(u).is_some_and(|s| now(u).is_some_and(|c| s.max > c)))
+        })
+        // Never a step down on a line this deck already takes further.
+        .filter(|d| {
+            Upgrade::ALL.into_iter().all(|u| match (d.stat(u), now(u)) {
+                (Some(s), Some(c)) => s.max >= c,
+                _ => true,
+            })
+        })
+        .min_by_key(|d| {
+            let price = if save.decks.contains(&d.id) {
+                0
+            } else {
+                d.price
+            };
+            (price, d.id.clone())
+        })
+        .map(|d| d.id.clone())
+}
+
+/// Every deck line at the most any deck in the data takes it: the top of the climb.
+fn maxed_out(save: &Save, data: &Data) -> bool {
+    Upgrade::ALL.into_iter().all(|u| {
+        let top = data
+            .hardware
+            .decks
+            .iter()
+            .filter_map(|d| d.stat(u))
+            .map(|s| s.max)
+            .max();
+        top.is_none_or(|t| save.stat_value(data, u) >= t)
+    })
+}
+
 /// Checkpoints, in runs into a career, where the report samples the bank and upgrades.
 pub const CHECKPOINTS: [u32; 6] = [10, 20, 40, 60, 80, 100];
 
@@ -637,6 +689,16 @@ pub struct Stats {
     /// Wardial scans run, and phonebook numbers they found.
     pub scans: u32,
     pub found: u32,
+    /// The deck's CPU ceiling at each checkpoint (summed over careers): how far up the line
+    /// of models the careers have climbed.
+    pub chassis_at: [u64; CHECKPOINTS.len()],
+    /// Decks bought over all careers: (the CPU ceiling bought, purchases, sum of the run).
+    pub decks: Vec<(u32, u32, u64)>,
+    /// Career tier-3 runs by the deck's CPU ceiling when it dialed.
+    pub t3_by_chassis: Vec<(u32, TierStats)>,
+    /// Run (1-based) each career first had every deck line at the most any deck takes; 0 if
+    /// never.
+    pub maxed: Vec<u32>,
 }
 
 /// The probe, resumable: call [`Probe::step`] until it's done, then read [`Probe::report`].
@@ -655,6 +717,7 @@ pub struct Probe {
     recent: Vec<bool>,
     first: [u32; 2],
     t3_range: u32,
+    maxed: u32,
     /// The starting kit careers begin with (an id in `data/hub/starts.ron`; empty: the default).
     kit: String,
 }
@@ -679,6 +742,7 @@ impl Probe {
             recent: Vec::new(),
             first: [0, 0],
             t3_range: 0,
+            maxed: 0,
             kit: String::new(),
         }
     }
@@ -804,6 +868,7 @@ impl Probe {
             self.next_run();
             return;
         };
+        let chassis = save.stat_cap(&data, Upgrade::Cpu).unwrap_or(0);
         let Ok(g) = save.dial(&data, entry, rng.next_u64()) else {
             self.next_run();
             return;
@@ -818,6 +883,21 @@ impl Probe {
         let banked = report.as_ref().map_or(0, |r| r.banked);
         let f = fate(&g);
         self.stats.career[tier as usize - 1].add(f, banked);
+        if tier == 3 {
+            match self
+                .stats
+                .t3_by_chassis
+                .iter_mut()
+                .find(|(c, _)| *c == chassis)
+            {
+                Some((_, t)) => t.add(f, banked),
+                None => {
+                    let mut t = TierStats::default();
+                    t.add(f, banked);
+                    self.stats.t3_by_chassis.push((chassis, t));
+                }
+            }
+        }
         self.stats.fights += u64::from(log.fights);
         for (k, price) in &log.bought {
             match self.stats.bought.iter_mut().find(|(w, _, _)| w == k) {
@@ -921,11 +1001,13 @@ impl Probe {
         }
         let reserve = data.exchanges.iter().map(|r| r.cost).max().unwrap_or(0);
         loop {
+            // A line the chassis can't take any further isn't for sale to this deck.
             let cost = |u: Upgrade| {
                 data.rig
                     .iter()
                     .find(|d| d.kind == u)
                     .and_then(|d| d.cost(save.rig.level(u)))
+                    .filter(|_| save.upgrade_blocker(data, u).is_none())
             };
             let core = [Upgrade::Cpu, Upgrade::Integrity, Upgrade::Ram]
                 .into_iter()
@@ -935,6 +1017,37 @@ impl Probe {
                 .into_iter()
                 .filter_map(|u| cost(u).map(|c| (c, u)))
                 .min_by_key(|(c, _)| *c);
+            // A core line full on this chassis: the next one up comes before the extras.
+            if core.is_none()
+                && let Some(deck) = bigger_chassis(save, data)
+            {
+                let price = data.hardware.deck(&deck).map_or(0, |d| d.price);
+                let owned = save.decks.contains(&deck);
+                if !owned && save.bank < price + reserve {
+                    break;
+                }
+                if !owned
+                    && save
+                        .buy_hardware(data, &crate::hardware::Hardware::Deck(deck.clone()))
+                        .is_err()
+                {
+                    break;
+                }
+                if save.use_deck(data, &deck).is_err() {
+                    break;
+                }
+                if !owned {
+                    let cap = save.stat_cap(data, Upgrade::Cpu).unwrap_or(0);
+                    match self.stats.decks.iter_mut().find(|(c, _, _)| *c == cap) {
+                        Some((_, n, sum)) => {
+                            *n += 1;
+                            *sum += u64::from(run);
+                        }
+                        None => self.stats.decks.push((cap, 1, u64::from(run))),
+                    }
+                }
+                continue;
+            }
             let Some((c, u)) = core.or(extra) else { break };
             if save.bank < c + reserve {
                 break;
@@ -968,6 +1081,8 @@ impl Probe {
             .map(|u| s.rig.level(u))
             .sum();
             self.stats.ranges_at[i] += s.ranges.len() as u64;
+            self.stats.chassis_at[i] +=
+                u64::from(s.stat_cap(&self.data, Upgrade::Cpu).unwrap_or(0));
             let a = &mut self.stats.at[i];
             a.0 += 1;
             a.1 += u64::from(s.bank);
@@ -984,10 +1099,18 @@ impl Probe {
         {
             self.t3_range = self.run;
         }
+        if self.maxed == 0
+            && let Some(s) = &self.save
+            && maxed_out(s, &self.data)
+        {
+            self.maxed = self.run;
+        }
         if self.run >= self.cfg.career_runs {
             self.stats.first_exit.push(self.first);
             self.stats.t3_range.push(self.t3_range);
+            self.stats.maxed.push(self.maxed);
             self.t3_range = 0;
+            self.maxed = 0;
             self.career += 1;
             self.run = 0;
             self.save = None;
@@ -1041,6 +1164,15 @@ impl Probe {
                 avg
             ));
         }
+        let mut by = s.t3_by_chassis.clone();
+        by.sort_by_key(|b| b.0);
+        for (cap, t) in by {
+            out.push(format!(
+                "  tier 3 on a cpu cap {cap} deck: {:>5} runs, {:>3}% out",
+                t.runs,
+                t.win_pct()
+            ));
+        }
         for (k, label) in ["tier 2", "tier 3"].iter().enumerate() {
             let mut runs: Vec<u32> = s
                 .first_exit
@@ -1067,9 +1199,10 @@ impl Probe {
                 continue;
             }
             out.push(format!(
-                "  after {c:>2} runs: bank {:>5}¢, {:>4.1} RIG upgrades",
+                "  after {c:>2} runs: bank {:>5}¢, {:>4.1} RIG upgrades, cpu cap {:.1}",
                 bank / u64::from(n),
-                levels as f32 / n as f32
+                levels as f32 / n as f32,
+                s.chassis_at[i] as f32 / n as f32
             ));
         }
         let mut buys = s.buys.clone();
@@ -1085,6 +1218,24 @@ impl Probe {
                 sum / u64::from(n.max(1))
             ));
         }
+        let mut decks = s.decks.clone();
+        decks.sort_by_key(|d| d.0);
+        for (cap, n, sum) in decks {
+            out.push(format!(
+                "  deck   {:>4.1} bought a career (cpu cap {cap}), around run {}",
+                f64::from(n) / careers as f64,
+                sum / u64::from(n.max(1))
+            ));
+        }
+        let mut maxed: Vec<u32> = s.maxed.iter().copied().filter(|&r| r > 0).collect();
+        maxed.sort_unstable();
+        out.push(match maxed.get(maxed.len() / 2) {
+            Some(m) => format!(
+                "  rig maxed (top deck, every line full): {}%, median run {m}",
+                pct(maxed.len() as u32, s.maxed.len().max(1) as u32)
+            ),
+            None => "  rig maxed (top deck, every line full): never".into(),
+        });
         out.push(format!(
             "  wardial: {} scans, {} new numbers",
             s.scans, s.found
