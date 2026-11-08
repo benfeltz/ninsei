@@ -262,3 +262,39 @@ fn models_share_a_brands_firmware() {
         }
     }
 }
+
+#[test]
+fn climbing_a_brand_keeps_the_firmware_and_the_layout() {
+    let d = data();
+    // Two models of one brand whose firmware has a second version to switch to.
+    let (a, b) = d
+        .hardware
+        .decks
+        .iter()
+        .filter(|x| x.firmware.len() > 1)
+        .find_map(|x| {
+            let y = d
+                .hardware
+                .decks
+                .iter()
+                .find(|y| y.id != x.id && y.maker == x.maker)?;
+            Some((x.clone(), y.clone()))
+        })
+        .expect("a brand with two models and two firmware versions");
+    let mut s = fresh(100_000);
+    for id in [&a.id, &b.id] {
+        s.buy_hardware(&d, &Hardware::Deck(id.clone())).unwrap();
+    }
+    s.use_deck(&d, &a.id).unwrap();
+    let second = a.firmware[1].id.clone();
+    s.use_firmware(&d, &second).unwrap();
+    s.set_layout(&d, "my tiles".into());
+    s.use_deck(&d, &b.id).unwrap();
+    assert_eq!(s.firmware, second, "the same firmware on the bigger model");
+    assert_eq!(s.layout(&d), Some("my tiles"));
+    // Another brand starts on its own first firmware.
+    let other = d.hardware.starter_deck();
+    assert_ne!(other.maker, b.maker);
+    s.use_deck(&d, &other.id).unwrap();
+    assert_eq!(s.firmware, other.firmware[0].id);
+}

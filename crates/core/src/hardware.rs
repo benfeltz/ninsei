@@ -340,9 +340,14 @@ impl Save {
             .unwrap_or(&deck.firmware[0])
     }
 
-    /// The key a layout is saved under: the deck and its firmware.
+    /// The key a layout is saved under: the firmware, by its maker. A brand's models share
+    /// their firmware, so a layout follows you up the line.
     pub fn layout_key(&self, data: &Data) -> String {
-        format!("{}/{}", self.deck_def(data).id, self.firmware_def(data).id)
+        format!(
+            "{}/{}",
+            self.deck_def(data).maker,
+            self.firmware_def(data).id
+        )
     }
 
     /// The saved pane layout for the deck and firmware in use, if there is one.
@@ -452,14 +457,19 @@ impl Save {
         Ok(format!("monitor: {}", m.title()))
     }
 
-    /// Runs with a deck you own, on its first firmware.
+    /// Runs with a deck you own: on the firmware you're running if it has it (a brand's
+    /// models share theirs), else on its first.
     pub fn use_deck(&mut self, data: &Data, id: &str) -> Result<String, String> {
         if !self.decks.iter().any(|d| d == id) {
             return Err(format!("{id}: you don't own that deck."));
         }
         let d = data.hardware.deck(id).ok_or("no such deck.")?;
+        let same = self.deck_def(data).maker == d.maker;
+        let keep = same && d.firmware.iter().any(|f| f.id == self.firmware);
         self.deck = d.id.clone();
-        self.firmware = d.firmware[0].id.clone();
+        if !keep {
+            self.firmware = d.firmware[0].id.clone();
+        }
         Ok(format!("deck: {}", d.title()))
     }
 
