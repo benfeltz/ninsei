@@ -251,3 +251,74 @@ fn the_editor_keys_press_only_where_they_do_something() {
     assert_eq!(legend[1][1], ("o", "open", true));
     assert_eq!(legend[1][0], ("e", "edit", false));
 }
+
+/// 141.5 acceptance: one program across a run through the `ice.bas` tile. Between fights it
+/// shows and edits but won't play; into ICE it opens with the edits, the ▶ on line one and the
+/// debugger live; a STOP hands over and continue carries on; the deck keeps what was left.
+#[test]
+fn ice_bas_is_one_program_before_during_and_after_a_fight() {
+    let (d, mut s) = save();
+    let mut g = s.jack_in(&d, 21);
+    // Between fights: the listing, no ▶, the debugger dark, the editor live.
+    let rows = btop_fight::rows(&g);
+    assert!(rows.iter().all(|r| r.gutter != Gutter::Current));
+    let cursor = btop_fight::home(&g);
+    let k = btop_fight::keys(&g, cursor);
+    assert!(!k.run && !k.step && !k.cont && !k.pause, "{k:?}");
+    assert!(k.edit && k.open && k.delete, "{k:?}");
+    // Open a line inside SAFE's loop (after its last RUN, before its GOTO): a RUN that attacks.
+    let goto = g.program.lines.last().unwrap().no;
+    let before_goto = g
+        .program
+        .lines
+        .iter()
+        .map(|l| l.no)
+        .take_while(|&n| n < goto)
+        .last();
+    let at = btop_fight::open_after(&g, before_goto).unwrap();
+    assert!(at < goto, "inside the loop");
+    g.apply(btop_fight::retype(&g, at, "RUN icepick").unwrap());
+    // Retype the first line as a STOP: the breakpoint the fight hits first.
+    let first = g.program.first().unwrap();
+    g.apply(btop_fight::retype(&g, first, "STOP").unwrap());
+    let edited = g.program.text();
+    // Into ICE: the same program, the ▶ on its first line, run and step press.
+    let target = g.net.nodes[g.at].links[0];
+    g.net.nodes[target].kind = NodeKind::Ice;
+    g.net.nodes[target].ice = Some(0);
+    g.net.nodes[target].cleared = false;
+    g.apply(Action::Move(target));
+    assert_eq!(g.phase, Phase::Combat);
+    let c = g.combat.as_mut().unwrap();
+    (c.strength, c.strength_max) = (500, 500);
+    assert_eq!(
+        g.program.text(),
+        edited,
+        "the fight opens with what was edited"
+    );
+    let rows = btop_fight::rows(&g);
+    assert_eq!(rows[0].gutter, Gutter::Current, "▶ on line one");
+    let k = btop_fight::keys(&g, btop_fight::home(&g));
+    assert!(k.run && k.step);
+    // Step hits the STOP: continue presses now.
+    g.apply(Action::Step);
+    assert!(
+        matches!(g.exec.state, ExecState::Stopped(_)),
+        "{:?}",
+        g.exec.state
+    );
+    assert!(btop_fight::keys(&g, None).cont);
+    // A line deleted mid-fight changes what the next pass runs: the STOP goes, Play carries on.
+    g.apply(btop_fight::delete(&g, first).unwrap());
+    let before = g.combat.as_ref().unwrap().strength;
+    g.apply(Action::Play);
+    g.apply(Action::Pause);
+    let after = g.combat.as_ref().map_or(0, |c| c.strength);
+    assert!(after < before, "the program attacked: {before} -> {after}");
+    // And the deck keeps it.
+    let kept = g.program.text();
+    g.phase = Phase::JackedOut;
+    s.record(&g, &[], &d.rig).unwrap();
+    assert_eq!(s.program_text(&d), kept);
+    assert!(kept.contains("RUN icepick") && !kept.starts_with(&format!("{first} STOP")));
+}
