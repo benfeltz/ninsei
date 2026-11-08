@@ -416,17 +416,16 @@ impl ChromeView for Stack {
     /// the network with ICE and Hex as its other cards in the centre (widest), the Script in
     /// front of To Do on the right.
     fn default_layout(&self, extra: &[Tab]) -> egui_dock::DockState<Tab> {
-        use egui_dock::{DockState, NodeIndex};
-        let mut dock = DockState::new(vec![Tab::Network, Tab::Target, Tab::Hex]);
-        let tree = dock.main_surface_mut();
-        let [top, bottom] = tree.split_below(NodeIndex::root(), 0.74, vec![Tab::Terminal]);
-        let [centre, left] = tree.split_left(top, 0.2, vec![Tab::Deck]);
-        tree.split_below(left, 0.42, vec![Tab::Warez]);
-        tree.split_right(centre, 0.66, vec![Tab::Script, Tab::Todo]);
-        if !extra.is_empty() {
-            tree.split_right(bottom, 0.6, extra.to_vec());
-        }
-        dock
+        crate::chrome::three_columns(
+            extra,
+            crate::chrome::Shares {
+                over_bottom: 0.74,
+                left: 0.2,
+                deck: 0.42,
+                centre_of_rest: 0.66,
+                terminal_of_bottom: 0.6,
+            },
+        )
     }
 
     fn network(&self, p: &mut Panes, ui: &mut Ui) {

@@ -204,15 +204,33 @@ pub fn base_layout(extra: &[Tab]) -> DockState<Tab> {
 pub struct Classic;
 impl ChromeView for Classic {}
 
-/// The btop chrome's tiling, as shares of the screen: the left column (deck over warez), the
-/// right column's share of what's left of it (`ice.bas` in front of todo), the panes over the
-/// terminal, and where the deck stops in the left column.
-mod btop_tiles {
-    pub const LEFT: f32 = 0.22;
-    pub const CENTRE_OF_REST: f32 = 0.59;
-    pub const OVER_TERMINAL: f32 = 0.74;
-    pub const DECK: f32 = 0.62;
-    pub const TERMINAL_OF_BOTTOM: f32 = 0.6;
+/// Where the three-column layout splits, as shares: the panes over the bottom row (the
+/// terminal, the Message box, the activity log), the left column's share of them, the deck's
+/// share of the left column, the centre's share of what the left leaves, and the bottom row's
+/// share left to the terminal when secondary panes sit beside it.
+pub struct Shares {
+    pub over_bottom: f32,
+    pub left: f32,
+    pub deck: f32,
+    pub centre_of_rest: f32,
+    pub terminal_of_bottom: f32,
+}
+
+/// The three-column layout every deck with a Script pane starts in: the deck over the
+/// programs on the left (narrow), the map with ICE and Hex as its other tabs in the centre
+/// (widest), the Script in front of To Do on the right, the terminal along the bottom with any
+/// secondary panes beside it. Each chrome only picks its `Shares`.
+pub fn three_columns(extra: &[Tab], s: Shares) -> DockState<Tab> {
+    let mut dock = DockState::new(vec![Tab::Network, Tab::Target, Tab::Hex]);
+    let tree = dock.main_surface_mut();
+    let [top, bottom] = tree.split_below(NodeIndex::root(), s.over_bottom, vec![Tab::Terminal]);
+    let [centre, left] = tree.split_left(top, s.left, vec![Tab::Deck]);
+    tree.split_below(left, s.deck, vec![Tab::Warez]);
+    tree.split_right(centre, s.centre_of_rest, vec![Tab::Script, Tab::Todo]);
+    if !extra.is_empty() {
+        tree.split_right(bottom, s.terminal_of_bottom, extra.to_vec());
+    }
+    dock
 }
 
 pub struct Btop;
@@ -221,17 +239,16 @@ impl ChromeView for Btop {
     /// (narrow), the map in the centre (widest, the fight view in a fight), `ice.bas` in front
     /// of todo on the right; secondary panes beside the terminal.
     fn default_layout(&self, extra: &[Tab]) -> DockState<Tab> {
-        use btop_tiles::*;
-        let mut dock = DockState::new(vec![Tab::Network, Tab::Target, Tab::Hex]);
-        let tree = dock.main_surface_mut();
-        let [top, bottom] = tree.split_below(NodeIndex::root(), OVER_TERMINAL, vec![Tab::Terminal]);
-        let [centre, left] = tree.split_left(top, LEFT, vec![Tab::Deck]);
-        tree.split_below(left, DECK, vec![Tab::Warez]);
-        tree.split_right(centre, CENTRE_OF_REST, vec![Tab::Script, Tab::Todo]);
-        if !extra.is_empty() {
-            tree.split_right(bottom, TERMINAL_OF_BOTTOM, extra.to_vec());
-        }
-        dock
+        three_columns(
+            extra,
+            Shares {
+                over_bottom: 0.74,
+                left: 0.22,
+                deck: 0.62,
+                centre_of_rest: 0.59,
+                terminal_of_bottom: 0.6,
+            },
+        )
     }
     fn network(&self, p: &mut Panes, ui: &mut Ui) {
         // In a fight the map dives into the ICE's node and becomes the fight view.
