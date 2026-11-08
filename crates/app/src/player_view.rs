@@ -2,7 +2,8 @@
 //! it's a TUI player after cmus 2.x (its playlist view and status line) with Winamp 2's
 //! transport and spectrum: three boxes on the kit's cells, whole cells only, every colour the
 //! desk's ([`tile`]). On Liza it's a System 6 desk accessory on the Liza kit ([`liza_face`]).
-//! Desktop shows a plain listing until it dresses it ([`plain`]). What any face shows is
+//! On Desktop it's Protracker 2.3's playback screen on the Workbench kit ([`workbench_face`]).
+//! What any face shows is
 //! core's (`ninsei_core::player`); this only draws and turns keys and clicks into
 //! [`WbOut::Player`] acts.
 
@@ -287,7 +288,7 @@ pub fn tile(
 }
 
 /// Draws TRAX as `desktop` dresses it: the one place a desktop's player face is chosen
-/// (AnarchyOS's [`tile`], Liza's [`liza_face`], and [`plain`] for a desktop without its own).
+/// (AnarchyOS's [`tile`], Liza's [`liza_face`], Desktop's [`workbench_face`]).
 #[allow(clippy::too_many_arguments)]
 pub fn show(
     ui: &mut Ui,
@@ -303,7 +304,7 @@ pub fn show(
     match desktop {
         Desktop::Tiling => tile(ui, data, save, t, pui, heard, keys, out),
         Desktop::Liza => liza_face(ui, data, save, t, pui, heard, keys, out),
-        Desktop::Workbench => plain(ui, data, save, t, out),
+        Desktop::Workbench => workbench_face(ui, data, save, t, pui, heard, keys, out),
     }
 }
 
@@ -599,6 +600,270 @@ pub fn liza_face(
     }
 }
 
+/// Desktop's TRAX: its face's size, Protracker's playback screen in a window.
+pub const WB_SIZE: egui::Vec2 = egui::vec2(560.0, 440.0);
+
+/// A Protracker number box's label width and value width, in advances; a row's height.
+const WB_LABEL: usize = 8;
+const WB_VALUE: usize = 5;
+const WB_ROW: f32 = 22.0;
+/// The spectrum analyzer's height, and a bar's width and gap.
+const WB_VIS_H: f32 = 84.0;
+const WB_BAR: f32 = 8.0;
+const WB_GAP: f32 = 2.0;
+
+/// Draws Desktop's TRAX: Protracker 2.3's playback screen in Workbench 1.3 clothes, Winamp 2's
+/// feel. The number boxes (POS, PATTERN, LENGTH, TIME) beside the gadgets (PLAY or STOP,
+/// PREV, NEXT, REPEAT, SHUFFLE), the song name and its crew, the spectrum analyzer, the
+/// volume as a proportional gadget, and the playlist as a list. `keys`: the window is in
+/// front with the keyboard.
+#[allow(clippy::too_many_arguments)]
+pub fn workbench_face(
+    ui: &mut Ui,
+    data: &Data,
+    save: &Save,
+    t: &Transport,
+    pui: &mut PlayerUi,
+    heard: &Heard,
+    keys_on: bool,
+    out: &mut Vec<WbOut>,
+) {
+    use crate::kit::workbench as kit;
+    use egui::{Align2, Id, UiBuilder, pos2, vec2};
+    pui.drawn = Some(ui.ctx().cumulative_pass_nr());
+    let look = crate::workbench::look();
+    let rows = player::rows(save, data);
+    if pui.sel.is_none_or(|s| s >= rows.len()) {
+        pui.sel = player::current(save, data).or((!rows.is_empty()).then_some(0));
+    }
+    if keys_on {
+        // Its keys are the player's: nothing behind it types them.
+        ui.ctx().memory_mut(|m| m.stop_text_input());
+        for a in keys(ui, rows.len(), &mut pui.sel) {
+            out.push(WbOut::Player(a));
+        }
+    }
+    // The face, centred across the window's room.
+    let room = ui.available_width().max(WB_SIZE.x);
+    let (row, _) = ui.allocate_exact_size(vec2(room, WB_SIZE.y), Sense::hover());
+    let left = (row.left() + (row.width() - WB_SIZE.x) / 2.0).round();
+    let rect = Rect::from_min_size(pos2(left, row.top().round()), WB_SIZE);
+    let p = ui.painter_at(rect.expand(2.0));
+    let ctx = ui.ctx().clone();
+    let adv = crate::kit::liza::text_width(&ctx, "0", &look.font).ceil();
+    let (x0, w) = (rect.left(), rect.width());
+    let mut y = rect.top();
+    let text = |p: &egui::Painter, at: egui::Pos2, s: &str, c: Color32| {
+        p.text(at, Align2::LEFT_CENTER, s, look.font.clone(), c);
+    };
+
+    // The number boxes: a raised label and a recessed value each, Protracker's four digits.
+    let rd = player::readout(save, data, t);
+    let label_w = adv * WB_LABEL as f32 + 8.0;
+    let value_w = adv * WB_VALUE as f32 + 8.0;
+    let boxes = [
+        ("POS", format!("{:04}", rd.pos)),
+        ("PATTERN", format!("{:04}", rd.pattern)),
+        ("LENGTH", format!("{:04}", rd.length)),
+        ("TIME", player::clock(rd.time as f32)),
+    ];
+    for (i, (label, value)) in boxes.iter().enumerate() {
+        let top = y + i as f32 * WB_ROW;
+        let l = Rect::from_min_size(pos2(x0, top), vec2(label_w, WB_ROW - 2.0));
+        let v = Rect::from_min_size(pos2(l.right(), top), vec2(value_w, WB_ROW - 2.0));
+        p.rect_filled(l, 0.0, look.fill);
+        kit::bevel(&p, l, true, &look);
+        text(&p, l.left_center() + vec2(4.0, 0.0), label, look.ink);
+        p.rect_filled(v, 0.0, look.backdrop);
+        kit::bevel(&p, v, false, &look);
+        text(&p, v.left_center() + vec2(4.0, 0.0), value, look.accent);
+    }
+    // The pattern's row, as Protracker counts down its pattern: beside PATTERN.
+    text(
+        &p,
+        pos2(x0 + label_w + value_w + 8.0, y + WB_ROW * 1.5 - 1.0),
+        &format!("ROW {:02}/{:02}", rd.row, rd.rows),
+        look.ink,
+    );
+
+    // The gadgets beside them: PLAY reads STOP while it plays (Protracker's own pair), then
+    // PREV and NEXT, and the modes as toggle gadgets.
+    let gx = x0 + label_w + value_w + 8.0 + adv * 11.0;
+    let gw = (x0 + w - gx) / 3.0 - 4.0;
+    let playing = t.play == player::Play::Playing;
+    for (i, (label, act)) in [
+        (if playing { "STOP" } else { "PLAY" }, Act::Toggle),
+        ("PREV", Act::Prev),
+        ("NEXT", Act::Next),
+    ]
+    .into_iter()
+    .enumerate()
+    {
+        let r = Rect::from_min_size(pos2(gx + i as f32 * (gw + 4.0), y), vec2(gw, WB_ROW - 2.0));
+        if kit::button(
+            ui,
+            &p,
+            r,
+            Id::new(("trax-wb", label)),
+            label,
+            ui.is_enabled(),
+            &look,
+        )
+        .clicked()
+        {
+            out.push(WbOut::Player(act));
+        }
+    }
+    let mut modes = ui.new_child(
+        UiBuilder::new()
+            .max_rect(Rect::from_min_max(
+                pos2(gx, y + WB_ROW + 4.0),
+                pos2(x0 + w, y + 2.0 * WB_ROW + 8.0),
+            ))
+            .layout(egui::Layout::left_to_right(egui::Align::Min)),
+    );
+    modes.spacing_mut().item_spacing.x = 6.0;
+    for (label, on, act) in [
+        ("REPEAT", save.player.repeat, Act::Repeat),
+        ("SHUFFLE", save.player.shuffle, Act::Shuffle),
+    ] {
+        if kit::toggle_gadget(&mut modes, label, on, &look).clicked() {
+            out.push(WbOut::Player(act));
+        }
+    }
+    y += 4.0 * WB_ROW + 6.0;
+
+    // The song name and its crew, in a recessed strip.
+    let tune = player::current_tune(save, data);
+    let (title, by) = tune.map_or(("", ""), |t| (t.title.as_str(), t.by.as_str()));
+    let chars = |px: f32| (px / adv).floor().max(1.0) as usize;
+    let strip = Rect::from_min_size(pos2(x0, y), vec2(w, 2.0 * WB_ROW));
+    p.rect_filled(strip, 0.0, look.backdrop);
+    kit::bevel(&p, strip, false, &look);
+    let name = crate::kit::cells::cut(&format!("SONGNAME: {title}"), chars(w - 12.0));
+    let crew = crate::kit::cells::cut(&format!("BY:       {by}"), chars(w - 12.0));
+    text(&p, pos2(x0 + 6.0, y + WB_ROW * 0.5), &name, look.ink);
+    text(&p, pos2(x0 + 6.0, y + WB_ROW * 1.5), &crew, look.ink);
+    y += 2.0 * WB_ROW + 6.0;
+
+    // The spectrum analyzer: bars in the highlight colour in a recessed box.
+    let vis = Rect::from_min_size(pos2(x0, y), vec2(w, WB_VIS_H));
+    p.rect_filled(vis, 0.0, look.shadow);
+    kit::bevel(&p, vis, false, &look);
+    let inner = vis.shrink(6.0);
+    let n = ((inner.width() + WB_GAP) / (WB_BAR + WB_GAP))
+        .floor()
+        .max(1.0) as usize;
+    let samples: &[f32] = if heard.samples.is_empty() {
+        &[0.0; 64]
+    } else {
+        &heard.samples
+    };
+    let bars = crate::vispane::bars(ui, "trax-wb", samples, heard.rate.max(1), n);
+    let bx =
+        inner.left() + ((inner.width() - (n as f32 * (WB_BAR + WB_GAP) - WB_GAP)) / 2.0).round();
+    for (i, b) in bars.iter().enumerate() {
+        let h = (b.clamp(0.0, 1.0) * inner.height()).round();
+        if h >= 1.0 {
+            let x = bx + i as f32 * (WB_BAR + WB_GAP);
+            p.rect_filled(
+                Rect::from_min_max(
+                    pos2(x, inner.bottom() - h),
+                    pos2(x + WB_BAR, inner.bottom()),
+                ),
+                0.0,
+                look.accent,
+            );
+        }
+    }
+    y += WB_VIS_H + 8.0;
+
+    // The level: its label and a proportional gadget on its side.
+    text(
+        &p,
+        pos2(x0, y + 7.0),
+        &player::level_label(save).to_uppercase(),
+        look.ink,
+    );
+    let prop = Rect::from_min_size(pos2(x0 + label_w, y), vec2(w - label_w, kit::size::HPROP_H));
+    if let Some(v) = kit::hprop(
+        ui,
+        prop,
+        Id::new("trax-wb-volume"),
+        player::level(save),
+        &look,
+    ) {
+        out.push(WbOut::Player(Act::Volume((v * 100.0).round() as u8)));
+    }
+    y += kit::size::HPROP_H + 8.0;
+
+    // The playlist: a Workbench list, the cursor in the highlight, the playing tune marked; a
+    // double-click (or Enter) plays.
+    let title_x = 4.0 + 2.0 * adv;
+    let by_x = title_x + adv * (ninsei_core::data::TUNE_TITLE_MAX + 2) as f32;
+    let len_w = crate::kit::liza::text_width(&ctx, "00:00", &look.font).ceil();
+    let mut list =
+        ui.new_child(UiBuilder::new().max_rect(Rect::from_min_max(pos2(x0, y), rect.max)));
+    let sel = pui.sel.unwrap_or(0);
+    let font = look.font.clone();
+    let picked = kit::list_box(
+        &mut list,
+        vec2(w, rect.bottom() - y),
+        Id::new("trax-wb-list"),
+        rows.len(),
+        WB_ROW - 2.0,
+        sel,
+        &look,
+        |p, cell, i, on| {
+            let row = &rows[i];
+            let (fg, bg) = if on {
+                (look.shadow, look.accent)
+            } else if row.current {
+                (look.accent, look.backdrop)
+            } else {
+                (look.ink, look.backdrop)
+            };
+            p.rect_filled(cell, 0.0, bg);
+            let mid = cell.center().y;
+            let at = |x: f32| pos2(cell.left() + x, mid);
+            let mark = if row.current { "▶" } else { "" };
+            p.text(at(4.0), Align2::LEFT_CENTER, mark, font.clone(), fg);
+            p.text(
+                at(title_x),
+                Align2::LEFT_CENTER,
+                crate::kit::cells::cut(row.title, ninsei_core::data::TUNE_TITLE_MAX),
+                font.clone(),
+                fg,
+            );
+            let by_room = cell.width() - 6.0 - len_w - adv - by_x;
+            p.text(
+                at(by_x),
+                Align2::LEFT_CENTER,
+                crate::kit::cells::cut(row.by, chars(by_room)),
+                font.clone(),
+                fg,
+            );
+            p.text(
+                pos2(cell.right() - 6.0, mid),
+                Align2::RIGHT_CENTER,
+                &row.length,
+                font.clone(),
+                fg,
+            );
+            row.title.to_string()
+        },
+    );
+    if let Some(i) = picked {
+        pui.sel = Some(i);
+        if ui.input(|i| {
+            i.pointer
+                .button_double_clicked(egui::PointerButton::Primary)
+        }) {
+            out.push(WbOut::Player(Act::Pick(i)));
+        }
+    }
+}
+
 /// What a click on legend entry `n` ([`player::KEYS`]) does, and a second-button click.
 fn legend_acts(n: usize, sel: Option<usize>) -> (Option<Act>, Option<Act>) {
     match n {
@@ -614,52 +879,6 @@ fn legend_acts(n: usize, sel: Option<usize>) -> (Option<Act>, Option<Act>) {
 /// Milliseconds into a tune `total` seconds long for a click at `x` on a position bar.
 fn seek_at(bar: Rect, x: f32, total: f32) -> u32 {
     (((x - bar.left()) / bar.width().max(1.0)).clamp(0.0, 1.0) * total * 1000.0) as u32
-}
-
-/// The plain listing a desktop without its own face shows (Desktop's, for now):
-/// the playlist as rows to click, the status, and the transport as buttons.
-pub fn plain(ui: &mut Ui, data: &Data, save: &Save, t: &Transport, out: &mut Vec<WbOut>) {
-    head(ui, save, data, t);
-    ui.separator();
-    for (i, row) in player::rows(save, data).iter().enumerate() {
-        let text = format!(
-            "{} {}  {}  {}",
-            if row.current { "▶" } else { " " },
-            row.title,
-            row.by,
-            row.length
-        );
-        if ui.selectable_label(row.current, text).clicked() {
-            out.push(WbOut::Player(Act::Pick(i)));
-        }
-    }
-    ui.separator();
-    ui.horizontal(|ui| {
-        for (label, act) in [
-            ("Play/Pause", Act::Toggle),
-            ("Stop", Act::Stop),
-            ("Prev", Act::Prev),
-            ("Next", Act::Next),
-            ("Repeat", Act::Repeat),
-            ("Shuffle", Act::Shuffle),
-        ] {
-            if ui.button(label).clicked() {
-                out.push(WbOut::Player(act));
-            }
-        }
-    });
-}
-
-/// The plain listing's head: the status and what's playing.
-fn head(ui: &mut Ui, save: &Save, data: &Data, t: &Transport) {
-    ui.label(player::status(save, t));
-    if let Some((head, at, total)) = player::now(save, data, t) {
-        ui.label(format!(
-            "{head}  {} / {}",
-            player::clock(at),
-            player::clock(total)
-        ));
-    }
 }
 
 #[cfg(test)]
@@ -1135,15 +1354,15 @@ mod tests {
         }
 
         #[test]
-        fn it_shows_whole_in_its_window_and_desktop_keeps_the_plain_listing() {
+        fn it_shows_whole_in_its_window_and_desktop_wears_its_own_face() {
             let data = Data::builtin().unwrap();
             let save = sensenet(&data);
             let mut h = Harness::new(800.0, 700.0);
             let mut home = Home::new(Vec::new());
             da(&mut h, &mut home, &data, &save, false, Vec::new());
             assert!(h.cut_text().is_empty(), "{:?}", h.cut_text());
-            assert!(h.find("Play/Pause").is_none(), "not the plain listing");
-            // On Desktop (the Ono-Sendai's classic firmware), still the plain listing.
+            assert!(h.find("PLAY").is_none(), "not Desktop's face");
+            // On Desktop (the Ono-Sendai's classic firmware), Protracker's screen.
             let mut wb = save.clone();
             wb.decks.push("onosendai".into());
             wb.deck = "onosendai".into();
@@ -1153,7 +1372,170 @@ mod tests {
                 ninsei_core::hardware::Desktop::Workbench
             );
             da(&mut h, &mut home, &data, &wb, false, Vec::new());
-            assert!(h.find("Play/Pause").is_some());
+            assert!(h.find("PLAY").is_some(), "{:?}", h.texts());
+        }
+    }
+
+    mod workbench {
+        use super::*;
+        use crate::uitest::click;
+
+        /// A Hosaka owning TRAX and three tunes.
+        fn hosaka(data: &Data) -> Save {
+            let mut s = deck(data);
+            s.decks.push("hosaka".into());
+            s.deck = "hosaka".into();
+            s.firmware.clear();
+            s.ensure_hardware(data);
+            assert_eq!(
+                s.firmware_def(data).desktop,
+                ninsei_core::hardware::Desktop::Workbench
+            );
+            s.learn_tool("player");
+            s.tunes = vec!["chroma".into(), "welcome".into(), "trap-line".into()];
+            s
+        }
+
+        fn wb(
+            h: &mut Harness,
+            home: &mut Home,
+            data: &Data,
+            save: &Save,
+            keys: bool,
+            events: Vec<egui::Event>,
+        ) -> Vec<Act> {
+            frame_keys(
+                h,
+                home,
+                data,
+                save,
+                Tool::Player,
+                rect(700.0, 600.0),
+                keys,
+                events,
+            )
+            .into_iter()
+            .filter_map(|o| match o {
+                WbOut::Player(a) => Some(a),
+                _ => None,
+            })
+            .collect()
+        }
+
+        fn press(
+            h: &mut Harness,
+            home: &mut Home,
+            data: &Data,
+            save: &Save,
+            label: &str,
+        ) -> Vec<Act> {
+            let at = h
+                .find(label)
+                .unwrap_or_else(|| panic!("no {label:?}: {:?}", h.texts()))
+                .center();
+            let mut acts = wb(h, home, data, save, false, click(at));
+            acts.extend(wb(h, home, data, save, false, Vec::new()));
+            acts
+        }
+
+        fn painted(h: &Harness, s: &str) -> bool {
+            h.painted_text().iter().any(|(t, _)| t.contains(s))
+        }
+
+        #[test]
+        fn its_gadgets_drive_the_player() {
+            let data = Data::builtin().unwrap();
+            let save = hosaka(&data);
+            let mut h = Harness::new(900.0, 700.0);
+            let mut home = Home::new(Vec::new());
+            wb(&mut h, &mut home, &data, &save, false, Vec::new());
+            for (label, act) in [
+                ("PLAY", Act::Toggle),
+                ("PREV", Act::Prev),
+                ("NEXT", Act::Next),
+                ("REPEAT", Act::Repeat),
+                ("SHUFFLE", Act::Shuffle),
+            ] {
+                assert_eq!(
+                    press(&mut h, &mut home, &data, &save, label),
+                    [act],
+                    "{label}"
+                );
+            }
+        }
+
+        #[test]
+        fn playing_it_reads_stop_and_its_boxes_say_where_it_is() {
+            let data = Data::builtin().unwrap();
+            let mut save = hosaka(&data);
+            let mut h = Harness::new(900.0, 700.0);
+            let mut home = Home::new(Vec::new());
+            player::apply(&mut save, &data, &mut home.player, Act::Pick(1));
+            player::tick(&mut save, &data, &mut home.player, 12.0, true);
+            wb(&mut h, &mut home, &data, &save, false, Vec::new());
+            assert!(h.find("STOP").is_some() && h.find("PLAY").is_none());
+            let rd = player::readout(&save, &data, &home.player);
+            for s in [
+                "POS".to_string(),
+                format!("{:04}", rd.pos),
+                format!("{:04}", rd.length),
+                format!("{:04}", rd.pattern),
+                format!("ROW {:02}/{:02}", rd.row, rd.rows),
+                "0:12".to_string(),
+                "SONGNAME: Welcome to the Net".to_string(),
+                "BY:       Sense/Net".to_string(),
+            ] {
+                assert!(painted(&h, &s), "{s}: {:?}", h.painted_text());
+            }
+            assert_eq!(
+                press(&mut h, &mut home, &data, &save, "STOP"),
+                [Act::Toggle]
+            );
+        }
+
+        #[test]
+        fn the_volume_gadget_sets_the_level_and_the_list_plays() {
+            let data = Data::builtin().unwrap();
+            let mut save = hosaka(&data);
+            save.volume = 50;
+            let mut h = Harness::new(900.0, 700.0);
+            let mut home = Home::new(Vec::new());
+            wb(&mut h, &mut home, &data, &save, false, Vec::new());
+            // The gadget sits after the label column, 14 tall: its right end is the full level.
+            let prop = h
+                .rects()
+                .into_iter()
+                .map(|(r, _, _)| r)
+                .find(|r| r.height() == crate::kit::workbench::size::HPROP_H && r.width() > 300.0)
+                .expect("the volume gadget");
+            let at = egui::pos2(prop.right() - 2.0, prop.center().y);
+            assert_eq!(
+                wb(&mut h, &mut home, &data, &save, false, click(at)),
+                [Act::Volume(100)]
+            );
+            // A click on a row moves the cursor; Enter (with the keys) plays it.
+            let row = h.find("trap line").expect("the list").center();
+            wb(&mut h, &mut home, &data, &save, false, click(row));
+            assert_eq!(home.player_ui.sel, Some(2));
+            assert_eq!(
+                wb(&mut h, &mut home, &data, &save, true, key(Key::Enter)),
+                [Act::Pick(2)]
+            );
+        }
+
+        #[test]
+        fn its_keys_work_only_with_the_keyboard_and_it_shows_whole() {
+            let data = Data::builtin().unwrap();
+            let save = hosaka(&data);
+            let mut h = Harness::new(900.0, 700.0);
+            let mut home = Home::new(Vec::new());
+            assert!(wb(&mut h, &mut home, &data, &save, false, key(Key::N)).is_empty());
+            assert_eq!(
+                wb(&mut h, &mut home, &data, &save, true, key(Key::N)),
+                [Act::Next]
+            );
+            assert!(!h.ctx.egui_wants_keyboard_input());
+            assert!(h.cut_text().is_empty(), "{:?}", h.cut_text());
         }
     }
 }
