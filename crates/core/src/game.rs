@@ -1192,8 +1192,15 @@ impl Game {
         }
     }
 
+    /// Adds a step to the pass and says it in the log as it happens: the OS's sentence, before
+    /// anything the turn does after it. A RUN says nothing more: the program says what it did.
     fn trace_step(&mut self, line: u32, what: StepWhat) {
-        self.exec.trace.push(Step { line, what });
+        let step = Step { line, what };
+        if !matches!(step.what, StepWhat::Ran { .. }) {
+            let text = self.step_text(&step);
+            self.say(LogKind::Sys, text);
+        }
+        self.exec.trace.push(step);
     }
 
     /// One pass of the deck's program: from the first line (or where a STOP left it) until
@@ -1233,7 +1240,6 @@ impl Game {
             last = no;
             if visited.contains(&no) {
                 self.trace_step(no, StepWhat::Break);
-                self.say(LogKind::Sys, format!("?BREAK IN {no}"));
                 self.exec.state = ExecState::Paused;
                 self.exec.pc = self.program.first();
                 return Ok(());
@@ -1295,7 +1301,6 @@ impl Game {
                 }
                 Stmt::Stop => {
                     self.trace_step(no, StepWhat::Stop);
-                    self.say(LogKind::Sys, format!("BREAK IN {no}"));
                     self.exec.state = ExecState::Stopped(no);
                     self.exec.mid = true;
                     return Ok(());

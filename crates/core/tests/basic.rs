@@ -364,17 +364,16 @@ fn every_kit_ships_a_program_that_reads() {
 
 use ninsei_core::command::{self, Command};
 
-/// Types `line` into the run terminal and does what the app does with it.
+/// Types `line` into the run terminal and does what the app does with it. Returns what it
+/// printed: the log's new lines.
 fn type_in(g: &mut Game, line: &str) -> Vec<String> {
+    let before = g.log.len();
     match command::parse_in(g, line).unwrap_or_else(|e| panic!("{line}: {e}")) {
-        Command::Game(a) => {
-            g.apply(a);
-            Vec::new()
-        }
-        Command::Debug(a) => command::debug(g, a),
-        Command::Print(lines) => lines,
+        Command::Game(a) => g.apply(a),
+        Command::Print(lines) => return lines,
         other => panic!("{line}: {other:?}"),
     }
+    g.log[before..].iter().map(|l| l.text.clone()).collect()
 }
 
 #[test]
@@ -407,25 +406,50 @@ fn prog_edits_and_lists() {
 }
 
 #[test]
-fn step_from_the_shell_runs_a_pass() {
+fn step_from_the_shell_says_the_pass_as_it_happens() {
     let mut g = fight("bulwark", SAMPLE);
     let said = type_in(&mut g, "step");
-    assert_eq!(said[0], "10 RUN icepick: IcePick breaks 3.");
+    assert_eq!(said[0], "IcePick breaks 3", "{said:?}");
     assert_eq!(said[1], "20 IF INTEG < 10: no. skipping the next line.");
-    assert_eq!(said.last().unwrap(), "out of cycles. the turn is over.");
+    // The pass's last line comes before what the ICE did after it.
+    let over = said
+        .iter()
+        .position(|l| l == "out of cycles. the turn is over.");
+    let ice = said.iter().position(|l| l.contains("fortifies"));
+    assert!(over.is_some() && over < ice, "{said:?}");
     assert_eq!(combat(&g).turn, 2);
-    // `play` runs passes until the fight ends (here the ICE falls): no mouse needed.
+    // A STOP is said once, and carrying on says only what's new.
+    let mut g = fight("bulwark", "10 IF INTEG > 0\n20 STOP\n30 GOTO 40\n40 STOP");
+    let said = type_in(&mut g, "step");
+    assert_eq!(
+        said.iter().filter(|l| *l == "BREAK IN 20").count(),
+        1,
+        "{said:?}"
+    );
+    let said = type_in(&mut g, "step");
+    assert_eq!(said, ["30 GOTO 40.", "BREAK IN 40"]);
+    // A hang is said once too.
+    let mut g = fight("bulwark", "10 GOTO 10");
+    let said = type_in(&mut g, "step");
+    assert_eq!(
+        said.iter().filter(|l| *l == "?BREAK IN 10").count(),
+        1,
+        "{said:?}"
+    );
+    // `play` keeps it running (the screen steps it a beat at a time) until the fight ends;
+    // `pause` takes the turn back.
     let mut g = fight("icewall", SAMPLE);
     let c = g.combat.as_mut().unwrap();
     (c.strength, c.strength_max) = (20, 20);
-    let said = type_in(&mut g, "play");
-    assert_eq!(g.phase, Phase::Exploring, "{said:?}");
-    assert!(said.len() > 6);
-    // STOP hands back; `pause` takes the turn back from a running program.
-    let mut g = fight("bulwark", "10 RUN icepick\n20 STOP");
-    let said = type_in(&mut g, "play");
-    assert_eq!(said.last().unwrap(), "BREAK IN 20");
-    assert_eq!(g.exec.state, ExecState::Stopped(20));
+    type_in(&mut g, "play");
+    assert_eq!(g.exec.state, ExecState::Running);
+    while g.phase == Phase::Combat && g.exec.state == ExecState::Running {
+        g.apply(Action::Step);
+    }
+    assert_eq!(g.phase, Phase::Exploring);
+    let mut g = fight("bulwark", SAMPLE);
+    type_in(&mut g, "play");
     type_in(&mut g, "pause");
+    assert_eq!(g.exec.state, ExecState::Paused);
     assert!(command::VERBS.contains(&"prog") && command::VERBS.contains(&"step"));
 }

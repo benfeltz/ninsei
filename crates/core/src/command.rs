@@ -16,8 +16,6 @@ pub enum Command {
     NewRun,
     /// Open HDD slot `n` in the hex editor.
     Hex(usize),
-    /// A program action, run by [`debug`], which says what each pass did.
-    Debug(Action),
     /// Lines the terminal prints as they are: the program's listing.
     Print(Vec<String>),
 }
@@ -29,7 +27,7 @@ pub const HELP: &[&str] = &[
     "prog            list the deck's program      (list)",
     "prog <n> <line> type line n in; prog <n> deletes it",
     "step            run one pass of the program  (s)",
-    "play            run passes until a STOP      (cont)",
+    "play            keep running passes          (cont)",
     "pause           take the turn back",
     "hex <slot>      open a program in the hex editor",
     "opt <slot>      spend a fragment: +budget",
@@ -138,34 +136,6 @@ pub fn listing(g: &crate::game::Game) -> Vec<String> {
     out
 }
 
-/// What the last pass did, a sentence a line.
-pub fn trace_lines(g: &crate::game::Game) -> Vec<String> {
-    g.exec.trace.iter().map(|s| g.step_text(s)).collect()
-}
-
-/// Passes `play` runs from the terminal before it hands back, however the fight goes.
-pub const PLAY_PASSES: usize = 200;
-
-/// Applies a program action from the terminal and returns what to print: each pass, a
-/// sentence a line. `play` keeps stepping while the program runs (until a STOP, a hang or
-/// the fight's end), as the screens do a pass at a time.
-pub fn debug(g: &mut crate::game::Game, action: Action) -> Vec<String> {
-    let play = action == Action::Play;
-    g.apply(action);
-    let mut out = trace_lines(g);
-    let mut passes = 1;
-    while play
-        && passes < PLAY_PASSES
-        && g.exec.state == crate::game::ExecState::Running
-        && g.phase == crate::game::Phase::Combat
-    {
-        g.apply(Action::Step);
-        out.extend(trace_lines(g));
-        passes += 1;
-    }
-    out
-}
-
 pub fn parse_command(line: &str) -> Result<Command, String> {
     let mut words = line.split_whitespace();
     let Some(verb) = words.next() else {
@@ -181,8 +151,8 @@ pub fn parse_command(line: &str) -> Result<Command, String> {
         "run" | "r" | "exec" => Command::Game(Action::Run(num("slot")?)),
         "end" | "e" | "pass" => Command::Game(Action::EndTurn),
         "jack" | "j" | "cd" | "ssh" => Command::Game(Action::Move(num("node")?)),
-        "step" | "s" => Command::Debug(Action::Step),
-        "play" | "cont" => Command::Debug(Action::Play),
+        "step" | "s" => Command::Game(Action::Step),
+        "play" | "cont" => Command::Game(Action::Play),
         "pause" => Command::Game(Action::Pause),
         "newrun" | "reboot" => match arg {
             Some(s) => Command::Game(Action::NewRun(

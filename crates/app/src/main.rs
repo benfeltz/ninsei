@@ -43,6 +43,7 @@ mod workbench;
 use egui::{Key, RichText};
 use egui_dock::{DockArea, DockState};
 use ninsei_core::bbs::Outcome;
+use ninsei_core::game::ExecState;
 use ninsei_core::hexedit::HexBuffer;
 use ninsei_core::hub::{
     Answer, DEFAULT_RUN_THEME, RunEnd, RunReport, SAVE_KEY, Save, Screen, Tool,
@@ -223,7 +224,29 @@ fn parse_layout(text: &str, has: impl Fn(Tab) -> bool) -> Option<DockState<Tab>>
 /// How often the run screen's layout is checked for changes to save, in seconds.
 const LAYOUT_CHECK_SECS: f64 = 2.0;
 
+/// Seconds between a running program's passes, so a fight can be watched and paused.
+const PASS_SECS: f64 = 0.8;
+
+/// Plays the deck's program while it's `Running`: a pass every `PASS_SECS` (`Action::Play` ran
+/// the first). `next` is when the next one is due. Returns the seconds until then, or `None`
+/// once the program has stopped running.
+fn drive_program(game: &mut Game, now: f64, next: &mut Option<f64>) -> Option<f64> {
+    if game.exec.state != ExecState::Running || game.phase != Phase::Combat {
+        *next = None;
+        return None;
+    }
+    let due = *next.get_or_insert(now + PASS_SECS);
+    if now < due {
+        return Some(due - now);
+    }
+    game.apply(Action::Step);
+    *next = Some(now + PASS_SECS);
+    drive_program(game, now, next)
+}
+
 struct App {
+    /// When a running program's next pass is due (`drive_program`).
+    next_pass: Option<f64>,
     data: Data,
     save: Save,
     /// The save changed and should be written this frame.
@@ -346,6 +369,7 @@ impl App {
             desktops: Desktops::new(),
             booked: None,
             crashed: false,
+            next_pass: None,
             first_seed,
             last_at: game.at,
             bbs: None,
@@ -920,11 +944,6 @@ impl App {
                 }
             }
             Command::Game(a) => self.game.apply(a),
-            Command::Debug(a) => {
-                for l in ninsei_core::command::debug(&mut self.game, a) {
-                    self.game.say(LogKind::Sys, l);
-                }
-            }
             Command::Print(lines) => {
                 for l in lines {
                     self.game.say(LogKind::Sys, l);
@@ -1256,6 +1275,12 @@ impl eframe::App for App {
         }
 
         let live = self.screen == Screen::Run && !self.crashed;
+        if live
+            && let Some(wait) =
+                drive_program(&mut self.game, ctx.input(|i| i.time), &mut self.next_pass)
+        {
+            ctx.request_repaint_after(std::time::Duration::from_secs_f64(wait));
+        }
         self.glitch = glitch::Glitch::frame(&ctx, &self.game, self.save.glitches, live);
         if self.glitch.busy() {
             ctx.request_repaint();
@@ -1732,6 +1757,36 @@ fn unpacked(r: &ninsei_core::hub::RunReport) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_running_program_plays_a_pass_a_beat_and_pause_stops_it() {
+        let mut g = Game::new(Data::builtin().unwrap(), 7);
+        let target = g.net.nodes[g.at].links[0];
+        g.net.nodes[target].kind = ninsei_core::NodeKind::Ice;
+        g.net.nodes[target].ice = Some(1);
+        g.net.nodes[target].cleared = false;
+        g.apply(Action::Move(target));
+        let c = g.combat.as_mut().unwrap();
+        (c.strength, c.strength_max) = (500, 500);
+        g.apply(Action::Program("10 RUN icepick\n20 GOTO 10".into()));
+        let turn = |g: &Game| g.combat.as_ref().unwrap().turn;
+        let mut next = None;
+        assert_eq!(
+            drive_program(&mut g, 0.0, &mut next),
+            None,
+            "paused: nothing runs"
+        );
+        g.apply(Action::Play);
+        assert_eq!(turn(&g), 2, "play runs the first pass");
+        assert!(drive_program(&mut g, 0.0, &mut next).is_some());
+        assert!(drive_program(&mut g, PASS_SECS / 2.0, &mut next).is_some());
+        assert_eq!(turn(&g), 2, "not yet: a pass a beat");
+        drive_program(&mut g, PASS_SECS, &mut next);
+        assert_eq!(turn(&g), 3);
+        g.apply(Action::Pause);
+        assert_eq!(drive_program(&mut g, PASS_SECS * 5.0, &mut next), None);
+        assert_eq!(turn(&g), 3, "paused between passes");
+    }
 
     #[test]
     fn a_board_called_from_home_takes_the_keyboard_from_a_game() {
