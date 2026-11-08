@@ -536,20 +536,34 @@ pub fn list_box(
     } else {
         inner.width()
     };
-    let mut picked = None;
-    for i in list.view(n, None, rows) {
-        let r = Rect::from_min_size(
-            inner.min + vec2(0.0, list.row(i) as f32 * row_h),
-            vec2(cells_w, row_h),
-        );
-        let hit = ui.interact(r, id.with(i), Sense::click());
-        if hit.clicked() {
-            picked = Some(i);
-        }
-        let name = cell(&p, r, i, picked.unwrap_or(sel) == i);
+    // Every row's click first, so the frame a row is picked paints (and reports) one cursor.
+    let shown: Vec<(usize, Rect, Response)> = list
+        .view(n, None, rows)
+        .map(|i| {
+            let r = Rect::from_min_size(
+                inner.min + vec2(0.0, list.row(i) as f32 * row_h),
+                vec2(cells_w, row_h),
+            );
+            (i, r, ui.interact(r, id.with(i), Sense::click()))
+        })
+        .collect();
+    let picked = shown
+        .iter()
+        .find(|(_, _, hit)| hit.clicked())
+        .map(|(i, _, _)| *i);
+    let at = picked.unwrap_or(sel);
+    for (i, r, hit) in shown {
+        let name = cell(&p, r, i, i == at);
         hit.widget_info(|| {
-            egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, i == sel, &name)
+            egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, i == at, &name)
         });
+    }
+    // The wheel over the rows scrolls them too, for the next frame.
+    if s.active()
+        && let Some(wheel) = scrollbar::take_wheel(ui, inner.with_max_x(bar.left()), id)
+    {
+        list.wheel(wheel / row_h);
+        ui.ctx().request_repaint();
     }
     bevel(&p, rect, false, look);
     ui.data_mut(|d| {
@@ -871,5 +885,65 @@ mod tests {
         assert_eq!(drawn, [0, 1, 2]);
         let row = h.find("row 0").unwrap();
         assert_eq!(row.width(), 300.0 - 2.0 * size::BEVEL);
+    }
+
+    #[test]
+    fn the_frame_a_row_is_clicked_shows_one_cursor() {
+        let mut h = crate::uitest::Harness::new(400.0, 400.0);
+        let mut on: Vec<usize> = Vec::new();
+        let mut frame =
+            |h: &mut crate::uitest::Harness, ev: Vec<egui::Event>, on: &mut Vec<usize>| {
+                on.clear();
+                h.frame(ev, |ui| {
+                    let mut child = ui.new_child(
+                        egui::UiBuilder::new()
+                            .max_rect(Rect::from_min_size(pos2(10.0, 10.0), vec2(300.0, 100.0))),
+                    );
+                    list_box(
+                        &mut child,
+                        vec2(300.0, 100.0),
+                        Id::new("l"),
+                        4,
+                        20.0,
+                        1,
+                        &look(),
+                        |_, _, i, lit| {
+                            if lit {
+                                on.push(i);
+                            }
+                            format!("row {i}")
+                        },
+                    );
+                });
+            };
+        frame(&mut h, Vec::new(), &mut on);
+        assert_eq!(on, [1]);
+        let at = h.find("row 3").unwrap().center();
+        frame(&mut h, crate::uitest::click(at), &mut on);
+        assert_eq!(on, [3], "only the clicked row is lit");
+    }
+
+    #[test]
+    fn the_wheel_over_the_rows_scrolls_the_list() {
+        let mut h = crate::uitest::Harness::new(400.0, 400.0);
+        let rows =
+            |h: &mut crate::uitest::Harness, ev: Vec<egui::Event>| list(h, 20, 100.0, 0, ev).1;
+        assert_eq!(rows(&mut h, Vec::new()), [0, 1, 2, 3]);
+        let over = h.find("row 1").unwrap().center();
+        let wheel = vec![
+            egui::Event::PointerMoved(over),
+            egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: vec2(0.0, -40.0),
+                modifiers: egui::Modifiers::NONE,
+                phase: egui::TouchPhase::Move,
+            },
+        ];
+        rows(&mut h, wheel);
+        for _ in 0..3 {
+            rows(&mut h, Vec::new());
+        }
+        let after = rows(&mut h, Vec::new());
+        assert_ne!(after.first(), Some(&0), "scrolled: {after:?}");
     }
 }
