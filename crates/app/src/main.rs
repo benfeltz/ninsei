@@ -2106,6 +2106,41 @@ mod tests {
     }
 
     #[test]
+    fn the_script_is_in_every_chromes_layout_and_in_front_on_the_stack() {
+        for chrome in Chrome::ALL {
+            assert!(
+                default_layout(chrome, &[]).find_tab(&Tab::Script).is_some(),
+                "{chrome:?}"
+            );
+        }
+        let dock = default_layout(Chrome::Stack, &[]);
+        let at = |t: Tab| dock.find_tab(&t).unwrap();
+        let script = at(Tab::Script);
+        assert_eq!(script.tab.0, 0, "Script is the front tab");
+        assert_eq!(at(Tab::Todo).node, script.node, "To Do behind it");
+        // Its own column: not with the card, the deck, the programs or the Message box.
+        for t in [
+            Tab::Network,
+            Tab::Target,
+            Tab::Deck,
+            Tab::Warez,
+            Tab::Terminal,
+        ] {
+            assert_ne!(at(t).node, script.node, "{t:?}");
+        }
+        assert_eq!(
+            at(Tab::Target).node,
+            at(Tab::Network).node,
+            "ICE is a card of the centre"
+        );
+        assert_ne!(
+            at(Tab::Deck).node,
+            at(Tab::Warez).node,
+            "Deck over Programs"
+        );
+    }
+
+    #[test]
     fn a_bought_pane_joins_a_saved_layout_once() {
         for chrome in Chrome::ALL {
             // A layout saved before the pane was bought.

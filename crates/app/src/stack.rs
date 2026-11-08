@@ -18,6 +18,9 @@ use crate::patterns;
 /// Every size the Stack chrome uses.
 mod look {
     pub const METER_W: f32 = 150.0;
+    /// The narrowest a bar gets in a narrow column.
+    pub const METER_MIN: f32 = 24.0;
+    pub const METER_LABEL: f32 = 54.0;
     pub const METER_H: f32 = 14.0;
     pub const BUTTON_H: f32 = 40.0;
     pub const BUTTON_R: f32 = 9.0;
@@ -34,7 +37,7 @@ mod look {
     pub const GUTTER: f32 = 18.0;
     pub const BLOCK_W: f32 = 900.0;
     pub const BLOCK_PAD: f32 = 8.0;
-    pub const NUMBER_W: f32 = 56.0;
+    pub const NUMBER_W: f32 = 44.0;
     pub const FIELD_GAP: f32 = 6.0;
     /// The palette's blocks: their width and height.
     pub const CHIP_W: f32 = 56.0;
@@ -100,15 +103,16 @@ fn field<R>(ui: &mut Ui, ink: Color32, body: impl FnOnce(&mut Ui) -> R) -> R {
         .inner
 }
 
-/// A meter: label, a framed bar filled with a pattern, and its reading.
-fn meter(ui: &mut Ui, p: &Panes, label: &str, v: u32, max: u32, reading: String) {
+/// A meter: label, a framed bar `bar_w` wide filled with a pattern, and its reading.
+fn meter(ui: &mut Ui, p: &Panes, bar_w: f32, (label, v, max, reading): &(&str, u32, u32, String)) {
     let (ink, paper) = (p.pal.fg, p.pal.bg);
+    let (v, max) = (*v, *max);
     ui.horizontal(|ui| {
         ui.add_sized(
-            [54.0, look::METER_H],
-            egui::Label::new(RichText::new(label).monospace().color(ink)),
+            [look::METER_LABEL, look::METER_H],
+            egui::Label::new(RichText::new(*label).monospace().color(ink)),
         );
-        let (r, _) = ui.allocate_exact_size(vec2(look::METER_W, look::METER_H), Sense::hover());
+        let (r, _) = ui.allocate_exact_size(vec2(bar_w, look::METER_H), Sense::hover());
         let painter = ui.painter_at(r.expand(1.0));
         painter.rect_filled(r, 0.0, paper);
         let frac = if max == 0 {
@@ -123,8 +127,22 @@ fn meter(ui: &mut Ui, p: &Panes, label: &str, v: u32, max: u32, reading: String)
             patterns::fill(&painter, pat, fill, ink, paper);
         }
         painter.rect_stroke(r, 0.0, Stroke::new(1.0, ink), StrokeKind::Inside);
-        ui.label(RichText::new(reading).monospace().color(ink));
+        ui.label(RichText::new(reading.as_str()).monospace().color(ink));
     });
+}
+
+/// The bars' width in a column: what's left after the label and the widest reading, the
+/// same for every bar, never more than `METER_W`.
+fn bar_width(ui: &Ui, rows: &[(&str, u32, u32, String)]) -> f32 {
+    let font = egui::TextStyle::Monospace.resolve(ui.style());
+    let widest = rows
+        .iter()
+        .map(|r| text_w(ui, &r.3, &font))
+        .fold(0.0, f32::max);
+    let gaps = 2.0 * ui.spacing().item_spacing.x;
+    (ui.available_width() - look::METER_LABEL - widest - gaps)
+        .floor()
+        .clamp(look::METER_MIN, look::METER_W)
 }
 
 /// A HyperCard button: a rounded box with a hatched shadow. Returns whether it was clicked.
@@ -183,36 +201,26 @@ impl ChromeView for Stack {
         field(ui, ink, |ui| {
             // The limits in the deck's words: CPU and RAM fill with what's left this turn.
             let b = stack_fight::budgets(g);
-            meter(ui, p, "CPU", b.cpu.0, b.cpu.1, b.cpu_words());
-            meter(ui, p, "RAM", b.ifs.0, b.ifs.1, b.ifs_words());
-            meter(ui, p, "HDD", b.hdd.0, b.hdd.1, b.hdd_words());
-            meter(
-                ui,
-                p,
-                "INTEG",
-                d.integrity,
-                d.integrity_max,
-                format!("{}/{}", d.integrity, d.integrity_max),
-            );
-            meter(
-                ui,
-                p,
-                "TRACE",
-                d.trace,
-                tuning::TRACE_MAX,
-                format!("{}%", d.trace),
-            );
+            let mut rows = vec![
+                ("CPU", b.cpu.0, b.cpu.1, b.cpu_words()),
+                ("RAM", b.ifs.0, b.ifs.1, b.ifs_words()),
+                ("HDD", b.hdd.0, b.hdd.1, b.hdd_words()),
+                (
+                    "INTEG",
+                    d.integrity,
+                    d.integrity_max,
+                    format!("{}/{}", d.integrity, d.integrity_max),
+                ),
+                ("TRACE", d.trace, tuning::TRACE_MAX, format!("{}%", d.trace)),
+            ];
             if let Some(c) = &g.combat
                 && c.shield > 0
             {
-                meter(
-                    ui,
-                    p,
-                    "SHIELD",
-                    c.shield,
-                    c.shield.max(10),
-                    c.shield.to_string(),
-                );
+                rows.push(("SHIELD", c.shield, c.shield.max(10), c.shield.to_string()));
+            }
+            let bar_w = bar_width(ui, &rows);
+            for row in &rows {
+                meter(ui, p, bar_w, row);
             }
         });
         ui.add_space(4.0);
@@ -296,6 +304,7 @@ impl ChromeView for Stack {
             Tab::Todo => "To Do",
             Tab::Hex => "Hex",
             Tab::Vis => "Scope",
+            Tab::Script => "Script",
             _ => return None,
         })
     }
@@ -401,15 +410,17 @@ impl ChromeView for Stack {
         s
     }
 
-    /// The mockup's arrangement: the network (with ICE and Hex as its other cards) large on
-    /// the left, the deck and the programs on the right, the Message box along the bottom.
+    /// Three columns over the Message box: the deck over the programs on the left (narrow),
+    /// the network with ICE and Hex as its other cards in the centre (widest), the Script in
+    /// front of To Do on the right.
     fn default_layout(&self, extra: &[Tab]) -> egui_dock::DockState<Tab> {
         use egui_dock::{DockState, NodeIndex};
         let mut dock = DockState::new(vec![Tab::Network, Tab::Target, Tab::Hex]);
         let tree = dock.main_surface_mut();
-        let [card, bottom] = tree.split_below(NodeIndex::root(), 0.72, vec![Tab::Terminal]);
-        let [_, side] = tree.split_right(card, 0.68, vec![Tab::Deck]);
-        tree.split_below(side, 0.42, vec![Tab::Warez, Tab::Todo]);
+        let [top, bottom] = tree.split_below(NodeIndex::root(), 0.74, vec![Tab::Terminal]);
+        let [centre, left] = tree.split_left(top, 0.2, vec![Tab::Deck]);
+        tree.split_below(left, 0.42, vec![Tab::Warez]);
+        tree.split_right(centre, 0.66, vec![Tab::Script, Tab::Todo]);
         if !extra.is_empty() {
             tree.split_right(bottom, 0.6, extra.to_vec());
         }
@@ -421,27 +432,23 @@ impl ChromeView for Stack {
         p.network(ui);
     }
 
-    /// The ICE card. In a fight the Script card sits under the ICE and its hotbar; otherwise
-    /// the card scrolls as any other.
+    /// The ICE card: the ICE, its hotbar and End Turn. Its rule is ink, as everything on
+    /// the card is.
     fn target(&self, p: &mut Panes, ui: &mut Ui) {
         round(ui);
-        if p.game.phase == Phase::Combat && p.game.combat.is_some() {
-            p.target(ui);
-            ui.add_space(6.0);
-            // The card takes the rest of the pane, and no more.
-            let rest = ui.available_rect_before_wrap().intersect(ui.max_rect());
-            let mut card = ui.new_child(egui::UiBuilder::new().max_rect(rest));
-            script_card(p, &mut card);
-        } else {
-            egui::ScrollArea::vertical()
-                .auto_shrink([false, false])
-                .show(ui, |ui| p.target(ui));
-        }
+        ui.visuals_mut().widgets.noninteractive.bg_stroke.color = p.pal.fg;
+        p.target(ui);
     }
 
-    /// The ICE card lays itself out: the Script card scrolls its own blocks.
+    /// The Script card, the whole run: Step, Run and Pause press only with ICE in front.
+    fn script(&self, p: &mut Panes, ui: &mut Ui) {
+        round(ui);
+        script_card(p, ui);
+    }
+
+    /// The Script card lays itself out and scrolls its own blocks.
     fn scroll_bars(&self, tab: Tab) -> Option<[bool; 2]> {
-        (tab == Tab::Target).then_some([false, false])
+        (tab == Tab::Script).then_some([false, false])
     }
 
     fn hex(&self, p: &mut Panes, ui: &mut Ui) {
@@ -523,61 +530,90 @@ fn text_w(ui: &Ui, text: &str, font: &egui::FontId) -> f32 {
     liza::text_width(ui.ctx(), text, font).ceil()
 }
 
-/// The Script card: a title line with what's left this turn, the program's blocks (scrolling
-/// when they run past the card), then the palette row and Step, Run and Pause. Edits and
-/// presses become actions; nothing here changes the game.
+/// Which block is selected: a click on one selects it, and the palette moves or clears it,
+/// as HyperCard's Objects did. View state only: the line number, dropped once it's gone.
+fn selected(ui: &Ui, g: &Game) -> Option<u32> {
+    ui.data(|d| d.get_temp::<Option<u32>>(Id::new("stack-selected")))
+        .flatten()
+        .filter(|&no| g.program.line(no).is_some())
+}
+
+fn select(ui: &Ui, no: Option<u32>) {
+    ui.data_mut(|d| d.insert_temp(Id::new("stack-selected"), no));
+}
+
+/// The Script card: a line with the budgets, the program's blocks (scrolling when they
+/// run past the card), the palette row (the blocks to add, and moving or clearing the selected
+/// one), then Step, Run and Pause on a row of their own. Edits and presses become actions;
+/// nothing here changes the game.
 fn script_card(p: &mut Panes, ui: &mut Ui) {
     let g = p.game;
     let card = stack_fight::card(g);
     let look = card_look(p, ui);
     let ink = look.ink;
     let mut acts: Vec<Action> = Vec::new();
-    // The title line: the card's name at the left, what's left this turn at the right.
+    // The budgets line, at the right: the pane's tab already names the card.
     let line_h = ui.fonts_mut(|f| f.row_height(&look.font)).ceil() + 4.0;
     let (title, _) =
         ui.allocate_exact_size(vec2(ui.available_width().floor(), line_h), Sense::hover());
-    let bold = egui::FontId::new(look.font.size, egui::FontFamily::Monospace);
-    ui.painter().text(
-        pos2(title.left(), title.center().y).round(),
-        Align2::LEFT_CENTER,
-        "Script",
-        bold,
-        ink,
-    );
     ui.painter().text(
         pos2(title.right() - 1.0, title.center().y).round(),
         Align2::RIGHT_CENTER,
-        card.budgets.left_words(),
+        card.budget_words(),
         look.font.clone(),
         ink,
     );
-    blocks(ui, g, &card, &look, &mut acts);
+    let mut sel = selected(ui, g);
+    blocks(ui, g, &card, &look, &mut sel, &mut acts);
     ui.add_space(4.0);
+    // The palette: the blocks to add, then the selected block's move and clear boxes.
     ui.horizontal(|ui| {
-        ui.label(RichText::new("Blocks:").monospace().color(ink));
         for kind in stack_fight::PALETTE {
             if let Some(a) = palette_chip(ui, g, kind, &look) {
                 acts.push(a);
             }
         }
         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            let b = card.buttons;
-            // Right to left: Pause, Run, Step, so they read Step, Run, Pause.
-            for (label, on, default, a) in [
-                ("Pause", b.pause, false, Action::Pause),
-                ("Run", b.run, b.run, Action::Play),
-                ("Step", b.step, false, Action::Step),
-            ] {
-                let pressed = ui
-                    .add_enabled_ui(on, |ui| liza::push_button(ui, label, default, &look))
-                    .inner
-                    .clicked();
-                if pressed {
-                    acts.push(a);
+            for (glyph, what) in [("X", "clear"), ("▼", "move down"), ("▲", "move up")] {
+                let up = what == "move up";
+                let to = sel.and_then(|no| stack_fight::moved_to(g, no, up));
+                let on = match what {
+                    "clear" => sel.is_some(),
+                    _ => to.is_some(),
+                };
+                if palette_box(ui, glyph, what, on, &look)
+                    && let Some(no) = sel
+                {
+                    if what == "clear" {
+                        acts.push(stack_fight::remove(g, no));
+                        sel = None;
+                    } else if let Some(a) = stack_fight::swap(g, no, up) {
+                        acts.push(a);
+                        sel = to;
+                    }
                 }
             }
         });
     });
+    ui.add_space(4.0);
+    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+        let b = card.buttons;
+        // Right to left: Pause, Run, Step, so they read Step, Run, Pause.
+        for (label, on, default, a) in [
+            ("Pause", b.pause, false, Action::Pause),
+            ("Run", b.run, b.run, Action::Play),
+            ("Step", b.step, false, Action::Step),
+        ] {
+            let pressed = ui
+                .add_enabled_ui(on, |ui| liza::push_button(ui, label, default, &look))
+                .inner
+                .clicked();
+            if pressed {
+                acts.push(a);
+            }
+        }
+    });
+    select(ui, sel);
     // A block dragged from the palette rides the pointer.
     if let Some(kind) = egui::DragAndDrop::payload::<BlockKind>(ui.ctx())
         && let Some(at) = ui.ctx().pointer_interact_pos()
@@ -601,6 +637,37 @@ fn script_card(p: &mut Panes, ui: &mut Ui) {
     }
 }
 
+/// One of the palette's boxes for the selected block (move up, move down, clear): greyed
+/// while it has nothing to do.
+fn palette_box(ui: &mut Ui, glyph: &str, what: &str, on: bool, look: &liza::Look) -> bool {
+    let (r, _) = ui.allocate_exact_size(vec2(look::CHIP_H, look::CHIP_H), Sense::hover());
+    let r = Rect::from_min_size(r.min.round(), r.size());
+    let resp = ui.interact(r, Id::new(("stack-palette-box", what)), Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, what));
+    let painter = ui.painter();
+    // Greyed as Liza greys a button: the same box, the ink at half strength.
+    let ink = if on {
+        look.ink
+    } else {
+        look.ink.gamma_multiply(0.5)
+    };
+    let (fg, bg) = if on && resp.is_pointer_button_down_on() {
+        (look.paper, ink)
+    } else {
+        (ink, look.paper)
+    };
+    painter.rect_filled(r, 0.0, bg);
+    painter.rect_stroke(r, 0.0, Stroke::new(1.0, ink), StrokeKind::Inside);
+    painter.text(
+        r.center(),
+        Align2::CENTER_CENTER,
+        glyph,
+        look.font.clone(),
+        fg,
+    );
+    on && resp.clicked()
+}
+
 /// The program's rows in a framed box, a whole row at a time: the blocks, any stray text, and
 /// the dotted slot at the end, with Liza's scroll bar once they run past it. The window keeps
 /// the line about to run in view.
@@ -609,13 +676,17 @@ fn blocks(
     g: &Game,
     card: &stack_fight::Card,
     look: &liza::Look,
+    sel: &mut Option<u32>,
     acts: &mut Vec<Action>,
 ) {
-    // Under the box: the gap, then the palette and buttons' row, with egui's spacing round it.
+    // Under the box: a gap, the palette row, a gap, the buttons' row, with egui's spacing
+    // round each.
     let foot = 4.0
+        + look::CHIP_H
+        + 4.0
         + liza::size::BUTTON_H
         + 2.0 * liza::size::RING_OUT
-        + 2.0 * ui.spacing().item_spacing.y
+        + 4.0 * ui.spacing().item_spacing.y
         + 2.0;
     let box_h = (ui.available_height() - foot)
         .max(2.0 * look::BLOCK_ROW)
@@ -697,8 +768,7 @@ fn blocks(
         );
         y += h;
         if let Some(b) = card.blocks.get(i) {
-            let at = (i > 0, i + 1 < card.blocks.len());
-            block_row(ui, row, g, b, at, look, acts);
+            block_row(ui, row, g, b, sel, look, acts);
         } else if let Some((text, why)) = card.stray.get(i - card.blocks.len()) {
             let at = pos2(
                 row.left() + look::GUTTER + look::BLOCK_PAD,
@@ -771,15 +841,15 @@ fn end_slot(ui: &mut Ui, row: Rect, g: &Game, look: &liza::Look, acts: &mut Vec<
 }
 
 /// One line of the program: the ▶ in the gutter when it's next, then the block (a framed box
-/// with its number on the top edge, its keyword, its fields, its fault) and its move and
-/// close boxes; a comment is a plain `--` line. A block dropped on it goes in above it.
-/// `at`: whether the block can move up and down (it has a line above it, and below).
+/// with its number on the top edge, its keyword, its fields, its fault); a comment is a plain
+/// `--` line. A click on it selects it (a dotted marquee round it); a block dropped on it goes
+/// in above it.
 fn block_row(
     ui: &mut Ui,
     row: Rect,
     g: &Game,
     b: &Block,
-    at: (bool, bool),
+    sel: &mut Option<u32>,
     look: &liza::Look,
     acts: &mut Vec<Action>,
 ) {
@@ -814,33 +884,16 @@ fn block_row(
             ink,
         );
     }
-    // The move and close boxes, right to left; an edit is built only when one is clicked.
-    let (up, down) = at;
-    let mut right = body.right();
-    for (glyph, what, on) in [
-        ("", "delete", true),
-        ("▼", "move down", down),
-        ("▲", "move up", up),
-    ] {
-        let r = Rect::from_min_size(
-            pos2(right - look::BOX, body.center().y - look::BOX / 2.0).round(),
-            vec2(look::BOX, look::BOX),
-        );
-        right = r.left() - 4.0;
-        let resp = ui.interact(r, Id::new(("stack-box", b.no, what)), Sense::click());
-        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, what));
-        if on {
-            painter.rect_filled(r, 0.0, look.paper);
-            painter.rect_stroke(r, 0.0, Stroke::new(1.0, ink), StrokeKind::Inside);
-            painter.text(r.center(), Align2::CENTER_CENTER, glyph, small.clone(), ink);
-            if resp.clicked() {
-                acts.extend(match what {
-                    "delete" => Some(stack_fight::remove(g, b.no)),
-                    "move down" => stack_fight::swap(g, b.no, false),
-                    _ => stack_fight::swap(g, b.no, true),
-                });
-            }
-        }
+    // Selecting: the block's own face, under its fields (they're drawn after, so they win).
+    let pick = ui.interact(body, Id::new(("stack-block", b.no)), Sense::click());
+    pick.widget_info(|| {
+        egui::WidgetInfo::labeled(egui::WidgetType::Button, true, format!("line {}", b.no))
+    });
+    if pick.clicked() {
+        *sel = Some(b.no);
+    }
+    if *sel == Some(b.no) {
+        liza::dotted(&painter, body.expand(2.0), ink);
     }
     if note {
         painter.text(
@@ -852,7 +905,7 @@ fn block_row(
         );
         return;
     }
-    let frame = Rect::from_min_max(body.min.round(), pos2(right - 4.0, body.bottom()).round());
+    let frame = Rect::from_min_max(body.min.round(), body.max.round());
     painter.rect_filled(frame, 0.0, look.paper);
     painter.rect_stroke(frame, 0.0, Stroke::new(1.0, ink), StrokeKind::Inside);
     // The line's number, set into the top edge.
@@ -1068,12 +1121,33 @@ pub(crate) mod tests {
             .expect("some run meets ICE")
     }
 
-    /// Frames of the ICE card in a `w`x`h` pane, the Stack's way; returns what each asked for.
+    /// A frame of the ICE card in a `w`x`h` pane, the Stack's way; returns what it asked for.
     pub(crate) fn ice_card(
+        hn: &mut crate::uitest::Harness,
+        g: &Game,
+        size: (f32, f32),
+        ev: Vec<egui::Event>,
+    ) -> Vec<Request> {
+        pane(hn, g, size, ev, Tab::Target)
+    }
+
+    /// A frame of the Script card in a `w`x`h` pane; returns what it asked for.
+    fn script(
+        hn: &mut crate::uitest::Harness,
+        g: &Game,
+        size: (f32, f32),
+        ev: Vec<egui::Event>,
+    ) -> Vec<Request> {
+        pane(hn, g, size, ev, Tab::Script)
+    }
+
+    /// A frame of one of the Stack's panes in a `w`x`h` rect.
+    fn pane(
         hn: &mut crate::uitest::Harness,
         g: &Game,
         (w, h): (f32, f32),
         ev: Vec<egui::Event>,
+        tab: Tab,
     ) -> Vec<Request> {
         let (mut term, mut focus, mut hex, mut keep) =
             (ninsei_term::LineEditor::default(), false, None, Vec::new());
@@ -1101,7 +1175,11 @@ pub(crate) mod tests {
                 scope_rate: 0,
                 out: Vec::new(),
             };
-            Stack.target(&mut panes, &mut child);
+            match tab {
+                Tab::Target => Stack.target(&mut panes, &mut child),
+                Tab::Deck => Stack.deck(&mut panes, &mut child),
+                _ => Stack.script(&mut panes, &mut child),
+            }
             out = panes.out;
         });
         out
@@ -1151,7 +1229,8 @@ pub(crate) mod tests {
         g
     }
 
-    const PANE: (f32, f32) = (820.0, 520.0);
+    /// The Script column of the default layout, about.
+    const PANE: (f32, f32) = (340.0, 520.0);
 
     fn press(h: &crate::uitest::Harness, text: &str) -> Vec<egui::Event> {
         let r = h
@@ -1160,14 +1239,27 @@ pub(crate) mod tests {
         crate::uitest::click(r.center())
     }
 
-    /// Clicks what says `text` in the ICE card; returns what the card asked for.
+    /// Clicks what says `text` in the Script card; returns what the card asked for.
     fn click_on(h: &mut crate::uitest::Harness, g: &Game, text: &str) -> Vec<Request> {
         let ev = press(h, text);
-        ice_card(h, g, PANE, ev)
+        script(h, g, PANE, ev)
     }
 
-    /// One frame as the run draws it: the Stack's keys first, then the ICE card; returns what
-    /// both asked for.
+    /// Selects the block on line `no`: a click on its keyword, at the left of its face.
+    fn select_line(h: &mut crate::uitest::Harness, g: &Game, no: u32) -> Vec<Request> {
+        let r = h
+            .find(&format!("line {no}"))
+            .unwrap_or_else(|| panic!("no line {no} in {:?}", h.texts()));
+        script(
+            h,
+            g,
+            PANE,
+            crate::uitest::click(pos2(r.left() + 12.0, r.center().y)),
+        )
+    }
+
+    /// One frame as the run draws it: the Stack's keys first, then the Script card; returns
+    /// what both asked for.
     fn run_frame(hn: &mut crate::uitest::Harness, g: &Game, ev: Vec<egui::Event>) -> Vec<Request> {
         let (mut term, mut focus, mut hex, mut keep) =
             (ninsei_term::LineEditor::default(), false, None, Vec::new());
@@ -1212,7 +1304,7 @@ pub(crate) mod tests {
                 scope_rate: 0,
                 out: Vec::new(),
             };
-            Stack.target(&mut panes, &mut child);
+            Stack.script(&mut panes, &mut child);
             out.extend(panes.out);
         });
         out
@@ -1298,8 +1390,8 @@ pub(crate) mod tests {
         let g = fight("10 RUN icepick");
         let mut h = crate::uitest::Harness::new(1280.0, 800.0);
         crate::uitest::themed(&h.ctx, &g.data);
-        ice_card(&mut h, &g, PANE, vec![]);
-        ice_card(&mut h, &g, PANE, vec![]);
+        script(&mut h, &g, PANE, vec![]);
+        script(&mut h, &g, PANE, vec![]);
         let height = |t: &str| {
             h.painted_text()
                 .into_iter()
@@ -1310,17 +1402,24 @@ pub(crate) mod tests {
         };
         assert_eq!(
             height("(RUN)"),
-            height("Blocks:"),
-            "the block's type is the row's"
+            height("RUN"),
+            "the block's type is the palette's"
         );
     }
 
     #[test]
-    fn the_card_replaces_the_alert() {
+    fn the_ice_card_is_the_ice_and_the_script_is_its_own_pane() {
         let g = fight("10 RUN icepick\n20 STOP");
         let mut h = crate::uitest::Harness::new(1280.0, 800.0);
-        ice_card(&mut h, &g, PANE, vec![]);
-        ice_card(&mut h, &g, PANE, vec![]);
+        ice_card(&mut h, &g, (600.0, 500.0), vec![]);
+        ice_card(&mut h, &g, (600.0, 500.0), vec![]);
+        assert!(h.find("END TURN").is_some(), "{:?}", h.texts());
+        for word in ["Step", "Pause", "STOP"] {
+            assert!(h.find(word).is_none(), "{word} isn't on the ICE card");
+        }
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        script(&mut h, &g, PANE, vec![]);
+        script(&mut h, &g, PANE, vec![]);
         for word in ["Step", "Run", "Pause", "RUN", "IF", "GOTO", "STOP"] {
             assert!(h.find(word).is_some(), "{word} in {:?}", h.texts());
         }
@@ -1334,49 +1433,113 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn clicking_a_palette_block_adds_a_line() {
+    fn outside_a_fight_the_script_is_there_and_wont_play() {
+        let d = Data::builtin().unwrap();
+        let mut g = Game::new(d, 3);
+        g.apply(Action::Program("10 RUN icepick\n20 GOTO 10".into()));
+        assert_ne!(g.phase, Phase::Combat);
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        script(&mut h, &g, PANE, vec![]);
+        script(&mut h, &g, PANE, vec![]);
+        for b in ["Step", "Run", "Pause"] {
+            assert_eq!(h.enabled(b), Some(false), "{b} with no ICE in front");
+        }
+        let painted: Vec<String> = h.painted_text().into_iter().map(|t| t.0).collect();
+        assert!(painted.iter().any(|t| t == "(GOTO)"), "the program shows");
+        assert!(!painted.iter().any(|t| t == "▶"), "nothing about to run");
+        // Enter doesn't press a Run that can't be pressed.
+        keys(&mut h, &g, vec![]);
+        assert!(keys(&mut h, &g, crate::uitest::key(egui::Key::Enter)).is_empty());
+        // And it still edits: the palette adds a line between fights.
+        script(&mut h, &g, PANE, vec![]);
+        let out = click_on(&mut h, &g, "STOP");
+        apply(&mut g, out);
+        assert_eq!(g.program.text(), "10 RUN icepick\n20 GOTO 10\n30 STOP");
+    }
+
+    #[test]
+    fn a_selected_block_moves_and_clears_from_the_palette() {
         let mut g = fight("10 RUN icepick");
         let mut h = crate::uitest::Harness::new(1280.0, 800.0);
-        ice_card(&mut h, &g, PANE, vec![]);
+        script(&mut h, &g, PANE, vec![]);
         // The palette's GOTO (the first "GOTO" is the palette's: there's no GOTO block yet).
         let out = click_on(&mut h, &g, "GOTO");
         apply(&mut g, out);
         assert_eq!(g.program.text(), "10 RUN icepick\n20 GOTO 10");
-        ice_card(&mut h, &g, PANE, vec![]);
-        // Line 20's move up: line 10's can't, so it's the only one that takes clicks.
-        let up = h.all("move up")[0];
-        let out = ice_card(&mut h, &g, PANE, crate::uitest::click(up.center()));
+        script(&mut h, &g, PANE, vec![]);
+        for what in ["move up", "move down", "clear"] {
+            assert_eq!(h.enabled(what), Some(false), "{what} with nothing selected");
+        }
+        // Select line 20: it can go up, not down.
+        select_line(&mut h, &g, 20);
+        script(&mut h, &g, PANE, vec![]);
+        assert_eq!(h.enabled("move up"), Some(true));
+        assert_eq!(h.enabled("move down"), Some(false), "the last block");
+        let out = click_on(&mut h, &g, "move up");
         apply(&mut g, out);
         assert_eq!(g.program.text(), "10 GOTO 10\n20 RUN icepick");
-        ice_card(&mut h, &g, PANE, vec![]);
-        // Line 10's close box: the top one.
-        let del = h
-            .all("delete")
-            .into_iter()
-            .min_by(|a, b| a.top().total_cmp(&b.top()))
-            .unwrap();
-        let out = ice_card(&mut h, &g, PANE, crate::uitest::click(del.center()));
+        // The selection went with it, to line 10: now it can only go down.
+        script(&mut h, &g, PANE, vec![]);
+        assert_eq!(h.enabled("move up"), Some(false));
+        assert_eq!(h.enabled("move down"), Some(true));
+        let out = click_on(&mut h, &g, "clear");
         apply(&mut g, out);
         assert_eq!(g.program.text(), "20 RUN icepick");
+        script(&mut h, &g, PANE, vec![]);
+        assert_eq!(
+            h.enabled("clear"),
+            Some(false),
+            "nothing selected once it's gone"
+        );
+    }
+
+    #[test]
+    fn the_deck_card_reads_whole_in_the_narrow_column() {
+        let g = fight("10 RUN icepick");
+        // The left column of the default layout at 1280 wide, and at 1150.
+        for w in [250.0, 225.0] {
+            let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+            pane(&mut h, &g, (w, 300.0), vec![], Tab::Deck);
+            pane(&mut h, &g, (w, 300.0), vec![], Tab::Deck);
+            assert!(h.cut_text().is_empty(), "{w}: {:?}", h.cut_text());
+            for (t, r) in h.painted_text() {
+                assert!(r.right() <= w + 0.5, "{w}: {t} at {r:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_block_has_no_boxes_of_its_own() {
+        let g = fight("10 RUN icepick\n20 IF INTEG < 10\n30 GOTO 10");
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        script(&mut h, &g, PANE, vec![]);
+        script(&mut h, &g, PANE, vec![]);
+        // With the middle block selected, one move-up, one move-down and one clear: the
+        // palette's, however many blocks there are.
+        select_line(&mut h, &g, 20);
+        script(&mut h, &g, PANE, vec![]);
+        for what in ["move up", "move down", "clear"] {
+            assert_eq!(h.all(what).len(), 1, "{what}");
+        }
     }
 
     #[test]
     fn a_field_edit_rewrites_the_program() {
         let mut g = fight("10 IF INTEG < 10\n20 RUN icepick");
         let mut h = crate::uitest::Harness::new(1280.0, 800.0);
-        ice_card(&mut h, &g, PANE, vec![]);
+        script(&mut h, &g, PANE, vec![]);
         // The comparison's pop-up: open it, then pick ">".
         click_on(&mut h, &g, "<");
-        ice_card(&mut h, &g, PANE, vec![]);
+        script(&mut h, &g, PANE, vec![]);
         let out = click_on(&mut h, &g, ">");
         assert_eq!(apply(&mut g, out).len(), 1);
         assert_eq!(g.program.line(10).unwrap().text, "IF INTEG > 10");
         // The RUN's program menu lists the disk; pick another.
         let other = g.hdd[1].spec.name.clone();
-        ice_card(&mut h, &g, PANE, vec![]);
+        script(&mut h, &g, PANE, vec![]);
         let shown = g.hdd[g.slot_named("icepick").unwrap()].spec.name.clone();
         click_on(&mut h, &g, &shown);
-        ice_card(&mut h, &g, PANE, vec![]);
+        script(&mut h, &g, PANE, vec![]);
         let out = click_on(&mut h, &g, &other);
         apply(&mut g, out);
         assert_eq!(g.program.line(20).unwrap().text, format!("RUN {other}"));
@@ -1386,7 +1549,7 @@ pub(crate) mod tests {
     fn step_runs_a_pass_and_the_message_box_says_so() {
         let mut g = fight("10 RUN icepick\n20 IF INTEG > 99\n30 GOTO 10");
         let mut h = crate::uitest::Harness::new(1280.0, 800.0);
-        ice_card(&mut h, &g, PANE, vec![]);
+        script(&mut h, &g, PANE, vec![]);
         let turn = g.combat.as_ref().unwrap().turn;
         let before = g.log.len();
         let out = click_on(&mut h, &g, "Step");
@@ -1415,8 +1578,8 @@ pub(crate) mod tests {
         assert_eq!(apply(&mut g, out), [Action::Pause], "Esc pauses");
         // Esc again does nothing: there's nothing to close.
         assert!(keys(&mut h, &g, crate::uitest::key(egui::Key::Escape)).is_empty());
-        ice_card(&mut h, &g, PANE, vec![]);
-        ice_card(&mut h, &g, PANE, vec![]);
+        ice_card(&mut h, &g, (600.0, 500.0), vec![]);
+        ice_card(&mut h, &g, (600.0, 500.0), vec![]);
         let name = &g.hdd[0].spec.name;
         let slot = h
             .texts()
@@ -1424,7 +1587,8 @@ pub(crate) mod tests {
             .find(|t| t.starts_with("[0]") && t.contains(name.as_str()))
             .map(String::from)
             .unwrap_or_else(|| panic!("{:?}", h.texts()));
-        let out = click_on(&mut h, &g, &slot);
+        let ev = press(&h, &slot);
+        let out = ice_card(&mut h, &g, (600.0, 500.0), ev);
         assert_eq!(
             apply(&mut g, out),
             [Action::Run(0)],
@@ -1436,11 +1600,11 @@ pub(crate) mod tests {
     fn a_block_dragged_from_the_palette_lands_where_its_dropped() {
         let mut g = fight("10 RUN icepick\n20 RUN patch");
         let mut h = crate::uitest::Harness::new(1280.0, 800.0);
-        ice_card(&mut h, &g, PANE, vec![]);
-        ice_card(&mut h, &g, PANE, vec![]);
+        script(&mut h, &g, PANE, vec![]);
+        script(&mut h, &g, PANE, vec![]);
         let from = h.find("STOP").unwrap().center();
         // Over the block on line 20: it goes in above it.
-        let to = h.all("move up")[0].center() + vec2(-200.0, 0.0);
+        let to = h.find("line 20").unwrap().center();
         let at = |pos| egui::Event::PointerMoved(pos);
         let button = |pos, pressed| egui::Event::PointerButton {
             pos,
@@ -1448,10 +1612,10 @@ pub(crate) mod tests {
             pressed,
             modifiers: egui::Modifiers::NONE,
         };
-        ice_card(&mut h, &g, PANE, vec![at(from), button(from, true)]);
-        ice_card(&mut h, &g, PANE, vec![at(from + vec2(20.0, -20.0))]);
-        ice_card(&mut h, &g, PANE, vec![at(to)]);
-        let out = ice_card(&mut h, &g, PANE, vec![button(to, false)]);
+        script(&mut h, &g, PANE, vec![at(from), button(from, true)]);
+        script(&mut h, &g, PANE, vec![at(from + vec2(20.0, -20.0))]);
+        script(&mut h, &g, PANE, vec![at(to)]);
+        let out = script(&mut h, &g, PANE, vec![button(to, false)]);
         apply(&mut g, out);
         assert_eq!(g.program.text(), "10 RUN icepick\n15 STOP\n20 RUN patch");
     }
@@ -1463,10 +1627,11 @@ pub(crate) mod tests {
         s.ensure_phonebook(&d, 0);
         let safe = s.program_text(&d);
         let g = fight(&safe);
-        for size in [(640.0, 400.0), (820.0, 520.0), (1100.0, 700.0)] {
+        // The Script column at a small window, the default and a wide one.
+        for size in [(300.0, 360.0), (340.0, 520.0), (480.0, 700.0)] {
             let mut h = crate::uitest::Harness::new(1280.0, 800.0);
-            ice_card(&mut h, &g, size, vec![]);
-            ice_card(&mut h, &g, size, vec![]);
+            script(&mut h, &g, size, vec![]);
+            script(&mut h, &g, size, vec![]);
             assert!(h.cut_text().is_empty(), "{size:?}: {:?}", h.cut_text());
             let pane = Rect::from_min_size(egui::Pos2::ZERO, vec2(size.0, size.1));
             for (t, r) in h.painted_text() {

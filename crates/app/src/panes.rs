@@ -21,6 +21,8 @@ pub enum Tab {
     Hex,
     Terminal,
     Todo,
+    /// The deck's program: on screen from the first frame of a run, played in a fight.
+    Script,
     /// Secondary: network traffic, btop's net box.
     Net,
     /// Secondary: what the speaker is playing (a spectrum, a level, a scope).
@@ -29,7 +31,7 @@ pub enum Tab {
 
 impl Tab {
     /// Panes every layout must have.
-    pub const CORE: [Tab; 7] = [
+    pub const CORE: [Tab; 8] = [
         Tab::Deck,
         Tab::Warez,
         Tab::Network,
@@ -37,6 +39,7 @@ impl Tab {
         Tab::Hex,
         Tab::Terminal,
         Tab::Todo,
+        Tab::Script,
     ];
     /// Panes you add yourself, each with its id in `data/hub/panes.ron` (bought in RIG or
     /// bundled with a firmware).
@@ -66,6 +69,7 @@ impl Tab {
             Tab::Todo => 7,
             Tab::Net => 8,
             Tab::Vis => 9,
+            Tab::Script => 10,
         }
     }
 }
@@ -164,6 +168,7 @@ impl egui_dock::TabViewer for Panes<'_> {
             Tab::Terminal => " terminal ",
             Tab::Net => " net ",
             Tab::Vis => " vis ",
+            Tab::Script => " script ",
             Tab::Todo => {
                 let open = self
                     .game
@@ -206,6 +211,7 @@ impl egui_dock::TabViewer for Panes<'_> {
             Tab::Todo => v.todo(self, ui),
             Tab::Net => v.net(self, ui),
             Tab::Vis => v.vis(self, ui),
+            Tab::Script => v.script(self, ui),
         }
     }
 }
@@ -593,6 +599,19 @@ impl Panes<'_> {
     }
 
     /// Contracts as an IDE TODO list.
+    /// The deck's program as the terminal lists it (`prog`): the stand-in dress until a deck
+    /// designs its own. It scrolls itself.
+    pub(crate) fn script(&mut self, ui: &mut Ui) {
+        let p = self.pal;
+        ScrollArea::vertical()
+            .auto_shrink([false, false])
+            .show(ui, |ui| {
+                for line in ninsei_core::command::listing(self.game) {
+                    ui.label(RichText::new(line).monospace().color(p.fg));
+                }
+            });
+    }
+
     pub(crate) fn todo(&mut self, ui: &mut Ui) {
         let g = self.game;
         let p = self.pal;
