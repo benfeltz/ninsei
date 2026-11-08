@@ -60,8 +60,8 @@ pub fn module_note(g: &Game) -> String {
 }
 
 /// The Watches strip under the Module window, in order: TURN, CPU, IFS, INTEG, TRACE, NEXT,
-/// ICE and LAST (the last step of the pass, as the activity log said it). Blank outside an
-/// incident: nothing is being watched.
+/// ICE and LAST (the last step of the pass, as the activity log said it; a hang only while it
+/// holds the cursor). Blank outside an incident: nothing is being watched.
 pub fn watches(g: &Game) -> Vec<(&'static str, String)> {
     const NAMES: [&str; 8] = [
         "TURN", "CPU", "IFS", "INTEG", "TRACE", "NEXT", "ICE", "LAST",
@@ -69,10 +69,15 @@ pub fn watches(g: &Game) -> Vec<(&'static str, String)> {
     let Some(c) = g.combat.as_ref().filter(|_| crate::listing::fighting(g)) else {
         return NAMES.iter().map(|n| (*n, String::new())).collect();
     };
+    // A hang is the last step only while it holds the cursor: an edit or the turn's end
+    // takes it away here as from the edge.
+    let held = crate::listing::broke(g).is_some();
     let last = g
         .exec
         .trace
-        .last()
+        .iter()
+        .rev()
+        .find(|s| held || s.what != crate::game::StepWhat::Break)
         .map_or(String::new(), |s| g.step_text(s));
     let values = [
         c.turn.to_string(),
