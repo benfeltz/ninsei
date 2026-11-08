@@ -224,29 +224,30 @@ fn parse_layout(text: &str, has: impl Fn(Tab) -> bool) -> Option<DockState<Tab>>
 /// How often the run screen's layout is checked for changes to save, in seconds.
 const LAYOUT_CHECK_SECS: f64 = 2.0;
 
-/// Seconds between a running program's passes, so a fight can be watched and paused.
-const PASS_SECS: f64 = 0.8;
+/// Seconds between a running program's lines, so the cursor can be followed down the listing
+/// and paused anywhere. A display number: it changes nothing in play.
+const LINE_SECS: f64 = 0.45;
 
-/// Plays the deck's program while it's `Running`: a pass every `PASS_SECS` (`Action::Play` ran
-/// the first). `next` is when the next one is due. Returns the seconds until then, or `None`
-/// once the program has stopped running.
+/// Plays the deck's program while it's `Running`: a line every `LINE_SECS` (`Action::Play` ran
+/// the first), turn after turn. `next` is when the next one is due. Returns the seconds until
+/// then, or `None` once the program has stopped running.
 fn drive_program(game: &mut Game, now: f64, next: &mut Option<f64>) -> Option<f64> {
     if game.exec.state != ExecState::Running || game.phase != Phase::Combat {
         *next = None;
         return None;
     }
-    let due = *next.get_or_insert(now + PASS_SECS);
+    let due = *next.get_or_insert(now + LINE_SECS);
     if now < due {
         return Some(due - now);
     }
-    game.apply(Action::Finish);
-    *next = Some(now + PASS_SECS);
+    game.apply(Action::Step);
+    *next = Some(now + LINE_SECS);
     drive_program(game, now, next)
 }
 
 struct App {
-    /// When a running program's next pass is due (`drive_program`).
-    next_pass: Option<f64>,
+    /// When a running program's next line is due (`drive_program`).
+    next_line: Option<f64>,
     data: Data,
     save: Save,
     /// The save changed and should be written this frame.
@@ -369,7 +370,7 @@ impl App {
             desktops: Desktops::new(),
             booked: None,
             crashed: false,
-            next_pass: None,
+            next_line: None,
             first_seed,
             last_at: game.at,
             bbs: None,
@@ -1277,7 +1278,7 @@ impl eframe::App for App {
         let live = self.screen == Screen::Run && !self.crashed;
         if live
             && let Some(wait) =
-                drive_program(&mut self.game, ctx.input(|i| i.time), &mut self.next_pass)
+                drive_program(&mut self.game, ctx.input(|i| i.time), &mut self.next_line)
         {
             ctx.request_repaint_after(std::time::Duration::from_secs_f64(wait));
         }
@@ -1770,7 +1771,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn a_running_program_plays_a_pass_a_beat_and_pause_stops_it() {
+    fn a_running_program_walks_a_line_a_beat_and_pause_stops_it_mid_pass() {
         let mut g = Game::new(Data::builtin().unwrap(), 7);
         let target = g.net.nodes[g.at].links[0];
         g.net.nodes[target].kind = ninsei_core::NodeKind::Ice;
@@ -1779,7 +1780,9 @@ mod tests {
         g.apply(Action::Move(target));
         let c = g.combat.as_mut().unwrap();
         (c.strength, c.strength_max) = (500, 500);
-        g.apply(Action::Program("10 RUN icepick\n20 GOTO 10".into()));
+        g.apply(Action::Program(
+            "10 IF INTEG > 0\n20 RUN icepick\n30 GOTO 10".into(),
+        ));
         let turn = |g: &Game| g.combat.as_ref().unwrap().turn;
         let mut next = None;
         assert_eq!(
@@ -1788,16 +1791,26 @@ mod tests {
             "paused: nothing runs"
         );
         g.apply(Action::Play);
-        g.apply(Action::Finish);
-        assert_eq!(turn(&g), 2, "play runs, finish ends the turn");
+        assert_eq!(g.exec.pc, Some(20), "play runs the first line");
         assert!(drive_program(&mut g, 0.0, &mut next).is_some());
-        assert!(drive_program(&mut g, PASS_SECS / 2.0, &mut next).is_some());
-        assert_eq!(turn(&g), 2, "not yet: a pass a beat");
-        drive_program(&mut g, PASS_SECS, &mut next);
-        assert_eq!(turn(&g), 3);
+        assert!(drive_program(&mut g, LINE_SECS / 2.0, &mut next).is_some());
+        assert_eq!(g.exec.pc, Some(20), "not yet: a line a beat");
+        drive_program(&mut g, LINE_SECS, &mut next);
+        assert_eq!(g.exec.pc, Some(30));
+        drive_program(&mut g, LINE_SECS * 2.0, &mut next);
+        assert_eq!(g.exec.pc, Some(10), "two beats, two lines");
+        // Pause mid-pass holds the line, and the beats run nothing.
         g.apply(Action::Pause);
-        assert_eq!(drive_program(&mut g, PASS_SECS * 5.0, &mut next), None);
-        assert_eq!(turn(&g), 3, "paused between passes");
+        assert_eq!(drive_program(&mut g, LINE_SECS * 9.0, &mut next), None);
+        assert_eq!((g.exec.pc, turn(&g)), (Some(10), 1), "paused mid-pass");
+        // Running on, it carries on turn after turn.
+        g.apply(Action::Play);
+        let mut now = LINE_SECS * 10.0;
+        while turn(&g) == 1 {
+            drive_program(&mut g, now, &mut next);
+            now += LINE_SECS;
+        }
+        assert_eq!(g.exec.state, ExecState::Running);
     }
 
     #[test]
