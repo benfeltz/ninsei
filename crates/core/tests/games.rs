@@ -1271,3 +1271,59 @@ fn a_crack_posted_on_another_board_or_misnamed_is_rejected() {
         );
     }
 }
+
+// Acceptance tests for 47.5 (Cracktros, splashes and where games are sold).
+
+#[test]
+fn acceptance_a_splash_names_no_board_and_carries_no_tag() {
+    // A publisher's splash comes in the box: it has never heard of a board, and no crew signs it.
+    let d = data();
+    for g in &d.games {
+        let i = d.intro(&g.splash).unwrap();
+        assert!(i.tag.is_none() && i.board.is_none(), "{}", g.splash);
+        let text = format!("{}{}", i.frames.concat().concat(), i.scroller(&d)).to_uppercase();
+        for b in &d.boards {
+            for name in [b.name.to_uppercase(), b.id.to_uppercase(), b.phone.clone()] {
+                assert!(!text.contains(&name), "{} names {name}", g.splash);
+            }
+        }
+        assert!(!text.contains("GUTTER"), "{} names the Gutter", g.splash);
+    }
+    // And the data can't give one a tag.
+    let mut d = data();
+    let s = d.game("nibbler").unwrap().splash.clone();
+    let n = d.intros.iter().position(|i| i.id == s).unwrap();
+    d.intros[n].tag = Some("PT".into());
+    assert!(d.validate().unwrap_err().contains("carries no crew's tag"));
+}
+
+#[test]
+fn acceptance_a_crack_carries_its_crews_one_tag_on_the_desktop_the_board_and_the_scroller() {
+    let d = data();
+    let gutter = &d.boards[d.board("gutter").unwrap()];
+    let mut crews: Vec<(&str, &str)> = Vec::new();
+    for g in &d.games {
+        let i = d.intro(&g.crack).unwrap();
+        let tag = i.tag.as_deref().unwrap();
+        // One crew, one tag.
+        if let Some((_, t)) = crews.iter().find(|(c, _)| *c == i.group) {
+            assert_eq!(*t, tag, "{} signs two tags", i.group);
+        }
+        crews.push((&i.group, tag));
+        // The desktop's label, the board's file and the scroller all carry it.
+        let label = d.game_label(&g.id, GameCopy::Cracked);
+        assert!(label.ends_with(&format!("[{tag}]")), "{label}");
+        let file = gutter
+            .areas
+            .iter()
+            .flat_map(|a| &a.files)
+            .find(|f| f.item == Drop::Game(g.id.clone()))
+            .unwrap();
+        assert!(file.file.contains(&format!("-{tag}.")), "{}", file.file);
+        let scroller = i.scroller(&d);
+        assert!(
+            scroller.contains(&i.group) && scroller.contains(&gutter.name),
+            "{scroller}"
+        );
+    }
+}
