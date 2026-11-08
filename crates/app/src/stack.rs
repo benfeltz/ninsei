@@ -474,7 +474,12 @@ impl ChromeView for Stack {
     /// In a fight, while nothing else has the keyboard: Enter presses Run, the default, and Esc
     /// pauses a running program. Esc never closes the card.
     fn keys(&self, ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
-        if !cx.keys_free || ctx.egui_wants_keyboard_input() {
+        // Free this frame and the last: egui lets go of a text field on the same Esc that
+        // would reach us, and that Esc only meant to leave the field.
+        let free = cx.keys_free && !ctx.egui_wants_keyboard_input();
+        let was = Id::new("stack-keys-free");
+        let last = ctx.data_mut(|d| std::mem::replace(d.get_temp_mut_or(was, false), free));
+        if !(free && last) {
             return Vec::new();
         }
         let b = stack_fight::card(cx.game).buttons;
@@ -1240,6 +1245,51 @@ pub(crate) mod tests {
         assert_eq!(g.exec.state, ninsei_core::game::ExecState::Running);
         run_frame(&mut h, &g, vec![]);
         assert!(h.find("CPU").is_none(), "the menu closed");
+    }
+
+    #[test]
+    fn the_esc_that_leaves_the_message_box_doesnt_pause() {
+        let mut g = fight("10 RUN icepick\n20 GOTO 10");
+        let c = g.combat.as_mut().unwrap();
+        (c.strength, c.strength_max) = (500, 500);
+        g.apply(Action::Play);
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        let mut line = String::new();
+        let mut suite = crate::suite::State::default();
+        let mut frame = |h: &mut crate::uitest::Harness, ev, focus: bool| {
+            let mut out = Vec::new();
+            h.frame(ev, |ui| {
+                let mut popup = crate::volume::Popup::default();
+                let mut cx = FrameCx {
+                    game: &g,
+                    pal: crate::theme::Palette::from_def(&g.data.themes[0]),
+                    suite: &mut suite,
+                    keys_free: true,
+                    level: crate::volume::Level {
+                        on: true,
+                        volume: 100,
+                    },
+                    popup: &mut popup,
+                };
+                out = Stack.keys(ui.ctx(), &mut cx);
+                // The Message box: a text field with the keyboard.
+                let r = ui.text_edit_singleline(&mut line);
+                if focus {
+                    r.request_focus();
+                }
+            });
+            out
+        };
+        frame(&mut h, vec![], true);
+        frame(&mut h, vec![], true);
+        let out = frame(&mut h, crate::uitest::key(egui::Key::Escape), false);
+        assert!(
+            out.is_empty(),
+            "Esc only let go of the Message box: {}",
+            out.len()
+        );
+        let out = frame(&mut h, crate::uitest::key(egui::Key::Escape), false);
+        assert_eq!(out.len(), 1, "the next Esc pauses");
     }
 
     #[test]
