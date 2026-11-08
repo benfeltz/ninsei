@@ -1015,7 +1015,7 @@ pub mod script {
         }
         let g = cx.game;
         let mut v = view(ctx, g);
-        let k = btop_fight::keys(g);
+        let k = btop_fight::keys(g, v.cursor);
         let mut out = Vec::new();
         let mut taken = Vec::new();
         let events = ctx.input(|i| i.events.clone());
@@ -1145,12 +1145,6 @@ pub mod script {
         }
     }
 
-    /// The legend under the listing: btop's way of showing a box's keys.
-    const LEGEND: [&[(&str, &str)]; 2] = [
-        &[("r", "run"), ("s", "step"), ("c", "cont"), ("p", "pause")],
-        &[("e", "edit"), ("o", "open"), ("d", "del"), ("j/k", "move")],
-    ];
-
     /// Rows the listing leaves under it for the legend, a blank row first.
     const LEGEND_ROWS: usize = 3;
 
@@ -1214,7 +1208,7 @@ pub mod script {
                 },
             );
         }
-        let keys = btop_fight::keys(g);
+        let keys = btop_fight::keys(g, v.cursor);
         let note = btop_fight::note(g);
         boxed_lit(ui, &pal, btop_fight::title(g), &note, focused, |ui| {
             let inner = ui.available_rect_before_wrap();
@@ -1297,11 +1291,11 @@ pub mod script {
                 }
             }
             if legend {
-                for (k, keys_row) in LEGEND.iter().enumerate() {
+                for (k, keys_row) in keys.legend().iter().enumerate() {
                     let y = c.rows - 2 + k;
                     let mut x = 0;
-                    for (key, word) in keys_row.iter() {
-                        let live = focused && live(&keys, key);
+                    for (key, word, presses) in keys_row.iter() {
+                        let live = focused && *presses;
                         let ink = if live { pal.fg } else { pal.dim };
                         x += c.text(&painter, x, y, key, ink);
                         x += c.text(&painter, x, y, &format!(" {word}  "), pal.dim);
@@ -1326,18 +1320,6 @@ pub mod script {
             take_keys(&ctx);
         }
         keep(&ctx, v);
-    }
-
-    /// Whether `key` in the legend presses now: the debugger's by the state, the editor's
-    /// whenever there's a program (or, for `o`, always).
-    fn live(k: &btop_fight::Keys, key: &str) -> bool {
-        match key {
-            "r" => k.run,
-            "s" => k.step,
-            "c" => k.cont,
-            "p" => k.pause,
-            _ => true,
-        }
     }
 }
 
@@ -1825,6 +1807,28 @@ mod script_tests {
         frame(&mut h, &g, PANE, crate::uitest::click(at));
         frame(&mut h, &g, PANE, vec![]);
         assert!(h.ctx.memory(|m| m.has_focus(script::edit_id())), "editing");
+    }
+
+    #[test]
+    fn the_legend_lights_only_the_keys_that_press() {
+        let g = fight("");
+        let p = pal(&g);
+        let mut h = Harness::new(1280.0, 800.0);
+        frame(&mut h, &g, PANE, vec![]);
+        script::take_keys(&h.ctx);
+        frame(&mut h, &g, PANE, vec![]);
+        let rows = rows_painted(&h, pane_rect(PANE));
+        let (s, cs) = row_with(&rows, "eedit");
+        let at = |word: &str| cs[s.find(word).unwrap()];
+        assert_eq!(at("eedit"), p.dim, "no line to edit: {s}");
+        assert_eq!(at("ddel"), p.dim, "no line to delete");
+        assert_eq!(at("oopen"), p.fg, "a first line to open");
+        let (s, cs) = row_with(&rows, "rrun");
+        assert_eq!(
+            cs[s.find("rrun").unwrap()],
+            p.fg,
+            "paused in a fight: run presses"
+        );
     }
 
     #[test]

@@ -88,10 +88,10 @@ fn outside_a_fight_nothing_is_current_and_the_edge_shows_the_deck() {
         format!("cpu {cpu}/{cpu}  ram {ram}/{ram}")
     );
     assert_eq!(btop_fight::title(&g), "ice.bas");
-    assert_eq!(
-        btop_fight::keys(&g),
-        btop_fight::Keys::default(),
-        "nothing presses"
+    let k = btop_fight::keys(&g, g.program.first());
+    assert!(
+        !k.run && !k.step && !k.cont && !k.pause,
+        "the debugger presses nothing: {k:?}"
     );
 }
 
@@ -119,7 +119,7 @@ fn the_edge_counts_down_this_turn() {
 #[test]
 fn the_keys_follow_the_debugger() {
     let g = fight();
-    let k = btop_fight::keys(&g);
+    let k = btop_fight::keys(&g, g.program.first());
     assert!(k.run && k.step && !k.cont && !k.pause, "paused: {k:?}");
     let mut g = fight();
     g.apply(Action::Program(
@@ -131,7 +131,7 @@ fn the_keys_follow_the_debugger() {
         "{:?}",
         g.exec.state
     );
-    let k = btop_fight::keys(&g);
+    let k = btop_fight::keys(&g, g.program.first());
     assert!(k.cont && k.step && !k.run && !k.pause, "stopped: {k:?}");
 }
 
@@ -141,7 +141,7 @@ fn running_shows_pause() {
     g.apply(Action::Program("10 RUN icepick\n20 GOTO 10".into()));
     g.apply(Action::Play);
     assert_eq!(g.exec.state, ExecState::Running);
-    let k = btop_fight::keys(&g);
+    let k = btop_fight::keys(&g, g.program.first());
     assert!(k.pause && !k.run && !k.step && !k.cont, "{k:?}");
 }
 
@@ -231,4 +231,23 @@ fn the_tile_reads_as_the_program_view_says() {
             v.cpu_left, g.deck.cpu_max, v.ifs_left, g.deck.ram_max
         )
     );
+}
+
+#[test]
+fn the_editor_keys_press_only_where_they_do_something() {
+    let mut g = fight();
+    g.apply(Action::Program("10 RUN icepick\n11 GOTO 10".into()));
+    let k = btop_fight::keys(&g, Some(10));
+    assert!(k.edit && k.delete && k.moves, "{k:?}");
+    assert!(!k.open, "no number free between 10 and 11");
+    assert!(btop_fight::keys(&g, Some(11)).open, "after the last line");
+    let gone = btop_fight::keys(&g, Some(50));
+    assert!(!gone.edit && !gone.delete, "no line under the cursor");
+    g.apply(Action::Program(String::new()));
+    let k = btop_fight::keys(&g, None);
+    assert!(!k.edit && !k.delete && !k.moves, "an empty program: {k:?}");
+    assert!(k.open, "it can still open its first line");
+    let legend = k.legend();
+    assert_eq!(legend[1][1], ("o", "open", true));
+    assert_eq!(legend[1][0], ("e", "edit", false));
 }

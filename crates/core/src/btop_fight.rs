@@ -47,13 +47,43 @@ pub struct Row {
     pub fault: Option<String>,
 }
 
-/// Which of the debugger's keys press now: `r` run, `s` step, `c` continue, `p` pause.
+/// Which of the tile's keys press now: the debugger's (`r` run, `s` step, `c` continue, `p`
+/// pause) and the editor's (`e` edit, `o` open, `d` delete, `j`/`k` move).
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Keys {
     pub run: bool,
     pub step: bool,
     pub cont: bool,
     pub pause: bool,
+    /// The cursor is on a line to retype.
+    pub edit: bool,
+    /// A number is free after the cursor.
+    pub open: bool,
+    /// The cursor is on a line to take out.
+    pub delete: bool,
+    /// There's another line to move to.
+    pub moves: bool,
+}
+
+impl Keys {
+    /// The legend at the tile's foot, btop's way of showing a box's keys: two rows of a key,
+    /// its word and whether it presses now.
+    pub fn legend(&self) -> [[(&'static str, &'static str, bool); 4]; 2] {
+        [
+            [
+                ("r", "run", self.run),
+                ("s", "step", self.step),
+                ("c", "cont", self.cont),
+                ("p", "pause", self.pause),
+            ],
+            [
+                ("e", "edit", self.edit),
+                ("o", "open", self.open),
+                ("d", "del", self.delete),
+                ("j/k", "move", self.moves),
+            ],
+        ]
+    }
 }
 
 /// ICE in front: the program plays.
@@ -107,26 +137,36 @@ pub fn title(_g: &Game) -> &'static str {
     TITLE
 }
 
-/// Which debugger keys press now: nothing outside a fight; paused, run and step; running,
-/// pause; after a STOP, continue and step.
-pub fn keys(g: &Game) -> Keys {
+/// Which keys press now, with the cursor on line `cursor`. The debugger's: nothing outside a
+/// fight; paused, run and step; running, pause; after a STOP, continue and step. The editor's
+/// whenever there's a line under the cursor (open also when a number is free after it, or on an
+/// empty program).
+pub fn keys(g: &Game, cursor: Option<u32>) -> Keys {
+    let on_line = cursor.is_some_and(|n| g.program.line(n).is_some());
+    let editor = Keys {
+        edit: on_line,
+        delete: on_line,
+        open: open_after(g, cursor.filter(|_| on_line)).is_some(),
+        moves: g.program.lines.len() > 1,
+        ..Keys::default()
+    };
     if !fighting(g) {
-        return Keys::default();
+        return editor;
     }
     match g.exec.state {
         ExecState::Paused => Keys {
             run: true,
             step: true,
-            ..Keys::default()
+            ..editor
         },
         ExecState::Running => Keys {
             pause: true,
-            ..Keys::default()
+            ..editor
         },
         ExecState::Stopped(_) => Keys {
             cont: true,
             step: true,
-            ..Keys::default()
+            ..editor
         },
     }
 }
