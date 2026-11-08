@@ -176,7 +176,8 @@ pub fn tile(
             pui.sel = Some(i);
         }
     }
-    pui.list.mark(&g, &p, 0, 0, g.cols, 12, muted());
+    // Where you are in a long list, in the playlist's bottom edge.
+    pui.list.mark(&g, &p, 0, list_h - 1, g.cols, 2, muted());
     let wheel = ui.input(|i| i.smooth_scroll_delta.y);
     if wheel != 0.0 && ui.rect_contains_pointer(g.at(0, 0, g.cols, list_h)) {
         pui.list.wheel(-wheel / g.ch);
@@ -578,5 +579,37 @@ mod tests {
             crate::uitest::click(spot),
         );
         assert_eq!(acts, [Act::Toggle], "spc play: the first legend key");
+    }
+
+    #[test]
+    fn a_long_playlist_says_where_you_are_under_the_list() {
+        let data = Data::builtin().unwrap();
+        let mut save = ono(&data);
+        save.tunes = data.tunes.iter().map(|t| t.id.clone()).collect();
+        let mut h = Harness::new(1400.0, 900.0);
+        let mut home = Home::new(Vec::new());
+        h.frame(Vec::new(), |_| {});
+        let cell = crate::kit::Cells::cell_size(&h.ctx);
+        let size = vec2(NEED.cols as f32 * cell.x, NEED.rows as f32 * cell.y);
+        frame_keys(
+            &mut h,
+            &mut home,
+            &data,
+            &save,
+            Tool::Player,
+            rect(size.x, size.y),
+            true,
+            key(Key::J),
+        );
+        let rows = rows_painted(&h);
+        let title = rows
+            .iter()
+            .position(|(r, _)| r.contains("playlist"))
+            .unwrap();
+        let mark = rows
+            .iter()
+            .position(|(r, _)| r.contains(&format!("2/{}", data.tunes.len())))
+            .unwrap_or_else(|| panic!("{rows:?}"));
+        assert_eq!(mark, title + 4, "on the bottom edge, under three rows");
     }
 }
