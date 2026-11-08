@@ -182,7 +182,7 @@ impl ChromeView for Stack {
         ui.add_space(4.0);
         field(ui, ink, |ui| {
             // The limits in the deck's words: CPU and RAM fill with what's left this turn.
-            let b = stack_fight::card(g).budgets;
+            let b = stack_fight::budgets(g);
             meter(ui, p, "CPU", b.cpu.0, b.cpu.1, b.cpu_words());
             meter(ui, p, "RAM", b.ifs.0, b.ifs.1, b.ifs_words());
             meter(ui, p, "HDD", b.hdd.0, b.hdd.1, b.hdd_words());
@@ -482,7 +482,7 @@ impl ChromeView for Stack {
         if !(free && last) {
             return Vec::new();
         }
-        let b = stack_fight::card(cx.game).buttons;
+        let b = stack_fight::buttons(cx.game);
         let mut out = Vec::new();
         if b.default_run() && fresh_key(ctx, egui::Key::Enter) {
             out.push(act(Action::Play));
@@ -701,7 +701,8 @@ fn blocks(
         );
         y += h;
         if let Some(b) = card.blocks.get(i) {
-            block_row(ui, row, g, b, look, acts);
+            let at = (i > 0, i + 1 < card.blocks.len());
+            block_row(ui, row, g, b, at, look, acts);
         } else if let Some((text, why)) = card.stray.get(i - card.blocks.len()) {
             let at = pos2(
                 row.left() + look::GUTTER + look::BLOCK_PAD,
@@ -776,11 +777,13 @@ fn end_slot(ui: &mut Ui, row: Rect, g: &Game, look: &liza::Look, acts: &mut Vec<
 /// One line of the program: the ▶ in the gutter when it's next, then the block (a framed box
 /// with its number on the top edge, its keyword, its fields, its fault) and its move and
 /// close boxes; a comment is a plain `--` line. A block dropped on it goes in above it.
+/// `at`: whether the block can move up and down (it has a line above it, and below).
 fn block_row(
     ui: &mut Ui,
     row: Rect,
     g: &Game,
     b: &Block,
+    at: (bool, bool),
     look: &liza::Look,
     acts: &mut Vec<Action>,
 ) {
@@ -815,29 +818,31 @@ fn block_row(
             ink,
         );
     }
-    // The move and close boxes, right to left.
+    // The move and close boxes, right to left; an edit is built only when one is clicked.
+    let (up, down) = at;
     let mut right = body.right();
-    for (glyph, what, a) in [
-        ("", "delete", Some(stack_fight::remove(g, b.no))),
-        ("▼", "move down", stack_fight::swap(g, b.no, false)),
-        ("▲", "move up", stack_fight::swap(g, b.no, true)),
+    for (glyph, what, on) in [
+        ("", "delete", true),
+        ("▼", "move down", down),
+        ("▲", "move up", up),
     ] {
         let r = Rect::from_min_size(
             pos2(right - look::BOX, body.center().y - look::BOX / 2.0).round(),
             vec2(look::BOX, look::BOX),
         );
         right = r.left() - 4.0;
-        let on = a.is_some();
         let resp = ui.interact(r, Id::new(("stack-box", b.no, what)), Sense::click());
         resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, what));
         if on {
             painter.rect_filled(r, 0.0, look.paper);
             painter.rect_stroke(r, 0.0, Stroke::new(1.0, ink), StrokeKind::Inside);
             painter.text(r.center(), Align2::CENTER_CENTER, glyph, small.clone(), ink);
-            if resp.clicked()
-                && let Some(a) = a
-            {
-                acts.push(a);
+            if resp.clicked() {
+                acts.extend(match what {
+                    "delete" => Some(stack_fight::remove(g, b.no)),
+                    "move down" => stack_fight::swap(g, b.no, false),
+                    _ => stack_fight::swap(g, b.no, true),
+                });
             }
         }
     }

@@ -275,22 +275,33 @@ pub fn card(g: &Game) -> Card {
         .iter()
         .map(|s| (s.clone(), basic::stray_fault(s)))
         .collect();
-    let running = g.exec.state == ExecState::Running;
-    let v = g.program_view();
     Card {
         blocks,
         stray,
-        buttons: Buttons {
-            step: fighting && !running,
-            run: fighting && !running,
-            pause: fighting && running,
-        },
-        budgets: Budgets {
-            cpu: (v.cpu_left, g.deck.cpu_max),
-            ifs: (v.ifs_left, g.deck.ram_max),
-            hdd: (g.hdd.len() as u32, g.deck.hdd_max),
-        },
+        buttons: buttons(g),
+        budgets: budgets(g),
         state: g.exec.state,
+    }
+}
+
+/// Which of Step, Run and Pause can be pressed, without building the card.
+pub fn buttons(g: &Game) -> Buttons {
+    let fighting = g.phase == Phase::Combat && g.combat.is_some();
+    let running = g.exec.state == ExecState::Running;
+    Buttons {
+        step: fighting && !running,
+        run: fighting && !running,
+        pause: fighting && running,
+    }
+}
+
+/// The deck's limits this turn, without building the card.
+pub fn budgets(g: &Game) -> Budgets {
+    let c = g.combat.as_ref();
+    Budgets {
+        cpu: (c.map_or(g.deck.cpu_max, |c| c.cpu), g.deck.cpu_max),
+        ifs: (g.ifs_left(), g.deck.ram_max),
+        hdd: (g.hdd.len() as u32, g.deck.hdd_max),
     }
 }
 
