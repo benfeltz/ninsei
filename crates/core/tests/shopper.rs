@@ -587,3 +587,19 @@ fn a_deck_ad_prints_its_stats_and_nothing_else_does() {
         assert!(l.specs.is_empty(), "{} has no spec box", l.name);
     }
 }
+
+#[test]
+fn a_vendors_small_print_runs_every_term_in() {
+    let d = data();
+    for v in &d.shopper.vendors {
+        match v.small_print() {
+            None => assert!(v.terms.is_empty(), "{}", v.id),
+            Some(p) => {
+                assert!(p.starts_with("TERMS: "), "{p}");
+                for t in &v.terms {
+                    assert!(p.contains(t.as_str()), "{}: {t}", v.id);
+                }
+            }
+        }
+    }
+}

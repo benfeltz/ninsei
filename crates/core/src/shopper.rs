@@ -198,6 +198,14 @@ pub struct VendorDef {
     pub terms: Vec<String>,
 }
 
+impl VendorDef {
+    /// The small print on a full-page ad: every term, run in as one paragraph the way the
+    /// magazine sets it ("TERMS: Free delivery. Credits only."). `None` with no terms.
+    pub fn small_print(&self) -> Option<String> {
+        (!self.terms.is_empty()).then(|| format!("TERMS: {}", self.terms.join(" ")))
+    }
+}
+
 /// How much room an ad takes.
 #[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum AdSize {

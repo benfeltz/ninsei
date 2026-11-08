@@ -551,17 +551,11 @@ fn full_ad(
     if let Some(n) = &a.note {
         ui_copy.label(small(n));
     }
-    // The small print goes in whole or not at all: a terms list cut off by the price
-    // reads as a misprint.
-    let row = ui_copy.fonts_mut(|f| f.row_height(&FontId::proportional(size::SMALL)));
-    let spacing = ui_copy.spacing().item_spacing.y;
-    let fits = |n: usize| 6.0 + (row + spacing) * (n + 1) as f32 <= ui_copy.available_height();
-    if let Some(v) = vendor.filter(|v| !v.terms.is_empty() && fits(v.terms.len())) {
+    // The small print, run in as one paragraph, always whole (the deck-page test holds
+    // every vendor's to that).
+    if let Some(p) = vendor.and_then(VendorDef::small_print) {
         ui_copy.add_space(6.0);
-        ui_copy.label(bold("TERMS:", size::SMALL));
-        for t in &v.terms {
-            ui_copy.label(text(format!("★ {t}"), size::SMALL));
-        }
+        ui_copy.label(text(p, size::SMALL));
     }
     order(ui, data, save, l, a, out);
 }
@@ -1014,15 +1008,13 @@ mod tests {
                             assert!(seen.contains(&t), "{}: no {t:?} in {seen:?}", l.name);
                         }
                     }
-                    // The small print is whole or absent, never cut off by the price.
+                    // The small print is on the page whole, never cut off by the price.
                     let def = &data.shopper;
-                    if let Some(v) = def.vendor(def.vendor_of(l))
-                        && seen.iter().any(|t| t == "TERMS:")
+                    if let Some(p) = def
+                        .vendor(def.vendor_of(l))
+                        .and_then(VendorDef::small_print)
                     {
-                        for t in &v.terms {
-                            let t = format!("★ {t}");
-                            assert!(seen.contains(&t), "{}: {t:?} is cut off", l.name);
-                        }
+                        assert!(seen.contains(&p), "{}: {p:?} isn't whole", l.name);
                     }
                     // The box is whole: every word of it on the page and none cut at a clip.
                     let words: Vec<String> = ["SPECS", "SHIPS WITH", "EXPANDS TO"]

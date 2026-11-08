@@ -50,7 +50,7 @@
     ],
     vendors: [
         (id: "onosendai", name: "Ono-Sendai Direct", hotline: Some("1-800-ONO-DECK"), slogan: Some("JACK IN TODAY"),
-         terms: ["FREE delivery to your deck.", "Firmware swaps free, forever.", "Firmware is looks and feel only.", "Credits only. No C.O.D."]),
+         terms: ["FREE delivery to your deck.", "Firmware swaps free, forever: looks and feel only.", "Credits only. No C.O.D."]),
         (id: "hosaka", name: "Hosaka Corporate Sales", hotline: Some("1-800-HOSAKA-4"), slogan: Some("THE OFFICE OF TOMORROW"),
          terms: ["Volume licensing available.", "Installed by a Hosaka technician.", "Credits only."]),
         (id: "sensenet", name: "Sense/Net Home Computing", hotline: Some("1-800-SENSE-IT"), slogan: Some("THE COMPUTER FOR THE REST OF US"),
