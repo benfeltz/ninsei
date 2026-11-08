@@ -314,6 +314,9 @@ pub enum Action {
     Run(usize),
     /// The deck's program: run one pass (one turn, unless it STOPs or hangs).
     Step,
+    /// The deck's program: run the rest of this turn's pass (gdb's `finish`), until the turn
+    /// ends, a STOP or a hang. Leaves the program running or paused as it was.
+    Finish,
     /// The deck's program: keep running passes (the driver applies `Step` while
     /// `ExecState::Running`); runs the first one now.
     Play,
@@ -747,7 +750,7 @@ impl Game {
     pub fn apply(&mut self, action: Action) {
         // A pass is made of actions (each RUN, then the end of the turn), applied one by one
         // so history and cues hear each of them; the pass itself adds nothing on top.
-        if matches!(action, Action::Step | Action::Play) {
+        if matches!(action, Action::Step | Action::Play | Action::Finish) {
             if let Err(e) = self.try_apply(action) {
                 self.say(LogKind::Sys, format!("err: {e}"));
             }
@@ -804,6 +807,7 @@ impl Game {
             Action::Run(slot) => self.run(slot),
             Action::Step => self.pass(false),
             Action::Play => self.pass(true),
+            Action::Finish => self.pass(false),
             Action::Pause => {
                 if self.exec.state == ExecState::Running {
                     self.exec.state = ExecState::Paused;

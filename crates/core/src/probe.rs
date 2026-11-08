@@ -193,8 +193,9 @@ pub fn play_knowing(mut g: Game, bot: Bot, known: &[String]) -> (Game, RunLog) {
                     g.apply(Action::EndTurn);
                     continue;
                 }
+                // Play sets it running; while it runs, each turn is the rest of a pass.
                 let act = if g.exec.state == ExecState::Running {
-                    Action::Step
+                    Action::Finish
                 } else {
                     Action::Play
                 };

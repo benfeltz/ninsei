@@ -101,7 +101,7 @@ fn the_edge_counts_down_this_turn() {
     g.apply(Action::Program(
         "10 IF INTEG > 0\n20 RUN icepick\n30 STOP".into(),
     ));
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     let c = g.combat.as_ref().unwrap();
     assert!(
         c.cpu < g.deck.cpu_max && c.ifs < g.deck.ram_max,
@@ -125,7 +125,7 @@ fn the_keys_follow_the_debugger() {
     g.apply(Action::Program(
         "10 STOP\n20 RUN icepick\n30 GOTO 10".into(),
     ));
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     assert!(
         matches!(g.exec.state, ExecState::Stopped(10)),
         "{:?}",
@@ -202,7 +202,7 @@ fn an_edit_mid_fight_changes_what_the_next_pass_runs() {
     g.apply(Action::Program("10 STOP\n20 GOTO 10".into()));
     g.apply(btop_fight::retype(&g, 10, "RUN icepick").unwrap());
     let before = g.combat.as_ref().unwrap().strength;
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     assert!(
         g.combat.as_ref().is_none_or(|c| c.strength < before),
         "the retyped line ran"
@@ -301,7 +301,7 @@ fn ice_bas_is_one_program_before_during_and_after_a_fight() {
     let k = btop_fight::keys(&g, btop_fight::home(&g));
     assert!(k.run && k.step);
     // Step hits the STOP: continue presses now.
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     assert!(
         matches!(g.exec.state, ExecState::Stopped(_)),
         "{:?}",

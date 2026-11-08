@@ -63,7 +63,7 @@ fn a_line_with_no_number_never_takes_anothers() {
         list.iter().any(|l| l.contains("?ILLEGAL LINE NUMBER")),
         "{list:?}"
     );
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
 }
 
 #[test]
@@ -188,7 +188,7 @@ fn a_pass_is_a_turn() {
         g.program_view().lines[0].current,
         "the cursor on the first line"
     );
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     // A backward GOTO keeps the pass going while cycles remain: three cycles, three RUNs.
     assert_eq!(ran(&g), 3, "{:?}", g.exec.trace);
     // Three icepicks for 3 each, then Bulwark fortifies 4: the ICE acted once.
@@ -203,16 +203,16 @@ fn a_pass_is_a_turn() {
 #[test]
 fn an_if_costs_a_gb_true_or_false() {
     let mut g = fight("bulwark", "10 IF INTEG < 100\n20 STOP");
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     assert_eq!(combat(&g).ifs, g.deck.ram_max - 1, "a true IF");
     let mut g = fight("bulwark", "10 IF INTEG > 100\n20 RUN icepick\n30 STOP");
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     assert_eq!(combat(&g).ifs, g.deck.ram_max - 1, "a false IF");
     assert_eq!(ran(&g), 0, "the false IF skipped its line");
     assert_eq!(g.exec.state, ExecState::Stopped(30));
     // GOTO and STOP are free.
     let mut g = fight("bulwark", "10 GOTO 30\n20 RUN icepick\n30 STOP");
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     assert_eq!(combat(&g).ifs, g.deck.ram_max);
 }
 
@@ -222,7 +222,7 @@ fn two_ifs_in_a_row_are_an_and() {
         "bulwark",
         "10 IF INTEG > 100\n20 IF INTEG > 0\n30 RUN icepick\n40 STOP",
     );
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     assert_eq!(ran(&g), 0, "the first IF skips the second and its line");
     assert_eq!(
         combat(&g).ifs,
@@ -237,7 +237,7 @@ fn out_of_ram_ends_the_pass() {
         "10 IF TURN = 9\n20 STOP\n30 IF TURN = 9\n40 STOP\n50 IF TURN = 9\n60 STOP\n70 RUN icepick";
     let mut g = fight("bulwark", program);
     g.combat.as_mut().unwrap().ifs = 2;
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     let last = g.exec.trace.last().unwrap();
     assert_eq!((last.line, &last.what), (50, &StepWhat::OutOfRam));
     assert_eq!(ran(&g), 0);
@@ -247,7 +247,7 @@ fn out_of_ram_ends_the_pass() {
 #[test]
 fn stop_hands_over_the_turn() {
     let mut g = fight("bulwark", "10 RUN icepick\n20 STOP\n30 RUN icepick");
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     assert_eq!(g.exec.state, ExecState::Stopped(20));
     assert_eq!((combat(&g).turn, combat(&g).cpu), (1, 2), "no end of turn");
     assert!(g.log.iter().any(|l| l.text == "BREAK IN 20"));
@@ -256,7 +256,7 @@ fn stop_hands_over_the_turn() {
     g.apply(Action::Run(pick));
     assert_eq!(combat(&g).cpu, 1);
     // Step carries on after the STOP, in the same turn.
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     assert_eq!(ran(&g), 2, "{:?}", g.exec.trace);
     assert_eq!(combat(&g).turn, 2);
 }
@@ -264,7 +264,7 @@ fn stop_hands_over_the_turn() {
 #[test]
 fn play_after_a_stop_carries_on_past_it() {
     let mut g = fight("bulwark", "10 RUN icepick\n20 STOP\n30 RUN icepick");
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     assert_eq!(g.exec.state, ExecState::Stopped(20));
     g.apply(Action::Play);
     // Line 30 ran in the same turn, then the turn ended: the pass didn't start over at 10.
@@ -284,7 +284,7 @@ fn a_cycle_less_loop_breaks() {
     assert_eq!(combat(&g).turn, 1, "a hang doesn't end the turn");
     // A loop whose only RUN is guarded by a false IF hangs too.
     let mut g = fight("bulwark", "10 IF INTEG > 100\n20 RUN icepick\n30 GOTO 10");
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     let last = g.exec.trace.last().unwrap();
     assert_eq!((last.line, &last.what), (10, &StepWhat::Break));
 }
@@ -297,7 +297,7 @@ fn a_run_that_cant_run_is_skipped_with_the_previews_words() {
     g.hdd.push(slot);
     g.combat.as_mut().unwrap().cpu = 1;
     let why = g.preview(g.hdd.len() - 1).unwrap_err();
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     let t = &g.exec.trace;
     assert_eq!((t[0].line, &t[0].what), (10, &StepWhat::Skipped(why)));
     assert!(
@@ -318,7 +318,7 @@ fn next_reads_the_intent() {
         "icewall",
         "10 IF NEXT ATTACK\n20 RUN firewall\n30 IF NEXT FORTIFY\n40 STOP",
     );
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     assert_eq!(
         (combat(&g).shield, g.exec.state),
         (0, ExecState::Stopped(40))
@@ -342,13 +342,13 @@ fn have_reads_the_hdd() {
 #[test]
 fn edits_apply_to_the_next_pass() {
     let mut g = fight("bulwark", "10 RUN icepick\n20 STOP");
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     assert_eq!(g.exec.state, ExecState::Stopped(20));
     // Edited mid-pass: it carries on past the STOP into the new line.
     g.apply(Action::Program(
         "10 RUN icepick\n20 STOP\n30 RUN firewall".into(),
     ));
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     assert_eq!(combat(&g).turn, 2);
     assert!(
         g.exec.trace.iter().any(|s| s.line == 30),
@@ -357,7 +357,7 @@ fn edits_apply_to_the_next_pass() {
     );
     // Between passes: the next one starts at the top of the new program.
     g.apply(Action::Program("10 RUN firewall\n20 STOP".into()));
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     assert_eq!(
         (combat(&g).shield, g.exec.state),
         (5, ExecState::Stopped(20))
@@ -369,13 +369,13 @@ fn play_keeps_running_and_pause_hands_back() {
     let mut g = fight("bulwark", SAMPLE);
     g.apply(Action::Play);
     assert_eq!((g.exec.state, combat(&g).turn), (ExecState::Running, 2));
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     assert_eq!((g.exec.state, combat(&g).turn), (ExecState::Running, 3));
     g.apply(Action::Pause);
     assert_eq!(g.exec.state, ExecState::Paused);
     // An empty program is the hand-played fight: a step is the end of the turn.
     g.apply(Action::Program(String::new()));
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     assert_eq!(combat(&g).turn, 4);
     assert_eq!(g.exec.trace.last().unwrap().what, StepWhat::End);
 }
@@ -440,7 +440,7 @@ fn every_kit_ships_a_program_that_reads() {
         assert_eq!(hub::program_fault(&text, &d), None, "{typed}");
     }
     g.apply(Action::Program("10 RUN icepick.exe".into()));
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     assert_eq!(ran(&g), 1);
     assert!(hub::program_fault("10 GOTO 20", &d).is_some());
 }
@@ -491,9 +491,9 @@ fn prog_edits_and_lists() {
 }
 
 #[test]
-fn step_from_the_shell_says_the_pass_as_it_happens() {
+fn finish_from_the_shell_says_the_pass_as_it_happens() {
     let mut g = fight("bulwark", SAMPLE);
-    let said = type_in(&mut g, "step");
+    let said = type_in(&mut g, "finish");
     assert_eq!(said[0], "IcePick breaks 3", "{said:?}");
     assert_eq!(said[1], "20 IF INTEG < 10: no. skipping the next line.");
     // The pass's last line comes before what the ICE did after it.
@@ -505,17 +505,17 @@ fn step_from_the_shell_says_the_pass_as_it_happens() {
     assert_eq!(combat(&g).turn, 2);
     // A STOP is said once, and carrying on says only what's new.
     let mut g = fight("bulwark", "10 IF INTEG > 0\n20 STOP\n30 GOTO 40\n40 STOP");
-    let said = type_in(&mut g, "step");
+    let said = type_in(&mut g, "finish");
     assert_eq!(
         said.iter().filter(|l| *l == "BREAK IN 20").count(),
         1,
         "{said:?}"
     );
-    let said = type_in(&mut g, "step");
+    let said = type_in(&mut g, "finish");
     assert_eq!(said, ["30 GOTO 40.", "BREAK IN 40"]);
     // A hang is said once too.
     let mut g = fight("bulwark", "10 GOTO 10");
-    let said = type_in(&mut g, "step");
+    let said = type_in(&mut g, "finish");
     assert_eq!(
         said.iter().filter(|l| *l == "?BREAK IN 10").count(),
         1,

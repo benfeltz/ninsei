@@ -2781,7 +2781,7 @@ mod module_tests {
     #[test]
     fn each_step_of_a_pass_is_an_activity_row_with_its_reference() {
         let mut g = fight("10 IF INTEG > 0\n20 RUN icepick\n30 GOTO 10");
-        g.apply(Action::Step);
+        g.apply(Action::Finish);
         let mut h = Harness::new(1280.0, 1400.0);
         frame(&mut h, &g, vec![]);
         frame(&mut h, &g, vec![]);
