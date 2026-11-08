@@ -609,8 +609,11 @@ impl App {
     }
 
     /// A player's act, carried out by core on the save and the player's place; a new level
-    /// goes straight to the speaker.
-    fn player_act(&mut self, act: ninsei_core::player::Act) {
+    /// goes straight to the speaker. The speaker hears it on the next frame, asked for now,
+    /// and the time before this act isn't counted against the music it starts.
+    fn player_act(&mut self, ctx: &egui::Context, act: ninsei_core::player::Act) {
+        ctx.request_repaint();
+        self.home.player_clock = None;
         let (player, volume) = (self.save.player.clone(), self.save.volume);
         ninsei_core::player::apply(&mut self.save, &self.data, &mut self.home.player, act);
         if self.save.volume != volume {
@@ -1604,7 +1607,7 @@ impl App {
                     self.home.say(format!("sound {state}"));
                 }
                 WbOut::At(from, line) => self.modem(from, &line),
-                WbOut::Player(act) => self.player_act(act),
+                WbOut::Player(act) => self.player_act(&ctx, act),
                 other => self.home_action(other),
             }
         }
@@ -1898,6 +1901,37 @@ mod tests {
         }
         assert_eq!(app.save.tiling, tiling, "the tiles are as they were");
         assert!(app.home_bbs.is_some(), "still on the call");
+    }
+
+    #[test]
+    fn a_play_in_trax_starts_the_tune_from_its_top_on_the_next_frame() {
+        use crate::uitest::{Harness, key};
+        let mut h = Harness::new(1280.0, 800.0);
+        let cc = eframe::CreationContext::_new_kittest(h.ctx.clone());
+        let mut app = App::new(&cc, Data::builtin().unwrap(), Some(7));
+        app.save.decks.push("onosendai".into());
+        app.save.deck = "onosendai".into();
+        app.save.firmware = app.save.deck_def(&app.data).firmware[0].id.clone();
+        app.save.tiling_help_seen = true;
+        app.save.intros = false;
+        app.save.learn_tool("player");
+        app.load_layout();
+        app.home.open(Tool::Player);
+        let frame = |h: &mut Harness, app: &mut App, ev: Vec<egui::Event>| {
+            let pal = app.pal;
+            h.frame(ev, |ui| app.hub_ui(ui.ctx(), &pal));
+        };
+        for _ in 0..3 {
+            frame(&mut h, &mut app, Vec::new());
+        }
+        app.home.player_clock = Some(0.0);
+        frame(&mut h, &mut app, key(egui::Key::Space));
+        assert_eq!(app.home.player.play, ninsei_core::player::Play::Playing);
+        assert_eq!(
+            app.home.player_clock, None,
+            "the gap before the act isn't the tune's"
+        );
+        assert_eq!(app.home.player.at, 0.0);
     }
 
     #[test]
