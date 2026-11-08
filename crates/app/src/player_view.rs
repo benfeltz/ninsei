@@ -641,7 +641,7 @@ pub fn liza_face(
 }
 
 /// Desktop's TRAX: its face's size, Protracker's playback screen in a window.
-pub const WB_SIZE: egui::Vec2 = egui::vec2(560.0, 440.0);
+pub const WB_SIZE: egui::Vec2 = egui::vec2(560.0, 462.0);
 
 /// A Protracker number box's label width and value width, in advances; a row's height.
 const WB_LABEL: usize = 8;
@@ -769,18 +769,24 @@ pub fn workbench_face(
     }
     y += 4.0 * WB_ROW + 6.0;
 
-    // The song name and its crew, in a recessed strip.
+    // The song name, its crew and what the transport is doing (core's words: playing,
+    // paused, stopped, or waiting while something else has the speaker), in a recessed strip.
     let tune = player::current_tune(save, data);
     let (title, by) = tune.map_or(("", ""), |t| (t.title.as_str(), t.by.as_str()));
     let chars = |px: f32| (px / adv).floor().max(1.0) as usize;
-    let strip = Rect::from_min_size(pos2(x0, y), vec2(w, 2.0 * WB_ROW));
+    let strip = Rect::from_min_size(pos2(x0, y), vec2(w, 3.0 * WB_ROW));
     p.rect_filled(strip, 0.0, look.backdrop);
     kit::bevel(&p, strip, false, &look);
     let name = crate::kit::cells::cut(&format!("SONGNAME: {title}"), chars(w - 12.0));
     let crew = crate::kit::cells::cut(&format!("BY:       {by}"), chars(w - 12.0));
     text(&p, pos2(x0 + 6.0, y + WB_ROW * 0.5), &name, look.ink);
     text(&p, pos2(x0 + 6.0, y + WB_ROW * 1.5), &crew, look.ink);
-    y += 2.0 * WB_ROW + 6.0;
+    let status = crate::kit::cells::cut(
+        &format!("STATUS:   {}", player::status(save, t)),
+        chars(w - 12.0),
+    );
+    text(&p, pos2(x0 + 6.0, y + WB_ROW * 2.5), &status, look.accent);
+    y += 3.0 * WB_ROW + 6.0;
 
     // The spectrum analyzer: bars in the highlight colour in a recessed box.
     let vis = Rect::from_min_size(pos2(x0, y), vec2(w, WB_VIS_H));
@@ -1461,6 +1467,7 @@ mod tests {
                 "0:12".to_string(),
                 "SONGNAME: Welcome to the Net".to_string(),
                 "BY:       Sense/Net".to_string(),
+                "STATUS:   ▶ playing".to_string(),
             ] {
                 assert!(painted(&h, &s), "{s}: {:?}", h.painted_text());
             }
@@ -1470,6 +1477,28 @@ mod tests {
                 press(&mut h, &mut home, &data, &save, "PLAY"),
                 [Act::Toggle]
             );
+        }
+
+        #[test]
+        fn the_status_tells_paused_stopped_and_waiting_apart() {
+            let data = Data::builtin().unwrap();
+            let mut save = hosaka(&data);
+            let mut h = Harness::new(900.0, 700.0);
+            let mut home = Home::new(Vec::new());
+            let status = |home: &mut Home, save: &Save, h: &mut Harness| {
+                wb(h, home, &data, save, false, Vec::new());
+                h.painted_text()
+                    .into_iter()
+                    .find(|(t, _)| t.starts_with("STATUS:"))
+                    .map(|(t, _)| t)
+                    .unwrap()
+            };
+            assert!(status(&mut home, &save, &mut h).ends_with("■ stopped"));
+            player::apply(&mut save, &data, &mut home.player, Act::Play);
+            player::tick(&mut save, &data, &mut home.player, 1.0, false);
+            assert!(status(&mut home, &save, &mut h).ends_with("‖ waiting"));
+            player::apply(&mut save, &data, &mut home.player, Act::Pause);
+            assert!(status(&mut home, &save, &mut h).ends_with("‖ paused"));
         }
 
         #[test]
