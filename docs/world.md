@@ -71,13 +71,15 @@ A crack is signed. Each crew has a voice, a signature in its scroller, a style o
 
 **RAZORWIRE.** d1rge's people. They crack breakers and deck firmware for Dead Sector, and NiGHTCOMM is theirs ("d1rge & DEAD SECTOR" on the scroller). Never games, never greetz to kids; they greet the 555 phreaks, "everyone who ever hit a trap line", and "n0 0n3". Signature: a thin frame, red, a bass-heavy tune that doesn't hurry.
 
+**Music disks.** The crews release tunes too, free, the way the scene always has: the Gutter's FREEWARE area carries the NiGHTMOTHS' `NINSEI.MOD` and PHOSPHOR's `CHROMA.MOD` and `SILICON.MOD`, and Dead Sector's NOISE area d1rge's `TRAPLINE.MOD`, 25¢ and "Play it loud. Alone". A tune's title and author are the crew's own words (`data/music/<id>.ron`: `NiNSEi NiGHTS` by the NiGHTMOTHS, `DiAL-UP RAG (fiNAL!!)` by THE 2400 CLUB, which came on the shop's dubbed disk), and an author always signs a cracktro or a splash. m0th's **TRAX** plays them: free in WAREZ TOOLS, its cracktro the NiGHTMOTHS' logo on a sine over an equaliser, greeting PHOSPHOR for the best tunes on the scene.
+
 **kr4ken.** Not a crew: a handle everyone greets and nobody has met. Keep it that way.
 
 ## The publishers and vendors
 
 Boxed software is legitimate, friendly and knows nothing about the scene.
 
-**Paper Tiger Software.** Boxed games by mail order, the home-software house in CPU Shopper's Games section (`papertiger` in `shopper.ron`): a Box ad for BLOX 2.0 ("Seven shapes. Just one more game!"), the other games as dot-leader lines. Warranty cards, a 1-800 line (1-800-PAPER-TG), "fun for the whole deck". Its splashes are a tagline and a logo: no crew, no greetz, no board. Each is the logo in a frame, the product and its version, a one-line pitch, Loading then Ready, and a soft sine jingle (`data/intros/*-splash.ron`).
+**Paper Tiger Software.** Boxed games by mail order, the home-software house in CPU Shopper's Games section (`papertiger` in `shopper.ron`): a Box ad for BLOX 2.0 ("Seven shapes. Just one more game!"), the other games as dot-leader lines. Warranty cards, a 1-800 line (1-800-PAPER-TG), "fun for the whole deck". Its splashes are a tagline and a logo: no crew, no greetz, no board. It also sells **Paper Tiger Jukebox Vol. 1**, a boxed music disk of its own game jingles (the Blox Theme, the Minefield March: `data/hub/compilations.ron`), with a Box ad in Games ("Your favourite games, now on one disk"); it knows its tunes and nothing of the scene's. Each is the logo in a frame, the product and its version, a one-line pitch, Loading then Ready, and a soft sine jingle (`data/intros/*-splash.ron`).
 
 The magazine's advertisers (`data/hub/shopper.ron`), each with a voice:
 
@@ -98,7 +100,7 @@ A magazine can name products, boards by reputation and 1-800 numbers; it never p
 
 A deck is a computer on your desk, sold by a company with a point of view (`docs/design.md` says how each one looks; `data/hub/hardware.ron` holds them). The world knows them as products.
 
-**Sense/Net Personal Deck** (Liza 1.0). Everybody's first deck, from the simstim giant that sells experiences to ordinary people. It comes in the box with a welcome stack, a Security Suite (a firewall, a patch kit and a plain icepick, free, yours for good), the Personal Display 9" and one free line, CustomerLink. Its OS is **Liza**: a menu bar, a Finder, a Trash, everything labelled. Sense/Net's face is Customer Care: cheerful, nine to five, and it would rather you never met the people on its message boards. The deck is clean when it ships; anything cracked on it, somebody else put there.
+**Sense/Net Personal Deck** (Liza 1.0). Everybody's first deck, from the simstim giant that sells experiences to ordinary people. It comes in the box with a welcome stack, Sense/Net's demo tune ("Welcome to the Net"), a Security Suite (a firewall, a patch kit and a plain icepick, free, yours for good), the Personal Display 9" and one free line, CustomerLink. Its OS is **Liza**: a menu bar, a Finder, a Trash, everything labelled. Sense/Net's face is Customer Care: cheerful, nine to five, and it would rather you never met the people on its message boards. The deck is clean when it ships; anything cracked on it, somebody else put there.
 
 **Ono-Sendai Cyberspace VII** (Cyberspace 7.0, or 6.2 with the classic panes). The cowboy's deck, "JACK IN TODAY", by mail order from Ono-Sendai Direct. It sees the net as wireframes over a grid and runs **AnarchyOS**, a tiling desktop with workspaces, a launcher and a bar; the run screen is a btop rice with panes you buy. The scene uses it and so do the crews: a PHOSPHOR cracktro looks best on it. Ono-Sendai swaps firmware free, forever. Its pitch is cycles: the VII ships with more CPU than anything else on the market.
 
@@ -110,7 +112,7 @@ A deck is a computer on your desk, sold by a company with a point of view (`docs
 
 **The magazine.** `data/hub/shopper.ron` dresses it: a mail-order computer magazine after Computer Shopper (1986), VOL. 9 NO. 11, 2¢ at the newsstand, "over 880 pages, 412 advertisers, 1,900 products". RIG is one of its issues: you don't open a shop, you flip through a magazine and order from an ad.
 
-**Who writes it.** Editors who have never seen your deck. They test hardware ("our lab jacks in"), run shootouts, and write cover lines; the advertisers write the ads in their own voices (the vendor table above). Sections, each exactly once: Decks, Upgrades, Monitors, Desktop add-ons, Run panes, Mail-order software, and Games (Paper Tiger's price list and its BLOX ad; the cover's NEW line, "BLOX 2.0 IS HERE", points there).
+**Who writes it.** Editors who have never seen your deck. They test hardware ("our lab jacks in"), run shootouts, and write cover lines; the advertisers write the ads in their own voices (the vendor table above). Sections, each exactly once: Decks, Upgrades, Monitors, Desktop add-ons, Run panes, Mail-order software, and Games (Paper Tiger's price list, its BLOX ad and its Jukebox ad; the cover's NEW line, "BLOX 2.0 IS HERE", points there).
 
 **What it knows.** Products, prices, versions, 1-800 hotlines, which deck an add-on fits, what's a REVIEW COPY this issue. It prices nothing itself: every item is priced in its own data file and turns up in the next issue on its own, as a dot-leader line until somebody writes it an ad.
 
