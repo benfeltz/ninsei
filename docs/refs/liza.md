@@ -66,6 +66,13 @@ These are the numbers the kit draws to. Change them here and in `kit::liza::size
 | Check box | 12×12, an X corner to corner when on, label 5px after | the same; radio buttons a 12px circle with a dot; disabled, drawn at half strength |
 | Disabled | gray text | the text at half strength |
 
+## Sliders and thermometers
+
+| | System 6 | Liza |
+|---|---|---|
+| Slider | a horizontal scroll bar (the Sound control panel's, a sound DA's position) | `hslider`: 16px tall, outlined ◀ ▶ boxes 16px wide at the ends, the 50% gray track, a 16×16 paper thumb at the value; an arrow steps a tenth, a click on the track or a drag puts the thumb under the pointer |
+| Thermometer | a framed bar filling left to right | `thermometer`: a 1px ink frame, the level 2px inside filled with the 50% gray (solid ink without it); a click sets the level where it lands |
+
 ## Fields, pop-up menus and drop slots (HyperCard 1.2)
 
 | | HyperCard 1.2 / System 6 | Liza |

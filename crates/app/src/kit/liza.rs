@@ -318,6 +318,108 @@ pub fn scroll_bar(ui: &Ui, p: &Painter, r: Rect, id: Id, s: Scroll, look: &Look)
     to
 }
 
+/// A scroll bar's arrow in its box, outlined, pointing left (`dir` -1) or right (1).
+fn harrow(p: &Painter, b: Rect, dir: f32, line: Stroke) {
+    let c = b.center();
+    let (tip, base) = (c.x + dir * 4.0, c.x - dir * 3.0);
+    let pts = vec![
+        pos2(tip, c.y),
+        pos2(base, c.y + 5.0),
+        pos2(base, c.y - 5.0),
+        pos2(tip, c.y),
+    ];
+    p.add(egui::Shape::line(pts, line));
+}
+
+/// How far a slider's arrow moves it.
+pub const SLIDER_STEP: f32 = 0.1;
+
+/// A horizontal slider's parts in `r`: the left arrow's box, the right one's, the track
+/// between them, and the thumb at `value` (0-1) on it.
+fn slider_parts(r: Rect, value: f32) -> (Rect, Rect, Rect, Rect) {
+    let w = size::SCROLL_W;
+    let left = Rect::from_min_size(r.min, vec2(w, r.height()));
+    let right = Rect::from_min_max(pos2(r.right() - w, r.top()), r.max);
+    let track = Rect::from_min_max(left.right_top(), right.left_bottom());
+    let travel = (track.width() - w).max(0.0);
+    let x = (track.left() + travel * value.clamp(0.0, 1.0)).round();
+    let thumb = Rect::from_min_size(pos2(x, track.top()), vec2(w, track.height()));
+    (left, right, track, thumb)
+}
+
+/// A horizontal scroll bar used as a slider, in `r` ([`size::SCROLL_W`] tall): outlined arrow
+/// boxes at either end, the 50% gray track, and the thumb at `value` (0-1). An arrow steps it
+/// [`SLIDER_STEP`]; a click on the track or a drag puts the thumb under the pointer. Returns
+/// the new value when it moved.
+pub fn hslider(ui: &Ui, r: Rect, id: Id, value: f32, look: &Look) -> Option<f32> {
+    let r = snap(r);
+    let (left, right, track, _) = slider_parts(r, value);
+    let mut to = None;
+    if ui.interact(left, id.with("left"), Sense::click()).clicked() {
+        to = Some(value - SLIDER_STEP);
+    }
+    if ui
+        .interact(right, id.with("right"), Sense::click())
+        .clicked()
+    {
+        to = Some(value + SLIDER_STEP);
+    }
+    let t = ui.interact(track, id.with("track"), Sense::click_and_drag());
+    if (t.clicked() || t.dragged())
+        && let Some(p) = t.interact_pointer_pos()
+    {
+        let travel = (track.width() - size::SCROLL_W).max(1.0);
+        to = Some((p.x - track.left() - size::SCROLL_W / 2.0) / travel);
+    }
+    let to = to.map(|v| v.clamp(0.0, 1.0)).filter(|v| *v != value);
+    let (left, right, track, thumb) = slider_parts(r, to.unwrap_or(value));
+    let (ink, paper) = (look.ink, look.paper);
+    let p = ui.painter();
+    p.rect_filled(r, 0.0, paper);
+    if let Some(g) = look.gray {
+        patterns::fill(p, g, track, ink, paper);
+    }
+    let line = Stroke::new(1.0, ink);
+    p.rect_stroke(r, 0.0, line, StrokeKind::Inside);
+    for (b, dir) in [(left, -1.0), (right, 1.0)] {
+        p.rect_stroke(b, 0.0, line, StrokeKind::Inside);
+        harrow(p, b, dir, line);
+    }
+    p.rect_filled(thumb, 0.0, paper);
+    p.rect_stroke(thumb, 0.0, line, StrokeKind::Inside);
+    to
+}
+
+/// A thermometer in `r`: an ink frame, the level up to `value` (0-1) filled with the 50% gray
+/// (solid ink without it), left to right. A click sets it from where it lands; returns that.
+pub fn thermometer(ui: &Ui, r: Rect, id: Id, value: f32, look: &Look) -> Option<f32> {
+    let r = snap(r);
+    let hit = ui.interact(r, id, Sense::click());
+    let to = hit
+        .clicked()
+        .then(|| hit.interact_pointer_pos())
+        .flatten()
+        .map(|p| ((p.x - r.left()) / r.width().max(1.0)).clamp(0.0, 1.0));
+    let shown = to.unwrap_or(value).clamp(0.0, 1.0);
+    let p = ui.painter();
+    p.rect_filled(r, 0.0, look.paper);
+    let inner = r.shrink(2.0);
+    let fill = Rect::from_min_size(
+        inner.min,
+        vec2((inner.width() * shown).round(), inner.height()),
+    );
+    if fill.width() > 0.0 {
+        match look.gray {
+            Some(g) => patterns::fill(p, g, fill, look.ink, look.paper),
+            None => {
+                p.rect_filled(fill, 0.0, look.ink);
+            }
+        }
+    }
+    p.rect_stroke(r, 0.0, Stroke::new(1.0, look.ink), StrokeKind::Inside);
+    to
+}
+
 /// `body` in a view that scrolls, filling `ui` (a window's [`window_scrolled`]): the view is in
 /// from the top and bottom, and from the right by the scroll bar's room. The bar sits flush on
 /// the right edge, only while there's more than shows (a tool that fits has no dead control
@@ -849,6 +951,56 @@ mod tests {
     use super::*;
     use crate::uitest::{Harness, click, key};
     use egui::Pos2;
+
+    /// One frame of a slider 216 x 16 at (10, 10) set to `value`, with these events.
+    fn slider(h: &mut Harness, value: f32, events: Vec<egui::Event>) -> Option<f32> {
+        let mut out = None;
+        h.frame(events, |ui| {
+            let r = Rect::from_min_size(pos2(10.0, 10.0), vec2(216.0, 16.0));
+            out = hslider(ui, r, Id::new("s"), value, &look());
+        });
+        out
+    }
+
+    #[test]
+    fn a_slider_steps_with_its_arrows_and_jumps_where_the_track_is_clicked() {
+        let mut h = Harness::new(400.0, 200.0);
+        assert_eq!(slider(&mut h, 0.5, Vec::new()), None);
+        let right = Pos2::new(10.0 + 216.0 - 8.0, 18.0);
+        let got = slider(&mut h, 0.5, click(right)).unwrap();
+        assert!((got - 0.6).abs() < 1e-4, "{got}");
+        let left = Pos2::new(18.0, 18.0);
+        assert_eq!(slider(&mut h, 0.05, click(left)), Some(0.0), "clamped");
+        assert_eq!(slider(&mut h, 0.0, click(left)), None, "already there");
+        // The track runs 26..210, the thumb 16 wide, so it travels 168: the middle of its
+        // travel, under the thumb's centre, is 0.5.
+        let mid = Pos2::new(26.0 + 8.0 + 84.0, 18.0);
+        let got = slider(&mut h, 0.0, click(mid)).unwrap();
+        assert!((got - 0.5).abs() < 0.01, "{got}");
+    }
+
+    #[test]
+    fn a_thermometer_fills_to_its_level_and_a_click_sets_it() {
+        let mut h = Harness::new(400.0, 200.0);
+        let r = Rect::from_min_size(pos2(10.0, 10.0), vec2(104.0, 12.0));
+        let mut got = None;
+        h.frame(Vec::new(), |ui| {
+            got = thermometer(ui, r, Id::new("t"), 0.25, &look())
+        });
+        assert_eq!(got, None);
+        let filled: Vec<Rect> = h
+            .rects()
+            .into_iter()
+            .filter(|(_, fill, _)| *fill == Color32::WHITE)
+            .map(|(r, _, _)| r)
+            .collect();
+        assert_eq!(filled.len(), 1, "{filled:?}");
+        assert_eq!(filled[0].width(), 25.0, "a quarter of the inside");
+        h.frame(click(Pos2::new(10.0 + 78.0, 16.0)), |ui| {
+            got = thermometer(ui, r, Id::new("t"), 0.25, &look())
+        });
+        assert!((got.unwrap() - 0.75).abs() < 1e-4);
+    }
 
     fn look() -> Look<'static> {
         Look {
