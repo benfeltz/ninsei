@@ -250,6 +250,12 @@ impl<O: Output> Speaker<O> {
         }
     }
 
+    /// Whether a desktop tune is still rendering: the player's clock waits for it, so the tune
+    /// starts from where the player says.
+    pub fn desk_rendering(&self) -> bool {
+        self.desk_job.is_some()
+    }
+
     /// Whether a cracktro's tune still has the music channel: the desktop's music waits.
     pub fn intro_on(&self) -> bool {
         matches!(self.music, Music::Intro { until } if self.clock < until)
@@ -361,9 +367,18 @@ impl<O: Output> Speaker<O> {
         {
             return false;
         }
-        let Some(out) = self.out() else { return false };
-        let rate = out.rate();
+        let Some(rate) = self.out().map(|o| o.rate()) else {
+            return false;
+        };
         if !self.desk_loop.as_ref().is_some_and(|(id, _)| id == w.id) {
+            // Another tune: the old one stops now, not when the new one is ready.
+            if matches!(&self.music, Music::Desktop { id, .. } if id != w.id) {
+                self.music = Music::Quiet;
+                self.heard_loop = None;
+                if let Some(out) = &mut self.out {
+                    out.music(Vec::new());
+                }
+            }
             if !self.desk_job.as_ref().is_some_and(|(id, _)| id == w.id) {
                 self.desk_job = Some((w.id.to_string(), w.tune.loop_render(rate, 0, None)));
             }
@@ -1226,9 +1241,15 @@ mod tests {
             assert_eq!(said(&mut s), ["stop"]);
             assert_eq!(settle(&mut s, &want(&d, "chroma", 20.0, 1)), 1);
             assert_eq!(said(&mut s), [place(&d, "chroma", 20.0)]);
-            // Another tune renders anew.
+            // Another tune renders anew, and the old one stops at once, not once it's ready.
+            assert!(s.desktop(Some(&want(&d, "welcome", 0.0, 2))) || s.desk_loop.is_some());
+            assert_eq!(said(&mut s).first().map(String::as_str), Some("stop"));
             settle(&mut s, &want(&d, "welcome", 0.0, 2));
-            assert_eq!(said(&mut s), ["loop from 0 muted false"]);
+            assert!(!s.desk_rendering());
+            assert_eq!(
+                s.desk_loop.as_ref().map(|(id, _)| id.as_str()),
+                Some("welcome")
+            );
         }
 
         #[test]
