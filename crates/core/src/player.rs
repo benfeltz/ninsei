@@ -48,7 +48,7 @@ pub struct Transport {
 }
 
 /// What a player can ask for.
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Act {
     /// Play if stopped or paused, pause if playing.
     Toggle,
@@ -61,8 +61,8 @@ pub enum Act {
     Prev,
     /// Play the playlist's `n`th tune from its start.
     Pick(usize),
-    /// Jump to this many seconds into the tune.
-    Seek(f32),
+    /// Jump to this many milliseconds into the tune.
+    Seek(u32),
     /// Turn the master level up or down a step ([`VOLUME_STEP`]).
     Louder,
     Softer,
@@ -191,7 +191,8 @@ pub fn apply(save: &mut Save, data: &Data, t: &mut Transport, act: Act) -> bool 
             t.play = Play::Playing;
             true
         }
-        Act::Seek(secs) => {
+        Act::Seek(ms) => {
+            let secs = ms as f32 / 1000.0;
             let Some(tune) = current_tune(save, data) else {
                 return false;
             };
@@ -292,3 +293,78 @@ pub fn clock(secs: f32) -> String {
     let s = secs.max(0.0) as u32;
     format!("{}:{:02}", s / 60, s % 60)
 }
+
+/// A playlist row as a player lists it: the tune, its author, its length, and whether it's
+/// the one the player is on.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Row<'a> {
+    pub title: &'a str,
+    pub by: &'a str,
+    /// `m:ss`.
+    pub length: String,
+    pub current: bool,
+}
+
+/// The playlist's rows, in the save's order.
+pub fn rows<'a>(save: &Save, data: &'a Data) -> Vec<Row<'a>> {
+    let cur = current(save, data);
+    playlist(save, data)
+        .into_iter()
+        .enumerate()
+        .map(|(i, t)| Row {
+            title: &t.title,
+            by: &t.by,
+            length: clock(t.secs as f32),
+            current: cur == Some(i),
+        })
+        .collect()
+}
+
+/// The status line's words, as a TUI player puts them: what the transport is doing, then
+/// the modes that are on (`▶ playing · repeat · shuffle`).
+pub fn status(save: &Save, t: &Transport) -> String {
+    let mut s = match t.play {
+        Play::Playing => "▶ playing",
+        Play::Paused => "‖ paused",
+        Play::Stopped => "■ stopped",
+    }
+    .to_string();
+    if save.player.repeat {
+        s.push_str(" · repeat");
+    }
+    if save.player.shuffle {
+        s.push_str(" · shuffle");
+    }
+    s
+}
+
+/// The master level as the status line shows it (`vol 70%`, or `vol off` with sound off).
+pub fn volume(save: &Save) -> String {
+    if save.sound {
+        format!("vol {}%", save.volume.min(100))
+    } else {
+        "vol off".into()
+    }
+}
+
+/// The current tune as the player heads it (`the NiGHTMOTHS - NiNSEi NiGHTS`), and where it
+/// is: elapsed and total seconds. `None` with nothing current.
+pub fn now(save: &Save, data: &Data, t: &Transport) -> Option<(String, f32, f32)> {
+    let tune = current_tune(save, data)?;
+    let total = tune.secs as f32;
+    Some((
+        format!("{} - {}", tune.by, tune.title),
+        t.at.min(total),
+        total,
+    ))
+}
+
+/// The keys a player answers, as its legend lists them: key, then what it does.
+pub const KEYS: [(&str, &str); 6] = [
+    ("spc", "play"),
+    ("n p", "next prev"),
+    ("+ -", "vol"),
+    ("r", "repeat"),
+    ("s", "shuffle"),
+    ("⏎", "pick"),
+];

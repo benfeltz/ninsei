@@ -15,6 +15,8 @@
 //   icedb    the ICE database at home: every ICE you've fought, and what breaks it
 //   nightcomm the hacker's dashboard at home: heat on every number, a wardialer that replaces
 //             wardial's tab, the ranges you know and the watched lines you've found
+//   player   TRAX, a music player at home: plays the tunes you own (data/music/), a playlist,
+//            repeat, shuffle and a spectrum
 //   tigerteam Tiger Team Pro, the corporate audit suite from CorpLink: everything nightcomm
 //             does, plus each network's profile (tier, findings, ICE, trace, pay)
 [
@@ -25,5 +27,6 @@
      shop: Some((price: 120, vendor: "d1rge", review: true))),
     (id: "tigerteam", name: "Tiger Team Pro", blurb: "A licensed network assessment suite: a profile and findings on every number you know.", intro: Some("tigerteam"), version: "4.0",
      shop: Some((price: 900, vendor: "tigerteam", review: true))),
+    (id: "player",  name: "TRAX",    blurb: "A tune player: your music disks as a playlist, with a spectrum.", intro: Some("player"), version: "1.2"),
     (id: "qwkread", name: "QWK Reader", blurb: "Offline mail: read your boards' bulletins and saved textfiles at home.", intro: Some("qwkread"), version: "2.0"),
 ]

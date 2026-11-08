@@ -24,6 +24,7 @@ mod nightcomm_view;
 mod pager;
 mod panes;
 mod patterns;
+mod player_view;
 mod settings;
 mod shopper;
 mod sound;
@@ -593,11 +594,32 @@ impl App {
             self.save_dirty = true;
         }
         let want = player::wanted(&self.save, &self.data, self.screen, &self.home.player);
+        // The player's spectrum hears the speaker as the vis pane does, and only while the
+        // player is on screen.
+        let pass = ctx.cumulative_pass_nr();
+        if self.home.player_ui.drawn.is_some_and(|d| d + 2 >= pass) {
+            self.home.heard.samples = self.speaker.listen(vispane::WINDOW);
+            self.home.heard.rate = self.speaker.rate().unwrap_or(0);
+            vispane::alive_ctx(ctx, &self.home.heard.samples);
+        } else {
+            self.home.heard.samples.clear();
+        }
         if self.speaker.desktop(want.as_ref()) {
             ctx.request_repaint();
         } else if want.is_some() {
             ctx.request_repaint_after(std::time::Duration::from_millis(250));
         }
+    }
+
+    /// A player's act, carried out by core on the save and the player's place; a new level
+    /// goes straight to the speaker.
+    fn player_act(&mut self, act: ninsei_core::player::Act) {
+        let (player, volume) = (self.save.player.clone(), self.save.volume);
+        ninsei_core::player::apply(&mut self.save, &self.data, &mut self.home.player, act);
+        if self.save.volume != volume {
+            self.speaker.set_volume(self.save.volume_gain());
+        }
+        self.save_dirty |= self.save.player != player || self.save.volume != volume;
     }
 
     /// Starts the handshake sound when a dial begins, and cuts it when a BBS line drops.
@@ -828,7 +850,8 @@ impl App {
             | WbOut::Monitor(_)
             | WbOut::Deck(_)
             | WbOut::Firmware(_)
-            | WbOut::Order(_) => {
+            | WbOut::Order(_)
+            | WbOut::Player(_) => {
                 return;
             }
         };
@@ -1584,6 +1607,7 @@ impl App {
                     self.home.say(format!("sound {state}"));
                 }
                 WbOut::At(from, line) => self.modem(from, &line),
+                WbOut::Player(act) => self.player_act(act),
                 other => self.home_action(other),
             }
         }

@@ -75,11 +75,12 @@
             (file: "OPTFRAG.ZIP",  item: Fragment(1),       price: 70,  desc: "Optimizer fragment. +2 budget"),
         ]),
         // The starter kit: always here, free, yours for good. Nothing on the desktop says so.
-        (name: "WAREZ TOOLS", stock: 4, always: true, files: [
+        (name: "WAREZ TOOLS", stock: 5, always: true, files: [
             (file: "WARDIAL.ZIP",  item: Tool("wardial"),   price: 0,   desc: "m0th's demon dialer. Finds carriers"),
             (file: "HEXED.ZIP",    item: Tool("hexed"),     price: 0,   desc: "Hex editor. Patch your warez"),
             (file: "QWKREAD.ZIP",  item: Tool("qwkread"),   price: 0,   desc: "Offline mail reader. Read at home"),
             (file: "ICEDB.ZIP",    item: Tool("icedb"),     price: 0,   desc: "ICE bestiary. Know what you fight"),
+            (file: "TRAX.ZIP",     item: Tool("player"),    price: 0,   desc: "m0th's tune player. Spin some MODs"),
         ]),
         // Your first breakers. A consumer deck ships with a shield and a repair kit; this is
         // where you get something that breaks ICE. The crews give their music disks away here
