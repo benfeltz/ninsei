@@ -2115,18 +2115,30 @@ mod tests {
     }
 
     #[test]
-    fn the_script_is_in_every_chromes_layout_and_in_front_on_the_stack() {
+    fn the_script_is_in_every_chromes_layout_and_in_front_on_the_stack_and_btop() {
         for chrome in Chrome::ALL {
             assert!(
                 default_layout(chrome, &[]).find_tab(&Tab::Script).is_some(),
                 "{chrome:?}"
             );
         }
-        let dock = default_layout(Chrome::Stack, &[]);
+        for chrome in [Chrome::Stack, Chrome::Btop] {
+            three_columns(chrome);
+        }
+    }
+
+    /// The Stack's shape: the Script in front of To Do in a column of its own, the map with
+    /// ICE in the centre, Deck over Programs.
+    fn three_columns(chrome: Chrome) {
+        let dock = default_layout(chrome, &[]);
         let at = |t: Tab| dock.find_tab(&t).unwrap();
         let script = at(Tab::Script);
-        assert_eq!(script.tab.0, 0, "Script is the front tab");
-        assert_eq!(at(Tab::Todo).node, script.node, "To Do behind it");
+        assert_eq!(script.tab.0, 0, "{chrome:?}: Script is the front tab");
+        assert_eq!(
+            at(Tab::Todo).node,
+            script.node,
+            "{chrome:?}: To Do behind it"
+        );
         // Its own column: not with the card, the deck, the programs or the Message box.
         for t in [
             Tab::Network,

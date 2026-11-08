@@ -204,8 +204,35 @@ pub fn base_layout(extra: &[Tab]) -> DockState<Tab> {
 pub struct Classic;
 impl ChromeView for Classic {}
 
+/// The btop chrome's tiling, as shares of the screen: the left column (deck over warez), the
+/// right column's share of what's left of it (`ice.bas` in front of todo), the panes over the
+/// terminal, and where the deck stops in the left column.
+mod btop_tiles {
+    pub const LEFT: f32 = 0.22;
+    pub const CENTRE_OF_REST: f32 = 0.59;
+    pub const OVER_TERMINAL: f32 = 0.72;
+    pub const DECK: f32 = 0.5;
+    pub const TERMINAL_OF_BOTTOM: f32 = 0.6;
+}
+
 pub struct Btop;
 impl ChromeView for Btop {
+    /// Three columns over the terminal, the Stack's shape: deck.sys over warez/ on the left
+    /// (narrow), the map in the centre (widest, the fight view in a fight), `ice.bas` in front
+    /// of todo on the right; secondary panes beside the terminal.
+    fn default_layout(&self, extra: &[Tab]) -> DockState<Tab> {
+        use btop_tiles::*;
+        let mut dock = DockState::new(vec![Tab::Network, Tab::Target, Tab::Hex]);
+        let tree = dock.main_surface_mut();
+        let [top, bottom] = tree.split_below(NodeIndex::root(), OVER_TERMINAL, vec![Tab::Terminal]);
+        let [centre, left] = tree.split_left(top, LEFT, vec![Tab::Deck]);
+        tree.split_below(left, DECK, vec![Tab::Warez]);
+        tree.split_right(centre, CENTRE_OF_REST, vec![Tab::Script, Tab::Todo]);
+        if !extra.is_empty() {
+            tree.split_right(bottom, TERMINAL_OF_BOTTOM, extra.to_vec());
+        }
+        dock
+    }
     fn network(&self, p: &mut Panes, ui: &mut Ui) {
         // In a fight the map dives into the ICE's node and becomes the fight view.
         if p.game.phase == ninsei_core::Phase::Combat {
