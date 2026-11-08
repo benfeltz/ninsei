@@ -1418,16 +1418,25 @@ fn run_keys(
     focus_input: &mut bool,
 ) -> Vec<Request> {
     let mut out = view.keys(ctx, cx);
-    out.extend(hotkeys(ctx, cx.game, modal, focus_input));
+    let script = view.script_has_keys(ctx);
+    out.extend(hotkeys(ctx, cx.game, modal, script, focus_input));
     out
 }
 
 /// Hotkeys work whenever the terminal isn't taking typing: Space ends the turn, a digit runs
-/// that slot, and Enter or / go to the Message box.
-fn hotkeys(ctx: &egui::Context, game: &Game, modal: bool, focus_input: &mut bool) -> Vec<Request> {
+/// that slot, and Enter or / go to the Message box. A Script pane holding the keyboard
+/// (`script`) isn't typing: the hotbar's keys still work over it.
+fn hotkeys(
+    ctx: &egui::Context,
+    game: &Game,
+    modal: bool,
+    script: bool,
+    focus_input: &mut bool,
+) -> Vec<Request> {
     let hex_typing = ctx.memory(|m| m.has_focus(hexview::grid_id()));
     let talking = game.encounter.is_some();
-    if modal || talking || hex_typing || ctx.egui_wants_keyboard_input() {
+    let typing = ctx.egui_wants_keyboard_input() && !script;
+    if modal || talking || hex_typing || typing {
         return Vec::new();
     }
     let mut out = Vec::new();
@@ -2271,5 +2280,60 @@ mod tests {
         let calm = ninsei_core::Game::new(d.clone(), 3);
         let (out, focus) = stack_keys(&mut h, &calm, crate::uitest::key(Key::Enter));
         assert!(out.is_empty() && focus);
+    }
+
+    /// One frame of the run's keys on the btop chrome with the `ice.bas` tile holding the
+    /// keyboard; returns what they asked for and whether the command line was asked for.
+    fn ice_bas_keys(
+        h: &mut crate::uitest::Harness,
+        g: &ninsei_core::Game,
+        ev: Vec<egui::Event>,
+    ) -> (Vec<Request>, bool) {
+        let mut suite = crate::suite::State::default();
+        let (mut out, mut focus) = (Vec::new(), false);
+        h.frame(ev, |ui| {
+            crate::btop::script::take_keys(ui.ctx());
+            let mut popup = crate::volume::Popup::default();
+            let mut cx = FrameCx {
+                game: g,
+                pal: theme::Palette::from_def(&g.data.themes[0]),
+                suite: &mut suite,
+                keys_free: true,
+                level: crate::volume::Level {
+                    on: true,
+                    volume: 100,
+                },
+                popup: &mut popup,
+            };
+            out = run_keys(&chrome::Btop, ui.ctx(), &mut cx, false, &mut focus);
+        });
+        (out, focus)
+    }
+
+    #[test]
+    fn over_the_ice_bas_tile_space_and_the_digits_still_work_the_hotbar() {
+        let d = Data::builtin().unwrap();
+        let mut g = crate::stack::tests::a_fight(&d);
+        g.apply(Action::Program("10 RUN icepick\n20 GOTO 10".into()));
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        let game = |out: &[Request]| -> Vec<Action> {
+            out.iter()
+                .filter_map(|r| match r {
+                    Request::Cmd(Command::Game(a)) => Some(a.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+        let (out, _) = ice_bas_keys(&mut h, &g, crate::uitest::key(Key::Space));
+        assert_eq!(game(&out), [Action::EndTurn]);
+        let (out, _) = ice_bas_keys(&mut h, &g, crate::uitest::key(Key::Num0));
+        assert_eq!(game(&out), [Action::Run(0)]);
+        // Enter is the tile's (it retypes the line), never the command line's.
+        let (out, focus) = ice_bas_keys(&mut h, &g, crate::uitest::key(Key::Enter));
+        assert!(game(&out).is_empty() && !focus);
+        assert!(
+            crate::btop::script::view(&h.ctx, &g).edit.is_some(),
+            "retyping"
+        );
     }
 }

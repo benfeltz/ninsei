@@ -147,6 +147,11 @@ pub trait ChromeView {
     fn keys(&self, _ctx: &egui::Context, _cx: &mut FrameCx) -> Vec<Request> {
         Vec::new()
     }
+    /// Whether the Script pane holds the keyboard as a pane, not as typing (btop's `ice.bas`
+    /// tile with the focus): the run's hotkeys (Space, the digits) still work then.
+    fn script_has_keys(&self, _ctx: &egui::Context) -> bool {
+        false
+    }
     /// Drawn over everything after the panes (the suite's dialogs).
     fn overlay(&self, _ctx: &egui::Context, _cx: &mut FrameCx) -> Vec<Request> {
         Vec::new()
@@ -233,6 +238,13 @@ impl ChromeView for Btop {
     }
     fn title(&self, tab: Tab) -> Option<&'static str> {
         (tab == Tab::Script).then_some(" ice.bas ")
+    }
+    /// The `ice.bas` tile's letters, while it has the keyboard.
+    fn keys(&self, ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
+        crate::btop::script::keys(ctx, cx)
+    }
+    fn script_has_keys(&self, ctx: &egui::Context) -> bool {
+        crate::btop::script::has_keys(ctx)
     }
     /// The tile lays out its own rows.
     fn scroll_bars(&self, tab: Tab) -> Option<[bool; 2]> {

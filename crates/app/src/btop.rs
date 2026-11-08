@@ -918,12 +918,13 @@ pub fn vis_box(ui: &mut Ui, p: &Palette, samples: &[f32], rate: u32) {
 /// source window, on the chrome's cells; what it shows is core's (`btop_fight`). Its view
 /// state (the cursor, the first row in view) is egui memory, by line number.
 pub mod script {
-    use egui::{Id, Sense, Ui};
-    use ninsei_core::Game;
+    use egui::{Event, Id, Key, Rect, Sense, Ui, UiBuilder, vec2};
     use ninsei_core::btop_fight::{self, Gutter, Row};
+    use ninsei_core::{Action, Game};
 
-    use super::{boxed_lit, cells_in};
-    use crate::panes::Panes;
+    use super::{MONO, boxed_lit, cells_in, mono};
+    use crate::chrome::{FrameCx, act};
+    use crate::panes::{Panes, Request};
 
     /// The tile's keyboard focus: while it has it, its letters are the debugger's and the
     /// terminal doesn't type.
@@ -940,6 +941,22 @@ pub mod script {
         pub top: usize,
         /// The line last kept in view: it's only scrolled to when it changes.
         pub followed: Option<u32>,
+        /// The line being retyped where it stands, if one is.
+        pub edit: Option<Edit>,
+    }
+
+    /// A line being retyped: its number (a new one, for a line just opened) and the editor
+    /// holding its text. Enter commits it as one `Action::Program`; Esc puts it back.
+    #[derive(Clone, Debug)]
+    pub(crate) struct Edit {
+        pub no: u32,
+        pub line: ninsei_term::LineEditor,
+    }
+
+    /// The editor row's keyboard focus: while it has it, typing is the line's, and nothing
+    /// else (the terminal, the hotkeys, the tile's letters) hears it.
+    pub fn edit_id() -> Id {
+        id().with("edit")
     }
 
     fn view_id() -> Id {
@@ -976,6 +993,156 @@ pub mod script {
                 },
             );
         });
+    }
+
+    /// Starts retyping line `no` from `text`; the line takes the keyboard.
+    fn start_edit(ctx: &egui::Context, v: &mut View, no: u32, text: &str) {
+        let mut line = ninsei_term::LineEditor::new(1);
+        line.set_text(text);
+        v.edit = Some(Edit { no, line });
+        ctx.memory_mut(|m| m.request_focus(edit_id()));
+    }
+
+    /// The tile's keys, read before the run's hotkeys and only while the tile has the
+    /// keyboard: `r` run, `s` step, `c` continue, `p` pause (each when it presses), `j`/`k` or
+    /// the arrows move the cursor, `e` or Enter retypes its line, `o` opens a line after it, `d`
+    /// deletes it, Esc gives the keyboard back. Letters with Ctrl or Alt are never ours. The
+    /// keys it takes and every typed character are taken out of the frame, so nothing after
+    /// sees them; Space and the digits stay for the hotbar.
+    pub(crate) fn keys(ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
+        if !cx.keys_free || !has_keys(ctx) {
+            return Vec::new();
+        }
+        let g = cx.game;
+        let mut v = view(ctx, g);
+        let k = btop_fight::keys(g);
+        let mut out = Vec::new();
+        let mut taken = Vec::new();
+        let events = ctx.input(|i| i.events.clone());
+        for e in &events {
+            let Event::Key {
+                key,
+                pressed: true,
+                repeat,
+                modifiers,
+                ..
+            } = e
+            else {
+                continue;
+            };
+            if !modifiers.is_none() || v.edit.is_some() {
+                continue;
+            }
+            let once = !*repeat;
+            let debugger = match key {
+                Key::R if k.run => Some(Action::Play),
+                Key::S if k.step => Some(Action::Step),
+                Key::C if k.cont => Some(Action::Play),
+                Key::P if k.pause => Some(Action::Pause),
+                _ => None,
+            };
+            let took = match key {
+                _ if debugger.is_some() => {
+                    if once {
+                        out.extend(debugger.map(act));
+                    }
+                    true
+                }
+                Key::J | Key::ArrowDown => {
+                    v.cursor = btop_fight::moved(g, v.cursor, 1);
+                    true
+                }
+                Key::K | Key::ArrowUp => {
+                    v.cursor = btop_fight::moved(g, v.cursor, -1);
+                    true
+                }
+                Key::E | Key::Enter if once => {
+                    if let Some(no) = v.cursor {
+                        start_edit(ctx, &mut v, no, &btop_fight::editing_text(g, no));
+                    }
+                    true
+                }
+                Key::O if once => {
+                    if let Some(no) = btop_fight::open_after(g, v.cursor) {
+                        start_edit(ctx, &mut v, no, "");
+                    }
+                    true
+                }
+                Key::D if once => {
+                    if let Some(no) = v.cursor
+                        && let Some(a) = btop_fight::delete(g, no)
+                    {
+                        let lines = &g.program.lines;
+                        let before = lines.iter().map(|l| l.no).take_while(|&n| n < no).last();
+                        v.cursor = g.program.after(no).or(before);
+                        out.push(act(a));
+                    }
+                    true
+                }
+                Key::Escape => {
+                    ctx.memory_mut(|m| m.surrender_focus(id()));
+                    true
+                }
+                // Space, the digits and the rest are the run's.
+                _ => false,
+            };
+            if took {
+                taken.push(e.clone());
+            }
+        }
+        ctx.input_mut(|i| {
+            i.events
+                .retain(|e| !matches!(e, Event::Text(_)) && !taken.contains(e))
+        });
+        keep(ctx, v);
+        out
+    }
+
+    /// The row being retyped: its number lit, then the line editor over the text's cells.
+    /// Enter commits the one line; Esc (or a click elsewhere) puts the old text back.
+    fn edit_row(p: &mut Panes, ui: &mut Ui, at: Rect, v: &mut View) {
+        let Some(edit) = v.edit.as_mut() else {
+            return;
+        };
+        let pal = p.pal;
+        let style = ninsei_term::widget::Style {
+            font: mono(MONO),
+            prompt: pal.dim,
+            text: pal.bright,
+            cursor: pal.fg,
+            under_cursor: pal.bg,
+            search: pal.fg,
+        };
+        let h = ui.fonts_mut(|f| f.row_height(&style.font)) + 4.0;
+        let rect = Rect::from_center_size(at.center(), vec2(at.width(), h));
+        let mut child = ui.new_child(UiBuilder::new().max_rect(rect));
+        let r =
+            ninsei_term::widget::line(&mut child, edit_id(), &mut edit.line, "", &style, &|_| {
+                Vec::new()
+            });
+        let no = edit.no;
+        let submitted = r.outcomes.iter().find_map(|o| match o {
+            ninsei_term::Outcome::Submit(t) => Some(t.clone()),
+            _ => None,
+        });
+        let ctx = ui.ctx().clone();
+        if let Some(text) = submitted {
+            if let Some(a) = btop_fight::retype(p.game, no, &text) {
+                p.act(a);
+            }
+            v.edit = None;
+            if !text.trim().is_empty() {
+                v.cursor = Some(no);
+            }
+            take_keys(&ctx);
+        } else if !r.focused {
+            // Esc let go of the keyboard (it comes back to the tile), or a click went
+            // elsewhere (it stays there): the old text stands.
+            v.edit = None;
+            if ctx.memory(|m| m.focused().is_none()) {
+                take_keys(&ctx);
+            }
+        }
     }
 
     /// The legend under the listing: btop's way of showing a box's keys.
@@ -1027,7 +1194,26 @@ pub mod script {
             take_keys(&ctx);
         }
         let mut v = view(&ctx, g);
-        let rows = btop_fight::rows(g);
+        let mut rows = btop_fight::rows(g);
+        // A line just opened has a row before it's in the program.
+        if let Some(e) = &v.edit
+            && g.program.line(e.no).is_none()
+        {
+            let at = rows
+                .iter()
+                .position(|r| r.no.is_none_or(|n| n > e.no))
+                .unwrap_or(rows.len());
+            rows.insert(
+                at,
+                Row {
+                    no: Some(e.no),
+                    text: String::new(),
+                    gutter: Gutter::None,
+                    dim: false,
+                    fault: None,
+                },
+            );
+        }
         let keys = btop_fight::keys(g);
         let note = btop_fight::note(g);
         boxed_lit(ui, &pal, btop_fight::title(g), &note, focused, |ui| {
@@ -1039,7 +1225,9 @@ pub mod script {
             let n = c.rows - if legend { LEGEND_ROWS } else { 0 };
             // Kept in view: the cursor while the tile has the keys, else the line about to run.
             let current = rows.iter().find(|r| r.gutter == Gutter::Current);
-            let follow = if focused {
+            let follow = if let Some(e) = &v.edit {
+                Some(e.no)
+            } else if focused {
                 v.cursor
             } else {
                 current.and_then(|r| r.no).or(v.cursor)
@@ -1086,7 +1274,11 @@ pub mod script {
                     None => r.text.clone(),
                 };
                 let no = r.no.map_or(String::new(), |n| n.to_string());
-                if cursor {
+                if r.no.is_some() && r.no == v.edit.as_ref().map(|e| e.no) {
+                    c.text_right(&painter, 2 + w, y, &no, pal.bright);
+                    let at = c.at(text_c, y, c.cols.saturating_sub(text_c), 1);
+                    edit_row(p, ui, at, &mut v);
+                } else if cursor {
                     let lead = format!("{no:>w$}  ");
                     let room = c.cols.saturating_sub(2);
                     c.inverse(
@@ -1121,13 +1313,16 @@ pub mod script {
                 && let Some(pos) = tile.interact_pointer_pos()
                 && let Some((_, y)) = c.cell_at(pos)
                 && let Some(r) = rows.get(v.top + y).filter(|_| y < n)
-                && r.no.is_some()
+                && let Some(no) = r.no
             {
-                v.cursor = r.no;
+                v.cursor = Some(no);
+                if tile.double_clicked() && v.edit.is_none() {
+                    start_edit(&ctx, &mut v, no, &btop_fight::editing_text(g, no));
+                }
             }
             ui.allocate_rect(inner, Sense::hover());
         });
-        if tile.clicked() {
+        if tile.clicked() && v.edit.is_none() {
             take_keys(&ctx);
         }
         keep(&ctx, v);
@@ -1400,6 +1595,236 @@ mod script_tests {
         rows.iter()
             .find(|(s, _)| s.contains(text))
             .unwrap_or_else(|| panic!("no row with {text:?} in {rows:?}"))
+    }
+
+    /// A letter as a keyboard sends it: the key, then the character it types.
+    fn letter(c: char) -> Vec<egui::Event> {
+        let key = egui::Key::from_name(&c.to_ascii_uppercase().to_string()).unwrap();
+        let mut ev = crate::uitest::key(key);
+        ev.insert(1, egui::Event::Text(c.to_string()));
+        ev
+    }
+
+    /// Typed text, a key and its character at a time.
+    fn typed(s: &str) -> Vec<egui::Event> {
+        s.chars()
+            .flat_map(|c| {
+                if c == ' ' {
+                    let mut ev = crate::uitest::key(egui::Key::Space);
+                    ev.insert(1, egui::Event::Text(" ".into()));
+                    ev
+                } else if c.is_ascii_alphabetic() {
+                    letter(c)
+                } else {
+                    crate::uitest::text(&c.to_string())
+                }
+            })
+            .collect()
+    }
+
+    /// The game actions in `out`.
+    fn actions(out: Vec<Request>) -> Vec<Action> {
+        out.into_iter()
+            .filter_map(|r| match r {
+                Request::Cmd(ninsei_core::Command::Game(a)) => Some(a),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// The tile drawn, then clicked on line `no` so it has the keys and its cursor is there.
+    fn focus_on(h: &mut Harness, g: &Game, no: u32) {
+        frame(h, g, PANE, vec![]);
+        let tile = pane_rect(PANE);
+        let n = no.to_string();
+        // The number's last digit, right-aligned in its column.
+        let last = n.chars().last().unwrap().to_string();
+        let first = n.chars().next().unwrap().to_string();
+        let mut glyphs: Vec<(String, Rect)> = h
+            .painted_text()
+            .into_iter()
+            .filter(|(_, r)| tile.contains(r.center()))
+            .collect();
+        glyphs.sort_by(|a, b| {
+            a.1.center()
+                .y
+                .total_cmp(&b.1.center().y)
+                .then(a.1.center().x.total_cmp(&b.1.center().x))
+        });
+        let at = glyphs
+            .windows(n.len())
+            .find(|w| {
+                w[0].0 == first
+                    && w[w.len() - 1].0 == last
+                    && w.iter().map(|g| g.0.as_str()).collect::<String>() == n
+                    && w[0].1.center().x < tile.left() + 60.0
+            })
+            .unwrap_or_else(|| panic!("no line {no}"))[0]
+            .1
+            .center();
+        frame(h, g, PANE, crate::uitest::click(at));
+        assert!(script::has_keys(&h.ctx));
+        assert_eq!(script::view(&h.ctx, g).cursor, Some(no));
+    }
+
+    fn program(g: &Game) -> Vec<String> {
+        g.program
+            .lines
+            .iter()
+            .map(|l| format!("{} {}", l.no, l.text))
+            .collect()
+    }
+
+    #[test]
+    fn with_the_tile_focused_the_letters_drive_the_debugger() {
+        let g = fight("10 RUN icepick\n20 STOP\n30 GOTO 10");
+        let mut h = Harness::new(1280.0, 800.0);
+        focus_on(&mut h, &g, 10);
+        assert_eq!(
+            actions(frame(&mut h, &g, PANE, letter('s'))),
+            [Action::Step]
+        );
+        assert_eq!(
+            actions(frame(&mut h, &g, PANE, letter('r'))),
+            [Action::Play]
+        );
+        assert!(
+            actions(frame(&mut h, &g, PANE, letter('p'))).is_empty(),
+            "nothing to pause while paused"
+        );
+        // j and k move the cursor, and so do the arrows.
+        frame(&mut h, &g, PANE, letter('j'));
+        frame(&mut h, &g, PANE, crate::uitest::key(egui::Key::ArrowDown));
+        assert_eq!(script::view(&h.ctx, &g).cursor, Some(30));
+        frame(&mut h, &g, PANE, letter('k'));
+        assert_eq!(script::view(&h.ctx, &g).cursor, Some(20));
+        // Esc gives the keyboard back.
+        frame(&mut h, &g, PANE, crate::uitest::key(egui::Key::Escape));
+        assert!(!script::has_keys(&h.ctx));
+        assert!(actions(frame(&mut h, &g, PANE, letter('s'))).is_empty());
+    }
+
+    #[test]
+    fn with_the_terminal_focused_it_keeps_typing() {
+        let g = fight("10 RUN icepick\n20 STOP\n30 GOTO 10");
+        let mut h = Harness::new(1280.0, 800.0);
+        let mut term = ninsei_term::LineEditor::default();
+        frame_with(&mut h, &g, PANE, &mut term, true, vec![]);
+        let out = frame_with(&mut h, &g, PANE, &mut term, false, letter('s'));
+        assert!(actions(out).is_empty(), "the tile heard nothing");
+        assert_eq!(term.text(), "s", "the terminal typed it");
+    }
+
+    #[test]
+    fn a_line_is_retyped_where_it_stands_and_enter_commits_one_line() {
+        let mut g = fight("10 RUN icepick\n20 STOP\n30 GOTO 10");
+        let before = program(&g);
+        let mut h = Harness::new(1280.0, 800.0);
+        focus_on(&mut h, &g, 20);
+        let mut term = ninsei_term::LineEditor::default();
+        frame_with(&mut h, &g, PANE, &mut term, false, letter('e'));
+        assert!(!script::has_keys(&h.ctx), "the row has the keyboard now");
+        let mut ev = Vec::new();
+        for _ in 0.."STOP".len() {
+            ev.extend(crate::uitest::key(egui::Key::Backspace));
+        }
+        ev.extend(typed("RUN patch"));
+        let out = frame_with(&mut h, &g, PANE, &mut term, false, ev);
+        assert!(actions(out).is_empty(), "nothing commits before Enter");
+        assert_eq!(term.text(), "", "the terminal heard none of it");
+        let out = frame_with(
+            &mut h,
+            &g,
+            PANE,
+            &mut term,
+            false,
+            crate::uitest::key(egui::Key::Enter),
+        );
+        let acts = actions(out);
+        assert_eq!(acts.len(), 1, "{acts:?}");
+        for a in acts {
+            g.apply(a);
+        }
+        let after = program(&g);
+        let differ: Vec<_> = before.iter().zip(&after).filter(|(a, b)| a != b).collect();
+        assert_eq!(differ.len(), 1, "{after:?}");
+        assert_eq!(after[1], "20 RUN patch");
+        frame(&mut h, &g, PANE, vec![]);
+        assert!(script::has_keys(&h.ctx), "the tile has the keys back");
+    }
+
+    #[test]
+    fn esc_puts_the_old_text_back() {
+        let g = fight("10 RUN icepick\n20 STOP\n30 GOTO 10");
+        let mut h = Harness::new(1280.0, 800.0);
+        focus_on(&mut h, &g, 20);
+        frame(&mut h, &g, PANE, crate::uitest::key(egui::Key::Enter));
+        frame(&mut h, &g, PANE, typed("xyz"));
+        let out = frame(&mut h, &g, PANE, crate::uitest::key(egui::Key::Escape));
+        assert!(actions(out).is_empty());
+        frame(&mut h, &g, PANE, vec![]);
+        let rows = rows_painted(&h, pane_rect(PANE));
+        let (s, _) = row_with(&rows, "20");
+        assert!(s.ends_with("STOP"), "{s}");
+        assert!(script::has_keys(&h.ctx), "the keyboard back on the tile");
+    }
+
+    #[test]
+    fn o_opens_a_numbered_line_after_the_cursor_and_d_deletes() {
+        let mut g = fight("10 RUN icepick\n20 STOP\n30 GOTO 10");
+        let mut h = Harness::new(1280.0, 800.0);
+        focus_on(&mut h, &g, 20);
+        frame(&mut h, &g, PANE, letter('o'));
+        frame(&mut h, &g, PANE, vec![]);
+        let rows = rows_painted(&h, pane_rect(PANE));
+        assert!(
+            rows.iter().any(|(s, _)| s.trim() == "25"),
+            "the new row: {rows:?}"
+        );
+        frame(&mut h, &g, PANE, typed("RUN patch"));
+        let acts = actions(frame(
+            &mut h,
+            &g,
+            PANE,
+            crate::uitest::key(egui::Key::Enter),
+        ));
+        for a in acts {
+            g.apply(a);
+        }
+        assert_eq!(g.program.line(25).unwrap().text, "RUN patch");
+        frame(&mut h, &g, PANE, vec![]);
+        assert_eq!(script::view(&h.ctx, &g).cursor, Some(25));
+        let acts = actions(frame(&mut h, &g, PANE, letter('d')));
+        assert_eq!(acts.len(), 1);
+        for a in acts {
+            g.apply(a);
+        }
+        assert_eq!(program(&g), ["10 RUN icepick", "20 STOP", "30 GOTO 10"]);
+        assert_eq!(
+            script::view(&h.ctx, &g).cursor,
+            Some(30),
+            "on the next line"
+        );
+    }
+
+    #[test]
+    fn a_double_click_retypes_the_line() {
+        let g = fight("10 RUN icepick\n20 STOP\n30 GOTO 10");
+        let mut h = Harness::new(1280.0, 800.0);
+        focus_on(&mut h, &g, 30);
+        let at = h
+            .painted_text()
+            .into_iter()
+            .find(|(t, r)| t == "G" && pane_rect(PANE).contains(r.center()))
+            .unwrap()
+            .1
+            .center();
+        // Well after the click that focused it, or the pair reads as a triple click.
+        h.wait(1.0);
+        frame(&mut h, &g, PANE, crate::uitest::click(at));
+        frame(&mut h, &g, PANE, crate::uitest::click(at));
+        frame(&mut h, &g, PANE, vec![]);
+        assert!(h.ctx.memory(|m| m.has_focus(script::edit_id())), "editing");
     }
 
     #[test]
