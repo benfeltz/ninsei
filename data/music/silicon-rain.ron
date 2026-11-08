@@ -1,0 +1,32 @@
+// A tune on a music disk (the format is in ninsei-nights.ron).
+// PHOSPHOR, slower and wet: echoing triangle drops over a held saw.
+(
+    title: "SiLiCON RAiN",
+    by: "PHOSPHOR",
+    secs: 100,
+    tune: (bpm: 152, tracks: [
+        (wave: Triangle, vol: 0.24, pattern: "
+            D6 . A5 . F5 . D5 . A5 . F5 . D5 . A4 .
+            C6 . G5 . E5 . C5 . G5 . E5 . C5 . G4 .
+            Bb5 . F5 . D5 . Bb4 . F5 . D5 . Bb4 . F4 .
+            A5 . E5 . C#5 . A4 . E5 . C#5 . A4 . E4 .
+        "),
+        (wave: Saw, vol: 0.05, pattern: "
+            D4 - - - - - - - - - - - - - - -
+            C4 - - - - - - - - - - - - - - -
+            Bb3 - - - - - - - - - - - - - - -
+            A3 - - - - - - - C#4 - - - - - - -
+        "),
+        (wave: Square, vol: 0.09, pattern: "
+            . . . . F5 - - - E5 - D5 - A4 - - -
+            . . . . E5 - - - D5 - C5 - G4 - - -
+            . . . . D5 - - - C5 - Bb4 - F4 - - -
+            . . . . C#5 - - - E5 - A5 - - - - -
+            . . . . F5 - - - G5 - A5 - D6 - - -
+            . . . . E5 - - - D5 - C5 - G5 - - -
+            . . . . F5 - - - E5 - D5 - Bb4 - - -
+            . . . . A4 - C#5 - E5 - A5 - - - - .
+        "),
+        (wave: Noise, vol: 0.05, pattern: "x . . . . . x . . . x . . . . ."),
+    ]),
+)
