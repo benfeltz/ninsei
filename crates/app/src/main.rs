@@ -1939,6 +1939,60 @@ mod tests {
     }
 
     #[test]
+    fn acceptance_137_2_trax_on_the_sense_net_is_a_desk_accessory_that_plays() {
+        use crate::uitest::{Harness, click, key};
+        let mut h = Harness::new(1280.0, 800.0);
+        let cc = eframe::CreationContext::_new_kittest(h.ctx.clone());
+        let mut app = App::new(&cc, Data::builtin().unwrap(), Some(7));
+        app.save.intros = false;
+        app.save.guide_seen = true;
+        app.save.learn_tool("player");
+        assert_eq!(
+            app.save.firmware_def(&app.data).desktop,
+            ninsei_core::hardware::Desktop::Liza
+        );
+        let frame = |h: &mut Harness, app: &mut App, ev: Vec<egui::Event>| {
+            let pal = app.pal;
+            h.frame(ev, |ui| app.hub_ui(ui.ctx(), &pal));
+        };
+        // Past the boot card, then TRAX's window.
+        for _ in 0..3 {
+            frame(&mut h, &mut app, Vec::new());
+        }
+        let screen = egui::pos2(900.0, 700.0);
+        frame(&mut h, &mut app, click(screen));
+        app.home.open(Tool::Player);
+        for _ in 0..3 {
+            frame(&mut h, &mut app, Vec::new());
+        }
+        // The desk accessory: its transport, its modes, and the kit's tunes in its list.
+        for label in ["◀◀", "▶", "■", "▶▶", "Repeat", "Shuffle"] {
+            assert!(h.find(label).is_some(), "{label}: {:?}", h.texts());
+        }
+        assert!(h.find("Play/Pause").is_none(), "not the plain listing");
+        // ▶ plays the cursor's tune, and reads ‖ after.
+        let play = h.find("▶").unwrap().center();
+        frame(&mut h, &mut app, click(play));
+        frame(&mut h, &mut app, Vec::new());
+        assert_eq!(app.home.player.play, ninsei_core::player::Play::Playing);
+        assert!(app.save.player.current.is_some());
+        assert!(h.find("‖").is_some(), "{:?}", h.texts());
+        // Repeat is a check box that sticks to the save.
+        let repeat = h.find("Repeat").unwrap().center();
+        frame(&mut h, &mut app, click(repeat));
+        frame(&mut h, &mut app, Vec::new());
+        assert!(app.save.player.repeat);
+        // Its keys: n moves to the next tune.
+        let was = app.save.player.current.clone();
+        frame(&mut h, &mut app, key(egui::Key::N));
+        frame(&mut h, &mut app, Vec::new());
+        assert_ne!(
+            app.save.player.current, was,
+            "the window in front has the keys"
+        );
+    }
+
+    #[test]
     fn a_game_open_on_one_desktop_survives_a_switch_of_firmware_and_back() {
         use crate::uitest::Harness;
         use ninsei_core::hub::GameCopy;
