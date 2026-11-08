@@ -308,6 +308,131 @@ pub fn show(
     }
 }
 
+/// What a GUI face does first: marks the player drawn, keeps the cursor on a row, and with the
+/// keyboard takes the player's keys (stopping text input, so nothing behind it types them;
+/// ↑↓ move the cursor here). Returns the playlist's rows.
+fn face_start<'a>(
+    ui: &Ui,
+    data: &'a Data,
+    save: &Save,
+    pui: &mut PlayerUi,
+    keys_on: bool,
+    out: &mut Vec<WbOut>,
+) -> Vec<player::Row<'a>> {
+    pui.drawn = Some(ui.ctx().cumulative_pass_nr());
+    let rows = player::rows(save, data);
+    if pui.sel.is_none_or(|s| s >= rows.len()) {
+        pui.sel = rows
+            .iter()
+            .position(|r| r.current)
+            .or((!rows.is_empty()).then_some(0));
+    }
+    if keys_on {
+        ui.ctx().memory_mut(|m| m.stop_text_input());
+        for a in keys(ui, rows.len(), &mut pui.sel) {
+            out.push(WbOut::Player(a));
+        }
+    }
+    rows
+}
+
+/// A face `size` big, centred across the room `ui` has, on whole pixels.
+fn centred(ui: &mut Ui, size: egui::Vec2) -> Rect {
+    let room = ui.available_width().max(size.x);
+    let (row, _) = ui.allocate_exact_size(egui::vec2(room, size.y), Sense::hover());
+    let left = (row.left() + (row.width() - size.x) / 2.0).round();
+    Rect::from_min_size(egui::pos2(left, row.top().round()), size)
+}
+
+/// The spectrum as bars `bar` wide with `gap` between them, centred in `inner` and standing on
+/// its bottom: each lit bar's rect, from what the speaker plays (the vis pane's path).
+fn spectrum(ui: &Ui, id: &str, heard: &Heard, inner: Rect, bar: f32, gap: f32) -> Vec<Rect> {
+    let n = ((inner.width() + gap) / (bar + gap)).floor().max(1.0) as usize;
+    let samples: &[f32] = if heard.samples.is_empty() {
+        &[0.0; 64]
+    } else {
+        &heard.samples
+    };
+    let levels = crate::vispane::bars(ui, id, samples, heard.rate.max(1), n);
+    let left = inner.left() + ((inner.width() - (n as f32 * (bar + gap) - gap)) / 2.0).round();
+    levels
+        .iter()
+        .enumerate()
+        .filter_map(|(i, b)| {
+            let h = (b.clamp(0.0, 1.0) * inner.height()).round();
+            let x = left + i as f32 * (bar + gap);
+            (h >= 1.0).then(|| {
+                Rect::from_min_max(
+                    egui::pos2(x, inner.bottom() - h),
+                    egui::pos2(x + bar, inner.bottom()),
+                )
+            })
+        })
+        .collect()
+}
+
+/// A GUI playlist's columns, measured in its type: the mark, the title (the longest a title
+/// may be), the crew cut to what's left, and the length at the right.
+struct Columns {
+    font: egui::FontId,
+    adv: f32,
+    title_x: f32,
+    by_x: f32,
+    len_w: f32,
+}
+
+impl Columns {
+    fn new(ctx: &egui::Context, font: &egui::FontId) -> Columns {
+        let measure = |s: &str| crate::kit::liza::text_width(ctx, s, font).ceil();
+        let adv = measure("0");
+        let title_x = 4.0 + 2.0 * adv;
+        Columns {
+            font: font.clone(),
+            adv,
+            title_x,
+            by_x: title_x + adv * (ninsei_core::data::TUNE_TITLE_MAX + 2) as f32,
+            len_w: measure("00:00"),
+        }
+    }
+
+    /// Whole characters in `px`.
+    fn chars(&self, px: f32) -> usize {
+        (px / self.adv).floor().max(1.0) as usize
+    }
+
+    /// Paints `row` in `cell` in `fg`. Returns its name, for the accessibility tree.
+    fn paint(&self, p: &egui::Painter, cell: Rect, row: &player::Row, fg: Color32) -> String {
+        use crate::kit::cells::cut;
+        use egui::Align2;
+        let mid = cell.center().y;
+        let at = |x: f32| egui::pos2(cell.left() + x, mid);
+        let font = || self.font.clone();
+        let mark = if row.current { "▶" } else { "" };
+        p.text(at(4.0), Align2::LEFT_CENTER, mark, font(), fg);
+        let title = cut(row.title, ninsei_core::data::TUNE_TITLE_MAX);
+        p.text(at(self.title_x), Align2::LEFT_CENTER, title, font(), fg);
+        let by_room = cell.width() - 6.0 - self.len_w - self.adv - self.by_x;
+        let by = cut(row.by, self.chars(by_room));
+        p.text(at(self.by_x), Align2::LEFT_CENTER, by, font(), fg);
+        let end = egui::pos2(cell.right() - 6.0, mid);
+        p.text(end, Align2::RIGHT_CENTER, &row.length, font(), fg);
+        row.title.to_string()
+    }
+}
+
+/// After a playlist's frame: a picked row takes the cursor, and a double-click plays it.
+fn picked_row(ui: &Ui, pui: &mut PlayerUi, picked: Option<usize>, out: &mut Vec<WbOut>) {
+    if let Some(i) = picked {
+        pui.sel = Some(i);
+        if ui.input(|i| {
+            i.pointer
+                .button_double_clicked(egui::PointerButton::Primary)
+        }) {
+            out.push(WbOut::Player(Act::Pick(i)));
+        }
+    }
+}
+
 /// The Sense/Net's TRAX: its face's size, a fixed desk accessory.
 pub const LIZA_SIZE: egui::Vec2 = egui::vec2(440.0, 404.0);
 
@@ -335,26 +460,9 @@ pub fn liza_face(
 ) {
     use crate::kit::liza as kit;
     use egui::{Align2, Id, UiBuilder, pos2, vec2};
-    pui.drawn = Some(ui.ctx().cumulative_pass_nr());
     let look = crate::liza::desk_look(data);
-    let rows = player::rows(save, data);
-    if pui.sel.is_none_or(|s| s >= rows.len()) {
-        pui.sel = player::current(save, data).or((!rows.is_empty()).then_some(0));
-    }
-    let list_id = Id::new("trax-liza-list");
-    if keys_on {
-        // Its keys are the player's: nothing behind it types them, and ↑↓ move the cursor
-        // here (the list box never keeps the focus that would walk it itself).
-        ui.ctx().memory_mut(|m| m.stop_text_input());
-        for a in keys(ui, rows.len(), &mut pui.sel) {
-            out.push(WbOut::Player(a));
-        }
-    }
-    // The face, centred across the window's room.
-    let room = ui.available_width().max(LIZA_SIZE.x);
-    let (row, _) = ui.allocate_exact_size(vec2(room, LIZA_SIZE.y), Sense::hover());
-    let left = (row.left() + (row.width() - LIZA_SIZE.x) / 2.0).round();
-    let rect = Rect::from_min_size(pos2(left, row.top().round()), LIZA_SIZE);
+    let rows = face_start(ui, data, save, pui, keys_on, out);
+    let rect = centred(ui, LIZA_SIZE);
     let p = ui.painter_at(rect.expand(1.0));
     let (x0, w) = (rect.left(), rect.width());
     let line = 20.0;
@@ -500,30 +608,8 @@ pub fn liza_face(
         ],
         egui::Stroke::new(1.0, look.ink),
     );
-    let n = ((inner.width() + LIZA_GAP) / (LIZA_BAR + LIZA_GAP))
-        .floor()
-        .max(1.0) as usize;
-    let samples: &[f32] = if heard.samples.is_empty() {
-        &[0.0; 64]
-    } else {
-        &heard.samples
-    };
-    let bars = crate::vispane::bars(ui, "trax-liza", samples, heard.rate.max(1), n);
-    let left = inner.left()
-        + ((inner.width() - (n as f32 * (LIZA_BAR + LIZA_GAP) - LIZA_GAP)) / 2.0).round();
-    for (i, b) in bars.iter().enumerate() {
-        let h = (b.clamp(0.0, 1.0) * inner.height()).round();
-        if h >= 1.0 {
-            let x = left + i as f32 * (LIZA_BAR + LIZA_GAP);
-            p.rect_filled(
-                Rect::from_min_max(
-                    pos2(x, inner.bottom() - h),
-                    pos2(x + LIZA_BAR, inner.bottom()),
-                ),
-                0.0,
-                look.ink,
-            );
-        }
+    for b in spectrum(ui, "trax-liza", heard, inner, LIZA_BAR, LIZA_GAP) {
+        p.rect_filled(b, 0.0, look.ink);
     }
     y += LIZA_VIS_H + 8.0;
 
@@ -531,73 +617,27 @@ pub fn liza_face(
     // (or Enter) plays.
     let mut list =
         ui.new_child(UiBuilder::new().max_rect(Rect::from_min_max(pos2(x0, y), rect.max)));
-    let sel = pui.sel.unwrap_or(0);
-    let font = look.font.clone();
-    // The columns: the mark, the title (the longest a title may be), the crew in what's left,
-    // and the length at the right.
-    let title_x = 4.0 + 2.0 * adv;
-    let by_x = title_x + adv * (ninsei_core::data::TUNE_TITLE_MAX + 2) as f32;
-    let len_w = measure("00:00");
+    let cols = Columns::new(&ctx, &look.font);
     let picked = kit::list_box(
         &mut list,
         vec2(w, rect.bottom() - y),
-        list_id,
+        Id::new("trax-liza-list"),
         rows.len(),
         LIZA_CELL_H,
         0.0,
-        sel,
+        pui.sel.unwrap_or(0),
         &look,
         |p, cell, i, on| {
-            let row = &rows[i];
             let (fg, bg) = if on {
                 (look.paper, look.ink)
             } else {
                 (look.ink, look.paper)
             };
             p.rect_filled(cell, 0.0, bg);
-            let mid = cell.center().y;
-            let mark = if row.current { "▶" } else { "" };
-            p.text(
-                pos2(cell.left() + 4.0, mid),
-                Align2::LEFT_CENTER,
-                mark,
-                font.clone(),
-                fg,
-            );
-            p.text(
-                pos2(cell.left() + title_x, mid),
-                Align2::LEFT_CENTER,
-                cut(row.title, ninsei_core::data::TUNE_TITLE_MAX),
-                font.clone(),
-                fg,
-            );
-            let by_room = cell.width() - 6.0 - len_w - adv - by_x;
-            p.text(
-                pos2(cell.left() + by_x, mid),
-                Align2::LEFT_CENTER,
-                cut(row.by, chars(by_room)),
-                font.clone(),
-                fg,
-            );
-            p.text(
-                pos2(cell.right() - 6.0, mid),
-                Align2::RIGHT_CENTER,
-                &row.length,
-                font.clone(),
-                fg,
-            );
-            row.title.to_string()
+            cols.paint(p, cell, &rows[i], fg)
         },
     );
-    if let Some(i) = picked {
-        pui.sel = Some(i);
-        if ui.input(|i| {
-            i.pointer
-                .button_double_clicked(egui::PointerButton::Primary)
-        }) {
-            out.push(WbOut::Player(Act::Pick(i)));
-        }
-    }
+    picked_row(ui, pui, picked, out);
 }
 
 /// Desktop's TRAX: its face's size, Protracker's playback screen in a window.
@@ -630,24 +670,9 @@ pub fn workbench_face(
 ) {
     use crate::kit::workbench as kit;
     use egui::{Align2, Id, UiBuilder, pos2, vec2};
-    pui.drawn = Some(ui.ctx().cumulative_pass_nr());
     let look = crate::workbench::look();
-    let rows = player::rows(save, data);
-    if pui.sel.is_none_or(|s| s >= rows.len()) {
-        pui.sel = player::current(save, data).or((!rows.is_empty()).then_some(0));
-    }
-    if keys_on {
-        // Its keys are the player's: nothing behind it types them.
-        ui.ctx().memory_mut(|m| m.stop_text_input());
-        for a in keys(ui, rows.len(), &mut pui.sel) {
-            out.push(WbOut::Player(a));
-        }
-    }
-    // The face, centred across the window's room.
-    let room = ui.available_width().max(WB_SIZE.x);
-    let (row, _) = ui.allocate_exact_size(vec2(room, WB_SIZE.y), Sense::hover());
-    let left = (row.left() + (row.width() - WB_SIZE.x) / 2.0).round();
-    let rect = Rect::from_min_size(pos2(left, row.top().round()), WB_SIZE);
+    let rows = face_start(ui, data, save, pui, keys_on, out);
+    let rect = centred(ui, WB_SIZE);
     let p = ui.painter_at(rect.expand(2.0));
     let ctx = ui.ctx().clone();
     let adv = crate::kit::liza::text_width(&ctx, "0", &look.font).ceil();
@@ -751,30 +776,8 @@ pub fn workbench_face(
     p.rect_filled(vis, 0.0, look.shadow);
     kit::bevel(&p, vis, false, &look);
     let inner = vis.shrink(6.0);
-    let n = ((inner.width() + WB_GAP) / (WB_BAR + WB_GAP))
-        .floor()
-        .max(1.0) as usize;
-    let samples: &[f32] = if heard.samples.is_empty() {
-        &[0.0; 64]
-    } else {
-        &heard.samples
-    };
-    let bars = crate::vispane::bars(ui, "trax-wb", samples, heard.rate.max(1), n);
-    let bx =
-        inner.left() + ((inner.width() - (n as f32 * (WB_BAR + WB_GAP) - WB_GAP)) / 2.0).round();
-    for (i, b) in bars.iter().enumerate() {
-        let h = (b.clamp(0.0, 1.0) * inner.height()).round();
-        if h >= 1.0 {
-            let x = bx + i as f32 * (WB_BAR + WB_GAP);
-            p.rect_filled(
-                Rect::from_min_max(
-                    pos2(x, inner.bottom() - h),
-                    pos2(x + WB_BAR, inner.bottom()),
-                ),
-                0.0,
-                look.accent,
-            );
-        }
+    for b in spectrum(ui, "trax-wb", heard, inner, WB_BAR, WB_GAP) {
+        p.rect_filled(b, 0.0, look.accent);
     }
     y += WB_VIS_H + 8.0;
 
@@ -799,20 +802,16 @@ pub fn workbench_face(
 
     // The playlist: a Workbench list, the cursor in the highlight, the playing tune marked; a
     // double-click (or Enter) plays.
-    let title_x = 4.0 + 2.0 * adv;
-    let by_x = title_x + adv * (ninsei_core::data::TUNE_TITLE_MAX + 2) as f32;
-    let len_w = crate::kit::liza::text_width(&ctx, "00:00", &look.font).ceil();
+    let cols = Columns::new(&ctx, &look.font);
     let mut list =
         ui.new_child(UiBuilder::new().max_rect(Rect::from_min_max(pos2(x0, y), rect.max)));
-    let sel = pui.sel.unwrap_or(0);
-    let font = look.font.clone();
     let picked = kit::list_box(
         &mut list,
         vec2(w, rect.bottom() - y),
         Id::new("trax-wb-list"),
         rows.len(),
         WB_ROW - 2.0,
-        sel,
+        pui.sel.unwrap_or(0),
         &look,
         |p, cell, i, on| {
             let row = &rows[i];
@@ -824,44 +823,10 @@ pub fn workbench_face(
                 (look.ink, look.backdrop)
             };
             p.rect_filled(cell, 0.0, bg);
-            let mid = cell.center().y;
-            let at = |x: f32| pos2(cell.left() + x, mid);
-            let mark = if row.current { "▶" } else { "" };
-            p.text(at(4.0), Align2::LEFT_CENTER, mark, font.clone(), fg);
-            p.text(
-                at(title_x),
-                Align2::LEFT_CENTER,
-                crate::kit::cells::cut(row.title, ninsei_core::data::TUNE_TITLE_MAX),
-                font.clone(),
-                fg,
-            );
-            let by_room = cell.width() - 6.0 - len_w - adv - by_x;
-            p.text(
-                at(by_x),
-                Align2::LEFT_CENTER,
-                crate::kit::cells::cut(row.by, chars(by_room)),
-                font.clone(),
-                fg,
-            );
-            p.text(
-                pos2(cell.right() - 6.0, mid),
-                Align2::RIGHT_CENTER,
-                &row.length,
-                font.clone(),
-                fg,
-            );
-            row.title.to_string()
+            cols.paint(p, cell, row, fg)
         },
     );
-    if let Some(i) = picked {
-        pui.sel = Some(i);
-        if ui.input(|i| {
-            i.pointer
-                .button_double_clicked(egui::PointerButton::Primary)
-        }) {
-            out.push(WbOut::Player(Act::Pick(i)));
-        }
-    }
+    picked_row(ui, pui, picked, out);
 }
 
 /// What a click on legend entry `n` ([`player::KEYS`]) does, and a second-button click.
