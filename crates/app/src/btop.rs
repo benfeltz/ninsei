@@ -1258,10 +1258,9 @@ pub mod script {
                 current.and_then(|r| r.no)
             };
             let sel = follow.and_then(|no| rows.iter().position(|r| r.no == Some(no)));
-            // The wheel scrolls whole rows and keeps the rest; while retyping it stays put.
-            if let Some(dy) = crate::kit::scrollbar::take_wheel(ui, c.rect, id())
-                && v.edit.is_none()
-            {
+            // The wheel scrolls whole rows and keeps the rest; the window still keeps the
+            // followed row (the one being retyped, say) in view.
+            if let Some(dy) = crate::kit::scrollbar::take_wheel(ui, c.rect, id()) {
                 v.list.wheel(dy / c.ch);
             }
             let shown = v.list.view(rows.len(), sel, n);
@@ -1992,6 +1991,41 @@ mod script_tests {
         let rows = rows_painted(&h, pane_rect(small));
         let (s, _) = row_with(&rows, "400");
         assert!(s.starts_with('▶'), "{s}");
+    }
+
+    #[test]
+    fn the_wheel_never_scrolls_a_retyped_row_away() {
+        let g = fight(&long_program());
+        let mut h = Harness::new(1280.0, 800.0);
+        let size = (380.0, 300.0);
+        frame(&mut h, &g, size, vec![]);
+        let at = pane_rect(size).center();
+        frame(&mut h, &g, size, crate::uitest::click(at));
+        let no = script::view(&h.ctx, &g).cursor.unwrap();
+        frame(&mut h, &g, size, letter('e'));
+        // Off the row being retyped, over the listing below it.
+        let below = at + vec2(0.0, 60.0);
+        for _ in 0..10 {
+            let ev = vec![
+                egui::Event::PointerMoved(below),
+                egui::Event::MouseWheel {
+                    unit: egui::MouseWheelUnit::Point,
+                    delta: vec2(0.0, -200.0),
+                    modifiers: egui::Modifiers::NONE,
+                    phase: egui::TouchPhase::Move,
+                },
+            ];
+            frame(&mut h, &g, size, ev);
+        }
+        assert!(
+            h.ctx.memory(|m| m.has_focus(script::edit_id())),
+            "the row being retyped is still on screen with the keys"
+        );
+        let rows = rows_painted(&h, pane_rect(size));
+        assert!(
+            rows.iter().any(|(s, _)| s.starts_with(&no.to_string())),
+            "{rows:?}"
+        );
     }
 
     #[test]
