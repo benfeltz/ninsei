@@ -753,7 +753,7 @@ fn palette_chip(ui: &mut Ui, g: &Game, kind: BlockKind, look: &liza::Look) -> Op
         look.font.clone(),
         fg,
     );
-    resp.clicked().then(|| stack_fight::add(g, kind))
+    resp.clicked().then(|| stack_fight::add(g, kind)).flatten()
 }
 
 /// The dotted slot under the last block: a block dropped here goes at the end.
@@ -764,7 +764,7 @@ fn end_slot(ui: &mut Ui, row: Rect, g: &Game, look: &liza::Look, acts: &mut Vec<
     );
     let resp = ui.interact(slot, Id::new("stack-end-slot"), Sense::hover());
     if let Some(kind) = resp.dnd_release_payload::<BlockKind>() {
-        acts.push(stack_fight::add(g, *kind));
+        acts.extend(stack_fight::add(g, *kind));
     }
     let painter = ui.painter();
     liza::dotted(painter, slot, look.ink);
@@ -791,7 +791,7 @@ fn block_row(
     let row = Rect::from_min_size(row.min.round(), row.size().round());
     let drop = ui.interact(row, Id::new(("stack-row", b.no)), Sense::hover());
     if let Some(kind) = drop.dnd_release_payload::<BlockKind>() {
-        acts.push(stack_fight::insert_before(g, b.no, *kind));
+        acts.extend(stack_fight::insert_before(g, b.no, *kind));
     }
     let painter = ui.painter().clone();
     if drop.dnd_hover_payload::<BlockKind>().is_some() {

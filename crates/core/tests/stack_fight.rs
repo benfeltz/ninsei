@@ -92,23 +92,38 @@ fn the_deck_card_words_the_limits() {
 #[test]
 fn adding_a_block_takes_the_next_number_and_a_real_program() {
     let mut g = fight(SAMPLE);
-    g.apply(stack_fight::add(&g, BlockKind::Run));
+    g.apply(stack_fight::add(&g, BlockKind::Run).unwrap());
     assert_eq!(g.program.line(60).unwrap().text, "RUN IcePick");
-    g.apply(stack_fight::add(&g, BlockKind::If));
+    g.apply(stack_fight::add(&g, BlockKind::If).unwrap());
     assert_eq!(g.program.line(70).unwrap().text, "IF INTEG < 10");
-    g.apply(stack_fight::add(&g, BlockKind::Goto));
+    g.apply(stack_fight::add(&g, BlockKind::Goto).unwrap());
     assert_eq!(g.program.line(80).unwrap().text, "GOTO 10");
     // Dropped before a line: numbered between it and the one above.
-    g.apply(stack_fight::insert_before(&g, 20, BlockKind::Stop));
+    g.apply(stack_fight::insert_before(&g, 20, BlockKind::Stop).unwrap());
     assert_eq!(g.program.line(15).unwrap().text, "STOP");
     // No number free between 15 and 16: it goes to the end.
     g.apply(Action::Program("15 STOP\n16 STOP".into()));
-    g.apply(stack_fight::insert_before(&g, 16, BlockKind::Run));
+    g.apply(stack_fight::insert_before(&g, 16, BlockKind::Run).unwrap());
     assert_eq!(g.program.text(), "15 STOP\n16 STOP\n20 RUN IcePick");
     let empty = fight("");
     let mut e = empty.clone();
-    e.apply(stack_fight::add(&empty, BlockKind::Stop));
+    e.apply(stack_fight::add(&empty, BlockKind::Stop).unwrap());
     assert_eq!(e.program.text(), "10 STOP");
+    // The last number taken: nothing is added, and nothing is overwritten.
+    let full = fight("63999 RUN icepick");
+    assert_eq!(stack_fight::add(&full, BlockKind::Stop), None);
+    assert_eq!(
+        stack_fight::insert_before(&full, 63999, BlockKind::Stop).map(|_| ()),
+        Some(())
+    );
+    let mut packed = fight("63998 RUN icepick\n63999 RUN patch");
+    assert_eq!(
+        stack_fight::insert_before(&packed, 63999, BlockKind::Stop),
+        None
+    );
+    packed.apply(Action::Program("63990 STOP".into()));
+    packed.apply(stack_fight::add(&packed, BlockKind::Stop).unwrap());
+    assert_eq!(packed.program.text(), "63990 STOP\n63999 STOP");
 }
 
 #[test]

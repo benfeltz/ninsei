@@ -361,21 +361,21 @@ pub fn set_field(g: &Game, no: u32, ix: usize, value: &str) -> Option<Action> {
         .then(|| write(g, |p| p.set_line(no, &text)))
 }
 
-/// A new block at the end: the next ten after the last line.
-pub fn add(g: &Game, kind: BlockKind) -> Action {
-    let no = g
-        .program
-        .lines
-        .last()
-        .map_or(10, |l| (l.no / 10 + 1) * 10)
-        .min(basic::MAX_LINE);
+/// A new block at the end: the next ten after the last line, or the last number there is.
+/// `None` when the last line is already the last number: nothing is overwritten.
+pub fn add(g: &Game, kind: BlockKind) -> Option<Action> {
+    let no = match g.program.lines.last() {
+        None => 10,
+        Some(l) if l.no >= basic::MAX_LINE => return None,
+        Some(l) => ((l.no / 10 + 1) * 10).min(basic::MAX_LINE),
+    };
     let text = fresh(g, kind);
-    write(g, |p| p.set_line(no, &text))
+    Some(write(g, |p| p.set_line(no, &text)))
 }
 
 /// A new block dropped before line `no`: numbered between it and the line above, or at the
-/// end when there's no number free between them.
-pub fn insert_before(g: &Game, no: u32, kind: BlockKind) -> Action {
+/// end when there's no number free between them (`None` when there's none there either).
+pub fn insert_before(g: &Game, no: u32, kind: BlockKind) -> Option<Action> {
     let above = g
         .program
         .lines
@@ -391,7 +391,7 @@ pub fn insert_before(g: &Game, no: u32, kind: BlockKind) -> Action {
     match free {
         Some(n) => {
             let text = fresh(g, kind);
-            write(g, |p| p.set_line(n, &text))
+            Some(write(g, |p| p.set_line(n, &text)))
         }
         None => add(g, kind),
     }
