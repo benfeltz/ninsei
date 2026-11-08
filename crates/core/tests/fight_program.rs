@@ -512,8 +512,17 @@ fn every_deck_says_the_hang_where_you_look_until_the_next_step() {
     assert_eq!(g.exec.broke, Some(20));
     let card = stack_fight::card(&g);
     assert_eq!(card.broke_words().as_deref(), Some("?BREAK IN 20"));
-    assert!(btop_fight::note(&g).starts_with("?break in 20  cpu "));
-    assert!(suite::module_note(&g).starts_with("?BREAK IN 20  CPU "));
+    // After the budgets, so a narrow edge cuts the hang before them.
+    let note = btop_fight::note(&g);
+    assert!(
+        note.starts_with("cpu ") && note.ends_with("  ?break in 20"),
+        "{note}"
+    );
+    let note = suite::module_note(&g);
+    assert!(
+        note.starts_with("CPU ") && note.ends_with("  ?BREAK IN 20"),
+        "{note}"
+    );
     let w: std::collections::HashMap<_, _> = suite::watches(&g).into_iter().collect();
     assert_eq!(w["LAST"], "?BREAK IN 20");
     // The ▶ is held on the line, on every listing.
@@ -523,8 +532,8 @@ fn every_deck_says_the_hang_where_you_look_until_the_next_step() {
     // The next Step clears it.
     g.apply(Action::Step);
     assert_eq!(stack_fight::card(&g).broke_words(), None);
-    assert!(btop_fight::note(&g).starts_with("cpu "));
-    assert!(suite::module_note(&g).starts_with("CPU "));
+    assert!(!btop_fight::note(&g).contains("break"));
+    assert!(!suite::module_note(&g).contains("BREAK"));
 }
 
 #[test]
