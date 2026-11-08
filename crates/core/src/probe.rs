@@ -757,10 +757,17 @@ impl Probe {
         self
     }
 
-    /// Careers climb to deck `id` and no other, so each deck's shape can be compared.
+    /// Careers climb to deck `id` and no other, so each deck's shape can be compared. An id
+    /// that isn't a deck you can buy (unknown, or the starter) means careers never climb, and
+    /// the report says so.
     pub fn with_deck(mut self, id: &str) -> Probe {
         self.deck = id.to_string();
         self
+    }
+
+    /// The deck `with_deck` named, if careers can climb to it.
+    fn climbs_to(&self) -> Option<&crate::hardware::DeckDef> {
+        self.data.hardware.deck(&self.deck).filter(|d| !d.starter)
     }
 
     pub fn new(data: &Data, cfg: Config) -> Probe {
@@ -1176,7 +1183,7 @@ impl Probe {
             cfg.spot_runs,
             self.data.starts.kit(&self.kit).id
         ));
-        if let Some(d) = self.data.hardware.deck(&self.deck) {
+        if let Some(d) = self.climbs_to() {
             out.push(format!("  careers climb to {}", d.title()));
         }
         out.push(String::new());
@@ -1274,9 +1281,12 @@ impl Probe {
                 sum / u64::from(n.max(1))
             ));
         }
-        out.push(match self.data.hardware.deck(&self.deck) {
+        out.push(match self.climbs_to() {
+            _ if self.deck.is_empty() => {
+                "  (the bot climbs to the cheapest deck that takes it further)".into()
+            }
             Some(d) => format!("  (the bot climbs only to {})", d.title()),
-            None => "  (the bot climbs to the cheapest deck that takes it further)".into(),
+            None => format!("  (the bot never climbs: no deck `{}` to buy)", self.deck),
         });
         let mut maxed: Vec<u32> = s.maxed.iter().copied().filter(|&r| r > 0).collect();
         maxed.sort_unstable();

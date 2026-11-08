@@ -26,9 +26,15 @@ fn main() {
         .and_then(|i| args.get(i + 1))
         .cloned()
         .unwrap_or_default();
-    if !deck.is_empty() && data.hardware.deck(&deck).is_none() {
-        let ids: Vec<&str> = data.hardware.decks.iter().map(|d| d.id.as_str()).collect();
-        eprintln!("no deck `{deck}`. decks: {}", ids.join(", "));
+    if !deck.is_empty() && data.hardware.deck(&deck).is_none_or(|d| d.starter) {
+        let ids: Vec<&str> = data
+            .hardware
+            .decks
+            .iter()
+            .filter(|d| !d.starter)
+            .map(|d| d.id.as_str())
+            .collect();
+        eprintln!("no deck `{deck}` to climb to. decks: {}", ids.join(", "));
         std::process::exit(2);
     }
     let cfg = match args.first().and_then(|a| a.parse().ok()) {

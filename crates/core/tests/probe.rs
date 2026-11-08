@@ -177,3 +177,23 @@ fn the_dumb_bot_is_two_lines() {
         }
     }
 }
+
+#[test]
+fn a_deck_careers_cannot_buy_means_they_never_climb_and_the_report_says_so() {
+    let data = cheap_decks();
+    let starter = data.hardware.starter_deck().id.clone();
+    for id in [starter.as_str(), "no-such-deck"] {
+        let mut p = Probe::new(&data, short_careers()).with_deck(id);
+        while !p.step(50) {}
+        assert!(p.stats().decks.is_empty(), "{id}: {:?}", p.stats().decks);
+        let lines = p.report();
+        assert!(
+            !lines.iter().any(|l| l.contains("careers climb to")),
+            "{id}"
+        );
+        assert!(
+            lines.iter().any(|l| l.contains("never climbs")),
+            "{id}: {lines:?}"
+        );
+    }
+}
