@@ -42,11 +42,13 @@ pub fn legend(k: &Keys) -> [[(&'static str, &'static str, bool); 4]; 2] {
     ]
 }
 
-/// The bottom edge: what's left this turn in a fight, the deck's limits outside one.
+/// The bottom edge: what's left this turn in a fight, the deck's limits outside one; a hang
+/// first, in btop's lowercase, while it holds the cursor.
 pub fn note(g: &Game) -> String {
     let cpu = g.combat.as_ref().map_or(g.deck.cpu_max, |c| c.cpu);
+    let broke = crate::listing::broke(g).map_or(String::new(), |n| format!("?break in {n}  "));
     format!(
-        "cpu {cpu}/{}  ram {}/{}",
+        "{broke}cpu {cpu}/{}  ram {}/{}",
         g.deck.cpu_max,
         g.ifs_left(),
         g.deck.ram_max

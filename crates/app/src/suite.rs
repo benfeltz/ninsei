@@ -2797,4 +2797,36 @@ mod module_tests {
             "{log:?}"
         );
     }
+
+    #[test]
+    fn a_hang_shows_in_the_module_windows_edge_and_its_last_watch() {
+        let mut g = fight("10 GOTO 20\n20 GOTO 10");
+        for _ in 0..3 {
+            g.apply(Action::Step);
+        }
+        assert_eq!(g.exec.broke, Some(10));
+        let mut h = Harness::new(1280.0, 800.0);
+        frame(&mut h, &g, vec![]);
+        frame(&mut h, &g, vec![]);
+        let rows = rows_in(&h, pane_rect(PANE));
+        let flat: Vec<String> = rows.iter().map(|(s, _)| s.replace(' ', "")).collect();
+        assert!(
+            flat.iter().filter(|s| s.contains("?BREAKIN10")).count() >= 2,
+            "the edge and LAST: {rows:?}"
+        );
+        assert!(
+            flat.iter()
+                .any(|s| s.contains('▶') && s.contains("10GOTO20")),
+            "the ▶ held on line 10: {rows:?}"
+        );
+        g.apply(Action::Step);
+        frame(&mut h, &g, vec![]);
+        let rows = rows_in(&h, pane_rect(PANE));
+        assert!(
+            !rows
+                .iter()
+                .any(|(s, _)| s.replace(' ', "").contains("?BREAK")),
+            "{rows:?}"
+        );
+    }
 }

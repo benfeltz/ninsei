@@ -580,6 +580,16 @@ fn script_card(p: &mut Panes, ui: &mut Ui) {
         look.font.clone(),
         ink,
     );
+    // A hang, at the left: the ▶ is held on its line.
+    if let Some(broke) = card.broke_words() {
+        ui.painter().text(
+            pos2(title.left() + 1.0, title.center().y).round(),
+            Align2::LEFT_CENTER,
+            broke,
+            look.font.clone(),
+            ink,
+        );
+    }
     let mut sel = selected(ui, g);
     let gap = ui.spacing().item_spacing.x;
     let (chip_w, wrap) = palette_fit(ui.available_width().floor(), gap);
@@ -1743,5 +1753,32 @@ pub(crate) mod tests {
                 assert_eq!(r.min, r.min.round(), "{name} on whole pixels");
             }
         }
+    }
+
+    #[test]
+    fn a_hang_is_said_on_the_cards_title_line_with_the_line_held() {
+        let mut g = fight("10 GOTO 20\n20 GOTO 10");
+        for _ in 0..3 {
+            g.apply(Action::Step);
+        }
+        assert_eq!(g.exec.broke, Some(10));
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        script(&mut h, &g, PANE, vec![]);
+        script(&mut h, &g, PANE, vec![]);
+        let painted: Vec<(String, egui::Rect)> = h.painted_text();
+        let broke = painted.iter().find(|(t, _)| t == "?BREAK IN 10");
+        let budgets = painted.iter().find(|(t, _)| t.ends_with("left"));
+        let (Some(broke), Some(budgets)) = (broke, budgets) else {
+            panic!("{painted:?}");
+        };
+        assert!(
+            (broke.1.center().y - budgets.1.center().y).abs() < 1.0
+                && broke.1.right() < budgets.1.left(),
+            "beside the budgets, clear of them: {broke:?} {budgets:?}"
+        );
+        assert!(painted.iter().any(|(t, _)| t == "▶"));
+        g.apply(Action::Step);
+        script(&mut h, &g, PANE, vec![]);
+        assert!(!h.painted_text().iter().any(|(t, _)| t.contains("BREAK")));
     }
 }

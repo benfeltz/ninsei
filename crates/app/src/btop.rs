@@ -1894,4 +1894,36 @@ mod script_tests {
             "the border lit"
         );
     }
+
+    #[test]
+    fn a_hang_is_cut_into_the_tiles_bottom_edge_and_the_line_stays_lit() {
+        let mut g = fight("10 GOTO 20\n20 GOTO 10");
+        for _ in 0..3 {
+            g.apply(Action::Step);
+        }
+        assert_eq!(g.exec.broke, Some(10));
+        let mut h = Harness::new(1280.0, 800.0);
+        frame(&mut h, &g, PANE, vec![]);
+        frame(&mut h, &g, PANE, vec![]);
+        let rows = rows_painted(&h, pane_rect(PANE));
+        let edge = rows
+            .iter()
+            .find(|(s, _)| s.contains("?break"))
+            .map(|r| &r.0);
+        assert!(
+            edge.is_some_and(|s| s.replace(' ', "").contains("?breakin10")),
+            "{rows:?}"
+        );
+        assert!(
+            rows.iter()
+                .any(|(s, _)| s.contains('▶') && s.contains("10GOTO20")
+                    || s.contains('▶') && s.contains("10 GOTO 20")),
+            "the ▶ held on line 10: {rows:?}"
+        );
+        // The next Step takes it away.
+        g.apply(Action::Step);
+        frame(&mut h, &g, PANE, vec![]);
+        let rows = rows_painted(&h, pane_rect(PANE));
+        assert!(!rows.iter().any(|(s, _)| s.contains("?break")), "{rows:?}");
+    }
 }
