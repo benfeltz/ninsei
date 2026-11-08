@@ -2,6 +2,7 @@
 //! budgets, the Watches), the F-key legend that changes with the active window, and each step
 //! of a pass filed in the activity log under its own reference.
 
+use ninsei_core::game::ExecState;
 use ninsei_core::hub::Save;
 use ninsei_core::listing::{self, Gutter};
 use ninsei_core::suite::{self, FKey, Legend};
@@ -162,4 +163,73 @@ fn each_step_of_a_pass_is_filed_under_its_own_reference() {
     refs.sort();
     refs.dedup();
     assert_eq!(refs.len(), kinds.len(), "every kind its own reference");
+}
+
+/// 141.6 acceptance: one program across a run through the Module window on a Hosaka. Between
+/// incidents the Watches are blank, the debugger's F-keys dark and the editor's live; a line
+/// opened and one retyped go in through `listing`; in an incident the Watches fill, F8 steps
+/// to the STOP, F9 carries on, each spoken step is filed PRG; the deck keeps what was left.
+#[test]
+fn proc_7_is_one_program_before_during_and_after_an_incident() {
+    let (d, mut s) = save();
+    s.decks.push("hosaka".into());
+    s.deck = "hosaka".into();
+    s.firmware = s.deck_def(&d).firmware[0].id.clone();
+    let mut g = s.jack_in(&d, 21);
+    assert!(suite::watches(&g).iter().all(|(_, v)| v.is_empty()));
+    let first = g.program.first();
+    assert!(!suite::fkey_live(&g, FKey::Step, first));
+    assert!(suite::fkey_live(&g, FKey::Edit, first) && suite::fkey_live(&g, FKey::Open, first));
+    // Insert a RUN inside SAFE's loop, and make the first line a STOP.
+    let goto = g.program.lines.last().unwrap().no;
+    let before_goto = g
+        .program
+        .lines
+        .iter()
+        .map(|l| l.no)
+        .take_while(|&n| n < goto)
+        .last();
+    let at = listing::open_after(&g, before_goto).unwrap();
+    g.apply(listing::retype(&g, at, "RUN icepick").unwrap());
+    let first = first.unwrap();
+    g.apply(listing::retype(&g, first, "STOP").unwrap());
+    let edited = g.program.text();
+    // Into ICE.
+    let target = g.net.nodes[g.at].links[0];
+    g.net.nodes[target].kind = NodeKind::Ice;
+    g.net.nodes[target].ice = Some(0);
+    g.net.nodes[target].cleared = false;
+    g.apply(Action::Move(target));
+    assert_eq!(g.phase, Phase::Combat);
+    let c = g.combat.as_mut().unwrap();
+    (c.strength, c.strength_max) = (500, 500);
+    assert_eq!(
+        g.program.text(),
+        edited,
+        "the incident opens with what was edited"
+    );
+    assert_eq!(suite::module_mark(listing::rows(&g)[0].gutter), "▶");
+    let w: std::collections::HashMap<_, _> = suite::watches(&g).into_iter().collect();
+    assert!(!w["ICE"].is_empty() && !w["NEXT"].is_empty());
+    // F8 Step hits the STOP; F9 Run carries on past it and the ICE loses strength.
+    assert!(suite::fkey_live(&g, FKey::Step, Some(first)));
+    let logged = g.log.len();
+    g.apply(Action::Step);
+    assert!(matches!(g.exec.state, ExecState::Stopped(_)));
+    assert!(suite::fkey_live(&g, FKey::Run, None));
+    let before = g.combat.as_ref().unwrap().strength;
+    g.apply(Action::Play);
+    g.apply(Action::Pause);
+    assert!(g.combat.as_ref().map_or(0, |c| c.strength) < before);
+    assert!(
+        g.log[logged..]
+            .iter()
+            .any(|l| suite::log_ref(l.kind) == "PRG"),
+        "the pass is filed PRG"
+    );
+    // The deck keeps the program.
+    let kept = g.program.text();
+    g.phase = Phase::JackedOut;
+    s.record(&g, &[], &d.rig).unwrap();
+    assert_eq!(s.program_text(&d), kept);
 }
