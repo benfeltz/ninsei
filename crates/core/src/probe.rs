@@ -639,7 +639,8 @@ fn bigger_chassis(save: &Save, data: &Data) -> Option<String> {
         .map(|d| d.id.clone())
 }
 
-/// Every deck line at the most any deck in the data takes it: the top of the climb.
+/// The top of the climb: every deck line at the most any deck takes it, and every line no
+/// deck caps (the stash) bought out in RIG.
 fn maxed_out(save: &Save, data: &Data) -> bool {
     Upgrade::ALL.into_iter().all(|u| {
         let top = data
@@ -649,7 +650,14 @@ fn maxed_out(save: &Save, data: &Data) -> bool {
             .filter_map(|d| d.stat(u))
             .map(|s| s.max)
             .max();
-        top.is_none_or(|t| save.stat_value(data, u) >= t)
+        match top {
+            Some(t) => save.stat_value(data, u) >= t,
+            None => data
+                .rig
+                .iter()
+                .find(|r| r.kind == u)
+                .is_none_or(|r| save.rig.level(u) >= r.max),
+        }
     })
 }
 
