@@ -435,7 +435,8 @@ pub enum ExecState {
     /// The debugger has the turn: the hotbar plays, Step or Play hands it back.
     #[default]
     Paused,
-    /// Playing: the driver steps a pass at a time until a STOP, a hang or the fight's end.
+    /// Playing: the driver steps a line at a time, turn after turn, until a STOP, a hang or
+    /// the fight's end.
     Running,
     /// A STOP on this line handed over the turn; the next pass carries on after it.
     Stopped(u32),
@@ -445,8 +446,8 @@ pub enum ExecState {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Exec {
     pub state: ExecState,
-    /// The line about to run: the program's first at the start of a turn, or the one after a
-    /// STOP (`ExecState::Stopped`), where the next pass carries on.
+    /// The line about to run: the program's first at the start of a turn, partway down while
+    /// a pass is under way (after a STOP, a Step or a pause), or a hang's line, held.
     pub pc: Option<u32>,
     /// This turn's pass so far, or the last one: a step per line executed.
     pub trace: Vec<Step>,
