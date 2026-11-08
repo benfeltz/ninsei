@@ -188,3 +188,31 @@ fn the_volume_starts_full_stays_in_range_and_comes_back() {
     s.set_volume(60);
     assert_eq!(Save::load(&s.to_text()).unwrap().volume, 60);
 }
+
+#[test]
+fn stat_value_is_base_plus_rig_up_to_the_cap() {
+    let src = include_str!("../../../data/hub/hardware.ron");
+    let d = Data::parse(Sources {
+        hardware: &src.replacen(
+            "(line: Cpu, base: 3, max: 6)",
+            "(line: Cpu, base: 3, max: 4)",
+            1,
+        ),
+        ..Sources::builtin()
+    })
+    .unwrap();
+    let mut s = Save::default();
+    s.ensure_hardware(&d);
+    assert_eq!(s.deck, "sensenet");
+    s.rig.ram = 2;
+    s.rig.cpu = 3;
+    assert_eq!(s.stat_base(&d, hub::Upgrade::Cpu), 3);
+    assert_eq!(s.stat_cap(&d, hub::Upgrade::Cpu), Some(4));
+    assert_eq!(s.stat_value(&d, hub::Upgrade::Cpu), 4, "capped");
+    assert_eq!(s.stat_value(&d, hub::Upgrade::Ram), 8, "base 6 + 2 levels");
+    assert_eq!(s.stat_cap(&d, hub::Upgrade::Stash), None);
+    assert_eq!(
+        s.stat_value(&d, hub::Upgrade::Stash),
+        ninsei_core::tuning::STASH_BASE_SLOTS
+    );
+}

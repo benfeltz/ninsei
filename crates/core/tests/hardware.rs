@@ -175,6 +175,37 @@ fn bad_hardware_is_caught() {
 }
 
 #[test]
+fn stats_are_read() {
+    let d = data();
+    let cpu = d.hardware.deck("sensenet").unwrap().stat(hub::Upgrade::Cpu);
+    assert_eq!(cpu.map(|s| (s.base, s.max)), Some((3, 6)));
+    assert!(
+        d.hardware
+            .decks
+            .iter()
+            .all(|deck| deck.stat(hub::Upgrade::Stash).is_none())
+    );
+}
+
+#[test]
+fn bad_stats_are_caught() {
+    let src = include_str!("../../../data/hub/hardware.ron");
+    let parse = |hardware: &str| {
+        Data::parse(Sources {
+            hardware,
+            ..Sources::builtin()
+        })
+    };
+    let err = |s: String| parse(&s).unwrap_err();
+    let cpu = "(line: Cpu, base: 3, max: 6)";
+    assert!(err(src.replacen(cpu, "(line: Ram, base: 3, max: 6)", 1)).contains("twice"));
+    assert!(err(src.replacen(cpu, "(line: Cpu, base: 7, max: 6)", 1)).contains("tops out"));
+    assert!(err(src.replacen(cpu, "(line: Stash, base: 2, max: 6)", 1)).contains("home storage"));
+    let missing = src.replacen(&format!("{cpu}, "), "", 1);
+    assert!(err(missing).contains("disagree"));
+}
+
+#[test]
 fn the_dev_key_fills_the_bank() {
     let mut s = fresh(5);
     let msg = s.dev_credits();

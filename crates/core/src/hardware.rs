@@ -5,6 +5,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::data::Data;
+use crate::hub::Upgrade;
 use crate::netview::MapView;
 
 /// How the run screen is dressed: its panes, menus, status line and default layout. A new
@@ -75,6 +76,15 @@ fn default_sounds() -> String {
     "ono".into()
 }
 
+/// What a deck does for one RIG line: what it ships with and the most that line can reach on
+/// it, counting RIG levels, deck mods bought on a board and loot.
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub struct StatDef {
+    pub line: Upgrade,
+    pub base: u32,
+    pub max: u32,
+}
+
 #[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct DeckDef {
     pub id: String,
@@ -88,9 +98,18 @@ pub struct DeckDef {
     /// Its picture in ads (`data/art/<id>.txt`), if it has one.
     #[serde(default)]
     pub art: Option<String>,
+    /// The chassis: per RIG line, what it ships with and its ceiling. A line not listed
+    /// starts at its `tuning` constant with no ceiling.
+    #[serde(default)]
+    pub stats: Vec<StatDef>,
 }
 
 impl DeckDef {
+    /// The deck's row for a RIG line, if it lists one.
+    pub fn stat(&self, line: Upgrade) -> Option<&StatDef> {
+        self.stats.iter().find(|s| s.line == line)
+    }
+
     /// "Ono-Sendai Cyberspace VII".
     pub fn title(&self) -> String {
         format!("{} {}", self.maker, self.name)
@@ -206,6 +225,35 @@ impl HardwareDef {
                 if d.firmware[..j].iter().any(|o| o.id == f.id) {
                     return Err(format!("deck `{}` lists firmware `{}` twice", d.id, f.id));
                 }
+            }
+            for (j, s) in d.stats.iter().enumerate() {
+                if d.stats[..j].iter().any(|o| o.line == s.line) {
+                    return Err(format!("deck `{}` lists {:?} twice", d.id, s.line));
+                }
+                if s.line == Upgrade::Stash {
+                    return Err(format!(
+                        "deck `{}` lists Stash: the stash is home storage, not the deck",
+                        d.id
+                    ));
+                }
+                if s.base > s.max {
+                    return Err(format!(
+                        "deck `{}` ships {:?} at {} but tops out at {}",
+                        d.id, s.line, s.base, s.max
+                    ));
+                }
+            }
+            // Every deck governs the same lines, so none silently runs uncapped where the
+            // others stop.
+            let first = &self.decks[0];
+            if let Some(line) = Upgrade::ALL
+                .into_iter()
+                .find(|&u| first.stat(u).is_some() != d.stat(u).is_some())
+            {
+                return Err(format!(
+                    "deck `{}` and deck `{}` disagree on whether {line:?} is a stat",
+                    first.id, d.id
+                ));
             }
         }
         Ok(())

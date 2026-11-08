@@ -569,6 +569,18 @@ impl Upgrade {
         Upgrade::Integrity,
         Upgrade::Stash,
     ];
+
+    /// What a line starts at on a deck that doesn't list it: the `tuning` constants. The only
+    /// place they're read for a deck's numbers.
+    pub fn fallback(self) -> u32 {
+        match self {
+            Upgrade::Ram => crate::tuning::START_RAM,
+            Upgrade::Cpu => crate::tuning::START_CPU,
+            Upgrade::Hdd => crate::tuning::START_HDD,
+            Upgrade::Integrity => crate::tuning::START_INTEGRITY,
+            Upgrade::Stash => STASH_BASE_SLOTS,
+        }
+    }
 }
 
 /// One line in the RIG shop (`data/hub/rig.ron`).
@@ -1670,6 +1682,24 @@ impl Save {
             });
         }
         Ok(answer)
+    }
+
+    /// What the deck plugged in ships with on a line.
+    pub fn stat_base(&self, data: &Data, line: Upgrade) -> u32 {
+        self.deck_def(data)
+            .stat(line)
+            .map_or(line.fallback(), |s| s.base)
+    }
+
+    /// The most a line can reach on the deck plugged in, or `None` if the deck doesn't cap it.
+    pub fn stat_cap(&self, data: &Data, line: Upgrade) -> Option<u32> {
+        self.deck_def(data).stat(line).map(|s| s.max)
+    }
+
+    /// What a line comes to on the deck plugged in: its base plus RIG, up to the deck's cap.
+    pub fn stat_value(&self, data: &Data, line: Upgrade) -> u32 {
+        let v = self.stat_base(data, line) + self.rig.bonus(line, &data.rig);
+        self.stat_cap(data, line).map_or(v, |c| v.min(c))
     }
 
     pub fn stash_cap(&self, defs: &[UpgradeDef]) -> u32 {
