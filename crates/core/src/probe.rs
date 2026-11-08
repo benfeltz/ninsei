@@ -719,7 +719,7 @@ pub struct Stats {
     pub chassis_at: [u64; CHECKPOINTS.len()],
     /// Decks bought over all careers: (the deck's title, purchases, sum of the run).
     pub decks: Vec<(String, u32, u64)>,
-    /// Career tier-3 runs by the deck it dialed on (its title, its CPU ceiling).
+    /// Career tier-3 runs by the deck it dialed on (its id, its CPU ceiling).
     pub t3_by_chassis: Vec<((String, u32), TierStats)>,
     /// Run (1-based) each career first had every deck line at the most any deck takes; 0 if
     /// never.
@@ -907,10 +907,6 @@ impl Probe {
             self.next_run();
             return;
         };
-        let chassis = (
-            save.deck_def(&data).title(),
-            save.stat_cap(&data, Upgrade::Cpu).unwrap_or(0),
-        );
         let Ok(g) = save.dial(&data, entry, rng.next_u64()) else {
             self.next_run();
             return;
@@ -926,6 +922,11 @@ impl Probe {
         let f = fate(&g);
         self.stats.career[tier as usize - 1].add(f, banked);
         if tier == 3 {
+            // A run never changes the deck, so this is the deck it dialed on.
+            let chassis = (
+                save.deck.clone(),
+                save.stat_cap(&data, Upgrade::Cpu).unwrap_or(0),
+            );
             match self
                 .stats
                 .t3_by_chassis
@@ -936,7 +937,7 @@ impl Probe {
                 None => {
                     let mut t = TierStats::default();
                     t.add(f, banked);
-                    self.stats.t3_by_chassis.push((chassis.clone(), t));
+                    self.stats.t3_by_chassis.push((chassis, t));
                 }
             }
         }
@@ -1212,6 +1213,7 @@ impl Probe {
         let mut by = s.t3_by_chassis.clone();
         by.sort_by(|a, b| (a.0.1, &a.0.0).cmp(&(b.0.1, &b.0.0)));
         for ((deck, cap), t) in by {
+            let deck = self.data.hardware.deck(&deck).map_or(deck, |d| d.title());
             out.push(format!(
                 "  tier 3 on {deck} (cpu {cap}): {:>5} runs, {:>3}% out",
                 t.runs,
