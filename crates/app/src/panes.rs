@@ -598,7 +598,6 @@ impl Panes<'_> {
         ui.add_space(6.0);
     }
 
-    /// Contracts as an IDE TODO list.
     /// The deck's program as the terminal lists it (`prog`): the stand-in dress until a deck
     /// designs its own. It scrolls itself.
     pub(crate) fn script(&mut self, ui: &mut Ui) {
@@ -612,6 +611,7 @@ impl Panes<'_> {
             });
     }
 
+    /// Contracts as an IDE TODO list.
     pub(crate) fn todo(&mut self, ui: &mut Ui) {
         let g = self.game;
         let p = self.pal;
