@@ -348,11 +348,12 @@ pub fn set_field(g: &Game, no: u32, ix: usize, value: &str) -> Option<Action> {
     let b = card.blocks.iter().find(|b| b.no == no)?;
     let mut fields = b.fields.clone();
     let field = fields.get_mut(ix)?;
+    let was = field.value();
     match field {
         Field::Menu { value: v, .. } => *v = value.to_string(),
         Field::Number(n) => *n = value.trim().parse().ok()?,
     }
-    if b.kind == BlockKind::If && ix == 0 {
+    if b.kind == BlockKind::If && ix == 0 && was != value {
         fields = if_defaults(g, value);
     }
     let text = line_text(b.kind, &fields, &b.text);

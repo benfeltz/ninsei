@@ -141,6 +141,9 @@ fn editing_a_field_rewrites_one_line() {
     // Nothing that wouldn't change a line, and nothing that isn't a number.
     assert_eq!(stack_fight::set_field(&g, 30, 0, "Firewall"), None);
     assert_eq!(stack_fight::set_field(&g, 40, 0, "ten"), None);
+    // Picking the subject it already has keeps the rest of the IF.
+    g.apply(Action::Program("20 IF INTEG < 3".into()));
+    assert_eq!(stack_fight::set_field(&g, 20, 0, "INTEG"), None);
 }
 
 #[test]
