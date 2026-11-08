@@ -2348,4 +2348,47 @@ mod tests {
             "retyping"
         );
     }
+
+    #[test]
+    fn over_the_active_module_window_space_and_the_digits_still_work_the_hotbar() {
+        let d = Data::builtin().unwrap();
+        let mut g = crate::stack::tests::a_fight(&d);
+        g.apply(Action::Program("10 RUN icepick\n20 GOTO 10".into()));
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        let mut press = |ev: Vec<egui::Event>| {
+            let mut suite = crate::suite::State::default();
+            let (mut out, mut focus) = (Vec::new(), false);
+            h.frame(ev, |ui| {
+                crate::suite::module().take_keys(ui.ctx());
+                let mut popup = crate::volume::Popup::default();
+                let mut cx = FrameCx {
+                    game: &g,
+                    pal: theme::Palette::from_def(&g.data.themes[0]),
+                    suite: &mut suite,
+                    keys_free: true,
+                    level: crate::volume::Level {
+                        on: true,
+                        volume: 100,
+                    },
+                    popup: &mut popup,
+                };
+                out = run_keys(&crate::suite::Suite, ui.ctx(), &mut cx, false, &mut focus);
+            });
+            let acts: Vec<Action> = out
+                .into_iter()
+                .filter_map(|r| match r {
+                    Request::Cmd(Command::Game(a)) => Some(a),
+                    _ => None,
+                })
+                .collect();
+            (acts, focus)
+        };
+        assert_eq!(press(crate::uitest::key(Key::Space)).0, [Action::EndTurn]);
+        assert_eq!(press(crate::uitest::key(Key::Num0)).0, [Action::Run(0)]);
+        let (acts, focus) = press(crate::uitest::key(Key::Enter));
+        assert!(
+            acts.is_empty() && !focus,
+            "Enter is the window's, not the command line's"
+        );
+    }
 }

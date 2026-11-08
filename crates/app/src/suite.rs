@@ -10,11 +10,13 @@ use egui::{
     Align2, Color32, FontFamily, FontId, Key, Painter, Rect, RichText, ScrollArea, Sense, Stroke,
     StrokeKind, Ui, UiBuilder, pos2, vec2,
 };
-use ninsei_core::suite::{self as rules, Notice, SheetCol, Watch};
+use ninsei_core::listing::Gutter;
+use ninsei_core::suite::{self as rules, FKey, Legend, Notice, SheetCol, Watch};
 use ninsei_core::{Action, Command, ContractStatus, Effect, Game, LogKind, Phase, tuning};
 
 use crate::chrome::{ChromeView, FrameCx, MenuPart, Menus, act};
 use crate::kit::cells::cut;
+use crate::kit::listing::{Bind, Listing, number_w};
 use crate::kit::{Cells, Sheet};
 use crate::panes::{Panes, Request, Tab};
 use crate::theme::Palette;
@@ -91,6 +93,20 @@ fn small(s: impl Into<String>, c: Color32) -> RichText {
 /// name); empty when the tab over the window already names it, since a window doesn't repeat
 /// its tab.
 pub fn window(ui: &mut Ui, p: &Palette, num: usize, heading: &str, body: impl FnOnce(&mut Ui)) {
+    window_with(ui, p, num, heading, "", false, body);
+}
+
+/// [`window`] with a `note` set in its bottom edge (the Module window's budgets), its double
+/// line `bright` while it's the active window (`lit`), as Turbo Vision marks the one you're in.
+pub fn window_with(
+    ui: &mut Ui,
+    p: &Palette,
+    num: usize,
+    heading: &str,
+    note: &str,
+    lit: bool,
+    body: impl FnOnce(&mut Ui),
+) {
     let full = ui.available_rect_before_wrap();
     let painter = ui.painter().clone();
     painter.rect_filled(full, 0.0, p.panel);
@@ -100,7 +116,7 @@ pub fn window(ui: &mut Ui, p: &Palette, num: usize, heading: &str, body: impl Fn
         full.max - vec2(4.0 + size::SHADOW, 4.0 + size::SHADOW),
     );
     let mut g = Cells::fit_font(ui, area, mono(size::MONO), Some(size::ROW_H));
-    g.border = p.fg;
+    g.border = if lit { p.bright } else { p.fg };
     painter.rect_filled(
         g.rect.translate(vec2(size::SHADOW, size::SHADOW)),
         0.0,
@@ -125,6 +141,12 @@ pub fn window(ui: &mut Ui, p: &Palette, num: usize, heading: &str, body: impl Fn
             &number,
             p.dim,
         );
+        // The note in the bottom edge, right, cut to the room the edge has.
+        let note = cut(note, g.cols.saturating_sub(8));
+        let n = note.chars().count();
+        if n > 0 {
+            g.title(&painter, g.cols - n - 4, g.rows - 1, &note, p.dim);
+        }
         // The document's heading, if it has one of its own, on the first row.
         let top = if heading.is_empty() || g.rows < 5 {
             1
@@ -956,6 +978,129 @@ impl Panes<'_> {
         self.out = pane;
     }
 
+    /// The Module window, Turbo Debugger's: the program's lines on the suite's cells, the line
+    /// about to run in inverse with `▶`, a STOP's `■`, a bad line dim with its fault after it,
+    /// the cursor boxed while the window is active; the budgets in the bottom edge. Under it,
+    /// in the same window, the Watches. A click activates it and puts the cursor on a line.
+    fn suite_script(&mut self, ui: &mut Ui) {
+        let g = self.game;
+        let p = self.pal;
+        let ctx = ui.ctx().clone();
+        let l = module();
+        let area = ui.available_rect_before_wrap();
+        // The whole window takes the click that makes it the active one.
+        let tile = ui.interact(area, l.id(), Sense::click());
+        let focused = l.has_keys(&ctx);
+        if focused {
+            l.take_keys(&ctx);
+        }
+        let mut v = l.view(&ctx, g);
+        let rows = l.rows(g, &v);
+        let note = rules::module_note(g);
+        let style = ninsei_term::widget::Style {
+            font: mono(size::MONO),
+            prompt: p.dim,
+            text: p.bright,
+            cursor: p.fg,
+            under_cursor: p.bg,
+            search: p.fg,
+        };
+        let mut acts = Vec::new();
+        window_with(ui, &p, Tab::Script.number(), "", &note, focused, |ui| {
+            let inner = ui.available_rect_before_wrap();
+            let fit = Cells::fit_font(ui, inner, mono(size::MONO), Some(size::ROW_H));
+            let c = Cells::sized(
+                ui,
+                inner.min,
+                mono(size::MONO),
+                Some(size::ROW_H),
+                (fit.cols, fit.rows),
+            );
+            let painter = ui.painter_at(c.rect);
+            // The Watches go before the listing does when the window is short.
+            let watches = c.rows >= WATCH_ROWS + 3;
+            let n = c.rows - if watches { WATCH_ROWS } else { 0 };
+            let shown = l.window(ui, &c, &mut v, &rows, focused, n);
+            let w = number_w(&rows);
+            let text_c = 2 + w + 2;
+            for i in shown {
+                let (r, y) = (&rows[i], v.list.row(i));
+                let current = r.gutter == Gutter::Current;
+                let (num, ink) = if r.dim {
+                    (p.dim, p.dim)
+                } else if current {
+                    (p.bg, p.bg)
+                } else {
+                    (p.dim, p.fg)
+                };
+                if current {
+                    c.fill(&painter, 0, y, c.cols, 1, p.fg);
+                }
+                let mark = match r.gutter {
+                    Gutter::None => p.dim,
+                    Gutter::Current => p.bg,
+                    Gutter::Stop => p.bright,
+                };
+                c.text(&painter, 0, y, rules::module_mark(r.gutter), mark);
+                let line = match &r.fault {
+                    Some(f) => format!("{}  {f}", r.text),
+                    None => r.text.clone(),
+                };
+                let no = r.no.map_or(String::new(), |n| n.to_string());
+                if r.no.is_some() && r.no == v.edit.as_ref().map(|e| e.no) {
+                    c.fill(&painter, 0, y, c.cols, 1, p.bg);
+                    c.text_right(&painter, 2 + w, y, &no, p.bright);
+                    let at = c.at(text_c, y, c.cols.saturating_sub(text_c), 1);
+                    acts.extend(l.edit_row(ui, at, &mut v, g, &style));
+                    continue;
+                }
+                c.text_right(&painter, 2 + w, y, &no, num);
+                let room = c.cols.saturating_sub(text_c);
+                c.text_max(&painter, text_c, y, &line, room, ink);
+                // The cursor: a box round its row while the window is active.
+                if focused && r.no.is_some() && r.no == v.cursor {
+                    painter.rect_stroke(
+                        c.at(1, y, c.cols - 1, 1).shrink(0.5),
+                        0.0,
+                        Stroke::new(1.0, p.bright),
+                        StrokeKind::Inside,
+                    );
+                }
+            }
+            if watches {
+                let top = c.rows - WATCH_ROWS;
+                let y = c.at(0, top, 1, 1).center().y;
+                painter.line_segment(
+                    [pos2(c.rect.left(), y), pos2(c.rect.right(), y)],
+                    Stroke::new(1.0, p.dim),
+                );
+                c.text(&painter, 0, top + 1, "WATCHES", p.bright);
+                let half = c.cols / 2;
+                let field = |at: usize, row: usize, room: usize, (name, value): &(&str, String)| {
+                    c.text(&painter, at, row, name, p.dim);
+                    c.text_max(&painter, at + 7, row, value, room.saturating_sub(8), p.fg);
+                };
+                let ws = rules::watches(g);
+                // TURN CPU / IFS INTEG / TRACE NEXT in two columns; ICE and LAST a row each.
+                for (k, pair) in ws[..6].chunks(2).enumerate() {
+                    field(0, top + 2 + k, half, &pair[0]);
+                    field(half, top + 2 + k, c.cols - half, &pair[1]);
+                }
+                field(0, top + 5, c.cols, &ws[6]);
+                field(0, top + 6, c.cols, &ws[7]);
+            }
+            l.click(&ctx, &tile, &c, &mut v, &rows, n, g);
+            ui.allocate_rect(inner, Sense::hover());
+        });
+        for a in acts {
+            self.act(a);
+        }
+        if tile.clicked() && v.edit.is_none() {
+            l.take_keys(&ctx);
+        }
+        l.keep(&ctx, v);
+    }
+
     fn suite_todo(&mut self, ui: &mut Ui) {
         let g = self.game;
         let p = self.pal;
@@ -1143,25 +1288,63 @@ impl Panes<'_> {
     }
 }
 
-/// The F-key legend: what each key does, wired to the same requests as the keys.
-const FKEYS: [(Key, &str, &str); 4] = [
-    (Key::F1, "F1", "Help"),
-    (Key::F4, "F4", "Hex"),
-    (Key::F8, "F8", "Jack"),
-    (Key::F10, "F10", "End turn"),
-];
-
-/// What F-key `k` asks for, given the sheet's cursor.
-fn fkey(k: Key, st: &State, g: &Game) -> Option<Request> {
-    let slot = st.picked(g);
-    Some(match k {
-        Key::F1 => Request::Cmd(Command::Help),
-        Key::F4 if g.has_tool("hexed") => Request::OpenHex(slot?),
-        Key::F8 => Request::Type("jack ".into()),
-        Key::F10 => act(Action::EndTurn),
+/// F-key `n` as egui names it.
+fn fkey_of(n: u8) -> Option<Key> {
+    Some(match n {
+        1 => Key::F1,
+        2 => Key::F2,
+        3 => Key::F3,
+        4 => Key::F4,
+        8 => Key::F8,
+        9 => Key::F9,
+        10 => Key::F10,
         _ => return None,
     })
 }
+
+/// The legend up now: the Module window's while it's active, else the suite's own.
+fn legend_now(ctx: &egui::Context) -> Legend {
+    if module().has_keys(ctx) {
+        Legend::Module
+    } else {
+        Legend::Default
+    }
+}
+
+/// What F-key `k` asks for, given the sheet's cursor and the Module window's: the same
+/// whether it's pressed or clicked on the legend. A debugger key that wouldn't press asks for
+/// nothing.
+fn fkey(ctx: &egui::Context, k: FKey, st: &State, g: &Game) -> Option<Request> {
+    let m = module();
+    let cursor = m.view(ctx, g).cursor;
+    if !rules::fkey_live(g, k, cursor) {
+        return None;
+    }
+    Some(match k {
+        FKey::Help => Request::Cmd(Command::Help),
+        FKey::Hex => Request::OpenHex(st.picked(g)?),
+        FKey::Jack => Request::Type("jack ".into()),
+        FKey::EndTurn => act(Action::EndTurn),
+        FKey::Step => act(Action::Step),
+        FKey::Run => act(Action::Play),
+        FKey::Pause => act(Action::Pause),
+        FKey::Edit => {
+            let mut v = m.view(ctx, g);
+            let no = cursor?;
+            m.start_edit(ctx, &mut v, no, &ninsei_core::listing::editing_text(g, no));
+            m.keep(ctx, v);
+            return None;
+        }
+    })
+}
+
+/// The Module window's listing: its focus id and memory.
+pub(crate) fn module() -> Listing {
+    Listing::new("suite-module")
+}
+
+/// Rows the Watches strip takes under the listing: a rule, its heading, five rows of fields.
+const WATCH_ROWS: usize = 7;
 
 const SUITE_MENUS: Menus = &[
     ("File", &[MenuPart::Decks, MenuPart::Monitors]),
@@ -1208,6 +1391,10 @@ impl ChromeView for Suite {
     fn vis(&self, p: &mut Panes, ui: &mut Ui) {
         p.suite_vis(ui);
     }
+    /// The PROC-7.BAS Module window over its Watches, the whole run.
+    fn script(&self, p: &mut Panes, ui: &mut Ui) {
+        p.suite_script(ui);
+    }
 
     fn title(&self, tab: Tab) -> Option<&'static str> {
         Some(match tab {
@@ -1220,7 +1407,7 @@ impl ChromeView for Suite {
             Tab::Todo => " WORKORD.DBF ",
             Tab::Net => " NETUSAGE.RPT ",
             Tab::Vis => " SOUNDLVL.RPT ",
-            Tab::Script => " SCRIPT.BAS ",
+            Tab::Script => " PROC-7.BAS ",
         })
     }
     fn scroll_bars(&self, _tab: Tab) -> Option<[bool; 2]> {
@@ -1287,24 +1474,35 @@ impl ChromeView for Suite {
     fn has_legend(&self) -> bool {
         true
     }
+    /// The F-key legend: the Module window's keys while it's active, else the suite's own,
+    /// from the one table the keys use. A key that wouldn't do anything now is dim.
     fn legend(&self, ui: &mut Ui, cx: &mut FrameCx) -> Vec<Request> {
         let p = cx.pal;
+        let ctx = ui.ctx().clone();
+        let cursor = module().view(&ctx, cx.game).cursor;
         // One row of cells: each key's cap in inverse and what it does, both clickable.
-        let mut line: Sheet<Key> = Sheet::new(cols_across(ui));
+        let mut line: Sheet<FKey> = Sheet::new(cols_across(ui));
         let mut c = 0;
-        for (k, cap, label) in FKEYS {
-            if k == Key::F4 && !cx.game.has_tool("hexed") {
+        for &(n, k, label) in legend_now(&ctx).keys() {
+            if k == FKey::Hex && !cx.game.has_tool("hexed") {
                 continue;
             }
+            let live = rules::fkey_live(cx.game, k, cursor);
             let start = c;
-            c = line.inv(c, 0, cap, p.bg, p.fg);
-            c = line.put(c + 1, 0, label, p.fg);
+            c = line.inv(
+                c,
+                0,
+                &format!("F{n}"),
+                p.bg,
+                if live { p.fg } else { p.dim },
+            );
+            c = line.put(c + 1, 0, label, if live { p.fg } else { p.dim });
             line.hit(start, 0, c - start, k);
             c += 2;
         }
         line.paint(ui, mono(size::MONO), Some(size::ROW_H))
             .into_iter()
-            .filter_map(|k| fkey(k, cx.suite, cx.game))
+            .filter_map(|k| fkey(&ctx, k, cx.suite, cx.game))
             .collect()
     }
 
@@ -1313,13 +1511,34 @@ impl ChromeView for Suite {
             return Vec::new();
         }
         let g = cx.game;
-        let st = &mut *cx.suite;
         let mut out = Vec::new();
+        // The Module window's own keys while it's active (and no dialog is waiting on Enter).
+        if cx.suite.dialogs.is_empty() {
+            out.extend(
+                module()
+                    .keys(ctx, g, |key| {
+                        Some(match key {
+                            Key::ArrowUp => Bind::Up,
+                            Key::ArrowDown => Bind::Down,
+                            Key::Enter => Bind::Edit,
+                            Key::Insert => Bind::Open,
+                            Key::Delete => Bind::Delete,
+                            Key::Escape => Bind::Release,
+                            _ => return None,
+                        })
+                    })
+                    .into_iter()
+                    .map(act),
+            );
+        }
+        let st = &mut *cx.suite;
+        let legend = legend_now(ctx);
         let (pressed, arrows) = ctx.input(|i| {
-            let f: Vec<Key> = FKEYS
+            let f: Vec<FKey> = legend
+                .keys()
                 .iter()
-                .map(|(k, _, _)| *k)
-                .filter(|k| i.key_pressed(*k))
+                .filter(|(n, _, _)| fkey_of(*n).is_some_and(|k| i.key_pressed(k)))
+                .map(|(_, k, _)| *k)
                 .collect();
             let a = [
                 i.key_pressed(Key::ArrowUp),
@@ -1330,7 +1549,7 @@ impl ChromeView for Suite {
             (f, a)
         });
         for k in pressed {
-            out.extend(fkey(k, st, g));
+            out.extend(fkey(ctx, k, st, g));
         }
         // The cell cursor moves with the arrows when nothing is taking typing.
         if !ctx.egui_wants_keyboard_input() && arrows.iter().any(|a| *a) {
@@ -1354,6 +1573,10 @@ impl ChromeView for Suite {
             }
         }
         out
+    }
+
+    fn script_has_keys(&self, ctx: &egui::Context) -> bool {
+        module().has_keys(ctx)
     }
 
     fn overlay(&self, ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
@@ -2004,5 +2227,417 @@ mod tests {
             .count();
         // A screenful of rows, three pieces each, and the window's own furniture.
         assert!(texts < 150, "{texts} pieces of text for a 400-entry log");
+    }
+}
+
+#[cfg(test)]
+mod module_tests {
+    use super::*;
+    use crate::uitest::Harness;
+    use ninsei_core::Data;
+
+    /// The right column of the default layout, about.
+    const PANE: (f32, f32) = (420.0, 560.0);
+
+    fn fight(program: &str) -> Game {
+        let mut g = crate::stack::tests::a_fight(&Data::builtin().unwrap());
+        g.apply(Action::Program(program.into()));
+        g
+    }
+
+    fn pal(g: &Game) -> Palette {
+        Palette::from_def(&g.data.themes[0])
+    }
+
+    fn pane_rect((w, h): (f32, f32)) -> Rect {
+        Rect::from_min_size(pos2(0.0, 0.0), vec2(w, h))
+    }
+
+    /// Where the legend sits in the test frames.
+    fn legend_rect() -> Rect {
+        Rect::from_min_size(pos2(0.0, 1300.0), vec2(900.0, 20.0))
+    }
+
+    /// One frame as the run draws it: the chrome's keys, the Module window in a `size` pane,
+    /// the legend under the panes and the activity log beside; returns what they asked for.
+    fn frame_with(
+        h: &mut Harness,
+        g: &Game,
+        size: (f32, f32),
+        term: &mut ninsei_term::LineEditor,
+        ev: Vec<egui::Event>,
+    ) -> Vec<Request> {
+        let (mut focus, mut hex, mut keep) = (false, None, Vec::new());
+        let (mut suite, mut suite2) = (State::default(), State::default());
+        let mut out = Vec::new();
+        h.frame(ev, |ui| {
+            let mut popup = crate::volume::Popup::default();
+            let mut cx = FrameCx {
+                game: g,
+                pal: pal(g),
+                suite: &mut suite2,
+                keys_free: true,
+                level: crate::volume::Level {
+                    on: true,
+                    volume: 100,
+                },
+                popup: &mut popup,
+            };
+            out = Suite.keys(ui.ctx(), &mut cx);
+            let mut panes = Panes {
+                game: g,
+                pal: pal(g),
+                map: ninsei_core::netview::MapView::Draft,
+                deck: String::new(),
+                chrome: ninsei_core::hardware::Chrome::Suite,
+                corrupt: (0.0, 0),
+                term: &mut *term,
+                focus_input: &mut focus,
+                bbs_open: false,
+                hex: &mut hex,
+                keep: &mut keep,
+                keep_room: 0,
+                suite: &mut suite,
+                hear: &Vec::new,
+                scope_rate: 0,
+                out: Vec::new(),
+            };
+            let mut w = ui.new_child(UiBuilder::new().max_rect(pane_rect(size)));
+            Suite.script(&mut panes, &mut w);
+            let log = Rect::from_min_size(pos2(0.0, 950.0), vec2(800.0, 300.0));
+            let mut t = ui.new_child(UiBuilder::new().max_rect(log));
+            Suite.terminal(&mut panes, &mut t);
+            out.extend(panes.out);
+            let mut l = ui.new_child(UiBuilder::new().max_rect(legend_rect()));
+            out.extend(Suite.legend(&mut l, &mut cx));
+        });
+        out
+    }
+
+    fn frame(h: &mut Harness, g: &Game, ev: Vec<egui::Event>) -> Vec<Request> {
+        let mut term = ninsei_term::LineEditor::default();
+        frame_with(h, g, PANE, &mut term, ev)
+    }
+
+    fn actions(out: Vec<Request>) -> Vec<Action> {
+        out.into_iter()
+            .filter_map(|r| match r {
+                Request::Cmd(Command::Game(a)) => Some(a),
+                _ => None,
+            })
+            .collect()
+    }
+
+    fn key(k: Key) -> Vec<egui::Event> {
+        crate::uitest::key(k)
+    }
+
+    fn typed(s: &str) -> Vec<egui::Event> {
+        crate::uitest::text(s)
+    }
+
+    /// The text painted in `area`, glyph by glyph, in reading order, with each glyph's ink.
+    fn rows_in(h: &Harness, area: Rect) -> Vec<(String, Vec<Color32>)> {
+        let mut glyphs: Vec<(f32, f32, String, Color32)> = h
+            .painted()
+            .iter()
+            .filter_map(|s| match s {
+                egui::Shape::Text(t) => {
+                    let r = Rect::from_min_size(t.pos, t.galley.size());
+                    area.contains(r.center()).then(|| {
+                        (
+                            r.center().y.round(),
+                            r.center().x,
+                            t.galley.text().to_string(),
+                            t.fallback_color,
+                        )
+                    })
+                }
+                _ => None,
+            })
+            .collect();
+        glyphs.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)));
+        let mut out: Vec<(f32, String, Vec<Color32>)> = Vec::new();
+        for (y, _, t, c) in glyphs {
+            match out.last_mut() {
+                Some((ly, s, cs)) if (*ly - y).abs() < 2.0 => {
+                    s.push_str(&t);
+                    cs.push(c);
+                }
+                _ => out.push((y, t, vec![c])),
+            }
+        }
+        out.into_iter().map(|(_, s, c)| (s, c)).collect()
+    }
+
+    fn row_with<'a>(rows: &'a [(String, Vec<Color32>)], text: &str) -> &'a (String, Vec<Color32>) {
+        rows.iter()
+            .find(|(s, _)| s.contains(text))
+            .unwrap_or_else(|| panic!("no row with {text:?} in {rows:?}"))
+    }
+
+    /// Clicks line `no`'s number in the Module window: the window is active, its cursor there.
+    fn activate_on(h: &mut Harness, g: &Game, no: u32) {
+        frame(h, g, vec![]);
+        let n = no.to_string();
+        let mut glyphs: Vec<(String, Rect)> = h
+            .painted_text()
+            .into_iter()
+            .filter(|(_, r)| pane_rect(PANE).contains(r.center()))
+            .collect();
+        glyphs.sort_by(|a, b| {
+            a.1.center()
+                .y
+                .round()
+                .total_cmp(&b.1.center().y.round())
+                .then(a.1.center().x.total_cmp(&b.1.center().x))
+        });
+        let at = glyphs
+            .windows(n.len())
+            .find(|w| {
+                w.iter().map(|g| g.0.as_str()).collect::<String>() == n && w[0].1.center().x < 60.0
+            })
+            .unwrap_or_else(|| panic!("no line {no}"))[0]
+            .1
+            .center();
+        frame(h, g, crate::uitest::click(at));
+        assert!(module().has_keys(&h.ctx), "the Module window is active");
+        assert_eq!(module().view(&h.ctx, g).cursor, Some(no));
+    }
+
+    fn program(g: &Game) -> Vec<String> {
+        g.program
+            .lines
+            .iter()
+            .map(|l| format!("{} {}", l.no, l.text))
+            .collect()
+    }
+
+    #[test]
+    fn the_window_stays_whole_in_its_pane_at_three_sizes() {
+        let g = fight(
+            "10 REM PROC-7 REV C  PROPERTY OF HOSAKA CORP.\n20 IF INTEG < 9\n30 RUN patch\n40 STOP\n50 GOTO 20",
+        );
+        for size in [(240.0, 180.0), PANE, (700.0, 900.0)] {
+            let mut h = Harness::new(1280.0, 1400.0);
+            let mut term = ninsei_term::LineEditor::default();
+            frame_with(&mut h, &g, size, &mut term, vec![]);
+            frame_with(&mut h, &g, size, &mut term, vec![]);
+            let room = pane_rect(size).expand(0.5);
+            for s in h.painted() {
+                let r = s.visual_bounding_rect();
+                if room.contains(r.center()) {
+                    assert!(room.contains_rect(r), "{size:?}: {r:?} outside {room:?}");
+                }
+            }
+            let cut: Vec<_> = h
+                .cut_text()
+                .into_iter()
+                .filter(|(_, r)| room.contains(r.min))
+                .collect();
+            assert!(cut.is_empty(), "{size:?}: cut at a clip rect: {cut:?}");
+        }
+    }
+
+    #[test]
+    fn the_line_about_to_run_is_inverse_a_stop_carries_its_block_and_the_watches_read() {
+        let g = fight("10 RUN icepick\n20 STOP\n30 JUMP 10\n40 GOTO 10");
+        let p = pal(&g);
+        let mut h = Harness::new(1280.0, 1400.0);
+        frame(&mut h, &g, vec![]);
+        let rows = rows_in(&h, pane_rect(PANE));
+        let (s, cs) = row_with(&rows, "RUNicepick");
+        assert!(s.starts_with('▶'), "{s}");
+        assert!(cs.iter().all(|&c| c == p.bg), "inverse: {cs:?}");
+        assert!(
+            h.rects().iter().any(|(_, fill, _)| *fill == p.fg),
+            "the row's bar"
+        );
+        let (s, _) = row_with(&rows, "STOP");
+        assert!(s.starts_with('■'), "{s}");
+        let (s, cs) = row_with(&rows, "JUMP10");
+        assert!(s.contains("?SYNTAX"), "{s}");
+        assert!(cs.iter().all(|&c| c == p.dim));
+        for name in [
+            "WATCHES", "TURN", "CPU", "IFS", "INTEG", "TRACE", "NEXT", "ICE", "LAST",
+        ] {
+            assert!(
+                rows.iter().any(|(s, _)| s.contains(name)),
+                "{name}: {rows:?}"
+            );
+        }
+        let c = g.combat.as_ref().unwrap();
+        let note = format!(
+            "CPU{}/{}RAM{}/{}",
+            c.cpu, g.deck.cpu_max, c.ifs, g.deck.ram_max
+        );
+        assert!(
+            rows.iter().any(|(s, _)| s.contains(&note)),
+            "the budgets in the edge"
+        );
+    }
+
+    #[test]
+    fn the_legend_swaps_when_the_module_window_is_active() {
+        let g = fight("10 RUN icepick\n20 STOP\n30 GOTO 10");
+        let mut h = Harness::new(1280.0, 1400.0);
+        frame(&mut h, &g, vec![]);
+        let legend = |h: &Harness| -> String {
+            rows_in(h, legend_rect())
+                .into_iter()
+                .map(|(s, _)| s)
+                .collect()
+        };
+        let calm = legend(&h);
+        assert!(
+            calm.contains("F8Jack") && calm.contains("F10Endturn"),
+            "{calm}"
+        );
+        assert!(!calm.contains("Step"));
+        activate_on(&mut h, &g, 10);
+        frame(&mut h, &g, vec![]);
+        let active = legend(&h);
+        for k in [
+            "F1Help",
+            "F2Edit",
+            "F4Pause",
+            "F8Step",
+            "F9Run",
+            "F10Endturn",
+        ] {
+            assert!(active.contains(k), "{k} in {active}");
+        }
+        assert!(
+            !active.contains("F7") && !active.contains("Jack"),
+            "{active}"
+        );
+        // Esc puts the suite's own legend back.
+        frame(&mut h, &g, key(Key::Escape));
+        frame(&mut h, &g, vec![]);
+        assert!(legend(&h).contains("F8Jack"));
+    }
+
+    #[test]
+    fn with_the_window_active_the_f_keys_are_the_debuggers() {
+        let g = fight("10 RUN icepick\n20 STOP\n30 GOTO 10");
+        let mut h = Harness::new(1280.0, 1400.0);
+        activate_on(&mut h, &g, 10);
+        assert_eq!(actions(frame(&mut h, &g, key(Key::F8))), [Action::Step]);
+        assert_eq!(actions(frame(&mut h, &g, key(Key::F9))), [Action::Play]);
+        assert!(
+            actions(frame(&mut h, &g, key(Key::F4))).is_empty(),
+            "nothing to pause"
+        );
+        assert!(
+            frame(&mut h, &g, key(Key::F7)).is_empty(),
+            "F7 is the browser's"
+        );
+        // The arrows move the window's cursor, not the sheet's.
+        frame(&mut h, &g, key(Key::ArrowDown));
+        assert_eq!(module().view(&h.ctx, &g).cursor, Some(20));
+    }
+
+    #[test]
+    fn with_another_window_active_f4_and_f8_keep_their_meaning() {
+        let g = fight("10 RUN icepick\n20 STOP\n30 GOTO 10");
+        let mut h = Harness::new(1280.0, 1400.0);
+        frame(&mut h, &g, vec![]);
+        let out = frame(&mut h, &g, key(Key::F8));
+        assert!(
+            matches!(out.as_slice(), [Request::Type(t)] if t == "jack "),
+            "F8 types jack"
+        );
+        let out = frame(&mut h, &g, key(Key::F4));
+        assert_eq!(
+            out.iter().any(|r| matches!(r, Request::OpenHex(_))),
+            g.has_tool("hexed"),
+            "F4 opens the hex editor when there is one"
+        );
+        assert!(actions(out).is_empty());
+    }
+
+    #[test]
+    fn a_line_is_retyped_as_a_field_in_its_row() {
+        let mut g = fight("10 RUN icepick\n20 STOP\n30 GOTO 10");
+        let before = program(&g);
+        let mut h = Harness::new(1280.0, 1400.0);
+        activate_on(&mut h, &g, 20);
+        let mut term = ninsei_term::LineEditor::default();
+        frame_with(&mut h, &g, PANE, &mut term, key(Key::F2));
+        frame_with(&mut h, &g, PANE, &mut term, vec![]);
+        assert!(
+            h.ctx.memory(|m| m.has_focus(module().edit_id())),
+            "the row has the keys"
+        );
+        let mut ev = Vec::new();
+        for _ in 0.."STOP".len() {
+            ev.extend(key(Key::Backspace));
+        }
+        ev.extend(typed("RUN patch"));
+        frame_with(&mut h, &g, PANE, &mut term, ev);
+        assert_eq!(term.text(), "", "the command line heard none of it");
+        let acts = actions(frame_with(&mut h, &g, PANE, &mut term, key(Key::Enter)));
+        assert_eq!(acts.len(), 1, "{acts:?}");
+        for a in acts {
+            g.apply(a);
+        }
+        let after = program(&g);
+        let differ: Vec<_> = before.iter().zip(&after).filter(|(a, b)| a != b).collect();
+        assert_eq!(differ.len(), 1, "{after:?}");
+        assert_eq!(after[1], "20 RUN patch");
+    }
+
+    #[test]
+    fn esc_cancels_a_retype_and_enter_starts_one() {
+        let g = fight("10 RUN icepick\n20 STOP\n30 GOTO 10");
+        let mut h = Harness::new(1280.0, 1400.0);
+        activate_on(&mut h, &g, 20);
+        frame(&mut h, &g, key(Key::Enter));
+        frame(&mut h, &g, typed("xyz"));
+        assert!(actions(frame(&mut h, &g, key(Key::Escape))).is_empty());
+        frame(&mut h, &g, vec![]);
+        let rows = rows_in(&h, pane_rect(PANE));
+        assert!(row_with(&rows, "20").0.ends_with("STOP"));
+        assert!(module().has_keys(&h.ctx), "the window is active again");
+    }
+
+    #[test]
+    fn ins_opens_a_numbered_line_and_del_deletes() {
+        let mut g = fight("10 RUN icepick\n20 STOP\n30 GOTO 10");
+        let mut h = Harness::new(1280.0, 1400.0);
+        activate_on(&mut h, &g, 20);
+        frame(&mut h, &g, key(Key::Insert));
+        frame(&mut h, &g, typed("RUN patch"));
+        for a in actions(frame(&mut h, &g, key(Key::Enter))) {
+            g.apply(a);
+        }
+        assert_eq!(g.program.line(25).unwrap().text, "RUN patch");
+        frame(&mut h, &g, vec![]);
+        let acts = actions(frame(&mut h, &g, key(Key::Delete)));
+        assert_eq!(acts.len(), 1);
+        for a in acts {
+            g.apply(a);
+        }
+        assert_eq!(program(&g), ["10 RUN icepick", "20 STOP", "30 GOTO 10"]);
+    }
+
+    #[test]
+    fn each_step_of_a_pass_is_an_activity_row_with_its_reference() {
+        let mut g = fight("10 IF INTEG > 0\n20 RUN icepick\n30 GOTO 10");
+        g.apply(Action::Step);
+        let mut h = Harness::new(1280.0, 1400.0);
+        frame(&mut h, &g, vec![]);
+        frame(&mut h, &g, vec![]);
+        let log: Vec<String> = h
+            .painted_text()
+            .into_iter()
+            .filter(|(_, r)| r.top() > 950.0 && r.top() < 1250.0)
+            .map(|(t, _)| t)
+            .collect();
+        assert!(log.iter().any(|t| t == "PRG"), "{log:?}");
+        assert!(
+            log.iter().any(|t| t.starts_with("10 IF INTEG > 0")),
+            "{log:?}"
+        );
     }
 }
