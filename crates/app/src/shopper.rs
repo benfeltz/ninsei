@@ -522,12 +522,20 @@ fn full_ad(
             body.max,
         );
         let boxed = spec_height(&l.specs);
-        let pic = Rect::from_min_max(side.min, pos2(side.right(), side.bottom() - boxed));
-        if let Some(art) = art {
-            hero(ui, pic, &art.rows);
-        }
+        // Under the picture; with no picture, at the top of the column.
+        let top = match art {
+            Some(art) => {
+                let pic = Rect::from_min_max(side.min, pos2(side.right(), side.bottom() - boxed));
+                hero(ui, pic, &art.rows);
+                side.bottom() - boxed + GUTTER
+            }
+            None => side.top(),
+        };
         if !l.specs.is_empty() {
-            let r = Rect::from_min_max(pos2(side.left(), side.bottom() - boxed + GUTTER), side.max);
+            let r = Rect::from_min_max(
+                pos2(side.left(), top),
+                pos2(side.right(), top + boxed - GUTTER),
+            );
             spec_box(ui, r, &l.specs);
         }
         Rect::from_min_max(body.min, pos2(side.left() - GUTTER, body.bottom()))
@@ -1057,5 +1065,40 @@ mod tests {
                 "one spec box a deck, on its own page, and none elsewhere"
             );
         }
+    }
+
+    #[test]
+    fn a_deck_with_no_picture_prints_its_spec_box_at_the_top() {
+        let mut data = Data::builtin().unwrap();
+        for d in &mut data.hardware.decks {
+            d.art = None;
+        }
+        let save = deck(&data);
+        let (mut h, mut home) = (Harness::new(1280.0, 800.0), Home::new(Vec::new()));
+        crate::uitest::themed(&h.ctx, &data);
+        let count = shopper::layout(&data.shopper, &save.catalog(&data)).len();
+        for _ in 0..count {
+            frame(&mut h, &mut home, &data, &save, Tool::Rig, Vec::new());
+            frame(&mut h, &mut home, &data, &save, Tool::Rig, Vec::new());
+            let painted = h.painted_text();
+            if let Some((_, specs)) = painted.iter().find(|(t, _)| t == "SPECS") {
+                // The ad's name heads the copy; the box sits level with it, not at the foot.
+                let head = painted
+                    .iter()
+                    .filter(|(_, r)| r.left() < specs.left())
+                    .map(|(_, r)| r.top())
+                    .filter(|&y| y > 100.0)
+                    .fold(f32::MAX, f32::min);
+                assert!(
+                    (specs.top() - head).abs() < 20.0,
+                    "box at {specs:?}, copy starts at {head}"
+                );
+                assert!(h.cut_text().iter().all(|(t, _)| t != "SPECS"));
+                return;
+            }
+            let next = press_on(&mut h, "▶");
+            frame(&mut h, &mut home, &data, &save, Tool::Rig, next);
+        }
+        panic!("no deck page");
     }
 }
