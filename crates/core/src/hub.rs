@@ -753,6 +753,15 @@ impl Upgrade {
     }
 }
 
+/// An amount of a RIG line in its unit: "6 GB", or "18" when the line has none.
+pub fn amount(n: u32, unit: &str) -> String {
+    if unit.is_empty() {
+        n.to_string()
+    } else {
+        format!("{n} {unit}")
+    }
+}
+
 /// One line in the RIG shop (`data/hub/rig.ron`).
 #[derive(Deserialize, Clone, Debug)]
 pub struct UpgradeDef {

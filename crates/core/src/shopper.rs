@@ -133,6 +133,18 @@ pub struct Spec {
     pub max: u32,
 }
 
+impl Spec {
+    /// The SHIPS WITH cell: "4 cyc".
+    pub fn ships_text(&self) -> String {
+        crate::hub::amount(self.ships, &self.unit)
+    }
+
+    /// The EXPANDS TO cell: "6 cyc".
+    pub fn max_text(&self) -> String {
+        crate::hub::amount(self.max, &self.unit)
+    }
+}
+
 /// What a deck's ad prints in its spec box: each of its `stats` rows, in its order, labelled
 /// with RIG's words for the line. The one place an ad's numbers come from, so an ad can
 /// never disagree with the deck. A line RIG doesn't sell has no words, so no row.

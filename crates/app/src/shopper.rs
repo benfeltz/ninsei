@@ -590,13 +590,6 @@ fn spec_box(ui: &mut Ui, r: Rect, specs: &[Spec]) {
             Stroke::new(w, ink()),
         )
     };
-    let num = |n: u32, unit: &str| {
-        if unit.is_empty() {
-            n.to_string()
-        } else {
-            format!("{n} {unit}")
-        }
-    };
     // Three columns: the line, then both numbers right-aligned to fixed stops.
     let (left, mid, right) = (
         r.left() + 4.0,
@@ -623,8 +616,8 @@ fn spec_box(ui: &mut Ui, r: Rect, specs: &[Spec]) {
     for (i, s) in specs.iter().enumerate() {
         let y = top + 3.0 + SPEC_ROW * (i + 1) as f32;
         cell(&s.label, left, y, false);
-        cell(&num(s.ships, &s.unit), mid, y, true);
-        cell(&num(s.max, &s.unit), right, y, true);
+        cell(&s.ships_text(), mid, y, true);
+        cell(&s.max_text(), right, y, true);
     }
     rule(top + 3.0 + SPEC_ROW * (specs.len() + 1) as f32, 1.0);
 }
@@ -1017,14 +1010,7 @@ mod tests {
                         .expect("a deck's page");
                     assert!(seen.iter().any(|t| t == "EXPANDS TO"));
                     for s in &l.specs {
-                        let num = |n: u32| {
-                            if s.unit.is_empty() {
-                                n.to_string()
-                            } else {
-                                format!("{n} {}", s.unit)
-                            }
-                        };
-                        for t in [s.label.clone(), num(s.ships), num(s.max)] {
+                        for t in [s.label.clone(), s.ships_text(), s.max_text()] {
                             assert!(seen.contains(&t), "{}: no {t:?} in {seen:?}", l.name);
                         }
                     }

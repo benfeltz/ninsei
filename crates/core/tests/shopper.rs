@@ -564,6 +564,12 @@ fn a_deck_ad_prints_its_stats_and_nothing_else_does() {
             assert_eq!((spec.ships, spec.max), (row.base, row.max), "{}", deck.id);
             let rig = d.rig.iter().find(|u| u.kind == row.line).unwrap();
             assert_eq!(spec.label, rig.label, "the magazine's word for the line");
+            let unit = |n: u32| match rig.unit.as_str() {
+                "" => n.to_string(),
+                u => format!("{n} {u}"),
+            };
+            assert_eq!(spec.ships_text(), unit(row.base));
+            assert_eq!(spec.max_text(), unit(row.max));
         }
         // CPU, RAM and HDD are always in the box.
         for u in [Upgrade::Cpu, Upgrade::Ram, Upgrade::Hdd] {
