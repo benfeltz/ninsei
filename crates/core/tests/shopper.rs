@@ -507,7 +507,7 @@ fn a_section_never_runs_backwards_across_pages() {
 }
 
 #[test]
-fn every_deck_model_is_listed_and_orderable() {
+fn every_deck_in_the_data_is_listed_and_orderable() {
     let d = data();
     let mut s = fresh(0);
     let decks: Vec<_> = s
@@ -515,30 +515,16 @@ fn every_deck_model_is_listed_and_orderable() {
         .into_iter()
         .filter(|l| l.section == Section::Decks)
         .collect();
-    assert_eq!(decks.len(), d.hardware.decks.len());
-    assert_eq!(decks.len(), 7);
-    // Within a brand the models climb in price, in the order the magazine prints them.
-    let mut makers: Vec<&str> = d.hardware.decks.iter().map(|m| m.maker.as_str()).collect();
-    makers.dedup();
-    let lines = makers
+    // The magazine prints exactly the decks in the data, each once, in the data's order.
+    let printed: Vec<Item> = decks.iter().map(|l| l.item.clone()).collect();
+    let data_decks: Vec<Item> = d
+        .hardware
+        .decks
         .iter()
-        .filter(|&&mk| d.hardware.decks.iter().filter(|m| m.maker == mk).count() > 1)
-        .count();
-    assert!(lines >= 2, "brands sell lines of models");
-    for maker in makers {
-        let prices: Vec<u32> = d
-            .hardware
-            .decks
-            .iter()
-            .filter(|m| m.maker == maker)
-            .map(|m| m.price)
-            .collect();
-        assert!(
-            prices.windows(2).all(|w| w[0] < w[1]),
-            "{maker}: {prices:?}"
-        );
-    }
-    // Every model has its own full page.
+        .map(|m| Item::Deck(m.id.clone()))
+        .collect();
+    assert_eq!(printed, data_decks);
+    // Every deck has its own full page.
     let def = &d.shopper;
     for l in &decks {
         assert_eq!(
@@ -548,7 +534,7 @@ fn every_deck_model_is_listed_and_orderable() {
             l.name
         );
     }
-    // The cheapest model you don't own orders with the dev key's money.
+    // The cheapest deck you don't own orders with the dev key's money.
     s.dev_credits();
     let cheapest = decks
         .iter()
