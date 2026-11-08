@@ -1,6 +1,7 @@
 //! The Liza kit: the widgets of a 1-bit desktop after the first Mac's System 1. Windows with a
 //! striped title bar and a close box, the menu bar and its menus, the scroll bar and the list
-//! box, push buttons, check boxes and radio buttons, and the alert. It draws and reports clicks and picks; what the menus hold, what
+//! box, push buttons, check boxes and radio buttons, the alert, and HyperCard's text field,
+//! pop-up menu and dotted drop slot. It draws and reports clicks and picks; what the menus hold, what
 //! a window shows and what a button does are the caller's. The numbers are the
 //! spec sheet's (`docs/refs/liza.md`). Nothing here names a tool or a deck.
 
@@ -48,6 +49,13 @@ pub mod size {
     pub const BUTTON_GAP: f32 = 10.0;
     /// A scroll bar's width, and the side of its arrow boxes and its thumb.
     pub const SCROLL_W: f32 = 16.0;
+    /// A text field's or pop-up menu's height, and the room either side of its text.
+    pub const FIELD_H: f32 = 20.0;
+    pub const FIELD_PAD: f32 = 4.0;
+    /// A pop-up menu's arrow: its width at the right of the box.
+    pub const POPUP_ARROW: f32 = 16.0;
+    /// The dotted line round a drop slot: dash and gap.
+    pub const DOT: f32 = 2.0;
 }
 
 /// Liza's two colours and her type, from the theme, and the patterns she fills with.
@@ -529,6 +537,208 @@ pub fn push_button(ui: &mut Ui, label: &str, default: bool, look: &Look) -> Resp
     button(ui, ui.painter(), face, id, label, default, enabled, look)
 }
 
+/// A text field in `r`: paper in a 1px ink frame, the text in Liza's type and an insertion
+/// point while it has the keyboard (and the run's keys stand back meanwhile, as egui's text
+/// input does). Enter, Tab or a click elsewhere commits; Esc puts `value` back. Returns the new
+/// text when it was committed changed.
+pub fn text_field(ui: &mut Ui, r: Rect, id: Id, value: &str, look: &Look) -> Option<String> {
+    let r = snap(r);
+    let p = ui.painter();
+    p.rect_filled(r, 0.0, look.paper);
+    p.rect_stroke(r, 0.0, Stroke::new(1.0, look.ink), StrokeKind::Inside);
+    let buf_id = id.with("buf");
+    let mut buf = ui
+        .ctx()
+        .data(|d| d.get_temp::<String>(buf_id))
+        .unwrap_or_else(|| value.to_string());
+    let inner = r.shrink2(vec2(size::FIELD_PAD, 1.0));
+    let resp = ui
+        .scope(|ui| {
+            let v = ui.visuals_mut();
+            v.text_cursor.stroke = Stroke::new(1.0, look.ink);
+            v.selection.bg_fill = look.ink;
+            v.selection.stroke = Stroke::new(1.0, look.paper);
+            v.override_text_color = Some(look.ink);
+            ui.put(
+                inner,
+                egui::TextEdit::singleline(&mut buf)
+                    .id(id)
+                    .frame(egui::Frame::NONE)
+                    .font(look.font.clone())
+                    .text_color(look.ink)
+                    .margin(egui::Margin::ZERO)
+                    .desired_width(inner.width()),
+            )
+        })
+        .inner;
+    if resp.has_focus() {
+        ui.ctx().data_mut(|d| d.insert_temp(buf_id, buf));
+        return None;
+    }
+    ui.ctx().data_mut(|d| d.remove::<String>(buf_id));
+    let cancelled = ui.input(|i| i.key_pressed(Key::Escape));
+    (resp.lost_focus() && !cancelled && buf != value).then_some(buf)
+}
+
+/// A pop-up menu's width for its longest option: the text, its room and the arrow.
+pub fn popup_width(ctx: &egui::Context, options: &[String], value: &str, look: &Look) -> f32 {
+    let widest = options
+        .iter()
+        .map(String::as_str)
+        .chain([value])
+        .map(|o| {
+            ctx.fonts_mut(|f| {
+                f.layout_no_wrap(o.to_string(), look.font.clone(), look.ink)
+                    .size()
+                    .x
+            })
+        })
+        .fold(0.0, f32::max);
+    (widest + 2.0 * size::FIELD_PAD + size::POPUP_ARROW).ceil()
+}
+
+/// A pop-up menu in `r`, System 1's: the value in a shadowed box with a ▾, and on a click its
+/// options in a shadowed list under it, the one under the pointer (or picked with ↑↓)
+/// inverted. A click or Enter picks; Esc or a click outside closes it. Returns the option
+/// picked.
+pub fn popup_menu(
+    ui: &mut Ui,
+    r: Rect,
+    id: Id,
+    value: &str,
+    options: &[String],
+    look: &Look,
+) -> Option<usize> {
+    let r = snap(r);
+    let open_id = id.with("open");
+    let resp = ui.interact(r, id, Sense::click());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::ComboBox, true, value));
+    let p = ui.painter();
+    shadowed(p, r, look);
+    let font = look.font.clone();
+    p.text(
+        pos2(r.left() + size::FIELD_PAD, r.center().y).round(),
+        Align2::LEFT_CENTER,
+        value,
+        font.clone(),
+        look.ink,
+    );
+    p.text(
+        pos2(r.right() - size::POPUP_ARROW / 2.0, r.center().y).round(),
+        Align2::CENTER_CENTER,
+        "▾",
+        font.clone(),
+        look.ink,
+    );
+    let ctx = ui.ctx().clone();
+    let mut open: Option<usize> = ctx.data(|d| d.get_temp(open_id));
+    if resp.clicked() {
+        open = match open {
+            Some(_) => None,
+            None => Some(options.iter().position(|o| o == value).unwrap_or(0)),
+        };
+    }
+    let mut picked = None;
+    if let Some(mut hi) = open {
+        let row = size::MENU_ITEM_H;
+        let w = r
+            .width()
+            .max(popup_width(&ctx, options, value, look) - size::POPUP_ARROW);
+        let list = Rect::from_min_size(r.left_bottom(), vec2(w, row * options.len() as f32));
+        // The keys while it's open: ↑↓ move, Enter picks, Esc closes.
+        let (up, down, enter, esc) = ctx.input_mut(|i| {
+            (
+                i.consume_key(egui::Modifiers::NONE, Key::ArrowUp),
+                i.consume_key(egui::Modifiers::NONE, Key::ArrowDown),
+                i.consume_key(egui::Modifiers::NONE, Key::Enter),
+                i.consume_key(egui::Modifiers::NONE, Key::Escape),
+            )
+        });
+        if up {
+            hi = hi.saturating_sub(1);
+        }
+        if down {
+            hi = (hi + 1).min(options.len().saturating_sub(1));
+        }
+        egui::Area::new(id.with("list"))
+            .order(egui::Order::Foreground)
+            .fixed_pos(list.min)
+            .show(&ctx, |ui| {
+                let (list, _) = ui.allocate_exact_size(list.size(), Sense::hover());
+                let p = ui.painter();
+                shadowed(p, list, look);
+                for (k, o) in options.iter().enumerate() {
+                    let cell = Rect::from_min_size(
+                        list.min + vec2(0.0, row * k as f32),
+                        vec2(list.width(), row),
+                    );
+                    let item = ui.interact(cell, id.with(("item", k)), Sense::click());
+                    item.widget_info(|| {
+                        egui::WidgetInfo::labeled(egui::WidgetType::Button, true, o)
+                    });
+                    if item.hovered() {
+                        hi = k;
+                    }
+                    if item.clicked() {
+                        picked = Some(k);
+                    }
+                    let (fg, bg) = if k == hi {
+                        (look.paper, look.ink)
+                    } else {
+                        (look.ink, look.paper)
+                    };
+                    p.rect_filled(cell.shrink(1.0), 0.0, bg);
+                    p.text(
+                        pos2(cell.left() + size::FIELD_PAD, cell.center().y).round(),
+                        Align2::LEFT_CENTER,
+                        o,
+                        font.clone(),
+                        fg,
+                    );
+                }
+            });
+        if enter && hi < options.len() {
+            picked = Some(hi);
+        }
+        let outside = ctx.input(|i| i.pointer.any_pressed())
+            && !resp.clicked()
+            && ctx
+                .pointer_interact_pos()
+                .is_some_and(|q| !list.contains(q) && !r.contains(q));
+        open = (picked.is_none() && !esc && !outside).then_some(hi);
+    }
+    ctx.data_mut(|d| match open {
+        Some(hi) => {
+            d.insert_temp(open_id, hi);
+        }
+        None => d.remove::<usize>(open_id),
+    });
+    picked
+}
+
+/// A dotted 1px outline round `r`: where something can be dropped.
+pub fn dotted(p: &Painter, r: Rect, ink: Color32) {
+    let r = snap(r);
+    let step = size::DOT * 2.0;
+    let stroke = Stroke::new(1.0, ink);
+    let mut x = r.left();
+    while x < r.right() {
+        let to = (x + size::DOT).min(r.right());
+        for y in [r.top() + 0.5, r.bottom() - 0.5] {
+            p.line_segment([pos2(x, y), pos2(to, y)], stroke);
+        }
+        x += step;
+    }
+    let mut y = r.top();
+    while y < r.bottom() {
+        let to = (y + size::DOT).min(r.bottom());
+        for x in [r.left() + 0.5, r.right() - 0.5] {
+            p.line_segment([pos2(x, y), pos2(x, to)], stroke);
+        }
+        y += step;
+    }
+}
+
 /// A check box (`round` false) or radio button (true) with its label, laid out in `ui`: the
 /// square or circle, an X or a dot when `on`, thicker while pressed. Returns its response;
 /// clicked is the caller's to act on.
@@ -716,7 +926,7 @@ pub fn alert_keys(ctx: &egui::Context, id: Id, a: &Alert) -> Option<usize> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::uitest::{Harness, click};
+    use crate::uitest::{Harness, click, key};
     use egui::Pos2;
 
     fn look() -> Look<'static> {
@@ -1267,5 +1477,71 @@ mod tests {
         let ring = ring.expect("a ring");
         assert_eq!(ring.rect, face.expand(4.0));
         assert_eq!(ring.stroke.width, 3.0);
+    }
+
+    /// One frame of a number field and a pop-up menu side by side; returns what each gave.
+    fn controls(
+        h: &mut Harness,
+        value: &str,
+        pick: &str,
+        events: Vec<egui::Event>,
+    ) -> (Option<String>, Option<usize>, bool) {
+        let mut out = (None, None, false);
+        h.frame(events, |ui| {
+            let field = Rect::from_min_size(pos2(20.0, 20.0), vec2(60.0, size::FIELD_H));
+            out.0 = text_field(ui, field, Id::new("n"), value, &look());
+            let opts: Vec<String> = ["INTEG", "TRACE", "CPU"].map(String::from).to_vec();
+            let menu = Rect::from_min_size(pos2(120.0, 20.0), vec2(90.0, size::FIELD_H));
+            out.1 = popup_menu(ui, menu, Id::new("m"), pick, &opts, &look());
+            out.2 = ui.ctx().egui_wants_keyboard_input();
+        });
+        out
+    }
+
+    #[test]
+    fn text_field_commits_on_enter_and_stops_text_input() {
+        let mut h = Harness::new(400.0, 300.0);
+        controls(&mut h, "10", "INTEG", vec![]);
+        let at = pos2(40.0, 30.0);
+        let (_, _, typing) = controls(&mut h, "10", "INTEG", click(at));
+        assert!(typing, "a focused field has the keyboard");
+        controls(&mut h, "10", "INTEG", key(Key::Backspace));
+        controls(&mut h, "10", "INTEG", key(Key::Backspace));
+        controls(&mut h, "10", "INTEG", crate::uitest::text("7"));
+        let (got, _, typing) = controls(&mut h, "10", "INTEG", key(Key::Enter));
+        assert_eq!(got.as_deref(), Some("7"));
+        assert!(!typing, "Enter gives the keyboard back");
+        // Esc puts the value back: nothing is committed.
+        controls(&mut h, "7", "INTEG", click(at));
+        controls(&mut h, "7", "INTEG", crate::uitest::text("9"));
+        let (got, ..) = controls(&mut h, "7", "INTEG", key(Key::Escape));
+        assert_eq!(got, None);
+    }
+
+    #[test]
+    fn popup_menu_picks_with_the_mouse_and_the_keys() {
+        let mut h = Harness::new(400.0, 300.0);
+        controls(&mut h, "10", "INTEG", vec![]);
+        let menu = pos2(160.0, 30.0);
+        controls(&mut h, "10", "INTEG", click(menu));
+        // A new Area shows from its second frame, as egui lays it out first.
+        controls(&mut h, "10", "INTEG", vec![]);
+        let trace = h.find("TRACE").unwrap_or_else(|| panic!("{:?}", h.texts()));
+        let (_, got, _) = controls(&mut h, "10", "INTEG", click(trace.center()));
+        assert_eq!(got, Some(1));
+        controls(&mut h, "10", "INTEG", vec![]);
+        assert!(h.find("CPU").is_none(), "picking closes it");
+        // ↓ ↓ Enter from INTEG picks CPU.
+        controls(&mut h, "10", "INTEG", click(menu));
+        controls(&mut h, "10", "INTEG", key(Key::ArrowDown));
+        controls(&mut h, "10", "INTEG", key(Key::ArrowDown));
+        let (_, got, _) = controls(&mut h, "10", "INTEG", key(Key::Enter));
+        assert_eq!(got, Some(2));
+        // Esc closes it without a pick.
+        controls(&mut h, "10", "INTEG", click(menu));
+        let (_, got, _) = controls(&mut h, "10", "INTEG", key(Key::Escape));
+        assert_eq!(got, None);
+        controls(&mut h, "10", "INTEG", vec![]);
+        assert!(h.find("TRACE").is_none());
     }
 }

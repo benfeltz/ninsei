@@ -75,3 +75,11 @@ These are the numbers the kit draws to. Change them here and in `kit::liza::size
 | Text | the message beside the icon, wrapped | the title in bold, then the message, wrapped to the box |
 | Buttons | along the bottom, the action at the right, Cancel left of it | the same, 10px apart, right-aligned under the text |
 | Keys | Enter for the default, Esc to cancel | the same, on a fresh press (a held key goes once), while no text field held the keyboard last frame either (the run's Message box keeps its Enter, and the Esc that leaves it doesn't cancel); the alert takes the key, so nothing after it sees it |
+
+## Fields, pop-up menus and drop slots (HyperCard 1.2)
+
+| | HyperCard 1.2 / System 6 | Liza |
+|---|---|---|
+| Text field | a rectangle field, 1px frame, a blinking insertion point | 20px tall, 1px ink frame on paper, the text 4px in, an ink insertion point; Enter, Tab or a click elsewhere commits, Esc puts the old value back; while it has the keyboard nothing else takes keys |
+| Pop-up menu | the value in a box with a 1px drop shadow and a ▼, the menu dropping from it | 20px tall, the shadowed box, the value 4px in and ▾ in a 16px column on the right; the list opens under it, 22px items, the one under the pointer or picked with ↑↓ inverted; a click or Enter picks, Esc or a click outside closes |
+| Drop slot | (HyperCard's button tool dragged a dotted outline) | a 1px dotted outline, 2px dashes and gaps |
