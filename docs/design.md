@@ -152,7 +152,7 @@ The two decks are a start. Each new one should be a new point of view, not a pal
 
 ## Fights: the deck runs a program
 
-*Designed 2026-11-07 (task 141.1, dossier at the task note). Built by 141.2 (core), 141.4–141.6 (one screen per deck) and 141.3 (ICE that answers back). Until a deck has its screen, its chrome keeps the hotbar fight.*
+*Designed 2026-11-07 (task 141.1, dossier at the task note). Built by 141.2 (core), 141.4–141.6 (one screen per deck) and 141.3 (ICE that answers back). Until a deck has its screen, its chrome keeps the hotbar fight. ✅ marks what's built: the Sense/Net's Script card (141.4).*
 
 **The idea.** You don't fight ICE by hand. You wrote something that does, and you watch it work. Each deck holds **one program**, kept between runs like the loadout, and every fight opens with it loaded and the cursor on Run. The run screen is already an IDE, so the fight runs like a debugger: Run plays until a STOP, Step plays one pass, Pause hands you the turn (the hotbar is the manual override), Continue gives it back. The program is edited in place, mid-fight if you like; what you leave is what the deck keeps. No window opens, nothing is saved by hand, and there is no library in version 1.
 
@@ -195,7 +195,7 @@ One pass through the program is one turn: start at the first line and run until 
 | | Sense/Net | Ono-Sendai | Hosaka |
 |---|---|---|---|
 | reference | HyperCard 1.2's button script editor and the Home stack, 1-bit | gdb's TUI in a btop box, with the C64 screen editor's way of retyping a line | Turbo Debugger 2.0: the Module window, Watches, F-keys |
-| the program | a **stack of operator blocks** (RUN, IF, GOTO, STOP) dragged in from a palette row, each with fields for its parameters; a program menu lists only the disk; the ▶ in the gutter is the line about to run | `ice.bas`: the listing in a box, the current line lit, a STOP marked with a dot in the gutter, the budgets cut into the bottom edge | `PROC-7.BAS` in a Module window: the current line in inverse, a STOP marked with a block in the gutter, the budgets in the bottom edge |
+| the program | ✅ a **stack of operator blocks** (RUN, IF, GOTO, STOP) dragged in from a palette row, each with fields for its parameters; a program menu lists only the disk; the ▶ in the gutter is the line about to run | `ice.bas`: the listing in a box, the current line lit, a STOP marked with a dot in the gutter, the budgets cut into the bottom edge | `PROC-7.BAS` in a Module window: the current line in inverse, a STOP marked with a block in the gutter, the budgets in the bottom edge |
 | the debugger | the button row: Step, Run, Pause, as rounded Mac buttons | a `gdb` box with this pass's trace and a prompt; `r` run, `s` step, `c` continue, `p` pause, `e` edit a line, space hotbar | a Watches window (turn, CPU, IFs, integrity, NEXT, the ICE, the last line's effect); F1 Help, F2 Edit, F4 Run to STOP, F7 Step, F8 Pause, F9 Run, F10 Hotbar (never F5, F6, F11, F12) |
 | the trace | the Message box, a sentence per line | a terminal line | an activity-log row with a reference number |
 
