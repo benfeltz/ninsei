@@ -5,7 +5,7 @@
 use egui::{Align2, Color32, Event, FontId, Id, Rect, Sense, Ui, pos2, vec2};
 
 use crate::keys::{self, Key, Mods};
-use crate::{LineEditor, Outcome};
+use crate::{Edit, LineEditor, Outcome};
 
 /// How the line is drawn.
 #[derive(Clone, Debug)]
@@ -56,6 +56,41 @@ fn key_of(k: egui::Key) -> Option<Key> {
     })
 }
 
+/// The edits a frame's events ask for, in the order they arrived, so text typed before Enter
+/// is part of the line Enter runs. An Alt chord also types a character on some keyboards
+/// (Option+B is ∫), so typed text in a frame where a Ctrl/Alt chord did something is skipped,
+/// wherever in the frame it sits.
+fn edits(events: &[Event]) -> Vec<Edit> {
+    let bound = |e: &Event| match e {
+        Event::Key {
+            key,
+            pressed: true,
+            modifiers,
+            ..
+        } => {
+            let mods = Mods {
+                ctrl: modifiers.ctrl,
+                alt: modifiers.alt,
+                shift: modifiers.shift,
+            };
+            key_of(*key)
+                .and_then(|k| keys::bind(k, mods))
+                .map(|edit| (edit, mods.ctrl || mods.alt))
+        }
+        _ => None,
+    };
+    let chorded = events.iter().filter_map(bound).any(|(_, chord)| chord);
+    let mut out = Vec::new();
+    for e in events {
+        match e {
+            Event::Text(t) if !chorded => out.extend(t.chars().map(Edit::Insert)),
+            Event::Paste(t) => out.push(Edit::InsertStr(t.clone())),
+            _ => out.extend(bound(e).map(|(edit, _)| edit)),
+        }
+    }
+    out
+}
+
 /// Draws the line and applies this frame's keys if it has focus. `complete` gets the text
 /// before the cursor and returns words that could finish its last word.
 pub fn line(
@@ -91,43 +126,10 @@ pub fn line(
             )
         });
         let events = ui.input(|i| i.events.clone());
-        // An Alt chord also types a character on some keyboards (Option+B is ∫): skip text that
-        // arrives in a frame where a chord did something.
-        let mut chorded = false;
-        for e in &events {
-            if let Event::Key {
-                key,
-                pressed: true,
-                modifiers,
-                ..
-            } = e
-                && let Some(k) = key_of(*key)
-            {
-                let mods = Mods {
-                    ctrl: modifiers.ctrl,
-                    alt: modifiers.alt,
-                    shift: modifiers.shift,
-                };
-                if let Some(edit) = keys::bind(k, mods) {
-                    chorded |= mods.ctrl || mods.alt;
-                    let out = ed.apply(edit, complete);
-                    if out != Outcome::Nothing {
-                        outcomes.push(out);
-                    }
-                }
-            }
-        }
-        for e in events {
-            match e {
-                Event::Text(t) if !chorded => {
-                    for c in t.chars() {
-                        ed.apply(crate::Edit::Insert(c), complete);
-                    }
-                }
-                Event::Paste(t) => {
-                    ed.apply(crate::Edit::InsertStr(t), complete);
-                }
-                _ => {}
+        for edit in edits(&events) {
+            let out = ed.apply(edit, complete);
+            if out != Outcome::Nothing {
+                outcomes.push(out);
             }
         }
         ui.ctx()
@@ -179,5 +181,59 @@ pub fn line(
         outcomes,
         focused,
         response,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn key(key: egui::Key, modifiers: egui::Modifiers) -> Event {
+        Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers,
+        }
+    }
+
+    fn text(t: &str) -> Event {
+        Event::Text(t.into())
+    }
+
+    /// Applies one frame's events to `ed` and returns what it asked for.
+    fn frame(ed: &mut LineEditor, events: &[Event]) -> Vec<Outcome> {
+        edits(events)
+            .into_iter()
+            .map(|e| ed.apply(e, &|_| Vec::new()))
+            .filter(|o| *o != Outcome::Nothing)
+            .collect()
+    }
+
+    #[test]
+    fn half_line_is_not_submitted_early() {
+        let mut ed = LineEditor::default();
+        let enter = key(egui::Key::Enter, egui::Modifiers::NONE);
+        let out = frame(&mut ed, &[text("d"), text("ial 1"), enter]);
+        assert_eq!(out, vec![Outcome::Submit("dial 1".into())]);
+        assert_eq!(ed.text(), "");
+    }
+
+    #[test]
+    fn text_after_enter_starts_the_next_line() {
+        let mut ed = LineEditor::default();
+        let enter = key(egui::Key::Enter, egui::Modifiers::NONE);
+        let out = frame(&mut ed, &[text("ls"), enter, text("x")]);
+        assert_eq!(out, vec![Outcome::Submit("ls".into())]);
+        assert_eq!(ed.text(), "x");
+    }
+
+    #[test]
+    fn chord_frame_drops_typed_text() {
+        let alt_b = key(egui::Key::B, egui::Modifiers::ALT);
+        assert_eq!(edits(&[alt_b.clone(), text("∫")]), vec![Edit::WordLeft]);
+        // The text is skipped wherever it sits in the frame.
+        assert_eq!(edits(&[text("∫"), alt_b]), vec![Edit::WordLeft]);
     }
 }
