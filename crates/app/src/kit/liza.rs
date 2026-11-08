@@ -540,10 +540,7 @@ pub fn text_field(ui: &mut Ui, r: Rect, id: Id, value: &str, look: &Look) -> Opt
     p.rect_filled(r, 0.0, look.paper);
     p.rect_stroke(r, 0.0, Stroke::new(1.0, look.ink), StrokeKind::Inside);
     let buf_id = id.with("buf");
-    let mut buf = ui
-        .ctx()
-        .data(|d| d.get_temp::<String>(buf_id))
-        .unwrap_or_else(|| value.to_string());
+    let mut buf = recent::<String>(ui.ctx(), buf_id).unwrap_or_else(|| value.to_string());
     let inner = r.shrink2(vec2(size::FIELD_PAD, 1.0));
     let resp = ui
         .scope(|ui| {
@@ -565,12 +562,32 @@ pub fn text_field(ui: &mut Ui, r: Rect, id: Id, value: &str, look: &Look) -> Opt
         })
         .inner;
     if resp.has_focus() {
-        ui.ctx().data_mut(|d| d.insert_temp(buf_id, buf));
+        keep(ui.ctx(), buf_id, Some(buf));
         return None;
     }
-    ui.ctx().data_mut(|d| d.remove::<String>(buf_id));
+    keep::<String>(ui.ctx(), buf_id, None);
     let cancelled = ui.input(|i| i.key_pressed(Key::Escape));
     (resp.lost_focus() && !cancelled && buf != value).then_some(buf)
+}
+
+/// What a control kept under `id` last frame, if it was drawn last frame: a menu or field that
+/// stopped being drawn (scrolled away, the fight over) doesn't come back open or half-typed.
+fn recent<T: Clone + Send + Sync + 'static>(ctx: &egui::Context, id: Id) -> Option<T> {
+    let now = ctx.cumulative_pass_nr();
+    ctx.data(|d| d.get_temp::<(T, u64)>(id))
+        .filter(|(_, at)| at + 1 >= now)
+        .map(|(v, _)| v)
+}
+
+/// Keeps `v` under `id` for [`recent`], stamped with this frame (`None` forgets it).
+fn keep<T: Clone + Send + Sync + 'static>(ctx: &egui::Context, id: Id, v: Option<T>) {
+    let now = ctx.cumulative_pass_nr();
+    ctx.data_mut(|d| match v {
+        Some(v) => {
+            d.insert_temp(id, (v, now));
+        }
+        None => d.remove::<(T, u64)>(id),
+    });
 }
 
 /// A pop-up menu's width for its longest option: the text, its room and the arrow.
@@ -625,7 +642,7 @@ pub fn popup_menu(
         look.ink,
     );
     let ctx = ui.ctx().clone();
-    let mut open: Option<usize> = ctx.data(|d| d.get_temp(open_id));
+    let mut open: Option<usize> = recent(&ctx, open_id);
     // Only the mouse opens and closes it: egui turns Enter on a focused widget into a click,
     // and that Enter is the open menu's pick.
     let clicked = resp.clicked() && ctx.input(|i| i.pointer.any_released());
@@ -732,12 +749,7 @@ pub fn popup_menu(
     if open.is_none() && resp.has_focus() {
         resp.surrender_focus();
     }
-    ctx.data_mut(|d| match open {
-        Some(hi) => {
-            d.insert_temp(open_id, hi);
-        }
-        None => d.remove::<usize>(open_id),
-    });
+    keep(&ctx, open_id, open);
     picked
 }
 
@@ -1300,6 +1312,22 @@ mod tests {
         controls(&mut h, "7", "INTEG", crate::uitest::text("9"));
         let (got, ..) = controls(&mut h, "7", "INTEG", key(Key::Escape));
         assert_eq!(got, None);
+    }
+
+    #[test]
+    fn a_menu_that_stops_being_drawn_while_open_comes_back_closed() {
+        let mut h = Harness::new(400.0, 300.0);
+        controls(&mut h, "10", "INTEG", vec![]);
+        controls(&mut h, "10", "INTEG", click(pos2(160.0, 30.0)));
+        controls(&mut h, "10", "INTEG", vec![]);
+        assert!(h.find("TRACE").is_some(), "open");
+        // Scrolled away for a while, then back.
+        h.frame(vec![], |_| {});
+        h.frame(vec![], |_| {});
+        let (_, _, typing) = controls(&mut h, "10", "INTEG", vec![]);
+        controls(&mut h, "10", "INTEG", vec![]);
+        assert!(h.find("TRACE").is_none(), "it came back closed");
+        assert!(!typing, "and doesn't hold the keyboard");
     }
 
     #[test]
