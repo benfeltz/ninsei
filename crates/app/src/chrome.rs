@@ -210,8 +210,8 @@ impl ChromeView for Classic {}
 mod btop_tiles {
     pub const LEFT: f32 = 0.22;
     pub const CENTRE_OF_REST: f32 = 0.59;
-    pub const OVER_TERMINAL: f32 = 0.72;
-    pub const DECK: f32 = 0.5;
+    pub const OVER_TERMINAL: f32 = 0.74;
+    pub const DECK: f32 = 0.62;
     pub const TERMINAL_OF_BOTTOM: f32 = 0.6;
 }
 

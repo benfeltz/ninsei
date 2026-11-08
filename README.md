@@ -196,6 +196,12 @@ On the **Ono-Sendai** the panes are dressed btop-style: boxed with their titles 
 
 target.ice keeps the numbers view (intent and damage waterfalls).
 
+The panes start in three columns over the terminal: deck.sys over warez/ on the left, the map (and the fight) in the centre, and **ice.bas** in front of todo on the right. ice.bas is your deck's program the whole run, listed like a debugger's source window: the line about to run lit with ▶, a STOP marked ●, a line that won't run dimmed with the interpreter's complaint after it, and this turn's cpu and ram cut into the bottom edge. Click it (its border lights) and its keys are live: `r` run, `s` step, `c` continue after a STOP, `p` pause, `j`/`k` or the arrows move the cursor, `e` or Enter retypes the line where it stands (Enter keeps it, Esc puts it back), `o` opens a new numbered line under the cursor, `d` deletes one; Space and the digits still work the hotbar, and Esc hands the keys back. Double-click a line to retype it. The terminal is the prompt: each pass prints there a line at a time, and `step`, `play`, `pause` and `prog` work as on every deck.
+
+![a fight with ice.bas, synthwave](docs/shots/btop-fight-synthwave.png)
+![a fight with ice.bas, amber](docs/shots/btop-fight-amber.png)
+![ice.bas with the keys, amber](docs/shots/btop-script-amber.png)
+
 ![diving into the node](docs/shots/fight-dive.png)
 ![previewing a program](docs/shots/fight-preview.png)
 ![a hit, on amber](docs/shots/fight-amber.png)
