@@ -526,3 +526,16 @@ fn every_deck_says_the_hang_where_you_look_until_the_next_step() {
     assert!(btop_fight::note(&g).starts_with("cpu "));
     assert!(suite::module_note(&g).starts_with("CPU "));
 }
+
+#[test]
+fn a_run_that_wins_the_fight_leaves_no_pass_open() {
+    let mut g = fight_with(LOOP);
+    g.combat.as_mut().unwrap().strength = 1;
+    g.apply(Action::Step);
+    g.apply(Action::Step);
+    assert_eq!(g.phase, Phase::Exploring, "the RUN broke it");
+    assert!(!g.exec.open);
+    // An edit out of the fight puts the cursor at the top, not where the pass left it.
+    g.apply(Action::Program(LOOP.into()));
+    assert_eq!(g.exec.pc, Some(10));
+}
