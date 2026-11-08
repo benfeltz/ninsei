@@ -381,6 +381,17 @@ pub fn volume(save: &Save) -> String {
     }
 }
 
+/// The master level as a control shows it, 0-1: what's set, whether or not sound is on.
+pub fn level(save: &Save) -> f32 {
+    f32::from(save.volume.min(100)) / 100.0
+}
+
+/// The words beside a level control: `Volume`, or `Muted` while sound is off (the level
+/// still shows, and setting it doesn't turn sound back on).
+pub fn level_label(save: &Save) -> &'static str {
+    if save.sound { "Volume" } else { "Muted" }
+}
+
 /// The current tune as the player heads it (`the NiGHTMOTHS - NiNSEi NiGHTS`), and where it
 /// is: elapsed and total seconds. `None` with nothing current.
 pub fn now(save: &Save, data: &Data, t: &Transport) -> Option<(String, f32, f32)> {

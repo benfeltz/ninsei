@@ -427,16 +427,12 @@ pub fn liza_face(
     p.text(
         pos2(x0, y + 8.0),
         Align2::LEFT_CENTER,
-        "Volume",
+        player::level_label(save),
         look.font.clone(),
         look.ink,
     );
     let therm = Rect::from_min_size(pos2(x0 + 70.0, y + 2.0), vec2(120.0, 12.0));
-    let level = if save.sound {
-        f32::from(save.volume.min(100)) / 100.0
-    } else {
-        0.0
-    };
+    let level = player::level(save);
     if let Some(v) = kit::thermometer(ui, therm, Id::new("trax-liza-volume"), level, &look) {
         out.push(WbOut::Player(Act::Volume((v * 100.0).round() as u8)));
     }
@@ -1022,15 +1018,48 @@ mod tests {
                 }
                 other => panic!("{other:?}"),
             }
-            // The thermometer, 120 wide, beside "Volume": a click three quarters along.
+            // The thermometer, 120 wide (116 inside), beside "Volume": a click three
+            // quarters along its inside.
             let therm = rects
                 .iter()
                 .map(|(r, _, _)| *r)
                 .find(|r| r.width() == 120.0 && r.height() == 12.0)
                 .expect("the thermometer");
-            let at = egui::pos2(therm.left() + 90.0, therm.center().y);
+            let at = egui::pos2(therm.left() + 2.0 + 87.0, therm.center().y);
             let acts = da(&mut h, &mut home, &data, &save, false, click(at));
             assert_eq!(acts, [Act::Volume(75)]);
+        }
+
+        #[test]
+        fn with_sound_off_the_level_still_shows_and_says_muted() {
+            let data = Data::builtin().unwrap();
+            let mut save = sensenet(&data);
+            save.sound = false;
+            save.volume = 60;
+            let mut h = Harness::new(800.0, 700.0);
+            let mut home = Home::new(Vec::new());
+            da(&mut h, &mut home, &data, &save, false, Vec::new());
+            assert!(
+                h.painted_text().iter().any(|(t, _)| t == "Muted"),
+                "{:?}",
+                h.painted_text()
+            );
+            assert!(!h.painted_text().iter().any(|(t, _)| t == "Volume"));
+            // The fill: the 50% gray over three fifths of the inside, not an empty bar.
+            let therm = h
+                .rects()
+                .into_iter()
+                .map(|(r, _, _)| r)
+                .find(|r| r.width() == 120.0 && r.height() == 12.0)
+                .unwrap();
+            // Something painted across more than half the inside: the level, not an empty bar.
+            let lit = h
+                .painted()
+                .iter()
+                .map(|sh| sh.visual_bounding_rect())
+                .filter(|r| therm.expand(0.5).contains_rect(*r) && r.width() < therm.width() - 3.0)
+                .any(|r| r.right() > therm.left() + 60.0);
+            assert!(lit, "the level is drawn");
         }
 
         #[test]
