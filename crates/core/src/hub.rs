@@ -46,6 +46,8 @@ pub enum Tool {
     TigerTeam,
     /// The Welcome to the Net stack (`data/stacks/welcome.ron`).
     Guide,
+    /// TRAX, the music player: the tunes you own as a playlist (`player.rs`).
+    Player,
     /// A copy of a game you own (`data/hub/games.ron`): its name, field, icon and intro all
     /// come from its row, and the cracked and the boxed copy are two tools side by side.
     Game(GameId, GameCopy),
@@ -100,7 +102,7 @@ impl<'de> Deserialize<'de> for GameId {
 }
 
 impl Tool {
-    pub const ALL: [Tool; 10] = [
+    pub const ALL: [Tool; 11] = [
         Tool::Terminal,
         Tool::Rig,
         Tool::HexEd,
@@ -108,6 +110,7 @@ impl Tool {
         Tool::IceDb,
         Tool::NightComm,
         Tool::TigerTeam,
+        Tool::Player,
         Tool::Guide,
         Tool::Shell,
         Tool::System,
@@ -163,6 +166,7 @@ impl Tool {
             Tool::NightComm => "NiGHTCOMM",
             Tool::TigerTeam => "Tiger Team Pro",
             Tool::Guide => "Welcome",
+            Tool::Player => "TRAX",
         }
     }
 }
@@ -1351,6 +1355,7 @@ impl Save {
             Tool::IceDb => self.has_tool("icedb"),
             Tool::NightComm => self.has_tool("nightcomm"),
             Tool::TigerTeam => self.has_tool("tigerteam"),
+            Tool::Player => self.has_tool("player"),
             Tool::Game(id, copy) => self.has_copy(id.as_str(), copy),
             _ => true,
         }

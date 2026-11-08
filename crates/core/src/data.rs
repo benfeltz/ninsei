@@ -349,6 +349,7 @@ pub const TOOLS: &[&str] = &[
     "icedb",
     "nightcomm",
     "tigerteam",
+    "player",
 ];
 
 fn yes() -> bool {

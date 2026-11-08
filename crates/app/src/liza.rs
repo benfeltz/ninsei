@@ -77,6 +77,7 @@ const MENUS: &[(&str, &[(&str, Act)])] = &[
             ("CPU Shopper", Act::Open(Tool::Rig)),
             ("HexEd", Act::Open(Tool::HexEd)),
             ("ICE DB", Act::Open(Tool::IceDb)),
+            ("TRAX", Act::Open(Tool::Player)),
         ],
     ),
     (
@@ -119,6 +120,7 @@ fn title(tool: Tool, data: &Data) -> String {
         Tool::TigerTeam => "Tiger Team Pro",
         Tool::IceDb => "ICE DB",
         Tool::Guide => "Welcome to the Net",
+        Tool::Player => "TRAX",
         Tool::Shell => "Shell",
         Tool::Terminal => "CarrierTerm",
         Tool::System => "System",
@@ -211,6 +213,7 @@ impl Liza {
             Tool::NightComm => (pos2(60.0, 46.0), vec2(880.0, 500.0)),
             Tool::TigerTeam => (pos2(50.0, 40.0), vec2(900.0, 540.0)),
             Tool::IceDb => (pos2(100.0, 60.0), vec2(700.0, 470.0)),
+            Tool::Player => (pos2(140.0, 70.0), vec2(560.0, 400.0)),
             Tool::Guide => (pos2(120.0, 30.0), book_window()),
             // Sized when it's first drawn (`home::size_game_window`).
             Tool::Game(_, copy) => {

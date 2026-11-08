@@ -60,6 +60,7 @@ fn title(tool: Tool, data: &ninsei_core::Data) -> String {
         Tool::NightComm => "NiGHTCOMM 3.1".into(),
         Tool::TigerTeam => "Tiger Team Pro 3.0".into(),
         Tool::Guide => "Welcome to the Net".into(),
+        Tool::Player => "TRAX 1.2".into(),
         // A game by the copy's label, with its version, as its own title screen says it.
         Tool::Game(..) => match tool.game_def(data) {
             Some((g, _)) => format!("{} {}", tool.name(data), g.version),
@@ -146,6 +147,7 @@ impl Workbench {
                     Tool::IceDb => (pos2(220.0, 60.0), vec2(700.0, 470.0)),
                     Tool::NightComm => (pos2(150.0, 50.0), vec2(880.0, 500.0)),
                     Tool::TigerTeam => (pos2(140.0, 44.0), vec2(900.0, 540.0)),
+                    Tool::Player => (pos2(240.0, 70.0), vec2(560.0, 400.0)),
                     Tool::Guide => (pos2(200.0, 30.0), book_window()),
                     // Sized when it's first drawn (`home::size_game_window`).
                     Tool::Game(_, copy) => {

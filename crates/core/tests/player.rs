@@ -125,11 +125,11 @@ fn pick_plays_a_row_and_seek_stays_inside_the_tune() {
         (title(&s, &d).as_str(), t.play),
         ("trap-line", Play::Playing)
     );
-    player::apply(&mut s, &d, &mut t, Act::Seek(30.0));
+    player::apply(&mut s, &d, &mut t, Act::Seek(30_000));
     assert_eq!(t.at, 30.0);
-    player::apply(&mut s, &d, &mut t, Act::Seek(9999.0));
+    player::apply(&mut s, &d, &mut t, Act::Seek(9_999_000));
     assert!(t.at < d.tune("trap-line").unwrap().secs as f32);
-    player::apply(&mut s, &d, &mut t, Act::Seek(-5.0));
+    player::apply(&mut s, &d, &mut t, Act::Seek(0));
     assert_eq!(t.at, 0.0);
 }
 
@@ -216,4 +216,40 @@ fn a_clock_reads_like_a_players() {
     assert_eq!(player::clock(0.0), "0:00");
     assert_eq!(player::clock(65.9), "1:05");
     assert_eq!(player::clock(600.0), "10:00");
+}
+
+#[test]
+fn the_rows_status_and_now_line_say_what_a_player_says() {
+    let d = data();
+    let mut s = owning(&["chroma", "welcome"]);
+    let mut t = Transport::default();
+    let rows = player::rows(&s, &d);
+    assert_eq!(
+        rows.iter()
+            .map(|r| (r.title, r.by, r.length.as_str()))
+            .collect::<Vec<_>>(),
+        [
+            ("CHROMA", "PHOSPHOR", "1:20"),
+            ("Welcome to the Net", "Sense/Net", "1:00")
+        ]
+    );
+    assert!(rows.iter().all(|r| !r.current));
+    assert_eq!(player::status(&s, &t), "■ stopped");
+    assert!(player::now(&s, &d, &t).is_none());
+    player::apply(&mut s, &d, &mut t, Act::Pick(1));
+    player::tick(&mut s, &d, &mut t, 23.4, true);
+    assert!(player::rows(&s, &d)[1].current);
+    assert_eq!(player::status(&s, &t), "▶ playing");
+    let (head, at, total) = player::now(&s, &d, &t).unwrap();
+    assert_eq!(head, "Sense/Net - Welcome to the Net");
+    assert_eq!((player::clock(at), player::clock(total)).0, "0:23");
+    assert_eq!(total, 60.0);
+    player::apply(&mut s, &d, &mut t, Act::Repeat);
+    player::apply(&mut s, &d, &mut t, Act::Shuffle);
+    player::apply(&mut s, &d, &mut t, Act::Toggle);
+    assert_eq!(player::status(&s, &t), "‖ paused · repeat · shuffle");
+    s.volume = 70;
+    assert_eq!(player::volume(&s), "vol 70%");
+    s.sound = false;
+    assert_eq!(player::volume(&s), "vol off");
 }
