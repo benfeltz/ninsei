@@ -3,6 +3,7 @@
 
 pub mod ansi;
 pub mod at;
+pub mod basic;
 pub mod bbs;
 pub mod binary;
 pub mod book;
