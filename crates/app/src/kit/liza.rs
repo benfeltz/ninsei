@@ -349,8 +349,9 @@ fn slider_parts(r: Rect, value: f32) -> (Rect, Rect, Rect, Rect) {
 
 /// A horizontal scroll bar used as a slider, in `r` ([`size::SCROLL_W`] tall): outlined arrow
 /// boxes at either end, the 50% gray track, and the thumb at `value` (0-1). An arrow steps it
-/// [`SLIDER_STEP`]; a click on the track or a drag puts the thumb under the pointer. Returns
-/// the new value when it moved.
+/// [`SLIDER_STEP`]; a click on the track puts the thumb under the pointer, and a drag carries
+/// the thumb with it and lets go of it where it's released. Returns the new value when it was
+/// set: on a click or a release, never while the thumb is still held.
 pub fn hslider(ui: &Ui, r: Rect, id: Id, value: f32, look: &Look) -> Option<f32> {
     let r = snap(r);
     let (left, right, track, _) = slider_parts(r, value);
@@ -365,14 +366,24 @@ pub fn hslider(ui: &Ui, r: Rect, id: Id, value: f32, look: &Look) -> Option<f32>
         to = Some(value + SLIDER_STEP);
     }
     let t = ui.interact(track, id.with("track"), Sense::click_and_drag());
-    if (t.clicked() || t.dragged())
-        && let Some(p) = t.interact_pointer_pos()
-    {
+    let under = t.interact_pointer_pos().map(|p| {
         let travel = (track.width() - size::SCROLL_W).max(1.0);
-        to = Some((p.x - track.left() - size::SCROLL_W / 2.0) / travel);
+        ((p.x - track.left() - size::SCROLL_W / 2.0) / travel).clamp(0.0, 1.0)
+    });
+    // While held, the thumb follows the pointer and nothing is set yet.
+    let grab = id.with("held");
+    let held = t.dragged().then_some(under).flatten();
+    if let Some(v) = held {
+        ui.data_mut(|d| d.insert_temp(grab, v));
+    }
+    if t.drag_stopped() {
+        let last = ui.data_mut(|d| d.remove_temp::<f32>(grab));
+        to = last.or(under).or(to);
+    } else if t.clicked() {
+        to = under.or(to);
     }
     let to = to.map(|v| v.clamp(0.0, 1.0)).filter(|v| *v != value);
-    let (left, right, track, thumb) = slider_parts(r, to.unwrap_or(value));
+    let (left, right, track, thumb) = slider_parts(r, held.or(to).unwrap_or(value));
     let (ink, paper) = (look.ink, look.paper);
     let p = ui.painter();
     p.rect_filled(r, 0.0, paper);
@@ -977,6 +988,28 @@ mod tests {
         let mid = Pos2::new(26.0 + 8.0 + 84.0, 18.0);
         let got = slider(&mut h, 0.0, click(mid)).unwrap();
         assert!((got - 0.5).abs() < 0.01, "{got}");
+    }
+
+    #[test]
+    fn a_held_slider_sets_nothing_until_it_is_let_go() {
+        use egui::{Event, PointerButton};
+        let mut h = Harness::new(400.0, 200.0);
+        let press = |pos, pressed| Event::PointerButton {
+            pos,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let a = Pos2::new(60.0, 18.0);
+        let b = Pos2::new(150.0, 18.0);
+        slider(&mut h, 0.0, vec![Event::PointerMoved(a)]);
+        slider(&mut h, 0.0, vec![press(a, true)]);
+        for x in [80.0, 120.0, 150.0, 150.0, 150.0] {
+            let got = slider(&mut h, 0.0, vec![Event::PointerMoved(Pos2::new(x, 18.0))]);
+            assert_eq!(got, None, "held at {x}: nothing set yet");
+        }
+        let got = slider(&mut h, 0.0, vec![press(b, false)]).expect("set on release");
+        assert!((got - (150.0 - 26.0 - 8.0) / 168.0).abs() < 0.01, "{got}");
     }
 
     #[test]
