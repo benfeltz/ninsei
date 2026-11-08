@@ -1047,6 +1047,9 @@ pub struct Save {
     /// by, in the order you came by it, unless you've moved them.
     #[serde(default)]
     pub tunes: Vec<String>,
+    /// The music player's settings: the tune it's on, repeat and shuffle.
+    #[serde(default)]
+    pub player: crate::player::PlayerState,
     /// How many rounds of each game have started, by game id: each new round deals a new
     /// field ([`crate::games::new_game`]), and the same save and round replay the same game.
     #[serde(default)]
@@ -1209,6 +1212,7 @@ impl Default for Save {
             tools: Vec::new(),
             games: Vec::new(),
             tunes: Vec::new(),
+            player: Default::default(),
             game_rounds: Default::default(),
             texts: Vec::new(),
             ice_seen: Vec::new(),

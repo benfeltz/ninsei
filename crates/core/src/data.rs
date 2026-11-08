@@ -1435,7 +1435,7 @@ impl Data {
             if !self.signs(&t.by) {
                 return err(format!("`{}` signs no cracktro in data/intros/", t.by));
             }
-            t.tune.validate().or_else(|e| err(e))?;
+            t.tune.validate().or_else(err)?;
             let secs = t.tune.loop_secs(0);
             if secs > crate::music::MAX_LOOP_SECS {
                 return err(format!(
