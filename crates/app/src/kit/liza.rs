@@ -437,14 +437,19 @@ pub fn list_box(
     picked
 }
 
+/// How wide `text` sets in `font`, unrounded: what every width in the kit is measured from.
+pub fn text_width(ctx: &egui::Context, text: &str, font: &FontId) -> f32 {
+    ctx.fonts_mut(|f| {
+        f.layout_no_wrap(text.to_string(), font.clone(), Color32::WHITE)
+            .size()
+            .x
+    })
+}
+
 /// A push button's width for `label`: its text and the room either side, at least the minimum,
 /// on a whole pixel.
 pub fn button_width(ctx: &egui::Context, label: &str, look: &Look) -> f32 {
-    let text = ctx.fonts_mut(|f| {
-        f.layout_no_wrap(label.to_string(), look.font.clone(), look.ink)
-            .size()
-            .x
-    });
+    let text = text_width(ctx, label, &look.font);
     (text + 2.0 * size::BUTTON_PAD)
         .max(size::BUTTON_MIN_W)
         .ceil()
@@ -596,13 +601,7 @@ pub fn popup_width(ctx: &egui::Context, options: &[String], value: &str, look: &
         .iter()
         .map(String::as_str)
         .chain([value])
-        .map(|o| {
-            ctx.fonts_mut(|f| {
-                f.layout_no_wrap(o.to_string(), look.font.clone(), look.ink)
-                    .size()
-                    .x
-            })
-        })
+        .map(|o| text_width(ctx, o, &look.font))
         .fold(0.0, f32::max);
     (widest + 2.0 * size::FIELD_PAD + size::POPUP_ARROW).ceil()
 }

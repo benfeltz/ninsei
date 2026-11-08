@@ -90,19 +90,12 @@ pub struct Block {
     pub fault: Option<String>,
 }
 
-/// Which of Step, Run and Pause can be pressed, and which is the default (Enter).
+/// Which of Step, Run and Pause can be pressed. Run is the default (Enter) while it can be.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Buttons {
     pub step: bool,
     pub run: bool,
     pub pause: bool,
-}
-
-impl Buttons {
-    /// Enter presses Run while it can be pressed.
-    pub fn default_run(self) -> bool {
-        self.run
-    }
 }
 
 /// The deck's limits this turn, and how the Sense/Net words them.

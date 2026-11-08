@@ -69,7 +69,7 @@ fn the_card_mirrors_the_program() {
 fn buttons_follow_the_state() {
     let mut g = fight(SAMPLE);
     let b = stack_fight::card(&g).buttons;
-    assert!(b.step && b.run && !b.pause && b.default_run());
+    assert!(b.step && b.run && !b.pause);
     g.apply(Action::Play);
     assert_eq!(g.exec.state, ExecState::Running);
     let b = stack_fight::card(&g).buttons;

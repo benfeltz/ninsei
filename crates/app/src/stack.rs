@@ -484,7 +484,7 @@ impl ChromeView for Stack {
         }
         let b = stack_fight::buttons(cx.game);
         let mut out = Vec::new();
-        if b.default_run() && fresh_key(ctx, egui::Key::Enter) {
+        if b.run && fresh_key(ctx, egui::Key::Enter) {
             out.push(act(Action::Play));
         }
         if b.pause && fresh_key(ctx, egui::Key::Escape) {
@@ -520,12 +520,7 @@ fn card_look<'a>(p: &Panes<'a>, ui: &Ui) -> liza::Look<'a> {
 
 /// A string's width in `font`, on a whole pixel.
 fn text_w(ui: &Ui, text: &str, font: &egui::FontId) -> f32 {
-    ui.fonts_mut(|f| {
-        f.layout_no_wrap(text.to_string(), font.clone(), Color32::WHITE)
-            .size()
-            .x
-    })
-    .ceil()
+    liza::text_width(ui.ctx(), text, font).ceil()
 }
 
 /// The Script card: a title line with what's left this turn, the program's blocks (scrolling
@@ -570,7 +565,7 @@ fn script_card(p: &mut Panes, ui: &mut Ui) {
             // Right to left: Pause, Run, Step, so they read Step, Run, Pause.
             for (label, on, default, a) in [
                 ("Pause", b.pause, false, Action::Pause),
-                ("Run", b.run, b.default_run(), Action::Play),
+                ("Run", b.run, b.run, Action::Play),
                 ("Step", b.step, false, Action::Step),
             ] {
                 let pressed = ui
