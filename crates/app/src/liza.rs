@@ -325,7 +325,7 @@ impl DesktopView for Liza {
         for (n, icon) in save.icons(data).iter().enumerate() {
             let cell = icon_cell(screen, n);
             let picked = self.selected == Some(icon.tool);
-            let hit = draw_icon(&painter, icon, cell, picked, &c);
+            let hit = draw_icon(&painter, icon, cell, screen.right(), picked, &c);
             let r = ui.interact(hit, Id::new(("liza-icon", n)), sense(Sense::click()));
             if r.clicked() || r.double_clicked() {
                 let double = r.double_clicked()
@@ -709,8 +709,16 @@ fn on_top(ui: &mut Ui, rect: Rect, order: egui::Order, name: &str) -> Ui {
 }
 
 /// An icon in 1-bit: the art's outlines in ink, its body in paper (inverted when selected),
-/// with the name under it on a solid backing. Returns the area that takes clicks.
-fn draw_icon(painter: &egui::Painter, icon: &Icon, cell: Rect, picked: bool, c: &Look) -> Rect {
+/// with the name under it on a solid backing, kept left of `right` (the screen's edge).
+/// Returns the area that takes clicks.
+fn draw_icon(
+    painter: &egui::Painter,
+    icon: &Icon,
+    cell: Rect,
+    right: f32,
+    picked: bool,
+    c: &Look,
+) -> Rect {
     let (ink, paper) = (c.ink, c.paper);
     let w = icon.width() as f32 * look::ICON_SCALE;
     let h = icon.pixels.len() as f32 * look::ICON_SCALE;
@@ -736,7 +744,7 @@ fn draw_icon(painter: &egui::Painter, icon: &Icon, cell: Rect, picked: bool, c: 
         painter,
         &icon.label,
         pos2(cell.center().x, art.bottom() + 10.0),
-        cell.right(),
+        right,
         picked,
         c,
     );
@@ -1488,10 +1496,10 @@ mod tests {
         assert!(widths[1] > intro, "its splash's screen fits: {widths:?}");
     }
 
-    /// Liza drawn on a harness for `save`, past its boot card.
     #[test]
-    fn every_icons_name_is_painted_whole_on_the_screen() {
+    fn every_icons_name_is_painted_whole_and_under_its_icon() {
         // The longest names are the cracks' (`MINEFIELD [PHS]`), wider than the icon column.
+        // A short screen puts the icons in several columns.
         let data = Data::builtin().unwrap();
         let mut save = Save {
             guide_seen: true,
@@ -1499,24 +1507,55 @@ mod tests {
             ..Save::default()
         };
         save.ensure_phonebook(&data, 1);
+        save.tools = ninsei_core::data::TOOLS
+            .iter()
+            .map(|t| t.to_string())
+            .collect();
         for g in &data.games {
             save.learn_game(&g.id, ninsei_core::hub::GameCopy::Cracked);
             save.learn_game(&g.id, ninsei_core::hub::GameCopy::Boxed);
         }
-        let (h, ..) = desk_on(&data, &save);
-        let screen = Rect::from_min_size(Pos2::ZERO, vec2(1280.0, 800.0));
-        let painted = h.painted_text();
-        for icon in save.icons(&data) {
-            let (_, r) = painted
-                .iter()
-                .find(|(t, _)| *t == icon.label)
-                .unwrap_or_else(|| panic!("{} isn't painted", icon.label));
-            assert!(screen.contains_rect(*r), "{} runs off at {r:?}", icon.label);
+        for size in [vec2(1280.0, 800.0), vec2(1280.0, 420.0)] {
+            let (h, ..) = desk_sized(&data, &save, size);
+            let screen = Rect::from_min_size(Pos2::ZERO, size);
+            let painted = h.painted_text();
+            let mut columns = 0;
+            for (n, icon) in save.icons(&data).iter().enumerate() {
+                let cell = icon_cell(screen, n);
+                columns =
+                    columns.max(((screen.right() - cell.right()) / look::ICON_COL_W) as u32 + 1);
+                let (_, r) = painted
+                    .iter()
+                    .find(|(t, _)| *t == icon.label)
+                    .unwrap_or_else(|| panic!("{} isn't painted", icon.label));
+                assert!(screen.contains_rect(*r), "{} runs off at {r:?}", icon.label);
+                // Centred under its icon, unless that would run off the screen's edge.
+                let centred = (r.center().x - cell.center().x).abs() < 1.0;
+                let at_edge = cell.center().x + r.width() / 2.0 + 4.0 > screen.right();
+                assert!(
+                    centred || at_edge,
+                    "{} is off its icon: {r:?} in {cell:?}",
+                    icon.label
+                );
+            }
+            if size.y < 500.0 {
+                assert!(columns > 2, "the short screen needs several columns");
+            }
         }
     }
 
+    /// Liza drawn on a harness for `save`, past its boot card.
     fn desk_on(data: &Data, save: &Save) -> (crate::uitest::Harness, Liza, Home) {
-        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        desk_sized(data, save, vec2(1280.0, 800.0))
+    }
+
+    /// The same, on a screen of `size`.
+    fn desk_sized(
+        data: &Data,
+        save: &Save,
+        size: egui::Vec2,
+    ) -> (crate::uitest::Harness, Liza, Home) {
+        let mut h = crate::uitest::Harness::new(size.x, size.y);
         crate::uitest::themed(&h.ctx, data);
         let (mut liza, mut home) = (Liza::new(), Home::new(Vec::new()));
         drawn(&mut h, &mut liza, &mut home, data, save, Vec::new());
