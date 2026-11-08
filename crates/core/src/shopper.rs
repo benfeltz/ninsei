@@ -34,6 +34,8 @@ pub enum Item {
     Tool(String),
     /// A boxed copy of a game with a `shop` block (`games.ron`), by mail order.
     Game(String),
+    /// A boxed music disk (`compilations.ron`): several tunes in one order.
+    Compilation(String),
 }
 
 /// A part of the magazine. Every item belongs to exactly one.
@@ -67,7 +69,7 @@ impl Section {
             Item::Addon(_) => Section::Addons,
             Item::Pane(_) => Section::Panes,
             Item::Tool(_) => Section::Software,
-            Item::Game(_) => Section::Games,
+            Item::Game(_) | Item::Compilation(_) => Section::Games,
         }
     }
 }
@@ -387,6 +389,7 @@ fn exists(data: &Data, item: &Item) -> bool {
         Item::Pane(id) => data.panes.iter().any(|d| &d.id == id),
         Item::Tool(id) => data.tools.iter().any(|t| &t.id == id && t.shop.is_some()),
         Item::Game(id) => data.game(id).is_some_and(|g| g.shop.is_some()),
+        Item::Compilation(id) => data.compilation(id).is_some(),
     }
 }
 
@@ -556,6 +559,24 @@ impl Save {
             l.vendor = Some(g.publisher.clone());
             out.push(l);
         }
+        // A music disk is yours once every tune on it is.
+        for c in &data.compilations {
+            let stock = if c.tunes.iter().all(|t| self.has_tune(t)) {
+                Stock::Owned(c.price)
+            } else {
+                Stock::Price(c.price)
+            };
+            let mut l = listing(
+                Item::Compilation(c.id.clone()),
+                "GAMES",
+                &c.name,
+                &c.blurb,
+                format!("{} tunes", c.tunes.len()),
+                stock,
+            );
+            l.vendor = Some(c.publisher.clone());
+            out.push(l);
+        }
         out
     }
 
@@ -601,7 +622,28 @@ impl Save {
             Item::Pane(id) => self.buy_pane(data, id),
             Item::Tool(id) => self.buy_tool(data, id),
             Item::Game(id) => self.buy_game(data, id),
+            Item::Compilation(id) => self.buy_compilation(data, id),
         }
+    }
+
+    /// Orders a boxed music disk by mail: its tunes go on the end of your playlist. Nothing
+    /// plays: the disk just arrives.
+    pub fn buy_compilation(&mut self, data: &Data, id: &str) -> Result<String, String> {
+        let c = data.compilation(id).ok_or("no such disk.")?;
+        if c.tunes.iter().all(|t| self.has_tune(t)) {
+            return Err("you already have that.".into());
+        }
+        if self.bank < c.price {
+            return Err(format!(
+                "{} is {}¢. the bank has {}¢.",
+                c.name, c.price, self.bank
+            ));
+        }
+        self.bank -= c.price;
+        for t in &c.tunes {
+            self.learn_tune(t);
+        }
+        Ok(format!("{} arrived by mail (-{}¢).", c.name, c.price))
     }
 
     /// Orders a boxed copy of a game by mail. A cracked copy you had stays on the disk.

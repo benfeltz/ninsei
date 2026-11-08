@@ -1,0 +1,13 @@
+// Music disks sold boxed by mail order in CPU Shopper (its Games section), each priced here and
+// listed in the next issue on its own. Buying one puts its tunes on your disk; nothing plays.
+//   id         what the save and the magazine call it
+//   name       the box's name, as its publisher prints it
+//   blurb      one line for the magazine's listing, in the publisher's voice
+//   publisher  who sells it (a vendor id in shopper.ron)
+//   price      credits
+//   tunes      the tunes on it (ids in data/music/), in order
+// Paper Tiger knows its own games and nothing of the scene: its disk holds its own jingles.
+[
+    (id: "jukebox", name: "Paper Tiger Jukebox Vol. 1", blurb: "The tunes from your favourite Paper Tiger games, on one disk. Hum along!",
+     publisher: "papertiger", price: 25, tunes: ["blox-theme", "minefield-march"]),
+]

@@ -1760,9 +1760,15 @@ impl App {
 }
 
 /// The Shell's line for what came home off a run's boards: the tools by name, then the games
-/// by their crack's label (`Unpacked: HexEd, BLOX [PHS]`).
+/// by their crack's label, then the tunes by title (`Unpacked: HexEd, BLOX [PHS], CHROMA`).
 fn unpacked(r: &ninsei_core::hub::RunReport) -> Option<String> {
-    let all: Vec<&str> = r.tools.iter().chain(&r.games).map(String::as_str).collect();
+    let all: Vec<&str> = r
+        .tools
+        .iter()
+        .chain(&r.games)
+        .chain(&r.tunes)
+        .map(String::as_str)
+        .collect();
     (!all.is_empty()).then(|| format!("Unpacked: {}", all.join(", ")))
 }
 
@@ -1908,12 +1914,18 @@ mod tests {
             boards: Vec::new(),
             tools: Vec::new(),
             games: Vec::new(),
+            tunes: Vec::new(),
         };
         assert_eq!(unpacked(&r), None);
         r.games = vec!["BLOX [PHS]".into()];
         assert_eq!(unpacked(&r).as_deref(), Some("Unpacked: BLOX [PHS]"));
         r.tools = vec!["HexEd".into()];
         assert_eq!(unpacked(&r).as_deref(), Some("Unpacked: HexEd, BLOX [PHS]"));
+        r.tunes = vec!["CHROMA".into()];
+        assert_eq!(
+            unpacked(&r).as_deref(),
+            Some("Unpacked: HexEd, BLOX [PHS], CHROMA")
+        );
     }
 
     mod sound_pop_out {

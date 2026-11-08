@@ -392,6 +392,9 @@ pub struct KitDef {
     /// Games already on the desktop (a game id and the copy): the disk the shop threw in.
     #[serde(default)]
     pub games: Vec<(String, GameCopy)>,
+    /// Tunes the deck ships with (ids in `data/music/`), for the player once you have one.
+    #[serde(default)]
+    pub tunes: Vec<String>,
     /// The program the deck ships with (BASIC text): every fight opens with it loaded. Empty:
     /// the default kit's (read it with `StartsDef::program`).
     #[serde(default)]
@@ -472,6 +475,9 @@ impl StartsDef {
             }
             if let Some((g, _)) = k.games.iter().find(|(g, _)| data.game(g).is_none()) {
                 return err(format!("unknown game `{g}`"));
+            }
+            if let Some(t) = k.tunes.iter().find(|t| data.tune(t).is_none()) {
+                return err(format!("unknown tune `{t}`"));
             }
             if let Some(why) = program_fault(&k.program, data) {
                 return err(format!("program: {why}"));
@@ -1037,6 +1043,10 @@ pub struct Save {
     /// The copies of games you own (ids in `data/hub/games.ron`): one entry per game and copy.
     #[serde(default)]
     pub games: Vec<OwnedGame>,
+    /// The tunes you own (ids in `data/music/`), in the player's playlist order: what you came
+    /// by, in the order you came by it, unless you've moved them.
+    #[serde(default)]
+    pub tunes: Vec<String>,
     /// How many rounds of each game have started, by game id: each new round deals a new
     /// field ([`crate::games::new_game`]), and the same save and round replay the same game.
     #[serde(default)]
@@ -1198,6 +1208,7 @@ impl Default for Save {
             shell_history: Vec::new(),
             tools: Vec::new(),
             games: Vec::new(),
+            tunes: Vec::new(),
             game_rounds: Default::default(),
             texts: Vec::new(),
             ice_seen: Vec::new(),
@@ -1302,6 +1313,20 @@ impl Save {
             id: id.into(),
             copy,
         });
+        true
+    }
+
+    /// Whether you own a tune (an id in `data/music/`).
+    pub fn has_tune(&self, id: &str) -> bool {
+        self.tunes.iter().any(|t| t == id)
+    }
+
+    /// Adds a tune you came by to the end of the playlist. False if you had it.
+    pub fn learn_tune(&mut self, id: &str) -> bool {
+        if self.has_tune(id) {
+            return false;
+        }
+        self.tunes.push(id.into());
         true
     }
 
@@ -1416,6 +1441,9 @@ impl Save {
         }
         for (g, copy) in &kit.games {
             self.learn_game(g, *copy);
+        }
+        for t in &kit.tunes {
+            self.learn_tune(t);
         }
         self.bank += kit.bank;
         self.loadout.starters = kit.free.clone();
@@ -2155,6 +2183,7 @@ impl Save {
             trust: self.trust.clone(),
             tools: self.tools.clone(),
             games: self.cracks(),
+            tunes: self.tunes.clone(),
             free: self.free(data).to_vec(),
             texts: self
                 .texts
@@ -2240,6 +2269,13 @@ impl Save {
             .iter()
             .filter(|g| self.learn_game(g, GameCopy::Cracked))
             .map(|g| game.data.game_label(g, GameCopy::Cracked))
+            .collect();
+        // So does a music disk.
+        let tunes: Vec<String> = game
+            .tunes
+            .iter()
+            .filter(|t| self.learn_tune(t))
+            .map(|t| game.data.tune(t).map_or(t.clone(), |d| d.title.clone()))
             .collect();
         for (b, t) in &game.texts {
             self.keep_text(b, t);
@@ -2348,6 +2384,7 @@ impl Save {
             boards,
             tools,
             games,
+            tunes,
         })
     }
 }
@@ -2377,6 +2414,8 @@ pub struct RunReport {
     pub tools: Vec<String>,
     /// Games downloaded on the run (cracked copies), by label (`BLOX [PHS]`).
     pub games: Vec<String>,
+    /// Tunes downloaded on the run, by title.
+    pub tunes: Vec<String>,
 }
 
 /// Which machine is on screen, and the drags between them.
