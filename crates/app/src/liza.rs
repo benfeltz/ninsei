@@ -538,7 +538,7 @@ impl Liza {
         {
             self.calc = false;
         }
-        let next = save.rig.next_upgrade(&data.rig);
+        let next = save.next_upgrade(data);
         let heat: u32 = save.phonebook.iter().map(|e| e.heat).sum();
         let hottest = save.phonebook.iter().map(|e| e.heat).max().unwrap_or(0);
         let lines = [
