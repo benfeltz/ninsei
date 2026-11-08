@@ -647,6 +647,9 @@ pub const WB_SIZE: egui::Vec2 = egui::vec2(560.0, 440.0);
 const WB_LABEL: usize = 8;
 const WB_VALUE: usize = 5;
 const WB_ROW: f32 = 22.0;
+/// The row counter's column, in advances: `ROW 9999/9999`, the longest a loop under
+/// `music::MAX_LOOP_SECS` counts to.
+const WB_ROW_CHARS: usize = 13;
 /// The spectrum analyzer's height, and a bar's width and gap.
 const WB_VIS_H: f32 = 84.0;
 const WB_BAR: f32 = 8.0;
@@ -703,19 +706,23 @@ pub fn workbench_face(
         kit::bevel(&p, v, false, &look);
         text(&p, v.left_center() + vec2(4.0, 0.0), value, look.accent);
     }
-    // The pattern's row, as Protracker counts down its pattern: beside PATTERN.
+    // The pattern's row, as Protracker counts down its pattern: beside PATTERN, in a column
+    // as wide as the longest a loop can be counted in (cut on purpose past it).
+    let row_x = (x0 + label_w + value_w + 8.0).round();
+    let row_text = format!("ROW {:02}/{:02}", rd.row, rd.rows);
     text(
         &p,
-        pos2(x0 + label_w + value_w + 8.0, y + WB_ROW * 1.5 - 1.0),
-        &format!("ROW {:02}/{:02}", rd.row, rd.rows),
+        pos2(row_x, y + WB_ROW * 1.5 - 1.0),
+        &crate::kit::cells::cut(&row_text, WB_ROW_CHARS),
         look.ink,
     );
 
     // The gadgets beside them, Protracker's: PLAY (and again to pause), STOP back to the
     // top, PREV and NEXT; then the modes as toggle gadgets. Each gadget's id is its slot, so
     // a press survives its face changing under it.
-    let gx = x0 + label_w + value_w + 8.0 + adv * 11.0;
-    let gw = (x0 + w - gx) / 4.0 - 4.0;
+    // On whole pixels: the gadgets share the room left after the row's column.
+    let gx = (row_x + adv * WB_ROW_CHARS as f32 + 8.0).round();
+    let gw = ((x0 + w - gx) / 4.0 - 4.0).floor();
     for (i, (label, act)) in [
         ("PLAY", Act::Toggle),
         ("STOP", Act::Stop),
@@ -725,7 +732,10 @@ pub fn workbench_face(
     .into_iter()
     .enumerate()
     {
-        let r = Rect::from_min_size(pos2(gx + i as f32 * (gw + 4.0), y), vec2(gw, WB_ROW - 2.0));
+        let r = Rect::from_min_size(
+            pos2(gx + i as f32 * (gw + 4.0), y.round()),
+            vec2(gw, WB_ROW - 2.0),
+        );
         if kit::button(
             ui,
             &p,
@@ -1460,6 +1470,34 @@ mod tests {
                 press(&mut h, &mut home, &data, &save, "PLAY"),
                 [Act::Toggle]
             );
+        }
+
+        #[test]
+        fn the_row_counter_never_reaches_the_gadgets_and_they_sit_on_whole_pixels() {
+            let mut data = Data::builtin().unwrap();
+            // The longest loop the data allows: 300 bpm, 8 steps a beat, 64 s.
+            let t = data.tunes.iter_mut().find(|t| t.id == "chroma").unwrap();
+            t.loop_steps = 2560;
+            let mut save = hosaka(&data);
+            let mut h = Harness::new(900.0, 700.0);
+            let mut home = Home::new(Vec::new());
+            player::apply(&mut save, &data, &mut home.player, Act::Pick(0));
+            home.player.at = 60.0;
+            wb(&mut h, &mut home, &data, &save, false, Vec::new());
+            let row = h
+                .painted_text()
+                .into_iter()
+                .find(|(t, _)| t.starts_with("ROW "))
+                .map(|(_, r)| r)
+                .expect("the row counter");
+            let play = h.find("PLAY").unwrap();
+            assert!(row.right() < play.left(), "{row:?} {play:?}");
+            for g in ["PLAY", "STOP", "PREV", "NEXT"] {
+                let r = h.find(g).unwrap();
+                for v in [r.left(), r.right(), r.top(), r.bottom()] {
+                    assert_eq!(v, v.round(), "{g} at {r:?}");
+                }
+            }
         }
 
         #[test]
