@@ -989,33 +989,17 @@ impl Home {
             Tool::IceDb => hubtools::icedb(child, data, save, &mut self.icedb_sel),
             Tool::Guide => hubtools::guide(child, data, &mut self.guide_at),
             Tool::Player if self.intro_gate(child, data, save, "player", out) => return,
-            Tool::Player if save.firmware_def(data).desktop == Desktop::Tiling => {
-                crate::player_view::tile(
-                    child,
-                    data,
-                    save,
-                    &self.player,
-                    &mut self.player_ui,
-                    &self.heard,
-                    keys,
-                    out,
-                );
-            }
-            // The Sense/Net's: a desk accessory.
-            Tool::Player if save.firmware_def(data).desktop == Desktop::Liza => {
-                crate::player_view::liza_face(
-                    child,
-                    data,
-                    save,
-                    &self.player,
-                    &mut self.player_ui,
-                    &self.heard,
-                    keys,
-                    out,
-                );
-            }
-            // Desktop lists it plainly until it dresses it.
-            Tool::Player => crate::player_view::plain(child, data, save, &self.player, out),
+            Tool::Player => crate::player_view::show(
+                child,
+                save.firmware_def(data).desktop,
+                data,
+                save,
+                &self.player,
+                &mut self.player_ui,
+                &self.heard,
+                keys,
+                out,
+            ),
             Tool::Shell => {}
             Tool::Game(_, copy) => self.play(child, data, save, tool, copy, keys, out),
         }
