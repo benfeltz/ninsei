@@ -47,11 +47,12 @@ pub fn module_mark(g: crate::listing::Gutter) -> &'static str {
 }
 
 /// The Module window's bottom edge, the suite's words: what's left this turn in an incident,
-/// the deck's limits outside one.
+/// the deck's limits outside one; a hang first, while it holds the cursor.
 pub fn module_note(g: &Game) -> String {
     let cpu = g.combat.as_ref().map_or(g.deck.cpu_max, |c| c.cpu);
+    let broke = crate::listing::broke(g).map_or(String::new(), |n| format!("?BREAK IN {n}  "));
     format!(
-        "CPU {cpu}/{}  RAM {}/{}",
+        "{broke}CPU {cpu}/{}  RAM {}/{}",
         g.deck.cpu_max,
         g.ifs_left(),
         g.deck.ram_max

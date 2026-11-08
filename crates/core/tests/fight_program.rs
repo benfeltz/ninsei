@@ -499,3 +499,30 @@ fn the_terminal_steps_a_line_and_finishes_the_turn() {
     assert_eq!(budgets(&g).2, turn + 1);
     assert!(command::HELP.iter().any(|l| l.starts_with("finish")));
 }
+
+#[test]
+fn every_deck_says_the_hang_where_you_look_until_the_next_step() {
+    use ninsei_core::{btop_fight, listing, stack_fight, suite};
+    // A fresh deck's SAFE with nothing to defend against: Step until it hangs on line 20.
+    let mut s = fresh();
+    let mut g = fight_from(&mut s, "bulwark");
+    while g.exec.broke.is_none() {
+        g.apply(Action::Step);
+    }
+    assert_eq!(g.exec.broke, Some(20));
+    let card = stack_fight::card(&g);
+    assert_eq!(card.broke_words().as_deref(), Some("?BREAK IN 20"));
+    assert!(btop_fight::note(&g).starts_with("?break in 20  cpu "));
+    assert!(suite::module_note(&g).starts_with("?BREAK IN 20  CPU "));
+    let w: std::collections::HashMap<_, _> = suite::watches(&g).into_iter().collect();
+    assert_eq!(w["LAST"], "?BREAK IN 20");
+    // The ▶ is held on the line, on every listing.
+    let rows = listing::rows(&g);
+    let held = rows.iter().find(|r| r.no == Some(20)).unwrap();
+    assert_eq!(held.gutter, listing::Gutter::Current);
+    // The next Step clears it.
+    g.apply(Action::Step);
+    assert_eq!(stack_fight::card(&g).broke_words(), None);
+    assert!(btop_fight::note(&g).starts_with("cpu "));
+    assert!(suite::module_note(&g).starts_with("CPU "));
+}

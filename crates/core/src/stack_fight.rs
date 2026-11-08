@@ -150,9 +150,16 @@ pub struct Card {
     pub state: ExecState,
     /// ICE is in front: the program plays and the title line counts down this turn.
     pub fighting: bool,
+    /// A hang holds the ▶ on this line.
+    pub broke: Option<u32>,
 }
 
 impl Card {
+    /// The title line's left side while a hang holds the ▶: the interpreter's words.
+    pub fn broke_words(&self) -> Option<String> {
+        self.broke.map(|n| format!("?BREAK IN {n}"))
+    }
+
     /// The title line's right side: what's left this turn in a fight, the deck's limits a
     /// turn outside one.
     pub fn budget_words(&self) -> String {
@@ -290,6 +297,7 @@ pub fn card(g: &Game) -> Card {
         budgets: budgets(g),
         state: g.exec.state,
         fighting,
+        broke: crate::listing::broke(g),
     }
 }
 
