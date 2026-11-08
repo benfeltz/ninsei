@@ -358,3 +358,40 @@ fn starter_cpu(base: u32, max: u32) -> Data {
     (row.base, row.max) = (base, max);
     d
 }
+
+#[test]
+fn an_old_save_past_its_decks_cap_keeps_its_levels_and_runs_at_the_cap() {
+    let d = data();
+    let mut s = save();
+    s.ensure_hardware(&d);
+    let cap = s.stat_cap(&d, Upgrade::Ram).expect("the starter caps RAM");
+    // Bought on an older, roomier chassis: every RAM level RIG sells.
+    let rig_max = d.rig.iter().find(|u| u.kind == Upgrade::Ram).unwrap().max;
+    s.rig.ram = rig_max;
+    assert!(
+        s.stat_base(&d, Upgrade::Ram) + rig_max > cap,
+        "past this case"
+    );
+    let text = s.to_text();
+    let mut back = Save::load(&text).unwrap();
+    back.ensure_hardware(&d);
+    assert_eq!(back.rig.ram, rig_max, "nothing taken back");
+    let g = back.jack_in(&d, 3);
+    assert_eq!(g.deck.ram_max, cap, "runs at the cap");
+    assert!(back.buy(&d, Upgrade::Ram).is_err(), "and sells no more");
+}
+
+#[test]
+fn an_unknown_deck_falls_back_to_the_starters_chassis() {
+    let d = data();
+    let mut s = save();
+    s.deck = "a deck from a newer build".into();
+    let starter = d.hardware.starter_deck();
+    for u in [Upgrade::Cpu, Upgrade::Ram, Upgrade::Hdd, Upgrade::Integrity] {
+        let row = starter.stat(u).unwrap();
+        assert_eq!(s.stat_base(&d, u), row.base, "{u:?}");
+        assert_eq!(s.stat_cap(&d, u), Some(row.max), "{u:?}");
+    }
+    s.ensure_hardware(&d);
+    assert_eq!(s.deck, starter.id);
+}
