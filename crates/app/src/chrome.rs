@@ -1,5 +1,5 @@
 //! Chromes: how the run screen is dressed. A chrome is a [`ChromeView`]: one method per pane,
-//! plus its tab titles, menus, status line, an optional bar under the panes, keys, an overlay
+//! plus its tab titles, menus, status line, an optional bar over the panes, keys, an overlay
 //! and the layout it starts with. Every method has a Classic default, so a new chrome only
 //! writes what it changes. The deck's firmware names the chrome (`hardware::Chrome`); [`view`]
 //! hands back its renderer.
@@ -134,11 +134,11 @@ pub trait ChromeView {
     fn status_extra(&self, _ui: &mut Ui, _cx: &mut FrameCx) -> Vec<Request> {
         Vec::new()
     }
-    /// Whether it has a bar under the panes (the suite's F-key legend).
+    /// Whether it has a bar over the panes, under the menu bar (the suite's F-key legend).
     fn has_legend(&self) -> bool {
         false
     }
-    /// Draws the bar under the panes.
+    /// Draws the bar over the panes.
     fn legend(&self, _ui: &mut Ui, _cx: &mut FrameCx) -> Vec<Request> {
         Vec::new()
     }
@@ -146,6 +146,11 @@ pub trait ChromeView {
     /// it consumes (an alert's Enter) never reaches them.
     fn keys(&self, _ctx: &egui::Context, _cx: &mut FrameCx) -> Vec<Request> {
         Vec::new()
+    }
+    /// Whether the Script pane holds the keyboard as a pane, not as typing (btop's `ice.bas`
+    /// tile with the focus): the run's hotkeys (Space, the digits) still work then.
+    fn script_has_keys(&self, _ctx: &egui::Context) -> bool {
+        false
     }
     /// Drawn over everything after the panes (the suite's dialogs).
     fn overlay(&self, _ctx: &egui::Context, _cx: &mut FrameCx) -> Vec<Request> {
@@ -199,8 +204,52 @@ pub fn base_layout(extra: &[Tab]) -> DockState<Tab> {
 pub struct Classic;
 impl ChromeView for Classic {}
 
+/// Where the three-column layout splits, as shares: the panes over the bottom row (the
+/// terminal, the Message box, the activity log), the left column's share of them, the deck's
+/// share of the left column, the centre's share of what the left leaves, and the bottom row's
+/// share left to the terminal when secondary panes sit beside it.
+pub struct Shares {
+    pub over_bottom: f32,
+    pub left: f32,
+    pub deck: f32,
+    pub centre_of_rest: f32,
+    pub terminal_of_bottom: f32,
+}
+
+/// The three-column layout every deck with a Script pane starts in: the deck over the
+/// programs on the left (narrow), the map with ICE and Hex as its other tabs in the centre
+/// (widest), the Script in front of To Do on the right, the terminal along the bottom with any
+/// secondary panes beside it. Each chrome only picks its `Shares`.
+pub fn three_columns(extra: &[Tab], s: Shares) -> DockState<Tab> {
+    let mut dock = DockState::new(vec![Tab::Network, Tab::Target, Tab::Hex]);
+    let tree = dock.main_surface_mut();
+    let [top, bottom] = tree.split_below(NodeIndex::root(), s.over_bottom, vec![Tab::Terminal]);
+    let [centre, left] = tree.split_left(top, s.left, vec![Tab::Deck]);
+    tree.split_below(left, s.deck, vec![Tab::Warez]);
+    tree.split_right(centre, s.centre_of_rest, vec![Tab::Script, Tab::Todo]);
+    if !extra.is_empty() {
+        tree.split_right(bottom, s.terminal_of_bottom, extra.to_vec());
+    }
+    dock
+}
+
 pub struct Btop;
 impl ChromeView for Btop {
+    /// Three columns over the terminal, the Stack's shape: deck.sys over warez/ on the left
+    /// (narrow), the map in the centre (widest, the fight view in a fight), `ice.bas` in front
+    /// of todo on the right; secondary panes beside the terminal.
+    fn default_layout(&self, extra: &[Tab]) -> DockState<Tab> {
+        three_columns(
+            extra,
+            Shares {
+                over_bottom: 0.74,
+                left: 0.22,
+                deck: 0.62,
+                centre_of_rest: 0.59,
+                terminal_of_bottom: 0.6,
+            },
+        )
+    }
     fn network(&self, p: &mut Panes, ui: &mut Ui) {
         // In a fight the map dives into the ICE's node and becomes the fight view.
         if p.game.phase == ninsei_core::Phase::Combat {
@@ -226,6 +275,24 @@ impl ChromeView for Btop {
     }
     fn todo(&self, p: &mut Panes, ui: &mut Ui) {
         p.btop_todo(ui);
+    }
+    /// The `ice.bas` tile, the whole run.
+    fn script(&self, p: &mut Panes, ui: &mut Ui) {
+        crate::btop::script::show(p, ui);
+    }
+    fn title(&self, tab: Tab) -> Option<&'static str> {
+        (tab == Tab::Script).then_some(" ice.bas ")
+    }
+    /// The `ice.bas` tile's letters, while it has the keyboard.
+    fn keys(&self, ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
+        crate::btop::script::keys(ctx, cx)
+    }
+    fn script_has_keys(&self, ctx: &egui::Context) -> bool {
+        crate::btop::script::has_keys(ctx)
+    }
+    /// The tile lays out its own rows.
+    fn scroll_bars(&self, tab: Tab) -> Option<[bool; 2]> {
+        (tab == Tab::Script).then_some([false, false])
     }
     fn net(&self, p: &mut Panes, ui: &mut Ui) {
         let site = p

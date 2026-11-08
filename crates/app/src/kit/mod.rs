@@ -11,6 +11,7 @@ pub mod anarchy;
 pub mod cells;
 pub mod fit;
 pub mod list;
+pub mod listing;
 pub mod liza;
 pub mod scrollbar;
 pub mod sheet;

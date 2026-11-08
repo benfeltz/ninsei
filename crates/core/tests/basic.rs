@@ -110,6 +110,27 @@ fn goto_to_a_missing_line_is_bad() {
 }
 
 #[test]
+fn a_new_line_takes_a_free_number_between_its_neighbours() {
+    use basic::Program;
+    assert_eq!(Program::free_line_between(Some(20), Some(30)), Some(25));
+    assert_eq!(Program::free_line_between(Some(20), Some(21)), None);
+    assert_eq!(Program::free_line_between(None, Some(10)), Some(5));
+    assert_eq!(Program::free_line_between(None, Some(0)), None);
+    assert_eq!(Program::free_line_between(Some(40), None), Some(50));
+    assert_eq!(Program::free_line_between(None, None), Some(10));
+    assert_eq!(
+        Program::free_line_between(Some(basic::MAX_LINE), None),
+        None,
+        "nothing past the last number"
+    );
+    let p = basic::parse(SAMPLE);
+    assert_eq!(p.next_line_after(20), Some(25), "between 20 and 30");
+    assert_eq!(p.next_line_after(40), Some(50), "ten on at the end");
+    let tight = basic::parse("10 RUN icepick\n11 GOTO 10");
+    assert_eq!(tight.next_line_after(10), None, "no room between 10 and 11");
+}
+
+#[test]
 fn edits_insert_replace_and_remove() {
     let mut p = basic::parse(SAMPLE);
     p.set_line(25, "REM patch when low");

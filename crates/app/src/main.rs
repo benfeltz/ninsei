@@ -1418,16 +1418,25 @@ fn run_keys(
     focus_input: &mut bool,
 ) -> Vec<Request> {
     let mut out = view.keys(ctx, cx);
-    out.extend(hotkeys(ctx, cx.game, modal, focus_input));
+    let script = view.script_has_keys(ctx);
+    out.extend(hotkeys(ctx, cx.game, modal, script, focus_input));
     out
 }
 
 /// Hotkeys work whenever the terminal isn't taking typing: Space ends the turn, a digit runs
-/// that slot, and Enter or / go to the Message box.
-fn hotkeys(ctx: &egui::Context, game: &Game, modal: bool, focus_input: &mut bool) -> Vec<Request> {
+/// that slot, and Enter or / go to the Message box. A Script pane holding the keyboard
+/// (`script`) isn't typing: the hotbar's keys still work over it.
+fn hotkeys(
+    ctx: &egui::Context,
+    game: &Game,
+    modal: bool,
+    script: bool,
+    focus_input: &mut bool,
+) -> Vec<Request> {
     let hex_typing = ctx.memory(|m| m.has_focus(hexview::grid_id()));
     let talking = game.encounter.is_some();
-    if modal || talking || hex_typing || ctx.egui_wants_keyboard_input() {
+    let typing = ctx.egui_wants_keyboard_input() && !script;
+    if modal || talking || hex_typing || typing {
         return Vec::new();
     }
     let mut out = Vec::new();
@@ -1593,15 +1602,10 @@ impl App {
                     .inner_margin(egui::Margin::symmetric(6, 2)),
             )
             .show(ui, |ui| requests.extend(self.menu_bar(ui, &pal)));
-        egui::Panel::bottom("status")
-            .frame(
-                egui::Frame::new()
-                    .fill(view.status_fill(&pal))
-                    .inner_margin(egui::Margin::symmetric(6, 1)),
-            )
-            .show(ui, |ui| requests.extend(self.status_bar(ui, &pal)));
+        // The F-key legend sits right under the menu bar: its keys are buttons too, and up
+        // there they're seen.
         if view.has_legend() {
-            egui::Panel::bottom("legend")
+            egui::Panel::top("legend")
                 .frame(
                     egui::Frame::new()
                         .fill(pal.bg)
@@ -1619,6 +1623,13 @@ impl App {
                     requests.extend(view.legend(ui, &mut cx));
                 });
         }
+        egui::Panel::bottom("status")
+            .frame(
+                egui::Frame::new()
+                    .fill(view.status_fill(&pal))
+                    .inner_margin(egui::Margin::symmetric(6, 1)),
+            )
+            .show(ui, |ui| requests.extend(self.status_bar(ui, &pal)));
 
         fit_tools(&mut self.dock, &self.game);
         // The vis pane's samples: taken only by a vis pane that's drawn (a tab behind another
@@ -1936,6 +1947,30 @@ mod tests {
         }
 
         #[test]
+        fn the_hosakas_f_key_legend_sits_under_the_menu_bar_over_the_panes() {
+            let (mut h, mut app) = running("hosaka");
+            for _ in 0..3 {
+                frame(&mut h, &mut app, Vec::new());
+            }
+            let find = |h: &Harness, t: &str| {
+                h.find(t)
+                    .unwrap_or_else(|| panic!("no {t:?} in {:?}", h.texts()))
+            };
+            let menu = find(&h, "File");
+            let legend = find(&h, "F10 End turn");
+            // The first line inside the resources form, the top-left pane.
+            let pane = find(&h, "HOSAKA EXECUTIVE 4");
+            assert!(
+                legend.top() >= menu.bottom() - 1.0,
+                "under the menu bar: {legend:?} {menu:?}"
+            );
+            assert!(
+                legend.bottom() <= pane.top() + 1.0,
+                "over the panes: {legend:?} {pane:?}"
+            );
+        }
+
+        #[test]
         fn a_slow_frames_command_runs_whole_on_the_run_terminal() {
             let (mut h, mut app) = running("onosendai");
             for _ in 0..3 {
@@ -2106,18 +2141,30 @@ mod tests {
     }
 
     #[test]
-    fn the_script_is_in_every_chromes_layout_and_in_front_on_the_stack() {
+    fn the_script_is_in_every_chromes_layout_and_in_front_in_three_columns() {
         for chrome in Chrome::ALL {
             assert!(
                 default_layout(chrome, &[]).find_tab(&Tab::Script).is_some(),
                 "{chrome:?}"
             );
         }
-        let dock = default_layout(Chrome::Stack, &[]);
+        for chrome in [Chrome::Stack, Chrome::Btop, Chrome::Suite] {
+            three_columns(chrome);
+        }
+    }
+
+    /// The Stack's shape: the Script in front of To Do in a column of its own, the map with
+    /// ICE in the centre, Deck over Programs.
+    fn three_columns(chrome: Chrome) {
+        let dock = default_layout(chrome, &[]);
         let at = |t: Tab| dock.find_tab(&t).unwrap();
         let script = at(Tab::Script);
-        assert_eq!(script.tab.0, 0, "Script is the front tab");
-        assert_eq!(at(Tab::Todo).node, script.node, "To Do behind it");
+        assert_eq!(script.tab.0, 0, "{chrome:?}: Script is the front tab");
+        assert_eq!(
+            at(Tab::Todo).node,
+            script.node,
+            "{chrome:?}: To Do behind it"
+        );
         // Its own column: not with the card, the deck, the programs or the Message box.
         for t in [
             Tab::Network,
@@ -2271,5 +2318,103 @@ mod tests {
         let calm = ninsei_core::Game::new(d.clone(), 3);
         let (out, focus) = stack_keys(&mut h, &calm, crate::uitest::key(Key::Enter));
         assert!(out.is_empty() && focus);
+    }
+
+    /// One frame of the run's keys on the btop chrome with the `ice.bas` tile holding the
+    /// keyboard; returns what they asked for and whether the command line was asked for.
+    fn ice_bas_keys(
+        h: &mut crate::uitest::Harness,
+        g: &ninsei_core::Game,
+        ev: Vec<egui::Event>,
+    ) -> (Vec<Request>, bool) {
+        let mut suite = crate::suite::State::default();
+        let (mut out, mut focus) = (Vec::new(), false);
+        h.frame(ev, |ui| {
+            crate::btop::script::take_keys(ui.ctx());
+            let mut popup = crate::volume::Popup::default();
+            let mut cx = FrameCx {
+                game: g,
+                pal: theme::Palette::from_def(&g.data.themes[0]),
+                suite: &mut suite,
+                keys_free: true,
+                level: crate::volume::Level {
+                    on: true,
+                    volume: 100,
+                },
+                popup: &mut popup,
+            };
+            out = run_keys(&chrome::Btop, ui.ctx(), &mut cx, false, &mut focus);
+        });
+        (out, focus)
+    }
+
+    #[test]
+    fn over_the_ice_bas_tile_space_and_the_digits_still_work_the_hotbar() {
+        let d = Data::builtin().unwrap();
+        let mut g = crate::stack::tests::a_fight(&d);
+        g.apply(Action::Program("10 RUN icepick\n20 GOTO 10".into()));
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        let game = |out: &[Request]| -> Vec<Action> {
+            out.iter()
+                .filter_map(|r| match r {
+                    Request::Cmd(Command::Game(a)) => Some(a.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+        let (out, _) = ice_bas_keys(&mut h, &g, crate::uitest::key(Key::Space));
+        assert_eq!(game(&out), [Action::EndTurn]);
+        let (out, _) = ice_bas_keys(&mut h, &g, crate::uitest::key(Key::Num0));
+        assert_eq!(game(&out), [Action::Run(0)]);
+        // Enter is the tile's (it retypes the line), never the command line's.
+        let (out, focus) = ice_bas_keys(&mut h, &g, crate::uitest::key(Key::Enter));
+        assert!(game(&out).is_empty() && !focus);
+        assert!(
+            crate::btop::script::view(&h.ctx, &g).edit.is_some(),
+            "retyping"
+        );
+    }
+
+    #[test]
+    fn over_the_active_module_window_space_and_the_digits_still_work_the_hotbar() {
+        let d = Data::builtin().unwrap();
+        let mut g = crate::stack::tests::a_fight(&d);
+        g.apply(Action::Program("10 RUN icepick\n20 GOTO 10".into()));
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        let mut press = |ev: Vec<egui::Event>| {
+            let mut suite = crate::suite::State::default();
+            let (mut out, mut focus) = (Vec::new(), false);
+            h.frame(ev, |ui| {
+                crate::suite::module().take_keys(ui.ctx());
+                let mut popup = crate::volume::Popup::default();
+                let mut cx = FrameCx {
+                    game: &g,
+                    pal: theme::Palette::from_def(&g.data.themes[0]),
+                    suite: &mut suite,
+                    keys_free: true,
+                    level: crate::volume::Level {
+                        on: true,
+                        volume: 100,
+                    },
+                    popup: &mut popup,
+                };
+                out = run_keys(&crate::suite::Suite, ui.ctx(), &mut cx, false, &mut focus);
+            });
+            let acts: Vec<Action> = out
+                .into_iter()
+                .filter_map(|r| match r {
+                    Request::Cmd(Command::Game(a)) => Some(a),
+                    _ => None,
+                })
+                .collect();
+            (acts, focus)
+        };
+        assert_eq!(press(crate::uitest::key(Key::Space)).0, [Action::EndTurn]);
+        assert_eq!(press(crate::uitest::key(Key::Num0)).0, [Action::Run(0)]);
+        let (acts, focus) = press(crate::uitest::key(Key::Enter));
+        assert!(
+            acts.is_empty() && !focus,
+            "Enter is the window's, not the command line's"
+        );
     }
 }

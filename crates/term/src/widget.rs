@@ -143,6 +143,43 @@ fn apply(ed: &mut LineEditor, edits: Vec<Edit>, complete: &dyn Fn(&str) -> Vec<S
     done
 }
 
+/// The part of a line that's drawn: chars `start..end`, and whether text is hidden to the
+/// left or the right (its first or last cell then shows `<` or `>`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct Window {
+    start: usize,
+    end: usize,
+    left: bool,
+    right: bool,
+}
+
+/// The window of a `len`-char line drawn in `room` cells with the cursor at `cursor` (which can
+/// sit one past the end): the whole line when it fits, else a slice that keeps the cursor's
+/// cell clear of the end marks.
+fn window(len: usize, cursor: usize, room: usize) -> Window {
+    if len < room {
+        return Window {
+            start: 0,
+            end: len,
+            left: false,
+            right: false,
+        };
+    }
+    let room = room.max(3);
+    // The cursor sits at most one cell in from the right mark, and past the left one.
+    let start = cursor
+        .saturating_sub(room - 2)
+        .min(len.saturating_sub(room - 1));
+    let start = if start == 1 { 0 } else { start };
+    let end = (start + room).min(len);
+    Window {
+        start,
+        end,
+        left: start > 0,
+        right: end < len,
+    }
+}
+
 /// Edits held over from a frame that submitted, and that frame's pass number.
 #[derive(Clone)]
 struct Held(u64, Vec<Edit>);
@@ -221,12 +258,27 @@ pub fn line(
         x += g.size().x;
         painter.galley(pos2(rect.left(), y - g.size().y / 2.0), g, lead_col);
     }
-    let galley = painter.layout_no_wrap(view.text.clone(), style.font.clone(), style.text);
     let cw = ui.fonts_mut(|f| f.glyph_width(&style.font, 'M'));
+    // A line longer than its room scrolls sideways to keep the cursor in view, readline's way:
+    // `<` and `>` mark the ends that are out of sight. Nothing is cut at the clip rect.
+    let room = ((rect.right() - x) / cw).floor().max(1.0) as usize;
+    let chars: Vec<char> = view.text.chars().collect();
+    let w = window(chars.len(), view.cursor, room);
+    let mut shown: Vec<char> = chars[w.start..w.end].to_vec();
+    if w.left {
+        shown[0] = '<';
+    }
+    if w.right
+        && let Some(last) = shown.last_mut()
+    {
+        *last = '>';
+    }
+    let shown: String = shown.into_iter().collect();
+    let galley = painter.layout_no_wrap(shown, style.font.clone(), style.text);
     painter.galley(pos2(x, y - galley.size().y / 2.0), galley, style.text);
     let on = ((ui.input(|i| i.time) / BLINK) as i64) % 2 == 0;
     if focused && on {
-        let cx = x + view.cursor as f32 * cw;
+        let cx = x + (view.cursor - w.start) as f32 * cw;
         let cell = Rect::from_min_size(pos2(cx, y - row / 2.0), vec2(cw.max(2.0), row));
         painter.rect_filled(cell, 0.0, style.cursor);
         if let Some(c) = view.text.chars().nth(view.cursor) {
@@ -280,6 +332,33 @@ mod tests {
     /// Applies one frame's events to `ed`.
     fn frame(ed: &mut LineEditor, events: &[Event]) -> Applied {
         apply(ed, edits(events), &|_| Vec::new())
+    }
+
+    #[test]
+    fn a_long_line_scrolls_to_keep_the_cursor_in_view() {
+        // It fits: all of it, no marks.
+        let w = window(5, 5, 10);
+        assert_eq!((w.start, w.end, w.left, w.right), (0, 5, false, false));
+        // Cursor at the start of a long line: the right end is marked.
+        let w = window(30, 0, 10);
+        assert_eq!((w.start, w.end, w.left, w.right), (0, 10, false, true));
+        // Cursor at the end: the left end is marked, the cursor's cell is in the room.
+        let w = window(30, 30, 10);
+        assert!(w.left && !w.right, "{w:?}");
+        assert!(w.start < 30 && 30 - w.start < 10, "the cursor shows: {w:?}");
+        // In the middle: both marked, the cursor clear of either mark.
+        let w = window(30, 15, 10);
+        assert!(w.left && w.right, "{w:?}");
+        assert!(15 > w.start && 15 < w.end - 1, "{w:?}");
+        // Never more than the room.
+        for cursor in 0..=30 {
+            let w = window(30, cursor, 10);
+            assert!(w.end - w.start <= 10, "{cursor}: {w:?}");
+            assert!(
+                cursor >= w.start && cursor - w.start < 10,
+                "{cursor}: {w:?}"
+            );
+        }
     }
 
     #[test]

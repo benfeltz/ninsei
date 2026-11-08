@@ -196,6 +196,12 @@ On the **Ono-Sendai** the panes are dressed btop-style: boxed with their titles 
 
 target.ice keeps the numbers view (intent and damage waterfalls).
 
+The panes start in three columns over the terminal: deck.sys over warez/ on the left, the map (and the fight) in the centre, and **ice.bas** in front of todo on the right. ice.bas is your deck's program the whole run, listed like a debugger's source window: the line about to run lit with ▶, a STOP marked ●, a line that won't run dimmed with the interpreter's complaint after it, and this turn's cpu and ram cut into the bottom edge. Click it (its border lights) and its keys are live: `r` run, `s` step, `c` continue after a STOP, `p` pause, `j`/`k` or the arrows move the cursor, `e` or Enter retypes the line where it stands (Enter keeps it, Esc puts it back), `o` opens a new numbered line under the cursor, `d` deletes one; Space and the digits still work the hotbar, and Esc hands the keys back. Double-click a line to retype it. The terminal is the prompt: each pass prints there a line at a time, and `step`, `play`, `pause` and `prog` work as on every deck.
+
+![a fight with ice.bas, synthwave](docs/shots/btop-fight-synthwave.png)
+![a fight with ice.bas, amber](docs/shots/btop-fight-amber.png)
+![ice.bas with the keys, amber](docs/shots/btop-script-amber.png)
+
 ![diving into the node](docs/shots/fight-dive.png)
 ![previewing a program](docs/shots/fight-preview.png)
 ![a hit, on amber](docs/shots/fight-amber.png)
@@ -211,7 +217,13 @@ On the **Hosaka** the run screen is a 90s productivity suite. Each pane is a doc
 - `ACTIVITY LOG`: a ledger (`TIME`, `REF`, `ENTRY`) with a `Command:` field
 - `WORK ORDERS`: contracts as a table with a total outstanding, and the ghost bonus as a conditional cell (`+57¢ if TRACE ≤ 40%`); a client who turned on you is `VOID — DEFAULTED` (or `BURNED`, `SOLD OUT`...)
 
-An **F-key legend** runs along the bottom: **F1** help, **F4** hex (on the sheet's cursor), **F8** jack (types `jack ` for you), **F10** end turn. The usual keys still work. The status line reads like a document: date and hop, `USER GUEST-0451`, `BRIGHTWATER MUTUAL.NET`, `NODE 4 OF 15`, `TRACE 37%`. A paid contract and the end of a session pop up as **dialogs**; Enter dismisses them, and they never block a fight.
+An **F-key legend** runs under the menu bar: **F1** help, **F4** hex (on the sheet's cursor), **F8** jack (types `jack ` for you), **F10** end turn. The usual keys still work. The status line reads like a document: date and hop, `USER GUEST-0451`, `BRIGHTWATER MUTUAL.NET`, `NODE 4 OF 15`, `TRACE 37%`. A paid contract and the end of a session pop up as **dialogs**; Enter dismisses them, and they never block a fight.
+
+The panes start in three columns over the activity log: SYSRES.FRM over WAREZ.WK1, the plan view and the incident report in the middle, and **PROC-7.BAS** in front of the work orders on the right. PROC-7.BAS is your deck's program as a debugger's Module window: the line about to run in inverse, a STOP marked ■, a bad line dimmed with its complaint, this turn's CPU and RAM in the bottom edge, and Watches under it (turn, CPU, IFs, integrity, trace, the ICE's next move, the ICE, the last step). Click it and the F-key legend becomes the debugger's: **F8** steps, **F9** runs (and carries on after a STOP), **F4** pauses, **F2** or Enter retypes the line under the cursor, **F3** or **Ins** opens a line after it, **Del** or Backspace deletes it, ↑ ↓ move, Esc hands the keys back; F4 Hex and F8 Jack return when another window is active. Each step of a pass is an activity-log row: what the program decided filed under `PRG`, what a program it ran did under its own reference.
+
+![PROC-7.BAS in an incident, amber](docs/shots/suite-fight-amber.png)
+![PROC-7.BAS in an incident, synthwave](docs/shots/suite-fight-synthwave.png)
+![PROC-7.BAS active between incidents, amber](docs/shots/suite-script-amber.png)
 
 ![the suite](docs/shots/suite-incident.png)
 ![a dialog](docs/shots/suite-dialog.png)
