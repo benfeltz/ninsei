@@ -88,38 +88,70 @@ fn careers_shop_take_contracts_and_talk() {
     );
 }
 
-#[test]
-fn careers_buy_a_bigger_chassis() {
+/// Every deck all but free, so even a short career outgrows the starter.
+fn cheap_decks() -> Data {
     let mut data = Data::builtin().unwrap();
-    // Every deck all but free, so even a short career outgrows the starter.
     for d in &mut data.hardware.decks {
         d.price = d.price.min(1);
     }
-    let starter = data
-        .hardware
-        .starter_deck()
-        .stat(hub::Upgrade::Cpu)
-        .unwrap()
-        .max;
-    let mut p = Probe::new(
-        &data,
-        Config {
-            spot_runs: 1,
-            careers: 2,
-            career_runs: 20,
-            seed: 11,
-        },
-    );
+    data
+}
+
+fn short_careers() -> Config {
+    Config {
+        spot_runs: 1,
+        careers: 2,
+        career_runs: 20,
+        seed: 11,
+    }
+}
+
+#[test]
+fn careers_buy_a_bigger_chassis() {
+    let data = cheap_decks();
+    let starter = data.hardware.starter_deck();
+    let mut p = Probe::new(&data, short_careers());
     while !p.step(50) {}
     let s = p.stats();
+    let bigger: Vec<_> = data
+        .hardware
+        .decks
+        .iter()
+        .filter(|d| {
+            d.stat(hub::Upgrade::Cpu).unwrap().max > starter.stat(hub::Upgrade::Cpu).unwrap().max
+        })
+        .map(|d| d.title())
+        .collect();
     assert!(
-        s.decks.iter().any(|(cap, _, _)| *cap > starter),
+        s.decks.iter().any(|(t, _, _)| bigger.contains(t)),
         "a capped career buys a deck that takes more: {:?}",
         s.decks
     );
     let lines = p.report();
-    assert!(lines.iter().any(|l| l.contains("tier 3 on a cpu cap")) || s.career[2].runs == 0);
+    assert!(lines.iter().any(|l| l.contains("tier 3 on ")) || s.career[2].runs == 0);
     assert!(lines.iter().any(|l| l.trim_start().starts_with("deck ")));
+    assert!(
+        lines.iter().any(|l| l.contains("cheapest deck")),
+        "it says how it chose"
+    );
+}
+
+#[test]
+fn careers_climb_to_the_deck_they_are_given() {
+    let data = cheap_decks();
+    for deck in data.hardware.decks.iter().filter(|d| !d.starter) {
+        let mut p = Probe::new(&data, short_careers()).with_deck(&deck.id);
+        while !p.step(50) {}
+        let bought: Vec<&str> = p.stats().decks.iter().map(|(t, _, _)| t.as_str()).collect();
+        assert_eq!(bought, [deck.title().as_str()], "{}", deck.id);
+        let lines = p.report();
+        assert!(
+            lines
+                .iter()
+                .any(|l| l.contains(&format!("careers climb to {}", deck.title()))),
+            "the report says which: {lines:?}"
+        );
+    }
 }
 
 #[test]

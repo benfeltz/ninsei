@@ -623,7 +623,7 @@ fn capped(save: &Save, data: &Data, u: Upgrade) -> bool {
 
 /// When a core line (CPU, integrity, RAM) is full on this chassis: the cheapest deck that takes
 /// that line further, read from each deck's stats. Owned decks count as free.
-fn bigger_chassis(save: &Save, data: &Data) -> Option<String> {
+fn bigger_chassis(save: &Save, data: &Data, only: &str) -> Option<String> {
     let now = |u: Upgrade| save.stat_cap(data, u);
     let full: Vec<Upgrade> = [Upgrade::Cpu, Upgrade::Integrity, Upgrade::Ram]
         .into_iter()
@@ -632,6 +632,8 @@ fn bigger_chassis(save: &Save, data: &Data) -> Option<String> {
     data.hardware
         .decks
         .iter()
+        // A probe asked to climb to one deck looks at no other.
+        .filter(|d| only.is_empty() || d.id == only)
         .filter(|d| {
             full.iter()
                 .any(|&u| d.stat(u).is_some_and(|s| now(u).is_some_and(|c| s.max > c)))
@@ -715,10 +717,10 @@ pub struct Stats {
     /// The deck's CPU ceiling at each checkpoint (summed over careers): how far up the line
     /// of models the careers have climbed.
     pub chassis_at: [u64; CHECKPOINTS.len()],
-    /// Decks bought over all careers: (the CPU ceiling bought, purchases, sum of the run).
-    pub decks: Vec<(u32, u32, u64)>,
-    /// Career tier-3 runs by the deck's CPU ceiling when it dialed.
-    pub t3_by_chassis: Vec<(u32, TierStats)>,
+    /// Decks bought over all careers: (the deck's title, purchases, sum of the run).
+    pub decks: Vec<(String, u32, u64)>,
+    /// Career tier-3 runs by the deck it dialed on (its title, its CPU ceiling).
+    pub t3_by_chassis: Vec<((String, u32), TierStats)>,
     /// Run (1-based) each career first had every deck line at the most any deck takes; 0 if
     /// never.
     pub maxed: Vec<u32>,
@@ -743,12 +745,21 @@ pub struct Probe {
     maxed: u32,
     /// The starting kit careers begin with (an id in `data/hub/starts.ron`; empty: the default).
     kit: String,
+    /// The deck careers climb to (an id in `hub/hardware.ron`; empty: the cheapest that takes a
+    /// full line further).
+    deck: String,
 }
 
 impl Probe {
     /// Careers start from starting kit `id` instead of the default.
     pub fn with_kit(mut self, id: &str) -> Probe {
         self.kit = id.to_string();
+        self
+    }
+
+    /// Careers climb to deck `id` and no other, so each deck's shape can be compared.
+    pub fn with_deck(mut self, id: &str) -> Probe {
+        self.deck = id.to_string();
         self
     }
 
@@ -767,6 +778,7 @@ impl Probe {
             t3_range: 0,
             maxed: 0,
             kit: String::new(),
+            deck: String::new(),
         }
     }
 
@@ -895,7 +907,10 @@ impl Probe {
             self.next_run();
             return;
         };
-        let chassis = save.stat_cap(&data, Upgrade::Cpu).unwrap_or(0);
+        let chassis = (
+            save.deck_def(&data).title(),
+            save.stat_cap(&data, Upgrade::Cpu).unwrap_or(0),
+        );
         let Ok(g) = save.dial(&data, entry, rng.next_u64()) else {
             self.next_run();
             return;
@@ -921,7 +936,7 @@ impl Probe {
                 None => {
                     let mut t = TierStats::default();
                     t.add(f, banked);
-                    self.stats.t3_by_chassis.push((chassis, t));
+                    self.stats.t3_by_chassis.push((chassis.clone(), t));
                 }
             }
         }
@@ -1046,7 +1061,7 @@ impl Probe {
                 .min_by_key(|(c, _)| *c);
             // A core line full on this chassis: the next one up comes before the extras.
             if core.is_none()
-                && let Some(deck) = bigger_chassis(save, data)
+                && let Some(deck) = bigger_chassis(save, data, &self.deck)
             {
                 let price = data.hardware.deck(&deck).map_or(0, |d| d.price);
                 let owned = save.decks.contains(&deck);
@@ -1064,13 +1079,13 @@ impl Probe {
                     break;
                 }
                 if !owned {
-                    let cap = save.stat_cap(data, Upgrade::Cpu).unwrap_or(0);
-                    match self.stats.decks.iter_mut().find(|(c, _, _)| *c == cap) {
+                    let title = save.deck_def(data).title();
+                    match self.stats.decks.iter_mut().find(|(t, _, _)| *t == title) {
                         Some((_, n, sum)) => {
                             *n += 1;
                             *sum += u64::from(run);
                         }
-                        None => self.stats.decks.push((cap, 1, u64::from(run))),
+                        None => self.stats.decks.push((title, 1, u64::from(run))),
                     }
                 }
                 continue;
@@ -1160,6 +1175,9 @@ impl Probe {
             cfg.spot_runs,
             self.data.starts.kit(&self.kit).id
         ));
+        if let Some(d) = self.data.hardware.deck(&self.deck) {
+            out.push(format!("  careers climb to {}", d.title()));
+        }
         out.push(String::new());
         out.push("single runs, plain network       dumb bot    smart bot".into());
         for t in 0..3 {
@@ -1192,10 +1210,10 @@ impl Probe {
             ));
         }
         let mut by = s.t3_by_chassis.clone();
-        by.sort_by_key(|b| b.0);
-        for (cap, t) in by {
+        by.sort_by(|a, b| (a.0.1, &a.0.0).cmp(&(b.0.1, &b.0.0)));
+        for ((deck, cap), t) in by {
             out.push(format!(
-                "  tier 3 on a cpu cap {cap} deck: {:>5} runs, {:>3}% out",
+                "  tier 3 on {deck} (cpu {cap}): {:>5} runs, {:>3}% out",
                 t.runs,
                 t.win_pct()
             ));
@@ -1246,14 +1264,18 @@ impl Probe {
             ));
         }
         let mut decks = s.decks.clone();
-        decks.sort_by_key(|d| d.0);
-        for (cap, n, sum) in decks {
+        decks.sort_by_key(|d| d.2 / u64::from(d.1.max(1)));
+        for (title, n, sum) in decks {
             out.push(format!(
-                "  deck   {:>4.1} bought a career (cpu cap {cap}), around run {}",
+                "  deck   {:>4.1} a career: {title}, around run {}",
                 f64::from(n) / careers as f64,
                 sum / u64::from(n.max(1))
             ));
         }
+        out.push(match self.data.hardware.deck(&self.deck) {
+            Some(d) => format!("  (the bot climbs only to {})", d.title()),
+            None => "  (the bot climbs to the cheapest deck that takes it further)".into(),
+        });
         let mut maxed: Vec<u32> = s.maxed.iter().copied().filter(|&r| r > 0).collect();
         maxed.sort_unstable();
         out.push(match maxed.get(maxed.len() / 2) {

@@ -49,7 +49,7 @@
          firmware: [
             (id: "1.0", label: "Liza 1.0", map: Paint, chrome: Stack, desktop: Liza, sounds: "sensenet"),
          ]),
-        (id: "onosendai", art: Some("deck-onosendai"), name: "Cyberspace VII", maker: "Ono-Sendai", price: 400,
+        (id: "onosendai", art: Some("deck-onosendai"), name: "Cyberspace VII", maker: "Ono-Sendai", price: 2500,
          blurb: "The cowboy's deck. Jacks you straight into the matrix: wireframes over a glowing grid.",
          stats: [(line: Cpu, base: 4, max: 6), (line: Ram, base: 6, max: 12),
                  (line: Hdd, base: 6, max: 12), (line: Integrity, base: 18, max: 36)],
@@ -57,10 +57,10 @@
             (id: "7.0", label: "Cyberspace 7.0", map: Iso, chrome: Btop, desktop: Tiling, sounds: "ono", panes: ["net"]),
             (id: "6.2", label: "Cyberspace 6.2 (classic panes)", map: Iso, chrome: Classic, desktop: Workbench, sounds: "ono"),
          ]),
-        (id: "hosaka", art: Some("deck-hosaka"), name: "Executive 4", maker: "Hosaka", price: 650,
+        (id: "hosaka", art: Some("deck-hosaka"), name: "Executive 4", maker: "Hosaka", price: 2500,
          blurb: "A corporate workstation. Sees the net as a plan: every node drafted, dimensioned and filed.",
-         stats: [(line: Cpu, base: 3, max: 6), (line: Ram, base: 8, max: 12),
-                 (line: Hdd, base: 8, max: 12), (line: Integrity, base: 18, max: 36)],
+         stats: [(line: Cpu, base: 3, max: 6), (line: Ram, base: 7, max: 12),
+                 (line: Hdd, base: 7, max: 12), (line: Integrity, base: 18, max: 36)],
          firmware: [
             (id: "4.0", label: "PlanView 4.0", map: Draft, chrome: Suite, desktop: Workbench, sounds: "hosaka"),
          ]),

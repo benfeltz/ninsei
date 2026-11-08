@@ -534,13 +534,13 @@ fn every_deck_in_the_data_is_listed_and_orderable() {
             l.name
         );
     }
-    // The cheapest deck you don't own orders with the dev key's money.
-    s.dev_credits();
+    // The cheapest deck you don't own orders once the bank holds its price.
     let cheapest = decks
         .iter()
         .filter(|l| matches!(l.stock, Stock::Price(_)))
         .min_by_key(|l| l.price())
         .unwrap();
+    s.bank = cheapest.price().unwrap();
     assert_eq!(s.order_blocker(&d, &cheapest.item), None);
     s.buy_item(&d, &cheapest.item).unwrap();
     assert!(s.owns(&match &cheapest.item {
