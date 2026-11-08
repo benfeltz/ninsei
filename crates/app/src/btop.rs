@@ -56,9 +56,22 @@ fn cells_in(ui: &Ui, area: Rect) -> Cells {
 /// cells' centres, the title turned into the top edge (`┐title┌`) and an optional note into
 /// the bottom one. `body` draws inside.
 pub fn boxed(ui: &mut Ui, p: &Palette, title: &str, note: &str, body: impl FnOnce(&mut Ui)) {
+    boxed_lit(ui, p, title, note, false, body);
+}
+
+/// [`boxed`], its border lit `bright` while the tile has the keyboard, as the tiling lights
+/// the focused tile.
+pub fn boxed_lit(
+    ui: &mut Ui,
+    p: &Palette,
+    title: &str,
+    note: &str,
+    lit: bool,
+    body: impl FnOnce(&mut Ui),
+) {
     let room = ui.available_rect_before_wrap();
     let mut g = cells_in(ui, room.shrink(3.0));
-    (g.border, g.paper) = (p.dim, p.bg);
+    (g.border, g.paper) = (if lit { p.bright } else { p.dim }, p.bg);
     let painter = ui.painter().clone();
     g.frame(&painter, 0, 0, g.cols, g.rows);
     // Title and note cut with … to the room the border has, never dropped.
@@ -901,6 +914,238 @@ pub fn vis_box(ui: &mut Ui, p: &Palette, samples: &[f32], rate: u32) {
     });
 }
 
+/// The `ice.bas` tile: the Ono-Sendai's Script pane. The listing as gdb's TUI shows a
+/// source window, on the chrome's cells; what it shows is core's (`btop_fight`). Its view
+/// state (the cursor, the first row in view) is egui memory, by line number.
+pub mod script {
+    use egui::{Id, Sense, Ui};
+    use ninsei_core::Game;
+    use ninsei_core::btop_fight::{self, Gutter, Row};
+
+    use super::{boxed_lit, cells_in};
+    use crate::panes::Panes;
+
+    /// The tile's keyboard focus: while it has it, its letters are the debugger's and the
+    /// terminal doesn't type.
+    pub fn id() -> Id {
+        Id::new("btop-ice.bas")
+    }
+
+    /// What the tile remembers between frames.
+    #[derive(Clone, Debug, Default)]
+    pub(crate) struct View {
+        /// The line the cursor is on.
+        pub cursor: Option<u32>,
+        /// The first row in view.
+        pub top: usize,
+        /// The line last kept in view: it's only scrolled to when it changes.
+        pub followed: Option<u32>,
+    }
+
+    fn view_id() -> Id {
+        id().with("view")
+    }
+
+    pub(crate) fn view(ctx: &egui::Context, g: &Game) -> View {
+        let mut v: View = ctx.data(|d| d.get_temp(view_id())).unwrap_or_default();
+        if v.cursor.is_none_or(|n| g.program.line(n).is_none()) {
+            v.cursor = btop_fight::home(g);
+        }
+        v
+    }
+
+    pub(crate) fn keep(ctx: &egui::Context, v: View) {
+        ctx.data_mut(|d| d.insert_temp(view_id(), v));
+    }
+
+    pub(crate) fn has_keys(ctx: &egui::Context) -> bool {
+        ctx.memory(|m| m.has_focus(id()))
+    }
+
+    /// Takes the keyboard for the tile: its arrows, Tab and Esc are its own.
+    pub(crate) fn take_keys(ctx: &egui::Context) {
+        ctx.memory_mut(|m| {
+            m.request_focus(id());
+            m.set_focus_lock_filter(
+                id(),
+                egui::EventFilter {
+                    tab: true,
+                    horizontal_arrows: true,
+                    vertical_arrows: true,
+                    escape: true,
+                },
+            );
+        });
+    }
+
+    /// The legend under the listing: btop's way of showing a box's keys.
+    const LEGEND: [&[(&str, &str)]; 2] = [
+        &[("r", "run"), ("s", "step"), ("c", "cont"), ("p", "pause")],
+        &[("e", "edit"), ("o", "open"), ("d", "del"), ("j/k", "move")],
+    ];
+
+    /// Rows the listing leaves under it for the legend, a blank row first.
+    const LEGEND_ROWS: usize = 3;
+
+    /// The cells the number takes: as wide as the widest number, never under two.
+    fn number_w(rows: &[Row]) -> usize {
+        rows.iter()
+            .filter_map(|r| r.no)
+            .map(|n| n.to_string().len())
+            .max()
+            .unwrap_or(0)
+            .max(2)
+    }
+
+    /// The first row in view that keeps row `at` on screen in `n` rows, from `top`.
+    pub(crate) fn scrolled(top: usize, at: usize, n: usize) -> usize {
+        if n == 0 {
+            return top;
+        }
+        if at < top {
+            at
+        } else if at >= top + n {
+            at + 1 - n
+        } else {
+            top
+        }
+    }
+
+    /// The tile: the listing on whole cells, the line about to run lit with `▶` in the gutter,
+    /// a STOP's `●`, bad lines dim with their fault after them, the cursor in inverse while the
+    /// tile has the keyboard; the budgets cut into the bottom edge. A click puts the cursor on
+    /// a line and gives the tile the keyboard.
+    pub(crate) fn show(p: &mut Panes, ui: &mut Ui) {
+        let g = p.game;
+        let pal = p.pal;
+        let ctx = ui.ctx().clone();
+        let area = ui.available_rect_before_wrap();
+        // The whole tile takes the click that gives it the keyboard.
+        let tile = ui.interact(area, id(), Sense::click());
+        let focused = has_keys(&ctx);
+        if focused {
+            take_keys(&ctx);
+        }
+        let mut v = view(&ctx, g);
+        let rows = btop_fight::rows(g);
+        let keys = btop_fight::keys(g);
+        let note = btop_fight::note(g);
+        boxed_lit(ui, &pal, btop_fight::title(g), &note, focused, |ui| {
+            let inner = ui.available_rect_before_wrap();
+            let c = cells_in(ui, inner);
+            let painter = ui.painter_at(c.rect);
+            // The legend goes before the listing does when the tile is short.
+            let legend = c.rows >= LEGEND_ROWS + 3;
+            let n = c.rows - if legend { LEGEND_ROWS } else { 0 };
+            // Kept in view: the cursor while the tile has the keys, else the line about to run.
+            let current = rows.iter().find(|r| r.gutter == Gutter::Current);
+            let follow = if focused {
+                v.cursor
+            } else {
+                current.and_then(|r| r.no).or(v.cursor)
+            };
+            if follow != v.followed
+                && let Some(at) = rows.iter().position(|r| r.no.is_some() && r.no == follow)
+            {
+                v.top = scrolled(v.top, at, n);
+                v.followed = follow;
+            }
+            // The wheel scrolls whole rows.
+            if tile.hovered() {
+                let dy = ctx.input(|i| i.smooth_scroll_delta.y);
+                if dy.abs() >= c.ch * 0.5 {
+                    let by = (dy / c.ch).round() as i64;
+                    v.top = (v.top as i64 - by).max(0) as usize;
+                }
+            }
+            v.top = v.top.min(rows.len().saturating_sub(n));
+            let w = number_w(&rows);
+            let text_c = 2 + w + 2;
+            for (i, r) in rows.iter().enumerate().skip(v.top).take(n) {
+                let y = i - v.top;
+                let cursor = focused && r.no.is_some() && r.no == v.cursor;
+                let lit = r.gutter == Gutter::Current;
+                let (num, ink) = if r.dim {
+                    (pal.dim, pal.dim)
+                } else if lit {
+                    (pal.bright, pal.bright)
+                } else {
+                    (pal.dim, pal.fg)
+                };
+                if lit {
+                    c.fill(&painter, 0, y, c.cols, 1, pal.faint);
+                }
+                let mark = if r.gutter == Gutter::None {
+                    pal.dim
+                } else {
+                    pal.bright
+                };
+                c.text(&painter, 0, y, r.gutter.mark(), mark);
+                let line = match &r.fault {
+                    Some(f) => format!("{}  {f}", r.text),
+                    None => r.text.clone(),
+                };
+                let no = r.no.map_or(String::new(), |n| n.to_string());
+                if cursor {
+                    let lead = format!("{no:>w$}  ");
+                    let room = c.cols.saturating_sub(2);
+                    c.inverse(
+                        &painter,
+                        2,
+                        y,
+                        room,
+                        &format!("{lead}{line}"),
+                        pal.bg,
+                        pal.fg,
+                    );
+                } else {
+                    c.text_right(&painter, 2 + w, y, &no, num);
+                    let room = c.cols.saturating_sub(text_c);
+                    c.text_max(&painter, text_c, y, &line, room, ink);
+                }
+            }
+            if legend {
+                for (k, keys_row) in LEGEND.iter().enumerate() {
+                    let y = c.rows - 2 + k;
+                    let mut x = 0;
+                    for (key, word) in keys_row.iter() {
+                        let live = focused && live(&keys, key);
+                        let ink = if live { pal.fg } else { pal.dim };
+                        x += c.text(&painter, x, y, key, ink);
+                        x += c.text(&painter, x, y, &format!(" {word}  "), pal.dim);
+                    }
+                }
+            }
+            // A click on a row puts the cursor there.
+            if tile.clicked()
+                && let Some(pos) = tile.interact_pointer_pos()
+                && let Some((_, y)) = c.cell_at(pos)
+                && let Some(r) = rows.get(v.top + y).filter(|_| y < n)
+                && r.no.is_some()
+            {
+                v.cursor = r.no;
+            }
+            ui.allocate_rect(inner, Sense::hover());
+        });
+        if tile.clicked() {
+            take_keys(&ctx);
+        }
+        keep(&ctx, v);
+    }
+
+    /// Whether `key` in the legend presses now: the debugger's by the state, the editor's
+    /// whenever there's a program (or, for `o`, always).
+    fn live(k: &btop_fight::Keys, key: &str) -> bool {
+        match key {
+            "r" => k.run,
+            "s" => k.step,
+            "c" => k.cont,
+            "p" => k.pause,
+            _ => true,
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1016,6 +1261,249 @@ mod tests {
         assert!(
             cols.line("0", "firewall.exe+O2", "1")
                 .contains("firewall.exe+O2")
+        );
+    }
+}
+
+#[cfg(test)]
+mod script_tests {
+    use super::*;
+    use crate::chrome::{ChromeView, FrameCx};
+    use crate::panes::Request;
+    use crate::uitest::Harness;
+    use ninsei_core::{Data, Game};
+
+    /// The right column of the default layout, about.
+    const PANE: (f32, f32) = (380.0, 520.0);
+
+    fn fight(program: &str) -> Game {
+        let mut g = crate::stack::tests::a_fight(&Data::builtin().unwrap());
+        g.apply(Action::Program(program.into()));
+        g
+    }
+
+    fn pal(g: &Game) -> Palette {
+        Palette::from_def(&g.data.themes[0])
+    }
+
+    /// Where the tile sits in its test frames.
+    fn pane_rect((w, h): (f32, f32)) -> Rect {
+        Rect::from_min_size(pos2(0.0, 0.0), vec2(w, h))
+    }
+
+    /// One frame as the run draws it: the chrome's keys, then the tile in a `w`x`h` pane and,
+    /// below it, the terminal; returns what they asked for. `term` is the command line.
+    pub(crate) fn frame_with(
+        h: &mut Harness,
+        g: &Game,
+        size: (f32, f32),
+        term: &mut ninsei_term::LineEditor,
+        focus_term: bool,
+        ev: Vec<egui::Event>,
+    ) -> Vec<Request> {
+        let (mut focus, mut hex, mut keep) = (focus_term, None, Vec::new());
+        let (mut suite, mut suite2) = (
+            crate::suite::State::default(),
+            crate::suite::State::default(),
+        );
+        let mut out = Vec::new();
+        h.frame(ev, |ui| {
+            let mut popup = crate::volume::Popup::default();
+            let mut cx = FrameCx {
+                game: g,
+                pal: pal(g),
+                suite: &mut suite2,
+                keys_free: true,
+                level: crate::volume::Level {
+                    on: true,
+                    volume: 100,
+                },
+                popup: &mut popup,
+            };
+            out = crate::chrome::Btop.keys(ui.ctx(), &mut cx);
+            let mut panes = Panes {
+                game: g,
+                pal: pal(g),
+                map: ninsei_core::netview::MapView::Iso,
+                deck: String::new(),
+                chrome: ninsei_core::hardware::Chrome::Btop,
+                corrupt: (0.0, 0),
+                term: &mut *term,
+                focus_input: &mut focus,
+                bbs_open: false,
+                hex: &mut hex,
+                keep: &mut keep,
+                keep_room: 0,
+                suite: &mut suite,
+                hear: &Vec::new,
+                scope_rate: 0,
+                out: Vec::new(),
+            };
+            let mut tile = ui.new_child(UiBuilder::new().max_rect(pane_rect(size)));
+            crate::chrome::Btop.script(&mut panes, &mut tile);
+            let below = Rect::from_min_size(pos2(0.0, size.1 + 10.0), vec2(600.0, 200.0));
+            let mut t = ui.new_child(UiBuilder::new().max_rect(below));
+            crate::chrome::Btop.terminal(&mut panes, &mut t);
+            out.extend(panes.out);
+        });
+        out
+    }
+
+    /// A frame of the tile in `size`; the terminal sits below it, unfocused.
+    pub(crate) fn frame(
+        h: &mut Harness,
+        g: &Game,
+        size: (f32, f32),
+        ev: Vec<egui::Event>,
+    ) -> Vec<Request> {
+        let mut term = ninsei_term::LineEditor::default();
+        frame_with(h, g, size, &mut term, false, ev)
+    }
+
+    /// The glyphs painted inside the tile, row by row (top to bottom), each row's text and the
+    /// colour of its first glyph past the gutter.
+    fn rows_painted(h: &Harness, area: Rect) -> Vec<(String, Vec<Color32>)> {
+        let mut glyphs: Vec<(f32, f32, String, Color32)> = h
+            .painted()
+            .iter()
+            .filter_map(|s| match s {
+                egui::Shape::Text(t) => {
+                    // The galley's own box: centred on its cell, whatever the glyph.
+                    let r = Rect::from_min_size(t.pos, t.galley.size());
+                    area.contains(r.center()).then(|| {
+                        (
+                            r.center().y.round(),
+                            r.center().x,
+                            t.galley.text().to_string(),
+                            t.fallback_color,
+                        )
+                    })
+                }
+                _ => None,
+            })
+            .collect();
+        glyphs.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)));
+        let mut out: Vec<(f32, String, Vec<Color32>)> = Vec::new();
+        for (y, _, t, c) in glyphs {
+            match out.last_mut() {
+                Some((ly, s, cs)) if (*ly - y).abs() < 2.0 => {
+                    s.push_str(&t);
+                    cs.push(c);
+                }
+                _ => out.push((y, t, vec![c])),
+            }
+        }
+        out.into_iter().map(|(_, s, c)| (s, c)).collect()
+    }
+
+    fn row_with<'a>(rows: &'a [(String, Vec<Color32>)], text: &str) -> &'a (String, Vec<Color32>) {
+        rows.iter()
+            .find(|(s, _)| s.contains(text))
+            .unwrap_or_else(|| panic!("no row with {text:?} in {rows:?}"))
+    }
+
+    #[test]
+    fn the_tile_stays_whole_inside_its_pane_at_three_sizes() {
+        let g = fight("10 REM yo wintermute\n20 IF INTEG < 8\n30 RUN patch\n40 STOP\n50 GOTO 20");
+        for size in [(220.0, 160.0), PANE, (700.0, 900.0)] {
+            let mut h = Harness::new(1280.0, 1400.0);
+            frame(&mut h, &g, size, vec![]);
+            frame(&mut h, &g, size, vec![]);
+            let room = pane_rect(size).expand(0.5);
+            let tile = pane_rect(size);
+            for s in h.painted() {
+                let r = s.visual_bounding_rect();
+                if room.contains(r.center()) {
+                    assert!(room.contains_rect(r), "{size:?}: {r:?} outside {room:?}");
+                }
+            }
+            let cut: Vec<_> = h
+                .cut_text()
+                .into_iter()
+                .filter(|(_, r)| tile.contains(r.min))
+                .collect();
+            assert!(cut.is_empty(), "{size:?}: cut at a clip rect: {cut:?}");
+            let rows = rows_painted(&h, tile);
+            assert!(
+                rows.iter().any(|(s, _)| s.starts_with("ice.bas")),
+                "{rows:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn the_line_about_to_run_is_lit_and_the_others_are_not() {
+        let g = fight("10 RUN icepick\n20 STOP\n30 JUMP 10\n40 GOTO 10");
+        let p = pal(&g);
+        let mut h = Harness::new(1280.0, 800.0);
+        frame(&mut h, &g, PANE, vec![]);
+        let rows = rows_painted(&h, pane_rect(PANE));
+        let (s, cs) = row_with(&rows, "RUNicepick");
+        assert!(s.starts_with('▶'), "the gutter: {s}");
+        assert!(cs.iter().all(|&c| c == p.bright), "lit: {cs:?}");
+        let (s, cs) = row_with(&rows, "STOP");
+        assert!(s.starts_with('●'), "a STOP's dot: {s}");
+        assert!(!cs[1..].contains(&p.bright), "not lit past its dot: {cs:?}");
+        let (s, cs) = row_with(&rows, "JUMP10");
+        assert!(s.contains("?SYNTAX"), "its fault after it: {s}");
+        assert!(cs.iter().all(|&c| c == p.dim), "dim: {cs:?}");
+        let (_, cs) = row_with(&rows, "GOTO10");
+        assert!(!cs.contains(&p.bright));
+        // The budgets in the bottom edge, btop's words.
+        let c = g.combat.as_ref().unwrap();
+        let note = format!(
+            "cpu{}/{}ram{}/{}",
+            c.cpu, g.deck.cpu_max, c.ifs, g.deck.ram_max
+        );
+        assert!(rows.iter().any(|(s, _)| s.contains(&note)), "{rows:?}");
+    }
+
+    #[test]
+    fn a_long_program_scrolls_to_the_line_about_to_run() {
+        let text: String = (1..=60)
+            .map(|i| format!("{} REM line{i}\n", i * 10))
+            .chain(["610 STOP".to_string()])
+            .collect();
+        let mut g = fight(&text);
+        g.exec.pc = Some(600);
+        let mut h = Harness::new(1280.0, 800.0);
+        let size = (380.0, 300.0);
+        frame(&mut h, &g, size, vec![]);
+        let rows = rows_painted(&h, pane_rect(size));
+        let (s, _) = row_with(&rows, "600");
+        assert!(s.starts_with('▶'), "{s}");
+        assert!(
+            !rows.iter().any(|(s, _)| s.contains("REMline1")),
+            "the top scrolled off"
+        );
+    }
+
+    #[test]
+    fn a_click_on_a_row_puts_the_cursor_there_and_takes_the_keys() {
+        let g = fight("10 RUN icepick\n20 STOP\n30 GOTO 10");
+        let p = pal(&g);
+        let mut h = Harness::new(1280.0, 800.0);
+        frame(&mut h, &g, PANE, vec![]);
+        let at = h
+            .painted_text()
+            .into_iter()
+            .find(|(t, r)| t == "S" && pane_rect(PANE).contains(r.center()))
+            .expect("STOP's S")
+            .1
+            .center();
+        frame(&mut h, &g, PANE, crate::uitest::click(at));
+        assert!(script::has_keys(&h.ctx), "the tile has the keys");
+        assert_eq!(script::view(&h.ctx, &g).cursor, Some(20));
+        frame(&mut h, &g, PANE, vec![]);
+        // The cursor row in inverse: its glyphs on the paper's colour, and the border lit.
+        let rows = rows_painted(&h, pane_rect(PANE));
+        let (_, cs) = row_with(&rows, "STOP");
+        assert!(cs[1..].iter().all(|&c| c == p.bg), "{cs:?}");
+        assert!(
+            h.rects()
+                .iter()
+                .any(|(_, fill, stroke)| *fill == Color32::TRANSPARENT && *stroke == p.bright),
+            "the border lit"
         );
     }
 }

@@ -227,6 +227,17 @@ impl ChromeView for Btop {
     fn todo(&self, p: &mut Panes, ui: &mut Ui) {
         p.btop_todo(ui);
     }
+    /// The `ice.bas` tile, the whole run.
+    fn script(&self, p: &mut Panes, ui: &mut Ui) {
+        crate::btop::script::show(p, ui);
+    }
+    fn title(&self, tab: Tab) -> Option<&'static str> {
+        (tab == Tab::Script).then_some(" ice.bas ")
+    }
+    /// The tile lays out its own rows.
+    fn scroll_bars(&self, tab: Tab) -> Option<[bool; 2]> {
+        (tab == Tab::Script).then_some([false, false])
+    }
     fn net(&self, p: &mut Panes, ui: &mut Ui) {
         let site = p
             .game
