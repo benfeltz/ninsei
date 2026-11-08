@@ -46,7 +46,10 @@ fn safe_shows_as_blocks_with_menus_of_the_disk() {
         }
     }
     assert_eq!(card.blocks.iter().filter(|b| b.current).count(), 1);
-    assert!(card.blocks[0].current, "the cursor on the first line");
+    assert!(
+        card.blocks[1].current,
+        "the cursor on the first line that runs, past SAFE's REM"
+    );
 }
 
 #[test]
@@ -226,7 +229,10 @@ fn the_script_is_one_program_before_during_and_after_a_fight() {
         edited,
         "the fight opens with what was edited"
     );
-    assert!(card.blocks[0].current);
+    assert!(
+        card.blocks[1].current,
+        "on the first line that runs, past SAFE's REM"
+    );
     assert!(card.blocks.iter().any(|b| b.kind == BlockKind::Stop));
     // And the deck keeps it.
     g.phase = Phase::JackedOut;

@@ -982,7 +982,7 @@ impl Game {
         self.phase = Phase::Combat;
         // Every fight opens with the program loaded and the cursor on its first line.
         self.exec = Exec {
-            pc: self.program.first(),
+            pc: self.top(),
             ..Exec::default()
         };
         self.say(
@@ -1142,7 +1142,7 @@ impl Game {
         c.ifs = self.deck.ram_max;
         c.turn += 1;
         self.end_pass();
-        self.exec.pc = self.program.first();
+        self.exec.pc = self.top();
         if let ExecState::Stopped(_) = self.exec.state {
             self.exec.state = ExecState::Paused;
         }
@@ -1201,13 +1201,30 @@ impl Game {
         self.exec.broke = None;
         self.exec.visited.clear();
         self.exec.pc = match (self.exec.state, self.exec.pc) {
-            (ExecState::Stopped(at), _) => self.program.after(at),
+            (ExecState::Stopped(at), _) => self.rest(self.program.after(at)),
             (_, Some(at)) if self.exec.open => match self.program.line(at) {
-                Some(_) => Some(at),
-                None => self.program.after(at),
+                Some(_) => self.rest(Some(at)),
+                None => self.rest(self.program.after(at)),
             },
-            _ => self.program.first(),
+            _ => self.top(),
         };
+    }
+
+    /// Where the cursor rests from line `from` on: the first line that does something, past
+    /// any REMs (and numbers with no line).
+    fn rest(&self, mut from: Option<u32>) -> Option<u32> {
+        while let Some(no) = from {
+            match self.program.line(no) {
+                Some(l) if !matches!(l.stmt, Stmt::Rem) => break,
+                _ => from = self.program.after(no),
+            }
+        }
+        from
+    }
+
+    /// Where the cursor rests at the top of a pass: the first line that does something.
+    fn top(&self) -> Option<u32> {
+        self.rest(self.program.first())
     }
 
     /// The line a false `IF` skips to: past the line it guards, and past that line's own
@@ -1370,8 +1387,13 @@ impl Game {
                 Stmt::Stop => {
                     self.trace_step(no, StepWhat::Stop);
                     self.exec.state = ExecState::Stopped(no);
-                    // Carrying on after a STOP looks for a hang afresh.
+                    // Carrying on after a STOP looks for a hang afresh; the cursor rests past
+                    // any REMs after it, which that carrying on passes over.
                     self.exec.visited.clear();
+                    while let Some(n) = self.exec.pc.filter(|&n| self.rest(Some(n)) != Some(n)) {
+                        self.exec.visited.push(n);
+                        self.exec.pc = self.program.after(n);
+                    }
                     return Line::Stopped;
                 }
             }

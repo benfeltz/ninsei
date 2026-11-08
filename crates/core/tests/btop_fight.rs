@@ -42,12 +42,14 @@ fn the_listing_marks_the_current_line_the_stops_and_the_faults() {
     let mut g = fight();
     let rows = btop_fight::rows(&g);
     assert_eq!(rows.len(), g.program.lines.len(), "one row a line of SAFE");
+    // SAFE opens with a REM: the cursor rests on the first line that does something.
+    assert_eq!(rows[0].gutter, Gutter::None, "never on a REM");
     assert_eq!(
-        rows[0].gutter,
+        rows[1].gutter,
         Gutter::Current,
-        "the cursor on the first line"
+        "the cursor on the first line that runs"
     );
-    assert_eq!(rows[0].no, g.exec.pc);
+    assert_eq!(rows[1].no, g.exec.pc);
     assert!(
         rows.iter().all(|r| !r.dim && r.fault.is_none()),
         "SAFE reads"
