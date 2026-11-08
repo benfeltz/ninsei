@@ -891,7 +891,7 @@ mod tests {
     fn the_frame_a_row_is_clicked_shows_one_cursor() {
         let mut h = crate::uitest::Harness::new(400.0, 400.0);
         let mut on: Vec<usize> = Vec::new();
-        let mut frame =
+        let frame =
             |h: &mut crate::uitest::Harness, ev: Vec<egui::Event>, on: &mut Vec<usize>| {
                 on.clear();
                 h.frame(ev, |ui| {
