@@ -409,7 +409,7 @@ mod tests {
     }
 
     #[test]
-    fn the_starter_disks_cracktro_tells_core_once_and_core_books_the_gutter() {
+    fn the_starter_disks_cracktro_tells_core_and_core_books_the_gutter_once() {
         let data = Data::builtin().unwrap();
         // A new deck as a player gets it: intros on, the shop's disk on the desktop.
         let mut save = Save {
@@ -431,14 +431,13 @@ mod tests {
         // Core decides what it teaches.
         save.saw_intro(&data, &crack);
         assert!(save.knows_board("gutter"));
-        // Played again in a new window: nothing to tell.
+        // Played again in a new window: it says so, and core books nothing twice.
+        let before = save.to_text();
         let mut home = Home::new(Vec::new());
         let out = frame(&mut h, &mut home, &data, &save, starter[0], Vec::new());
-        assert!(
-            matches!(home.tune, Some(crate::home::TuneCue::Play(_))),
-            "it still plays"
-        );
-        assert!(!out.iter().any(|o| matches!(o, WbOut::SawIntro(_))));
+        assert!(out.contains(&WbOut::SawIntro(crack.clone())));
+        save.saw_intro(&data, &crack);
+        assert_eq!(save.to_text(), before);
     }
 
     #[test]

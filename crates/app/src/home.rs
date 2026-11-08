@@ -135,8 +135,8 @@ pub enum WbOut {
     GuideSeen,
     /// A round of this game (its id) started: count it, so the next deals anew.
     GameStarted(String),
-    /// An intro (its id) began to play for the first time on this save: core books what its
-    /// scroller advertises ([`Save::saw_intro`]).
+    /// An intro (its id) began to play: core books what its scroller advertises, the first
+    /// time ([`Save::saw_intro`]).
     SawIntro(String),
     /// The Shell ran a command: keep its history in the save.
     ShellHistory(Vec<String>),
@@ -407,7 +407,7 @@ impl Home {
             let intro = intro.filter(|_| save.intros);
             if let Some(i) = intro {
                 self.tune = Some(TuneCue::Play(i.id.clone()));
-                saw_intro(save, i, out);
+                out.push(WbOut::SawIntro(i.id.clone()));
             }
             let w = GameWin {
                 intro: intro.map(|i| (now, now + f64::from(i.secs))),
@@ -558,7 +558,7 @@ impl Home {
         if fresh && save.intros {
             self.intro_playing.insert(id, now);
             self.tune = Some(TuneCue::Play(def.id.clone()));
-            saw_intro(save, def, out);
+            out.push(WbOut::SawIntro(def.id.clone()));
         }
         let Some(&start) = self.intro_playing.get(id) else {
             return false;
@@ -1304,13 +1304,6 @@ pub(crate) fn hint(painter: &egui::Painter, rect: Rect, text: &str) {
         font(),
         muted(),
     );
-}
-
-/// Tells core an intro has begun to play, the first time it does on this save.
-fn saw_intro(save: &Save, intro: &ninsei_core::intro::IntroDef, out: &mut Vec<WbOut>) {
-    if !save.intros_seen.contains(&intro.id) {
-        out.push(WbOut::SawIntro(intro.id.clone()));
-    }
 }
 
 #[cfg(test)]
@@ -2078,7 +2071,7 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn a_tools_cracktro_tells_core_the_first_time_it_plays() {
+    fn a_tools_cracktro_tells_core_when_it_begins_not_every_frame() {
         let data = Data::builtin().unwrap();
         let mut save = Save {
             intros: true,
@@ -2097,11 +2090,14 @@ pub(crate) mod tests {
         // Still playing next frame: told once, not every frame.
         let out = frame(&mut h, &mut home, &data, &save, Tool::HexEd, Vec::new());
         assert!(home.intro_playing.contains_key("hexed") && saw(&out).is_empty());
-        // Once the save has it, a new window plays it again and says nothing.
+        // A new window plays it again and says so; core decides it teaches nothing new.
         save.saw_intro(&data, "hexed");
+        let before = save.to_text();
         let mut home = Home::new(Vec::new());
         let out = frame(&mut h, &mut home, &data, &save, Tool::HexEd, Vec::new());
-        assert!(home.intro_playing.contains_key("hexed") && saw(&out).is_empty());
+        assert_eq!(saw(&out), [WbOut::SawIntro("hexed".into())]);
+        save.saw_intro(&data, "hexed");
+        assert_eq!(save.to_text(), before);
     }
 
     #[test]

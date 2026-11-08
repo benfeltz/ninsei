@@ -1497,8 +1497,10 @@ impl App {
                     self.save_dirty = true;
                 }
                 WbOut::SawIntro(id) => {
+                    // Core keeps what's been seen; only a first play changes the save.
+                    let seen = self.save.intros_seen.len();
                     self.save.saw_intro(&self.data, &id);
-                    self.save_dirty = true;
+                    self.save_dirty |= self.save.intros_seen.len() != seen;
                 }
                 WbOut::Crt => {
                     self.toggle_crt();
