@@ -770,6 +770,7 @@ impl App {
             | WbOut::Intros(_)
             | WbOut::GuideSeen
             | WbOut::GameStarted(_)
+            | WbOut::SawIntro(_)
             | WbOut::HelpSeen
             | WbOut::Tiling(_)
             | WbOut::ShellHistory(_)
@@ -1493,6 +1494,10 @@ impl App {
                 }
                 WbOut::GameStarted(id) => {
                     self.save.start_game(&id);
+                    self.save_dirty = true;
+                }
+                WbOut::SawIntro(id) => {
+                    self.save.saw_intro(&self.data, &id);
                     self.save_dirty = true;
                 }
                 WbOut::Crt => {

@@ -135,6 +135,9 @@ pub enum WbOut {
     GuideSeen,
     /// A round of this game (its id) started: count it, so the next deals anew.
     GameStarted(String),
+    /// An intro (its id) began to play for the first time on this save: core books what its
+    /// scroller advertises ([`Save::saw_intro`]).
+    SawIntro(String),
     /// The Shell ran a command: keep its history in the save.
     ShellHistory(Vec<String>),
     /// The tiling desktop's first-boot key help was dismissed.
@@ -407,6 +410,7 @@ impl Home {
             let intro = intro.filter(|_| save.intros);
             if let Some(i) = intro {
                 self.tune = Some(TuneCue::Play(i.id.clone()));
+                saw_intro(save, i, out);
             }
             let w = GameWin {
                 intro: intro.map(|i| (now, now + f64::from(i.secs))),
@@ -519,9 +523,16 @@ impl Home {
     /// Plays tool `id`'s cracktro in its window, every time the window opens, until it ends or
     /// a click or key skips it. True while it's showing (draw nothing else). A tool with no
     /// intro, or intros switched off in System, opens straight away.
-    fn intro_gate(&mut self, ui: &mut Ui, data: &Data, save: &Save, id: &'static str) -> bool {
+    fn intro_gate(
+        &mut self,
+        ui: &mut Ui,
+        data: &Data,
+        save: &Save,
+        id: &'static str,
+        out: &mut Vec<WbOut>,
+    ) -> bool {
         match data.tool(id).and_then(|t| t.intro.clone()) {
-            Some(intro) => self.splash_gate(ui, data, save, id, &intro),
+            Some(intro) => self.splash_gate(ui, data, save, id, &intro, out),
             None => false,
         }
     }
@@ -535,6 +546,7 @@ impl Home {
         save: &Save,
         id: &'static str,
         intro: &str,
+        out: &mut Vec<WbOut>,
     ) -> bool {
         let Some(def) = data.intro(intro) else {
             return false;
@@ -549,6 +561,7 @@ impl Home {
         if fresh && save.intros {
             self.intro_playing.insert(id, now);
             self.tune = Some(TuneCue::Play(def.id.clone()));
+            saw_intro(save, def, out);
         }
         let Some(&start) = self.intro_playing.get(id) else {
             return false;
@@ -865,7 +878,7 @@ impl Home {
             // CarrierTerm's splash, unless a dial is already under way.
             Tool::Terminal
                 if self.dialing.is_none()
-                    && self.splash_gate(child, data, save, "carrierterm", "carrierterm") =>
+                    && self.splash_gate(child, data, save, "carrierterm", "carrierterm", out) =>
             {
                 return;
             }
@@ -893,7 +906,7 @@ impl Home {
                     child.separator();
                 }
                 if self.term_tab == TermTab::WarDial && self.dialing.is_none() {
-                    if self.intro_gate(child, data, save, "wardial") {
+                    if self.intro_gate(child, data, save, "wardial", out) {
                         return;
                     }
                     hubtools::wardial(
@@ -924,10 +937,10 @@ impl Home {
             }
             Tool::Rig => crate::shopper::show(child, data, save, out),
             Tool::System => crate::system::show(child, data, save, &mut self.system, out),
-            Tool::HexEd if self.intro_gate(child, data, save, "hexed") => return,
-            Tool::Qwk if self.intro_gate(child, data, save, "qwkread") => return,
-            Tool::IceDb if self.intro_gate(child, data, save, "icedb") => return,
-            Tool::NightComm if self.intro_gate(child, data, save, "nightcomm") => return,
+            Tool::HexEd if self.intro_gate(child, data, save, "hexed", out) => return,
+            Tool::Qwk if self.intro_gate(child, data, save, "qwkread", out) => return,
+            Tool::IceDb if self.intro_gate(child, data, save, "icedb", out) => return,
+            Tool::NightComm if self.intro_gate(child, data, save, "nightcomm", out) => return,
             Tool::NightComm => {
                 crate::nightcomm_view::show(
                     child,
@@ -940,7 +953,9 @@ impl Home {
                     out,
                 );
             }
-            Tool::TigerTeam if self.splash_gate(child, data, save, "tigerteam", "tigerteam") => {
+            Tool::TigerTeam
+                if self.splash_gate(child, data, save, "tigerteam", "tigerteam", out) =>
+            {
                 return;
             }
             Tool::TigerTeam => {
@@ -1296,6 +1311,13 @@ pub(crate) fn hint(painter: &egui::Painter, rect: Rect, text: &str) {
         font(),
         muted(),
     );
+}
+
+/// Tells core an intro has begun to play, the first time it does on this save.
+fn saw_intro(save: &Save, intro: &ninsei_core::intro::IntroDef, out: &mut Vec<WbOut>) {
+    if !save.intros_seen.contains(&intro.id) {
+        out.push(WbOut::SawIntro(intro.id.clone()));
+    }
 }
 
 #[cfg(test)]
@@ -2060,6 +2082,33 @@ pub(crate) mod tests {
             );
             assert_eq!(home.system.panel, want, "keys free: {free}");
         }
+    }
+
+    #[test]
+    fn a_tools_cracktro_tells_core_the_first_time_it_plays() {
+        let data = Data::builtin().unwrap();
+        let mut save = Save {
+            intros: true,
+            ..deck(&data)
+        };
+        let saw = |out: &[WbOut]| -> Vec<WbOut> {
+            out.iter()
+                .filter(|o| matches!(o, WbOut::SawIntro(_)))
+                .cloned()
+                .collect()
+        };
+        let mut h = Harness::new(1280.0, 800.0);
+        let mut home = Home::new(Vec::new());
+        let out = frame(&mut h, &mut home, &data, &save, Tool::HexEd, Vec::new());
+        assert_eq!(saw(&out), [WbOut::SawIntro("hexed".into())]);
+        // Still playing next frame: told once, not every frame.
+        let out = frame(&mut h, &mut home, &data, &save, Tool::HexEd, Vec::new());
+        assert!(home.intro_playing.contains_key("hexed") && saw(&out).is_empty());
+        // Once the save has it, a new window plays it again and says nothing.
+        save.saw_intro(&data, "hexed");
+        let mut home = Home::new(Vec::new());
+        let out = frame(&mut h, &mut home, &data, &save, Tool::HexEd, Vec::new());
+        assert!(home.intro_playing.contains_key("hexed") && saw(&out).is_empty());
     }
 
     #[test]

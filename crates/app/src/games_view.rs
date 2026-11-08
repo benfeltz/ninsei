@@ -409,6 +409,50 @@ mod tests {
     }
 
     #[test]
+    fn the_starter_disks_cracktro_tells_core_once_and_core_books_the_gutter() {
+        let data = Data::builtin().unwrap();
+        // A new deck as a player gets it: intros on, the shop's disk on the desktop.
+        let mut save = Save {
+            intros: true,
+            ..deck(&data)
+        };
+        let starter = Tool::games(&data, &save);
+        assert_eq!(starter, [tool("nibbler")]);
+        assert!(!save.knows_board("gutter"));
+        let crack = data.game("nibbler").unwrap().crack.clone();
+        let mut h = Harness::new(1280.0, 800.0);
+        let mut home = Home::new(Vec::new());
+        let out = frame(&mut h, &mut home, &data, &save, starter[0], Vec::new());
+        let saw: Vec<&WbOut> = out
+            .iter()
+            .filter(|o| matches!(o, WbOut::SawIntro(_)))
+            .collect();
+        assert_eq!(saw, [&WbOut::SawIntro(crack.clone())]);
+        // Core decides what it teaches.
+        save.saw_intro(&data, &crack);
+        assert!(save.knows_board("gutter"));
+        // Played again in a new window: nothing to tell.
+        let mut home = Home::new(Vec::new());
+        let out = frame(&mut h, &mut home, &data, &save, starter[0], Vec::new());
+        assert!(
+            matches!(home.tune, Some(crate::home::TuneCue::Play(_))),
+            "it still plays"
+        );
+        assert!(!out.iter().any(|o| matches!(o, WbOut::SawIntro(_))));
+    }
+
+    #[test]
+    fn with_intros_off_no_intro_plays_and_none_is_reported() {
+        let data = Data::builtin().unwrap();
+        let save = deck(&data);
+        assert!(!save.intros);
+        let mut h = Harness::new(1280.0, 800.0);
+        let mut home = Home::new(Vec::new());
+        let out = frame(&mut h, &mut home, &data, &save, tool("nibbler"), Vec::new());
+        assert!(!out.iter().any(|o| matches!(o, WbOut::SawIntro(_))));
+    }
+
+    #[test]
     fn opening_a_game_starts_a_round_and_counts_it() {
         let (_, home, _, _, out) = open("nibbler");
         assert!(out.contains(&WbOut::GameStarted("nibbler".into())));
