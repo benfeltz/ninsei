@@ -40,6 +40,7 @@ deck ─> firmware ─────┘
 | fights | the ICE card (the ICE, its hotbar, End Turn) in the centre, and the deck's program as a stack of blocks with Step, Run, Pause in the Script pane beside it ✅ (see *Fights*) | the map dives into the node: the ICE as a wireframe over a horizon grid, a program hotbar with previews ✅, and the deck's program in the `ice.bas` tile beside it, debugged from its keys and the terminal ✅ (see *Fights*) | an incident report with a strength chart and an agenda ✅, and the deck's program as `PROC-7.BAS`, a Turbo Debugger Module window with Watches, its F-keys on the legend while it's active ✅ (see *Fights*) |
 | damage | 1-bit glitches: tearing and noise, never an RGB split ✅ (pattern smears and inverted rows: an idea) | screen glitches: tearing, RGB split, corrupted text ✅ | the same, plus corporate error dialogs (idea below) |
 | add-ons | Alarm Clock, a Calculator desk accessory under the eye, a desktop pattern, MultiFinder ✅ |  |  |
+| music player | (137.2: a 1-bit desk accessory; a plain listing for now) | **TRAX**, a tile after cmus 2.x with Winamp 2's feel: the playlist (the cursor in inverse, the playing tune lit with ▶), a spectrum in cell columns along the gradient, and a status box (`▶ playing · repeat`, cmus's `artist - title`, a position bar to click, the level and the keys cut into its edge) ✅ | (137.3: Protracker's playback screen; a plain listing for now) |
 | games | a window like any program's, titled by the copy's label (`Nibbler`, `NIBBLER [2K4]`), in Liza's two colours: the field in its frame, walls and covered squares in the 50% gray pattern, blocks outlined; a **Games** menu before Special lists each copy you own ✅ | a tile, labelled in lower case like the others (`blox [phs]`), from the launcher or `run blox`; the leader's keys stay the desktop's ✅ | a window titled with its version (`Minefield 1.1`), its icon among the others ✅ |
 
 
@@ -85,6 +86,7 @@ deck ─> firmware ─────┘
 - Keyboard first, with every action a key; the mouse still works.
 - Motion has a meaning: a pulse along a route means you can go there, and a burst means something died.
 - Damage shows up as the screen breaking.
+- Music is a TUI player in a tile (TRAX, after cmus): keys first (space, n, p, + and -, r, s, j and k, Enter), every key a click on its legend too.
 
 **Comps**
 
@@ -202,6 +204,12 @@ One pass through the program is one turn: start at the first line and run until 
 | the trace | the Message box, a sentence per line | a terminal line | an activity-log row with a reference number |
 
 **Set aside.** `SHIELD`, `SCRUB` and `BEST BREAKER` as keywords (the warez are the verbs); a breakpoints pane (STOP is a line; a gutter mark is a view of it, never a second mechanism); downloaded editor and debugger (they are the deck's own software, dressed per chrome; "tools are downloaded" stays about the desktop's apps); a program library (deferred); a pure deckbuilder or puzzle fights without automation.
+
+## Desktop music
+
+Between runs the desk plays the tunes you own, on every deck, through **TRAX**, a player you download like any tool. Winamp 2 is the feel on every desktop (a playlist, transport, a position bar, the level, a spectrum); each desktop's period program is the look (cmus on AnarchyOS; the Liza and Desktop dresses come in 137.2 and 137.3). Tunes are music disks: the crews' releases on the boards' files, a publisher's compilation in CPU Shopper, and the one or two a new deck ships with. They're synthesized like everything else.
+
+The run's tune wins. Jacking in pauses the desk's music where it was, and jacking out picks it up there; a cracktro takes the speaker while its tune plays and gives it back after; a dial never touches it (the modem is its own channel, and you listened to music while it screamed). The player keeps its tune, repeat and shuffle on the save; where it is in a tune lasts the session.
 
 ## Shared rules for every part
 

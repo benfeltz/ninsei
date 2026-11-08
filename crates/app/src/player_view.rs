@@ -32,10 +32,11 @@ pub struct Heard {
 }
 
 /// The grid the tile works in: a playlist of three rows, the spectrum and the status box.
-pub const NEED: crate::kit::fit::Fit = crate::kit::fit::Fit { cols: 40, rows: 13 };
+pub const NEED: crate::kit::fit::Fit = crate::kit::fit::Fit { cols: 40, rows: 14 };
 
-/// Rows the spectrum box takes, its border included.
+/// Rows the spectrum box takes at least, and at most, its border included.
 const VIS_H: usize = 5;
+const VIS_MAX: usize = 14;
 /// Rows the status box takes, its border included.
 const NOW_H: usize = 4;
 /// Columns a playlist row needs to show its author too; narrower, the author is dropped.
@@ -122,7 +123,12 @@ pub fn tile(
     let g = Cells::fit(ui, rect, muted(), shadow(), muted());
     let p = ui.painter_at(rect);
     p.rect_filled(rect, 0.0, shadow());
-    let list_h = g.rows.saturating_sub(VIS_H + NOW_H).max(3);
+    // The playlist takes the rows its tunes need, the spectrum what's left (up to a point),
+    // and any more goes back to the playlist.
+    let spare = g.rows.saturating_sub(NOW_H);
+    let list_h = (rows.len() + 2).clamp(5, spare.saturating_sub(VIS_H).max(5));
+    let vis_h = spare.saturating_sub(list_h).clamp(VIS_H, VIS_MAX);
+    let list_h = spare.saturating_sub(vis_h).max(5);
 
     // The playlist: cmus's view, one tune a row, the cursor in inverse, the playing one lit.
     g.boxed(&p, 0, 0, g.cols, list_h, "playlist", accent());
@@ -179,8 +185,8 @@ pub fn tile(
     // The spectrum: Winamp's bars as columns of whole cells, from the speaker as the vis pane
     // hears it.
     let top = list_h;
-    g.boxed(&p, 0, top, g.cols, VIS_H, "spectrum", muted());
-    let h = VIS_H - 2;
+    g.boxed(&p, 0, top, g.cols, vis_h, "spectrum", muted());
+    let h = vis_h - 2;
     let n = (g.cols.saturating_sub(4) / 2).max(1);
     let samples: &[f32] = if heard.samples.is_empty() {
         &[0.0; 64]
@@ -198,7 +204,7 @@ pub fn tile(
 
     // The status box: what's playing, cmus's `artist - title`, and Winamp's position bar;
     // the transport and the modes in its top edge, the level and the keys in the bottom one.
-    let top = top + VIS_H;
+    let top = top + vis_h;
     g.boxed(
         &p,
         0,
@@ -217,13 +223,31 @@ pub fn tile(
         ink(),
     );
     let mut c = 2;
-    for (k, what) in player::KEYS {
+    // Each key in the legend is a button too: a click does what the key does (the second
+    // button what its pair does: prev, softer).
+    for (n, (k, what)) in player::KEYS.iter().enumerate() {
         let s = format!("{k} {what}");
         let room = g.cols.saturating_sub(vol.chars().count() + 6);
         if c + s.chars().count() + 2 > room {
             break;
         }
-        c += g.note(&p, c, top + NOW_H - 1, &s, muted()) + 1;
+        let used = g.note(&p, c, top + NOW_H - 1, &s, muted());
+        let hit = ui.interact(
+            g.at(c, top + NOW_H - 1, used, 1),
+            ui.id().with(("trax-key", n)),
+            Sense::click(),
+        );
+        let (first, second) = legend_acts(n, pui.sel);
+        if hit.clicked()
+            && let Some(a) = first
+        {
+            out.push(WbOut::Player(a));
+        } else if hit.secondary_clicked()
+            && let Some(a) = second
+        {
+            out.push(WbOut::Player(a));
+        }
+        c += used + 1;
     }
     match player::now(save, data, t) {
         Some((head, at, total)) => {
@@ -255,6 +279,18 @@ pub fn tile(
         None => {
             g.text(&p, 2, top + 1, "-", muted());
         }
+    }
+}
+
+/// What a click on legend entry `n` ([`player::KEYS`]) does, and a second-button click.
+fn legend_acts(n: usize, sel: Option<usize>) -> (Option<Act>, Option<Act>) {
+    match n {
+        0 => (Some(Act::Toggle), Some(Act::Stop)),
+        1 => (Some(Act::Next), Some(Act::Prev)),
+        2 => (Some(Act::Louder), Some(Act::Softer)),
+        3 => (Some(Act::Repeat), None),
+        4 => (Some(Act::Shuffle), None),
+        _ => (sel.map(Act::Pick), None),
     }
 }
 
@@ -511,5 +547,36 @@ mod tests {
             rows.iter()
                 .any(|(r, _)| r.contains("CHROMA") && r.contains("PHOSPHOR"))
         );
+    }
+
+    #[test]
+    fn the_legend_is_clickable() {
+        let data = Data::builtin().unwrap();
+        let save = ono(&data);
+        let mut h = Harness::new(800.0, 600.0);
+        let mut home = Home::new(Vec::new());
+        frame(&mut h, &mut home, &data, &save, false, Vec::new());
+        // The legend's first glyph: the bottom row's leftmost `s`.
+        let ss: Vec<egui::Pos2> = h
+            .painted_text()
+            .into_iter()
+            .filter(|(t, _)| t == "s")
+            .map(|(_, r)| r.center())
+            .collect();
+        let bottom = ss.iter().map(|p| p.y).fold(0.0, f32::max);
+        let spot = ss
+            .into_iter()
+            .filter(|p| (p.y - bottom).abs() < 1.0)
+            .min_by(|a, b| a.x.total_cmp(&b.x))
+            .unwrap();
+        let acts = frame(
+            &mut h,
+            &mut home,
+            &data,
+            &save,
+            false,
+            crate::uitest::click(spot),
+        );
+        assert_eq!(acts, [Act::Toggle], "spc play: the first legend key");
     }
 }
