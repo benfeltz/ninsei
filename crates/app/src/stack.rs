@@ -28,8 +28,11 @@ mod look {
     /// number, the gap between fields, and a block's move and close boxes.
     pub const BLOCK_H: f32 = 30.0;
     pub const BLOCK_GAP: f32 = 8.0;
+    /// A block's row (the box and the gap above it), and a comment's or the slot's.
+    pub const BLOCK_ROW: f32 = BLOCK_H + BLOCK_GAP;
+    pub const NOTE_ROW: f32 = 24.0;
     pub const GUTTER: f32 = 18.0;
-    pub const BLOCK_W: f32 = 600.0;
+    pub const BLOCK_W: f32 = 900.0;
     pub const BLOCK_PAD: f32 = 8.0;
     pub const NUMBER_W: f32 = 56.0;
     pub const FIELD_GAP: f32 = 6.0;
@@ -607,56 +610,97 @@ fn blocks(
     look: &liza::Look,
     acts: &mut Vec<Action>,
 ) {
-    let row_h = look::BLOCK_H + look::BLOCK_GAP;
-    let foot = liza::size::BUTTON_H + 2.0 * liza::size::RING_OUT + 8.0;
-    let rows = (((ui.available_height() - foot - look::BLOCK_GAP) / row_h).floor() as usize).max(2);
-    let h = rows as f32 * row_h + look::BLOCK_GAP;
-    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width().floor(), h), Sense::hover());
+    // Under the box: the gap, then the palette and buttons' row, with egui's spacing round it.
+    let foot = 4.0
+        + liza::size::BUTTON_H
+        + 2.0 * liza::size::RING_OUT
+        + 2.0 * ui.spacing().item_spacing.y
+        + 2.0;
+    let box_h = (ui.available_height() - foot)
+        .max(2.0 * look::BLOCK_ROW)
+        .floor();
+    let (rect, _) =
+        ui.allocate_exact_size(vec2(ui.available_width().floor(), box_h), Sense::hover());
     let rect = Rect::from_min_size(rect.min.round(), rect.size());
+    let view_h = rect.height() - look::BLOCK_GAP;
+    // Each row's height: a comment is a line, a block a framed box; the dotted slot ends it.
     let n = card.blocks.len() + card.stray.len() + 1;
+    let height = |i: usize| match card.blocks.get(i) {
+        Some(b) if b.kind == BlockKind::Rem => look::NOTE_ROW,
+        Some(_) => look::BLOCK_ROW,
+        None => look::NOTE_ROW,
+    };
+    let heights: Vec<f32> = (0..n).map(height).collect();
+    let fits = |top: usize| {
+        let mut used = 0.0;
+        heights[top..]
+            .iter()
+            .take_while(|h| {
+                used += **h;
+                used <= view_h
+            })
+            .count()
+    };
+    // The furthest down the window goes: the last rows filling it.
+    let max_top = (0..n)
+        .find(|&t| heights[t..].iter().sum::<f32>() <= view_h)
+        .unwrap_or(n - 1);
     let id = Id::new("stack-script");
-    let key = id.with("list");
-    let mut list: crate::kit::List = ui.data(|d| d.get_temp(key)).unwrap_or_default();
+    let key = id.with("top");
+    let mut top: usize = ui.data(|d| d.get_temp(key)).unwrap_or(0);
+    // Keep the line about to run in view when it moves.
     let current = card.blocks.iter().position(|b| b.current);
-    let follow = (ui.data(|d| d.get_temp::<Option<usize>>(key.with("cur"))) != Some(current))
-        .then_some(current)
-        .flatten();
-    list.view(n, follow, rows);
+    if ui.data(|d| d.get_temp::<Option<usize>>(key.with("cur"))) != Some(current)
+        && let Some(c) = current
+    {
+        if c < top {
+            top = c;
+        }
+        while c >= top + fits(top) && top < c {
+            top += 1;
+        }
+    }
+    top = top.min(max_top);
+    let before = |t: usize| heights[..t].iter().sum::<f32>();
+    let s = crate::kit::scrollbar::Scroll {
+        offset: before(top),
+        view: view_h,
+        content: heights.iter().sum(),
+        line: look::BLOCK_ROW,
+    };
     let bar = Rect::from_min_max(
         pos2(rect.right() - liza::size::SCROLL_W, rect.top()),
         rect.max,
     );
-    let s = crate::kit::scrollbar::Scroll {
-        offset: list.top as f32 * row_h,
-        view: rows as f32 * row_h,
-        content: n as f32 * row_h,
-        line: row_h,
-    };
     let painter = ui.painter().clone();
     painter.rect_filled(rect, 0.0, look.paper);
     if s.active()
         && let Some(o) = liza::scroll_bar(ui, &painter, bar, id.with("bar"), s, look)
     {
-        list.top = (o / row_h).round() as usize;
+        // A whole row at a time: the row nearest the offset.
+        top = (0..=max_top)
+            .min_by(|a, b| (before(*a) - o).abs().total_cmp(&(before(*b) - o).abs()))
+            .unwrap_or(0);
     }
-    let shown = list.view(n, None, rows);
     painter.rect_stroke(rect, 0.0, Stroke::new(1.0, look.ink), StrokeKind::Inside);
     let right = if s.active() {
         bar.left()
     } else {
         rect.right() - 1.0
     };
-    for i in shown {
+    let mut y = rect.top();
+    for (i, h) in heights.iter().enumerate().skip(top).take(fits(top)) {
         let row = Rect::from_min_size(
-            pos2(rect.left() + 1.0, rect.top() + list.row(i) as f32 * row_h),
-            vec2((right - rect.left() - 1.0).min(look::BLOCK_W), row_h),
+            pos2(rect.left() + 1.0, y),
+            vec2((right - rect.left() - 1.0).min(look::BLOCK_W), *h),
         );
+        y += h;
         if let Some(b) = card.blocks.get(i) {
             block_row(ui, row, g, b, look, acts);
         } else if let Some((text, why)) = card.stray.get(i - card.blocks.len()) {
             let at = pos2(
                 row.left() + look::GUTTER + look::BLOCK_PAD,
-                row.center().y + 4.0,
+                row.center().y + 3.0,
             );
             painter.text(
                 at,
@@ -672,11 +716,12 @@ fn blocks(
     if s.active()
         && let Some(wheel) = crate::kit::scrollbar::take_wheel(ui, rect.with_max_x(bar.left()), id)
     {
-        list.wheel(wheel / row_h);
+        let rows = (wheel / look::BLOCK_ROW).round() as isize;
+        top = (top as isize - rows).clamp(0, max_top as isize) as usize;
         ui.ctx().request_repaint();
     }
     ui.data_mut(|d| {
-        d.insert_temp(key, list);
+        d.insert_temp(key, top);
         d.insert_temp(key.with("cur"), current);
     });
 }
