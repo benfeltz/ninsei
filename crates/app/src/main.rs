@@ -2115,14 +2115,14 @@ mod tests {
     }
 
     #[test]
-    fn the_script_is_in_every_chromes_layout_and_in_front_on_the_stack_and_btop() {
+    fn the_script_is_in_every_chromes_layout_and_in_front_in_three_columns() {
         for chrome in Chrome::ALL {
             assert!(
                 default_layout(chrome, &[]).find_tab(&Tab::Script).is_some(),
                 "{chrome:?}"
             );
         }
-        for chrome in [Chrome::Stack, Chrome::Btop] {
+        for chrome in [Chrome::Stack, Chrome::Btop, Chrome::Suite] {
             three_columns(chrome);
         }
     }

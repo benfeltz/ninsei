@@ -1358,6 +1358,18 @@ const SUITE_MENUS: Menus = &[
     ("Help", &[MenuPart::Help]),
 ];
 
+/// The suite's tiling, as shares of the screen: the left column (the resources form over the
+/// sheet), the right column's share of what's left of it (the Module window in front of the
+/// work orders), the windows over the activity log, and where the form stops in the left
+/// column. The Module window is wider than btop's tile: its Watches sit two to a row.
+mod tiles {
+    pub const LEFT: f32 = 0.22;
+    pub const CENTRE_OF_REST: f32 = 0.56;
+    pub const OVER_LOG: f32 = 0.72;
+    pub const DECK: f32 = 0.55;
+    pub const LOG_OF_BOTTOM: f32 = 0.6;
+}
+
 /// The suite chrome.
 pub struct Suite;
 
@@ -1409,6 +1421,23 @@ impl ChromeView for Suite {
             Tab::Vis => " SOUNDLVL.RPT ",
             Tab::Script => " PROC-7.BAS ",
         })
+    }
+    /// Three columns over the activity log, the Stack's shape: SYSRES.FRM over WAREZ.WK1 on
+    /// the left (narrow), the plan view with the incident report in the centre (widest), the
+    /// PROC-7.BAS Module window in front of the work orders on the right.
+    fn default_layout(&self, extra: &[Tab]) -> egui_dock::DockState<Tab> {
+        use egui_dock::{DockState, NodeIndex};
+        use tiles::*;
+        let mut dock = DockState::new(vec![Tab::Network, Tab::Target, Tab::Hex]);
+        let tree = dock.main_surface_mut();
+        let [top, bottom] = tree.split_below(NodeIndex::root(), OVER_LOG, vec![Tab::Terminal]);
+        let [centre, left] = tree.split_left(top, LEFT, vec![Tab::Deck]);
+        tree.split_below(left, DECK, vec![Tab::Warez]);
+        tree.split_right(centre, CENTRE_OF_REST, vec![Tab::Script, Tab::Todo]);
+        if !extra.is_empty() {
+            tree.split_right(bottom, LOG_OF_BOTTOM, extra.to_vec());
+        }
+        dock
     }
     fn scroll_bars(&self, _tab: Tab) -> Option<[bool; 2]> {
         // Each window scrolls itself, with its own bars.
