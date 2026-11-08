@@ -12,7 +12,7 @@ fn data() -> Data {
 /// A save written before the four extra models left: it owns all of them and sits on one.
 fn old_save(d: &Data) -> Save {
     let mut s = Save::default();
-    s.ensure_key(0x58_5);
+    s.ensure_key(0x0585);
     s.ensure_hardware(d);
     for id in [
         "onosendai5",
