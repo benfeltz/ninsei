@@ -350,6 +350,7 @@ impl DesktopView for Liza {
             &painter,
             "Trash",
             pos2(spot.x + size.x / 2.0, spot.y + size.y + 10.0),
+            screen.right(),
             false,
             &c,
         );
@@ -735,14 +736,23 @@ fn draw_icon(painter: &egui::Painter, icon: &Icon, cell: Rect, picked: bool, c: 
         painter,
         &icon.label,
         pos2(cell.center().x, art.bottom() + 10.0),
+        cell.right(),
         picked,
         c,
     );
     art.union(lr)
 }
 
-/// A name under an icon, on paper (inverted when selected).
-fn label(painter: &egui::Painter, text: &str, center: Pos2, picked: bool, c: &Look) -> Rect {
+/// A name under an icon, on paper (inverted when selected), centred under it but never past
+/// `right` (the screen's edge, for a name wider than the icon column), so it's always whole.
+fn label(
+    painter: &egui::Painter,
+    text: &str,
+    center: Pos2,
+    right: f32,
+    picked: bool,
+    c: &Look,
+) -> Rect {
     let (fg, bg) = if picked {
         (c.paper, c.ink)
     } else {
@@ -750,6 +760,7 @@ fn label(painter: &egui::Painter, text: &str, center: Pos2, picked: bool, c: &Lo
     };
     let galley = painter.layout_no_wrap(text.to_string(), font(), fg);
     let r = Rect::from_center_size(center, galley.size() + vec2(8.0, 2.0));
+    let r = r.translate(vec2((right - r.right()).min(0.0).round(), 0.0));
     painter.rect_filled(r, 0.0, bg);
     painter.galley(r.min + vec2(4.0, 1.0), galley, fg);
     r
@@ -1478,6 +1489,32 @@ mod tests {
     }
 
     /// Liza drawn on a harness for `save`, past its boot card.
+    #[test]
+    fn every_icons_name_is_painted_whole_on_the_screen() {
+        // The longest names are the cracks' (`MINEFIELD [PHS]`), wider than the icon column.
+        let data = Data::builtin().unwrap();
+        let mut save = Save {
+            guide_seen: true,
+            intros: false,
+            ..Save::default()
+        };
+        save.ensure_phonebook(&data, 1);
+        for g in &data.games {
+            save.learn_game(&g.id, ninsei_core::hub::GameCopy::Cracked);
+            save.learn_game(&g.id, ninsei_core::hub::GameCopy::Boxed);
+        }
+        let (h, ..) = desk_on(&data, &save);
+        let screen = Rect::from_min_size(Pos2::ZERO, vec2(1280.0, 800.0));
+        let painted = h.painted_text();
+        for icon in save.icons(&data) {
+            let (_, r) = painted
+                .iter()
+                .find(|(t, _)| *t == icon.label)
+                .unwrap_or_else(|| panic!("{} isn't painted", icon.label));
+            assert!(screen.contains_rect(*r), "{} runs off at {r:?}", icon.label);
+        }
+    }
+
     fn desk_on(data: &Data, save: &Save) -> (crate::uitest::Harness, Liza, Home) {
         let mut h = crate::uitest::Harness::new(1280.0, 800.0);
         crate::uitest::themed(&h.ctx, data);
