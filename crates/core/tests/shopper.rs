@@ -548,3 +548,36 @@ fn every_deck_in_the_data_is_listed_and_orderable() {
         _ => unreachable!(),
     }));
 }
+
+#[test]
+fn a_deck_ad_prints_its_stats_and_nothing_else_does() {
+    let d = data();
+    let cat = fresh(0).catalog(&d);
+    for deck in &d.hardware.decks {
+        let l = cat
+            .iter()
+            .find(|l| l.item == Item::Deck(deck.id.clone()))
+            .unwrap();
+        assert_eq!(l.specs.len(), deck.stats.len(), "{}", deck.id);
+        for (spec, row) in l.specs.iter().zip(&deck.stats) {
+            assert_eq!(spec.line, row.line);
+            assert_eq!((spec.ships, spec.max), (row.base, row.max), "{}", deck.id);
+            let rig = d.rig.iter().find(|u| u.kind == row.line).unwrap();
+            assert_eq!(spec.label, rig.label, "the magazine's word for the line");
+        }
+        // CPU, RAM and HDD are always in the box.
+        for u in [Upgrade::Cpu, Upgrade::Ram, Upgrade::Hdd] {
+            assert!(l.specs.iter().any(|s| s.line == u), "{} {u:?}", deck.id);
+        }
+    }
+    // A product's numbers, never the reader's rig: RIG levels don't move them.
+    let mut rich = fresh(0);
+    rich.rig.ram = 3;
+    let again = rich.catalog(&d);
+    for (a, b) in cat.iter().zip(&again) {
+        assert_eq!(a.specs, b.specs, "{}", a.name);
+    }
+    for l in cat.iter().filter(|l| !matches!(l.item, Item::Deck(_))) {
+        assert!(l.specs.is_empty(), "{} has no spec box", l.name);
+    }
+}

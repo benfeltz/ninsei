@@ -16,7 +16,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::data::Data;
-use crate::hardware::{Desktop, Hardware};
+use crate::hardware::{DeckDef, Desktop, Hardware};
 use crate::hub::{GameCopy, Save, Upgrade};
 
 /// Something CPU Shopper sells.
@@ -116,6 +116,40 @@ pub struct Listing {
     /// The OS it belongs to: a deck's first firmware's desktop, or an add-on's. A deck's
     /// full-page ad carries the add-ons for its desktop on its page.
     pub desktop: Option<Desktop>,
+    /// A deck's spec box: per line, what it ships with and what it expands to ([`specs`]).
+    /// Empty for everything else.
+    pub specs: Vec<Spec>,
+}
+
+/// One row of a deck ad's spec box: a product's numbers, as the maker prints them.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Spec {
+    pub line: Upgrade,
+    /// The magazine's word for the line: RIG's label ("CPU", "RAM").
+    pub label: String,
+    /// Its unit ("cyc", "GB", "slots"), RIG's too; may be empty.
+    pub unit: String,
+    pub ships: u32,
+    pub max: u32,
+}
+
+/// What a deck's ad prints in its spec box: each of its `stats` rows, in its order, labelled
+/// with RIG's words for the line. The one place an ad's numbers come from, so an ad can
+/// never disagree with the deck. A line RIG doesn't sell has no words, so no row.
+pub fn specs(data: &Data, deck: &DeckDef) -> Vec<Spec> {
+    deck.stats
+        .iter()
+        .filter_map(|st| {
+            let def = data.rig.iter().find(|u| u.kind == st.line)?;
+            Some(Spec {
+                line: st.line,
+                label: def.label.clone(),
+                unit: def.unit.clone(),
+                ships: st.base,
+                max: st.max,
+            })
+        })
+        .collect()
 }
 
 impl Listing {
@@ -365,6 +399,7 @@ impl Save {
                 vendor: None,
                 review: false,
                 desktop: None,
+                specs: Vec::new(),
             };
         for d in &data.hardware.decks {
             let hw = Hardware::Deck(d.id.clone());
@@ -383,6 +418,7 @@ impl Save {
                 stock,
             );
             l.desktop = d.firmware.first().map(|f| f.desktop);
+            l.specs = specs(data, d);
             out.push(l);
         }
         for def in &data.rig {
