@@ -242,6 +242,17 @@ impl HardwareDef {
                         d.id, s.line, s.base, s.max
                     ));
                 }
+                // The ceiling is a level RIG can stop on, and RIG sells enough to reach it.
+                if let Some(r) = data.rig.iter().find(|r| r.kind == s.line) {
+                    let room = s.max - s.base;
+                    if room % r.step != 0 || room > r.step * r.max {
+                        return Err(format!(
+                            "deck `{}` tops {:?} out at {}, which RIG can't stop on: \
+                             it starts at {} and sells {} levels of +{}",
+                            d.id, s.line, s.max, s.base, r.max, r.step
+                        ));
+                    }
+                }
             }
             // Every deck governs the same lines, so none silently runs uncapped where the
             // others stop.

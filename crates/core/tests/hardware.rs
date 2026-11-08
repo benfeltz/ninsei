@@ -208,6 +208,13 @@ fn bad_stats_are_caught() {
     assert!(err(src.replacen(cpu, "(line: Ram, base: 3, max: 6)", 1)).contains("twice"));
     assert!(err(src.replacen(cpu, "(line: Cpu, base: 7, max: 6)", 1)).contains("tops out"));
     assert!(err(src.replacen(cpu, "(line: Stash, base: 2, max: 6)", 1)).contains("home storage"));
+    // Integrity steps by 3 from 18: 22 is between levels, and 99 is past what RIG sells.
+    let integ = "(line: Integrity, base: 18, max: 21)";
+    assert!(src.contains(integ), "the starter's integrity row");
+    for bad in ["22", "99"] {
+        let row = format!("(line: Integrity, base: 18, max: {bad})");
+        assert!(err(src.replacen(integ, &row, 1)).contains("can't stop on"));
+    }
     let missing = src.replacen(&format!("{cpu}, "), "", 1);
     assert!(err(missing).contains("disagree"));
 }
