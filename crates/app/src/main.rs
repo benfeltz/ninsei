@@ -1722,6 +1722,32 @@ mod tests {
         }
 
         #[test]
+        fn esc_in_a_slow_frame_keeps_the_typing_before_it() {
+            let (mut h, mut app) = running("onosendai");
+            for _ in 0..3 {
+                frame(&mut h, &mut app, Vec::new());
+            }
+            let before = app.game.log.len();
+            // `a b` and Esc in one frame: the line has them, and the run's hotkeys
+            // (Space ends the turn) don't.
+            let mut ev = text("a");
+            ev.extend(key(egui::Key::Space));
+            ev.extend(text(" "));
+            ev.extend(text("b"));
+            ev.extend(key(egui::Key::Escape));
+            frame(&mut h, &mut app, ev);
+            assert_eq!(app.term.text(), "a b", "the command line kept its keys");
+            assert_eq!(
+                app.game.log.len(),
+                before,
+                "the run's hotkeys heard none of them"
+            );
+            // The Esc let go of the keyboard: now Space is the run's.
+            frame(&mut h, &mut app, key(egui::Key::Space));
+            assert!(app.game.log.len() > before, "Space ends the turn again");
+        }
+
+        #[test]
         fn it_takes_the_keys_from_the_command_line_and_gives_them_back() {
             let (mut h, mut app) = running("onosendai");
             for _ in 0..3 {

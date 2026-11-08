@@ -993,6 +993,72 @@ pub(crate) mod tests {
         out
     }
 
+    /// One frame of the Shell, focused, with these events.
+    fn shell_frame(
+        h: &mut Harness,
+        home: &mut Home,
+        data: &Data,
+        save: &Save,
+        events: Vec<egui::Event>,
+    ) -> Vec<WbOut> {
+        let mut out = Vec::new();
+        h.frame(events, |ui| {
+            let rect = Rect::from_min_size(Pos2::ZERO, vec2(880.0, 500.0));
+            home.shell(ui, rect, data, save, true, &mut out);
+        });
+        out
+    }
+
+    #[test]
+    fn a_slow_frames_line_runs_whole() {
+        // The keys of `dial 1` and Enter all land in one frame.
+        let data = Data::builtin().unwrap();
+        let save = deck(&data);
+        let (mut h, mut home) = (Harness::new(1280.0, 800.0), Home::new(Vec::new()));
+        for _ in 0..2 {
+            shell_frame(&mut h, &mut home, &data, &save, Vec::new());
+        }
+        let mut events = text("d");
+        events.extend(text("ial 1"));
+        events.extend(key(Key::Enter));
+        shell_frame(&mut h, &mut home, &data, &save, events);
+        assert!(
+            !home
+                .shell_lines
+                .iter()
+                .any(|l| l.contains("Unknown command")),
+            "{:?}",
+            home.shell_lines
+        );
+        let first = save.lookup("1").map(|e| e.id);
+        assert!(first.is_some());
+        assert_eq!(home.dialing.map(|d| d.entry), first, "dial 1 ran");
+        assert_eq!(home.shell_text(), "");
+    }
+
+    #[test]
+    fn two_lines_in_one_frame_run_one_frame_apart() {
+        let data = Data::builtin().unwrap();
+        let save = deck(&data);
+        let (mut h, mut home) = (Harness::new(1280.0, 800.0), Home::new(Vec::new()));
+        for _ in 0..2 {
+            shell_frame(&mut h, &mut home, &data, &save, Vec::new());
+        }
+        let mut events = text("echo one");
+        events.extend(key(Key::Enter));
+        events.extend(text("echo two"));
+        events.extend(key(Key::Enter));
+        shell_frame(&mut h, &mut home, &data, &save, events);
+        let said = |home: &Home, w: &str| home.shell_lines.iter().any(|l| l == w);
+        assert!(said(&home, "one"));
+        assert!(
+            !said(&home, "two"),
+            "the second line waits for the next frame"
+        );
+        shell_frame(&mut h, &mut home, &data, &save, Vec::new());
+        assert!(said(&home, "two"));
+    }
+
     #[test]
     fn carrierterm_takes_the_keys_when_it_opens() {
         let data = Data::builtin().unwrap();
