@@ -338,7 +338,7 @@ fn the_program_survives_a_run() {
     let mut s = Save::default();
     s.ensure_key(0xC0FFEE);
     s.ensure_phonebook(&d, 0);
-    let shipped = d.starts.kit("").program.clone();
+    let shipped = d.starts.program("").to_string();
     assert!(shipped.contains("SAFE"), "the default kit ships SAFE");
     assert_eq!(s.program_text(&d), shipped);
     let mut g = s.jack_in(&d, 5);
@@ -367,9 +367,22 @@ fn the_program_survives_a_run() {
 fn every_kit_ships_a_program_that_reads() {
     let d = Data::builtin().unwrap();
     for k in &d.starts.kits {
-        assert!(!k.program.is_empty(), "{}", k.id);
-        assert_eq!(hub::program_fault(&k.program, &d), None, "{}", k.id);
+        let program = d.starts.program(&k.id);
+        assert!(!program.is_empty(), "{}", k.id);
+        assert_eq!(hub::program_fault(program, &d), None, "{}", k.id);
+        // SAFE is written once: a kit without a program ships the default kit's.
+        if k.program.is_empty() {
+            assert_eq!(program, d.starts.kit("").program, "{}", k.id);
+        }
     }
+    assert!(d.starts.kits.iter().any(|k| k.program.is_empty()));
+    let mut s = Save {
+        kit: "classic".into(),
+        ..Save::default()
+    };
+    assert_eq!(s.program_text(&d), d.starts.kit("").program);
+    s.kit = "pick".into();
+    assert_eq!(s.program_text(&d), d.starts.kit("").program);
     assert!(hub::program_fault("10 RUN nosuch", &d).is_some());
     // What a fight can run, validation accepts: name, file name or id, any case.
     let mut g = fight("bulwark", "");

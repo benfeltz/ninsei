@@ -129,7 +129,7 @@ fn the_dumb_bot_is_two_lines() {
     assert_eq!(dumb.lines.len(), 2);
     assert_eq!(Bot::Dumb.program(&data), probe::DUMB);
     // The competent bot is the program a fresh deck ships: the default kit's SAFE.
-    assert_eq!(Bot::Smart.program(&data), data.starts.kit("").program);
+    assert_eq!(Bot::Smart.program(&data), data.starts.program(""));
     // Both play fights through the interpreter: what's left in the run is their program.
     for bot in [Bot::Dumb, Bot::Smart] {
         let (g, log) = probe::play(Game::new(data.clone(), 3), bot);

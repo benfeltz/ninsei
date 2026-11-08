@@ -75,7 +75,7 @@ impl Bot {
     pub fn program(self, data: &Data) -> String {
         match self {
             Bot::Dumb => DUMB.to_string(),
-            Bot::Smart => data.starts.kit("").program.clone(),
+            Bot::Smart => data.starts.program("").to_string(),
         }
     }
 }

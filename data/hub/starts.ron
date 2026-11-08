@@ -12,7 +12,8 @@
 //   ranges   number ranges already known (the local exchange always is)
 //   bank     credits in the bank
 //   games    games already on the desktop, (id, Cracked or Boxed)
-//   program  the deck's program (BASIC, see docs/design.md "Fights"): every fight opens with it
+//   program  the deck's program (BASIC, see docs/design.md "Fights"): every fight opens with it.
+//            A kit without one ships the default kit's.
 (
     always: [
         // The college's network: lightly watched, little worth taking, wide open. Its board
@@ -22,52 +23,7 @@
     ],
     kits: [
         // The Security Suite and nothing else: every breaker is found.
-        (id: "nothing", free: ["firewall", "patch"],
-         program: r#"
-10 REM SAFE, the Sense/Net Security Suite's own program.
-20 REM It looks after your deck first, then works on the ICE.
-30 REM When integrity runs low, patch the deck.
-40 IF INTEG < 7
-50 RUN patch
-60 REM When the ICE is about to strike hard, raise the firewall.
-70 IF NEXT ATTACK
-80 IF INTEG < 16
-90 RUN firewall
-100 REM When the trace runs high, scrub it, if you have a scrubber.
-110 IF TRACE > 69
-120 RUN scrubber
-130 REM Use the breaker made for the ICE in front of you.
-140 IF ICE CODEGATE
-150 GOTO 300
-160 IF ICE SENTRY
-170 GOTO 400
-180 GOTO 500
-300 RUN decoder
-310 RUN decoder
-320 RUN decoder
-330 RUN decoder
-340 RUN decoder
-350 RUN decoder
-360 GOTO 600
-400 RUN garrote
-410 RUN garrote
-420 RUN garrote
-430 RUN garrote
-440 RUN garrote
-450 RUN garrote
-460 GOTO 600
-500 RUN crowbar
-510 RUN crowbar
-520 RUN crowbar
-530 RUN crowbar
-540 RUN crowbar
-550 RUN crowbar
-600 REM Then the strongest breaker on the disk, until the cycles run out.
-610 RUN torch
-620 RUN wyrm
-630 RUN icepick
-640 GOTO 610
-"#),
+        (id: "nothing", free: ["firewall", "patch"]),
         // The start players get: the suite and a generic breaker in the box; the specialists
         // (Decoder, Garrote, Crowbar) are found on the boards. The shop that sold the deck threw
         // in a dubbed disk: a crack whose intro advertises the board it came from.
@@ -120,51 +76,6 @@
 "#),
         // The start before #103 and #105.
         (id: "classic", free: ["icepick", "firewall", "patch", "decoder"], boards: ["gutter"],
-         numbers: true, tools: ["wardial", "hexed", "nightcomm"], games: [("nibbler", Cracked)],
-         program: r#"
-10 REM SAFE, the Sense/Net Security Suite's own program.
-20 REM It looks after your deck first, then works on the ICE.
-30 REM When integrity runs low, patch the deck.
-40 IF INTEG < 7
-50 RUN patch
-60 REM When the ICE is about to strike hard, raise the firewall.
-70 IF NEXT ATTACK
-80 IF INTEG < 16
-90 RUN firewall
-100 REM When the trace runs high, scrub it, if you have a scrubber.
-110 IF TRACE > 69
-120 RUN scrubber
-130 REM Use the breaker made for the ICE in front of you.
-140 IF ICE CODEGATE
-150 GOTO 300
-160 IF ICE SENTRY
-170 GOTO 400
-180 GOTO 500
-300 RUN decoder
-310 RUN decoder
-320 RUN decoder
-330 RUN decoder
-340 RUN decoder
-350 RUN decoder
-360 GOTO 600
-400 RUN garrote
-410 RUN garrote
-420 RUN garrote
-430 RUN garrote
-440 RUN garrote
-450 RUN garrote
-460 GOTO 600
-500 RUN crowbar
-510 RUN crowbar
-520 RUN crowbar
-530 RUN crowbar
-540 RUN crowbar
-550 RUN crowbar
-600 REM Then the strongest breaker on the disk, until the cycles run out.
-610 RUN torch
-620 RUN wyrm
-630 RUN icepick
-640 GOTO 610
-"#),
+         numbers: true, tools: ["wardial", "hexed", "nightcomm"], games: [("nibbler", Cracked)]),
     ],
 )

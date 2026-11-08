@@ -392,7 +392,8 @@ pub struct KitDef {
     /// Games already on the desktop (a game id and the copy): the disk the shop threw in.
     #[serde(default)]
     pub games: Vec<(String, GameCopy)>,
-    /// The program the deck ships with (BASIC text): every fight opens with it loaded.
+    /// The program the deck ships with (BASIC text): every fight opens with it loaded. Empty:
+    /// the default kit's (read it with `StartsDef::program`).
     #[serde(default)]
     pub program: String,
 }
@@ -425,6 +426,16 @@ pub fn program_fault(text: &str, data: &Data) -> Option<String> {
 }
 
 impl StartsDef {
+    /// The program kit `id` ships: its own, or the default kit's.
+    pub fn program(&self, id: &str) -> &str {
+        let own = &self.kit(id).program;
+        if own.is_empty() {
+            &self.kit("").program
+        } else {
+            own
+        }
+    }
+
     /// The kit called `id`, or the default kit.
     pub fn kit(&self, id: &str) -> &KitDef {
         self.kits
@@ -464,6 +475,9 @@ impl StartsDef {
             }
             if let Some(why) = program_fault(&k.program, data) {
                 return err(format!("program: {why}"));
+            }
+            if k.default && k.program.is_empty() {
+                return err("the default kit needs a program: the others fall back to it".into());
             }
         }
         for n in &self.always {
@@ -2146,7 +2160,7 @@ impl Save {
     pub fn program_text(&self, data: &Data) -> String {
         self.program
             .clone()
-            .unwrap_or_else(|| data.starts.kit(&self.kit).program.clone())
+            .unwrap_or_else(|| data.starts.program(&self.kit).to_string())
     }
 
     /// Starts a run. Stash programs in the loadout leave the stash: they come back only
