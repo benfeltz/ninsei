@@ -1004,6 +1004,10 @@ pub struct Save {
     /// The kit has been applied (a new save's first boot). Old saves have started.
     #[serde(default = "seen")]
     pub started: bool,
+    /// Intros that have played at least once (ids in `data/intros/`), so a replay teaches
+    /// nothing new.
+    #[serde(default)]
+    pub intros_seen: Vec<String>,
 }
 
 fn seen() -> bool {
@@ -1137,6 +1141,7 @@ impl Default for Save {
             starters_given: false,
             kit: String::new(),
             started: false,
+            intros_seen: Vec::new(),
         }
     }
 }
@@ -1372,6 +1377,22 @@ impl Save {
         ids.into_iter()
             .filter_map(|id| self.entry(id).map(|e| format!("{} ({})", e.name, e.number)))
             .collect()
+    }
+
+    /// An intro has played. The first time, a crack's scroller teaches the board it advertises
+    /// (a splash advertises none). True if that put a new board in the phonebook.
+    pub fn saw_intro(&mut self, data: &Data, id: &str) -> bool {
+        if self.intros_seen.iter().any(|s| s == id) {
+            return false;
+        }
+        let Some(intro) = data.intro(id) else {
+            return false;
+        };
+        self.intros_seen.push(id.into());
+        match intro.board.as_deref() {
+            Some(b) if data.board(b).is_some() => self.learn_board(b, "a cracktro"),
+            _ => false,
+        }
     }
 
     /// What reading `effect` on `source` does for the save. Returns what it added, if anything.

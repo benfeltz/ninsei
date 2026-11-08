@@ -117,3 +117,46 @@ fn boards_without_messages_have_no_messages_menu() {
     let keys: Vec<char> = sess.keys(&g).iter().map(|(k, _)| *k).collect();
     assert!(!keys.contains(&'M') && keys.contains(&'J'), "{keys:?}");
 }
+
+#[test]
+fn the_shops_disk_plays_a_cracktro_that_teaches_the_gutter_once() {
+    let d = data();
+    let mut s = fresh(&d);
+    assert!(!s.knows_board("gutter"));
+    let crack = d.game("nibbler").unwrap().crack.clone();
+    assert!(s.saw_intro(&d, &crack), "the first play books the Gutter");
+    let k = s.boards.iter().find(|k| k.id == "gutter").unwrap();
+    assert_eq!(k.source, "a cracktro");
+    // A replay changes nothing.
+    let before = s.clone();
+    assert!(!s.saw_intro(&d, &crack));
+    assert_eq!(s.to_text(), before.to_text());
+    // A splash advertises no board, and an unknown intro is nobody's.
+    let splash = d.game("nibbler").unwrap().splash.clone();
+    assert!(!s.saw_intro(&d, &splash) && !s.saw_intro(&d, "no-such-intro"));
+    assert_eq!(s.boards.len(), before.boards.len());
+    // Sense/Net's post still leads there, and doesn't book it twice.
+    let effect = data::ReadEffect::Board("gutter".into());
+    assert!(s.read_effect(&d, &effect, "Sense/Net").is_none());
+    assert_eq!(s.boards.iter().filter(|k| k.id == "gutter").count(), 1);
+}
+
+#[test]
+fn the_sense_net_post_still_teaches_the_gutter_and_the_cracktro_then_adds_nothing() {
+    let d = data();
+    let mut s = fresh(&d);
+    let (base, post) = gutter_post(&d);
+    let p = &d.boards[d.board(FIRST_BOARD).unwrap()].messages[base].posts[post];
+    assert!(
+        s.read_effect(&d, p.on_read.as_ref().unwrap(), "Sense/Net")
+            .is_some()
+    );
+    let crack = d.game("nibbler").unwrap().crack.clone();
+    assert!(!s.saw_intro(&d, &crack), "already known from the post");
+    assert_eq!(s.boards.iter().filter(|k| k.id == "gutter").count(), 1);
+    assert!(
+        s.boards
+            .iter()
+            .any(|k| k.id == "gutter" && k.source.contains("Sense/Net"))
+    );
+}
