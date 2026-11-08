@@ -1,5 +1,5 @@
 //! Chromes: how the run screen is dressed. A chrome is a [`ChromeView`]: one method per pane,
-//! plus its tab titles, menus, status line, an optional bar under the panes, keys, an overlay
+//! plus its tab titles, menus, status line, an optional bar over the panes, keys, an overlay
 //! and the layout it starts with. Every method has a Classic default, so a new chrome only
 //! writes what it changes. The deck's firmware names the chrome (`hardware::Chrome`); [`view`]
 //! hands back its renderer.
@@ -134,11 +134,11 @@ pub trait ChromeView {
     fn status_extra(&self, _ui: &mut Ui, _cx: &mut FrameCx) -> Vec<Request> {
         Vec::new()
     }
-    /// Whether it has a bar under the panes (the suite's F-key legend).
+    /// Whether it has a bar over the panes, under the menu bar (the suite's F-key legend).
     fn has_legend(&self) -> bool {
         false
     }
-    /// Draws the bar under the panes.
+    /// Draws the bar over the panes.
     fn legend(&self, _ui: &mut Ui, _cx: &mut FrameCx) -> Vec<Request> {
         Vec::new()
     }

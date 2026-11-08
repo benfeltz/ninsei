@@ -1602,15 +1602,10 @@ impl App {
                     .inner_margin(egui::Margin::symmetric(6, 2)),
             )
             .show(ui, |ui| requests.extend(self.menu_bar(ui, &pal)));
-        egui::Panel::bottom("status")
-            .frame(
-                egui::Frame::new()
-                    .fill(view.status_fill(&pal))
-                    .inner_margin(egui::Margin::symmetric(6, 1)),
-            )
-            .show(ui, |ui| requests.extend(self.status_bar(ui, &pal)));
+        // The F-key legend sits right under the menu bar: its keys are buttons too, and up
+        // there they're seen.
         if view.has_legend() {
-            egui::Panel::bottom("legend")
+            egui::Panel::top("legend")
                 .frame(
                     egui::Frame::new()
                         .fill(pal.bg)
@@ -1628,6 +1623,13 @@ impl App {
                     requests.extend(view.legend(ui, &mut cx));
                 });
         }
+        egui::Panel::bottom("status")
+            .frame(
+                egui::Frame::new()
+                    .fill(view.status_fill(&pal))
+                    .inner_margin(egui::Margin::symmetric(6, 1)),
+            )
+            .show(ui, |ui| requests.extend(self.status_bar(ui, &pal)));
 
         fit_tools(&mut self.dock, &self.game);
         // The vis pane's samples: taken only by a vis pane that's drawn (a tab behind another
@@ -1942,6 +1944,30 @@ mod tests {
                 .center();
             frame(h, app, click(at));
             frame(h, app, Vec::new());
+        }
+
+        #[test]
+        fn the_hosakas_f_key_legend_sits_under_the_menu_bar_over_the_panes() {
+            let (mut h, mut app) = running("hosaka");
+            for _ in 0..3 {
+                frame(&mut h, &mut app, Vec::new());
+            }
+            let find = |h: &Harness, t: &str| {
+                h.find(t)
+                    .unwrap_or_else(|| panic!("no {t:?} in {:?}", h.texts()))
+            };
+            let menu = find(&h, "File");
+            let legend = find(&h, "F10 End turn");
+            // The first line inside the resources form, the top-left pane.
+            let pane = find(&h, "HOSAKA EXECUTIVE 4");
+            assert!(
+                legend.top() >= menu.bottom() - 1.0,
+                "under the menu bar: {legend:?} {menu:?}"
+            );
+            assert!(
+                legend.bottom() <= pane.top() + 1.0,
+                "over the panes: {legend:?} {pane:?}"
+            );
         }
 
         #[test]

@@ -1,7 +1,7 @@
 //! The Hosaka's chrome: a 90s productivity suite. Every pane is a document window (a filled
 //! title bar, a double border, a drop shadow, its number in the corner) on a plain desk.
 //! deck.sys is a form with report charts, warez/ a spreadsheet, target.ice an incident report,
-//! the terminal a ledger and todo a table of work orders. An F-key legend sits under the panes
+//! the terminal a ledger and todo a table of work orders. An F-key legend sits under the menu bar
 //! and dialogs pop up for the moments worth filing. Calm by design: no glow, no spin. Every
 //! colour is a theme role: title bars `panel`, shadows `bg`, selections in reverse video. The
 //! rules (sorting, formulas, axes, dialogs) are `ninsei_core::suite`.
@@ -2314,13 +2314,13 @@ mod module_tests {
         Palette::from_def(&g.data.themes[0])
     }
 
-    fn pane_rect((w, h): (f32, f32)) -> Rect {
-        Rect::from_min_size(pos2(0.0, 0.0), vec2(w, h))
+    /// The legend sits on top, as under the run's menu bar; the panes under it.
+    fn legend_rect() -> Rect {
+        Rect::from_min_size(pos2(0.0, 0.0), vec2(900.0, 20.0))
     }
 
-    /// Where the legend sits in the test frames.
-    fn legend_rect() -> Rect {
-        Rect::from_min_size(pos2(0.0, 1300.0), vec2(900.0, 20.0))
+    fn pane_rect((w, h): (f32, f32)) -> Rect {
+        Rect::from_min_size(pos2(0.0, legend_rect().bottom() + 10.0), vec2(w, h))
     }
 
     /// One frame as the run draws it: the chrome's keys, the legend, then the Module window in a
