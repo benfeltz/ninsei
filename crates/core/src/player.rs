@@ -45,6 +45,9 @@ pub struct Transport {
     /// Bumped whenever the music jumps (a new tune, a seek, a stop), so the speaker knows to
     /// start again from [`Transport::at`] rather than carry on.
     pub cue: u32,
+    /// Playing, but something else has the speaker (a cracktro): the clock stands still and
+    /// the status says so. Set by [`tick`].
+    pub held: bool,
 }
 
 /// What a player can ask for.
@@ -84,7 +87,11 @@ pub fn playlist<'a>(save: &Save, data: &'a Data) -> Vec<&'a TuneFile> {
 /// The order the playlist plays in, as indices into [`playlist`]: as listed, or shuffled
 /// from the save's key, so the same save always shuffles the same way.
 pub fn order(save: &Save, data: &Data) -> Vec<usize> {
-    let n = playlist(save, data).len();
+    order_of(save, playlist(save, data).len())
+}
+
+/// [`order`] for a playlist of `n` tunes.
+fn order_of(save: &Save, n: usize) -> Vec<usize> {
     let mut out: Vec<usize> = (0..n).collect();
     if save.player.shuffle {
         let mut rng = Rng::new(save.key ^ 0x5EED_7A9E);
@@ -97,30 +104,36 @@ pub fn order(save: &Save, data: &Data) -> Vec<usize> {
 
 /// Which playlist row is current, if the current tune is still yours.
 pub fn current(save: &Save, data: &Data) -> Option<usize> {
+    current_in(save, &playlist(save, data))
+}
+
+/// [`current`] in a playlist already built.
+fn current_in(save: &Save, list: &[&TuneFile]) -> Option<usize> {
     let id = save.player.current.as_deref()?;
-    playlist(save, data).iter().position(|t| t.id == id)
+    list.iter().position(|t| t.id == id)
 }
 
 /// The current tune, if there is one.
 pub fn current_tune<'a>(save: &Save, data: &'a Data) -> Option<&'a TuneFile> {
-    current(save, data).map(|i| playlist(save, data)[i])
+    let id = save.player.current.as_deref()?;
+    save.has_tune(id).then(|| data.tune(id)).flatten()
 }
 
 /// Moves to playlist row `row` from its start.
-fn go(save: &mut Save, data: &Data, t: &mut Transport, row: usize) {
-    save.player.current = playlist(save, data).get(row).map(|t| t.id.clone());
+fn go(save: &mut Save, list: &[&TuneFile], t: &mut Transport, row: usize) {
+    save.player.current = list.get(row).map(|t| t.id.clone());
     t.at = 0.0;
     t.cue = t.cue.wrapping_add(1);
 }
 
 /// The row after (or before) the current one in play order, wrapping only with repeat.
 /// `None` at an end without repeat, or with nothing to play.
-fn step(save: &Save, data: &Data, forward: bool) -> Option<usize> {
-    let order = order(save, data);
+fn step(save: &Save, list: &[&TuneFile], forward: bool) -> Option<usize> {
+    let order = order_of(save, list.len());
     if order.is_empty() {
         return None;
     }
-    let Some(cur) = current(save, data).and_then(|c| order.iter().position(|&o| o == c)) else {
+    let Some(cur) = current_in(save, list).and_then(|c| order.iter().position(|&o| o == c)) else {
         return Some(order[0]);
     };
     let n = order.len();
@@ -140,17 +153,39 @@ fn step(save: &Save, data: &Data, forward: bool) -> Option<usize> {
 
 /// Carries out one act. Returns false if it did nothing (nothing to play, an end of the list).
 pub fn apply(save: &mut Save, data: &Data, t: &mut Transport, act: Act) -> bool {
-    let has = !playlist(save, data).is_empty();
+    // The level and the modes need no playlist.
     match act {
-        Act::Toggle if t.play == Play::Playing => apply(save, data, t, Act::Pause),
-        Act::Toggle => apply(save, data, t, Act::Play),
+        Act::Louder | Act::Softer => {
+            let v = if act == Act::Louder {
+                save.volume.saturating_add(VOLUME_STEP).min(100)
+            } else {
+                save.volume.saturating_sub(VOLUME_STEP)
+            };
+            let changed = v != save.volume;
+            save.volume = v;
+            return changed;
+        }
+        Act::Repeat => {
+            save.player.repeat = !save.player.repeat;
+            return true;
+        }
+        Act::Shuffle => {
+            save.player.shuffle = !save.player.shuffle;
+            return true;
+        }
+        Act::Toggle if t.play == Play::Playing => return apply(save, data, t, Act::Pause),
+        Act::Toggle => return apply(save, data, t, Act::Play),
+        _ => {}
+    }
+    let list = playlist(save, data);
+    match act {
         Act::Play => {
-            if !has {
+            if list.is_empty() {
                 return false;
             }
-            if current(save, data).is_none() {
-                let first = order(save, data)[0];
-                go(save, data, t, first);
+            if current_in(save, &list).is_none() {
+                let first = order_of(save, list.len())[0];
+                go(save, &list, t, first);
             }
             t.play = Play::Playing;
             true
@@ -170,56 +205,38 @@ pub fn apply(save: &mut Save, data: &Data, t: &mut Transport, act: Act) -> bool 
             was
         }
         Act::Next | Act::Prev => {
-            if act == Act::Prev && t.at >= PREV_RESTARTS_AFTER && current(save, data).is_some() {
+            if act == Act::Prev && t.at >= PREV_RESTARTS_AFTER && current_in(save, &list).is_some()
+            {
                 t.at = 0.0;
                 t.cue = t.cue.wrapping_add(1);
                 return true;
             }
-            match step(save, data, act == Act::Next) {
+            match step(save, &list, act == Act::Next) {
                 Some(row) => {
-                    go(save, data, t, row);
+                    go(save, &list, t, row);
                     true
                 }
                 None => false,
             }
         }
         Act::Pick(row) => {
-            if row >= playlist(save, data).len() {
+            if row >= list.len() {
                 return false;
             }
-            go(save, data, t, row);
+            go(save, &list, t, row);
             t.play = Play::Playing;
             true
         }
         Act::Seek(ms) => {
-            let secs = ms as f32 / 1000.0;
-            let Some(tune) = current_tune(save, data) else {
+            let Some(cur) = current_in(save, &list) else {
                 return false;
             };
-            t.at = secs.clamp(0.0, (tune.secs as f32 - 0.01).max(0.0));
+            let secs = ms as f32 / 1000.0;
+            t.at = secs.clamp(0.0, (list[cur].secs as f32 - 0.01).max(0.0));
             t.cue = t.cue.wrapping_add(1);
             true
         }
-        Act::Louder => {
-            let v = save.volume.saturating_add(VOLUME_STEP).min(100);
-            let changed = v != save.volume;
-            save.volume = v;
-            changed
-        }
-        Act::Softer => {
-            let v = save.volume.saturating_sub(VOLUME_STEP);
-            let changed = v != save.volume;
-            save.volume = v;
-            changed
-        }
-        Act::Repeat => {
-            save.player.repeat = !save.player.repeat;
-            true
-        }
-        Act::Shuffle => {
-            save.player.shuffle = !save.player.shuffle;
-            true
-        }
+        Act::Louder | Act::Softer | Act::Repeat | Act::Shuffle | Act::Toggle => false,
     }
 }
 
@@ -230,35 +247,45 @@ pub fn at_home(screen: Screen) -> bool {
 }
 
 /// Moves the music on by `dt` seconds while it's playing and `live` (at home, and not
-/// displaced by a cracktro: the app knows). At the end of a tune it goes on to the next one
-/// in play order, or, at the end of the list without repeat, stops on the first.
-pub fn tick(save: &mut Save, data: &Data, t: &mut Transport, dt: f32, live: bool) {
+/// displaced by a cracktro: the app knows; [`Transport::held`] says when it isn't). At the
+/// end of a tune it goes on to the next one in play order, as many as `dt` covers (no frames
+/// come while the window is hidden, and the music has gone on); at the end of the list
+/// without repeat, it stops on the first. True if it moved to another tune (the save
+/// changed).
+pub fn tick(save: &mut Save, data: &Data, t: &mut Transport, dt: f32, live: bool) -> bool {
+    t.held = t.play == Play::Playing && !live;
     if !live || t.play != Play::Playing {
-        return;
+        return false;
     }
-    let Some(tune) = current_tune(save, data) else {
-        t.play = Play::Stopped;
-        return;
-    };
+    let list = playlist(save, data);
+    let before = save.player.current.clone();
     t.at += dt.max(0.0);
-    let len = tune.secs as f32;
-    if t.at < len {
-        return;
-    }
-    let over = t.at - len;
-    match step(save, data, true) {
-        Some(row) => {
-            go(save, data, t, row);
-            t.at = over.min(1.0);
-        }
-        None => {
-            let first = order(save, data).first().copied();
-            if let Some(row) = first {
-                go(save, data, t, row);
-            }
+    loop {
+        let Some(cur) = current_in(save, &list) else {
             t.play = Play::Stopped;
+            break;
+        };
+        let len = (list[cur].secs as f32).max(1.0);
+        if t.at < len {
+            break;
+        }
+        let over = t.at - len;
+        match step(save, &list, true) {
+            Some(row) => {
+                go(save, &list, t, row);
+                t.at = over;
+            }
+            None => {
+                let first = order_of(save, list.len()).first().copied();
+                if let Some(row) = first {
+                    go(save, &list, t, row);
+                }
+                t.play = Play::Stopped;
+                break;
+            }
         }
     }
+    save.player.current != before
 }
 
 /// What the speaker should play at home: the current tune from where the player is.
@@ -307,9 +334,9 @@ pub struct Row<'a> {
 
 /// The playlist's rows, in the save's order.
 pub fn rows<'a>(save: &Save, data: &'a Data) -> Vec<Row<'a>> {
-    let cur = current(save, data);
-    playlist(save, data)
-        .into_iter()
+    let list = playlist(save, data);
+    let cur = current_in(save, &list);
+    list.into_iter()
         .enumerate()
         .map(|(i, t)| Row {
             title: &t.title,
@@ -324,6 +351,7 @@ pub fn rows<'a>(save: &Save, data: &'a Data) -> Vec<Row<'a>> {
 /// the modes that are on (`▶ playing · repeat · shuffle`).
 pub fn status(save: &Save, t: &Transport) -> String {
     let mut s = match t.play {
+        Play::Playing if t.held => "‖ waiting",
         Play::Playing => "▶ playing",
         Play::Paused => "‖ paused",
         Play::Stopped => "■ stopped",

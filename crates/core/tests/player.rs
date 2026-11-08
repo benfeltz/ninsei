@@ -253,3 +253,47 @@ fn the_rows_status_and_now_line_say_what_a_player_says() {
     s.sound = false;
     assert_eq!(player::volume(&s), "vol off");
 }
+
+#[test]
+fn a_long_gap_catches_up_whole_tunes() {
+    // No frames came for a while (a hidden window): the playlist went on without them.
+    let d = data();
+    let mut s = owning(&THREE);
+    let mut t = Transport::default();
+    player::apply(&mut s, &d, &mut t, Act::Play);
+    let welcome = d.tune("welcome").unwrap().secs as f32;
+    let chroma = d.tune("chroma").unwrap().secs as f32;
+    assert!(player::tick(
+        &mut s,
+        &d,
+        &mut t,
+        welcome + chroma + 7.0,
+        true
+    ));
+    assert_eq!(
+        (title(&s, &d).as_str(), t.play),
+        ("trap-line", Play::Playing)
+    );
+    assert!((t.at - 7.0).abs() < 1e-3, "{}", t.at);
+    // Past the end without repeat: stopped at the top.
+    player::tick(&mut s, &d, &mut t, 10_000.0, true);
+    assert_eq!((title(&s, &d).as_str(), t.play), ("welcome", Play::Stopped));
+    assert!(
+        !player::tick(&mut s, &d, &mut t, 5.0, true),
+        "nothing moved"
+    );
+}
+
+#[test]
+fn held_by_a_cracktro_the_status_says_it_waits() {
+    let d = data();
+    let mut s = owning(&THREE);
+    let mut t = Transport::default();
+    player::apply(&mut s, &d, &mut t, Act::Play);
+    player::tick(&mut s, &d, &mut t, 1.0, false);
+    assert!(t.held);
+    assert_eq!(player::status(&s, &t), "‖ waiting");
+    assert_eq!(t.at, 0.0, "the clock waits too");
+    player::tick(&mut s, &d, &mut t, 1.0, true);
+    assert_eq!(player::status(&s, &t), "▶ playing");
+}
