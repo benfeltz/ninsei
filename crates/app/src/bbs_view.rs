@@ -150,7 +150,30 @@ impl BbsView {
 /// Paints pipe-coded lines as an 80x24 ANSI terminal: true CGA colours, or the phosphor (`p`)
 /// in four intensities. The BBS window and the QWK reader both draw through it.
 pub fn paint_screen(ui: &mut egui::Ui, lines: &[String], color: bool, p: &Palette) {
+    paint_screen_at(ui, lines, color, p, 1.0);
+}
+
+/// The room the 80x24 terminal takes at its own size, padding and all.
+pub fn screen_size(ui: &egui::Ui) -> egui::Vec2 {
     let font = FontId::new(FONT_SIZE, FontFamily::Monospace);
+    Cells::sized(ui, egui::Pos2::ZERO, font, Some(ROW_HEIGHT), (COLS, ROWS))
+        .rect
+        .size()
+        + vec2(PAD, PAD) * 2.0
+}
+
+/// [`paint_screen`], in a room smaller than the terminal: the whole screen, its type made
+/// smaller to fit the width and the height left in view (never cut at the room's edges, nor
+/// pushed past a scroll fold). At its own size when it fits.
+pub fn paint_screen_fit(ui: &mut egui::Ui, lines: &[String], color: bool, p: &Palette) {
+    let size = screen_size(ui);
+    let tall = ui.clip_rect().bottom() - ui.cursor().top();
+    let scale = (ui.available_width() / size.x).min(tall / size.y).min(1.0);
+    paint_screen_at(ui, lines, color, p, scale);
+}
+
+fn paint_screen_at(ui: &mut egui::Ui, lines: &[String], color: bool, p: &Palette, scale: f32) {
+    let font = FontId::new(FONT_SIZE * scale, FontFamily::Monospace);
     let fgc = |i: u8| if color { cga(i) } else { mono(i, p) };
     let bgc_of = |i: u8| {
         if i == 0 {
@@ -165,9 +188,9 @@ pub fn paint_screen(ui: &mut egui::Ui, lines: &[String], color: bool, p: &Palett
     let (resp, g) = Cells::allocate(
         ui,
         font,
-        Some(ROW_HEIGHT),
+        Some(ROW_HEIGHT * scale),
         (COLS, ROWS),
-        vec2(PAD, PAD),
+        vec2(PAD, PAD) * scale,
         Sense::hover(),
     );
     let rect = resp.rect;

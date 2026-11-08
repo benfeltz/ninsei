@@ -302,6 +302,19 @@ pub struct GameDef {
     /// Sold boxed in CPU Shopper's Games section, if it is.
     #[serde(default)]
     pub shop: Option<GameShop>,
+    /// Its desktop icon, in the 1.3 palette like `hub/icons.ron`'s (both copies wear it).
+    pub icon: Vec<String>,
+}
+
+impl GameDef {
+    /// The intro a copy plays when it opens: a crack its crew's cracktro, a box its
+    /// publisher's splash.
+    pub fn intro(&self, copy: crate::hub::GameCopy) -> &str {
+        match copy {
+            crate::hub::GameCopy::Cracked => &self.crack,
+            crate::hub::GameCopy::Boxed => &self.splash,
+        }
+    }
 }
 
 /// How a game is sold by mail order (the optional `shop` block in `games.ron`).
@@ -1268,10 +1281,32 @@ impl Data {
                     {
                         return Err(err(format!("file `{}` names unknown tool `{id}`", f.file)));
                     }
-                    if let Drop::Game(id) = &f.item
-                        && self.game(id).is_none()
-                    {
-                        return Err(err(format!("file `{}` names unknown game `{id}`", f.file)));
+                    if let Drop::Game(id) = &f.item {
+                        let Some(g) = self.game(id) else {
+                            return Err(err(format!(
+                                "file `{}` names unknown game `{id}`",
+                                f.file
+                            )));
+                        };
+                        // A crack is posted where its crew posts it, named the way a sysop
+                        // names a crack: 8.3, the stem ending in the crew's tag.
+                        let crack = self.intro(&g.crack);
+                        if crack.and_then(|i| i.board.as_deref()) != Some(b.id.as_str()) {
+                            return Err(err(format!(
+                                "file `{}`: {id}'s crack is posted on its crew's board, not here",
+                                f.file
+                            )));
+                        }
+                        let tag = crack.and_then(|i| i.tag.as_deref()).unwrap_or("");
+                        let ok = f.file.split_once('.').is_some_and(|(stem, ext)| {
+                            stem.len() <= 8 && ext.len() <= 3 && stem.ends_with(&format!("-{tag}"))
+                        });
+                        if !ok {
+                            return Err(err(format!(
+                                "file `{}`: a crack is named in 8.3 ending in its crew's tag (-{tag})",
+                                f.file
+                            )));
+                        }
                     }
                     if let Drop::Text(id) = &f.item {
                         if !b.texts.iter().any(|t| &t.id == id) {
@@ -1309,6 +1344,13 @@ impl Data {
             if self.games[..i].iter().any(|o| o.id == g.id) {
                 return err("listed twice".into());
             }
+            if crate::hub::GameId::new(&g.id).is_none() {
+                return err(format!(
+                    "an id is 1-{} ASCII characters",
+                    crate::hub::GAME_ID_MAX
+                ));
+            }
+            crate::hub::IconDef::check_art(&g.id, &g.icon).or_else(err)?;
             let (cols, rows) = (crate::bbs::COLS as u32, crate::bbs::ROWS as u32);
             let (min_c, min_r) = g.engine.min_size();
             if !(min_c..=cols).contains(&g.cols) || !(min_r..=rows).contains(&g.rows) {

@@ -169,6 +169,37 @@ impl Harness {
             .collect()
     }
 
+    /// The text last frame painted whole inside its clip rect: what a player can read.
+    pub fn visible_text(&self) -> Vec<String> {
+        self.shapes
+            .iter()
+            .zip(&self.clips)
+            .filter_map(|(s, clip)| match s {
+                egui::Shape::Text(t) => {
+                    let r = Rect::from_min_size(t.pos, t.galley.size());
+                    clip.expand(0.5)
+                        .contains_rect(r)
+                        .then(|| t.galley.text().to_string())
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Every piece of text last frame painted (labels drawn by hand, not widgets), with where.
+    pub fn painted_text(&self) -> Vec<(String, Rect)> {
+        self.shapes
+            .iter()
+            .filter_map(|s| match s {
+                egui::Shape::Text(t) => Some((
+                    t.galley.text().to_string(),
+                    Rect::from_min_size(t.pos, t.galley.size()),
+                )),
+                _ => None,
+            })
+            .collect()
+    }
+
     /// What last frame painted, in order, flattened.
     pub fn painted(&self) -> &[egui::Shape] {
         &self.shapes

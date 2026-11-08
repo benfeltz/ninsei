@@ -36,6 +36,7 @@
         (headline: "HOW MUCH RAM IS ENOUGH?", line: "Six programs, one deck, no excuses.", section: Upgrades),
         (headline: "MONITOR SHOOTOUT", line: "Amber vs. green vs. IBM VGA. Your eyes will thank you.", section: Monitors),
         (headline: "MAIL-ORDER MADNESS", line: "Software in a plain wrapper. No questions asked.", section: Software),
+        (kicker: Some("NEW"), headline: "BLOX 2.0 IS HERE", line: "The falling-block craze, boxed. We played it all night.", section: Games),
     ],
     sections: [
         (section: Decks,    title: "Decks",               page: 12,  vendor: "sensenet"),
@@ -80,5 +81,8 @@
          note: Some("For authorized security testing only."), callout: Some("CALL FOR PRICING")),
         (item: Tool("nightcomm"), size: Box, headline: Some("NiGHTCOMM"),
          bullets: ["kn0w y0ur l1n3z.", "wardial, ranges, heat"]),
+        (item: Game("blox"), size: Box, headline: Some("BLOX 2.0"),
+         bullets: ["Seven shapes. Just one more game!", "Manual and warranty card in every box"],
+         note: Some("Fun for the whole deck.")),
     ],
 )

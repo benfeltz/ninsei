@@ -32,9 +32,10 @@ impl Fit {
 
 /// What a screen needs: the grids it works in (any one will do), and how it counts the cells
 /// a rect holds, in its own font.
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Debug)]
 pub struct Need {
-    pub grids: &'static [Fit],
+    /// Fixed for a screen in code, or from data (a game's field).
+    pub grids: std::borrow::Cow<'static, [Fit]>,
     pub cells: fn(&Ui, Rect) -> (usize, usize),
     /// The face's height scrolls (its rows are a floor, not a fit): it lays out beside the
     /// scroll bar, so the bar's width isn't its to count.
@@ -45,7 +46,16 @@ impl Need {
     /// Grids counted in the kit's cells (`Cells`).
     pub const fn cells(grids: &'static [Fit]) -> Need {
         Need {
-            grids,
+            grids: std::borrow::Cow::Borrowed(grids),
+            cells: cells_in,
+            scrolls: false,
+        }
+    }
+
+    /// Grids worked out at run time (from data), counted in the kit's cells.
+    pub fn cells_owned(grids: Vec<Fit>) -> Need {
+        Need {
+            grids: std::borrow::Cow::Owned(grids),
             cells: cells_in,
             scrolls: false,
         }
@@ -59,14 +69,14 @@ pub fn fits(need: &[Fit], have: (usize, usize)) -> bool {
 
 /// The cells `rect` holds, counted the way `need` counts them, and whether that's enough. A
 /// face that scrolls gets `rect` less a scroll bar `bar` wide.
-pub fn check(ui: &Ui, rect: Rect, need: Need, bar: f32) -> ((usize, usize), bool) {
+pub fn check(ui: &Ui, rect: Rect, need: &Need, bar: f32) -> ((usize, usize), bool) {
     let room = if need.scrolls {
         rect.with_max_x(rect.max.x - bar)
     } else {
         rect
     };
     let have = (need.cells)(ui, room);
-    (have, fits(need.grids, have))
+    (have, fits(&need.grids, have))
 }
 
 /// The notice's lines: what needs how much and has how much, then the desktop's hint.
@@ -193,7 +203,7 @@ mod tests {
             got = Some(check(
                 ui,
                 rect,
-                Need::cells(&[Fit { cols: 40, rows: 12 }]),
+                &Need::cells(&[Fit { cols: 40, rows: 12 }]),
                 10.0,
             ));
         });

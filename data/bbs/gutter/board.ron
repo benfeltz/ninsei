@@ -36,11 +36,12 @@
             "|07Pro tip: |15hex <slot>|07 opens your warez. Mind the checksum.",
             "|07TEXTFILES has leaked phone ranges. New here? Start in G-FILES.",
             "|07QWKREAD.ZIP in WAREZ TOOLS: save the G-FILES, read them at home.",
+            "|07GAMES area is up. Fresh cracks, cheap. Kids, keep it clean.",
         ]),
     ],
     users: [
         (handle: "m0th",      location: "Ninsei",       doing: "Sysop chat"),
-        (handle: "c4se",      location: "Chiba",        doing: "Downloading"),
+        (handle: "c4se",      location: "Chiba",        doing: "Playing NIBBLER"),
         (handle: "ratz",      location: "Night City",   doing: "Reading bulletins"),
         (handle: "zero_kool", location: "Hamburg",      doing: "Door game: TradeWars"),
     ],
@@ -63,6 +64,12 @@
             (file: "PHONES.TXT",   item: Hint("brightwater"),      price: 30,  desc: "Brightwater's lines. Leaked by a temp"),
             (file: "YMT-NET.TXT",  item: Hint("yamatai"),          price: 40,  desc: "Yamatai dial-ins, partial list"),
             (file: "SAITO.TXT",    item: Hint("saito"),            price: 35,  desc: "Saito Pharma line dump"),
+        ]),
+        // Cracked games, signed by their crews (docs/world.md): the file names carry the tag.
+        (name: "GAMES", stock: 2, files: [
+            (file: "NIBB-2K4.ZIP", item: Game("nibbler"),   price: 15,  desc: "Nibbler. 2400 CLUB krak, it runs"),
+            (file: "BLOX-PHS.ZIP", item: Game("blox"),      price: 30,  desc: "Blox 2.0. PHOSPHOR, the real one"),
+            (file: "MINE-PHS.ZIP", item: Game("minefield"), price: 20,  desc: "Minefield 1.1. PHOSPHOR crack"),
         ]),
         (name: "OPTIMIZERS", stock: 1, files: [
             (file: "OPTFRAG.ZIP",  item: Fragment(1),       price: 70,  desc: "Optimizer fragment. +2 budget"),
