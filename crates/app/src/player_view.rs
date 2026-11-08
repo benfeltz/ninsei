@@ -711,13 +711,14 @@ pub fn workbench_face(
         look.ink,
     );
 
-    // The gadgets beside them: PLAY reads STOP while it plays (Protracker's own pair), then
-    // PREV and NEXT, and the modes as toggle gadgets.
+    // The gadgets beside them, Protracker's: PLAY (and again to pause), STOP back to the
+    // top, PREV and NEXT; then the modes as toggle gadgets. Each gadget's id is its slot, so
+    // a press survives its face changing under it.
     let gx = x0 + label_w + value_w + 8.0 + adv * 11.0;
-    let gw = (x0 + w - gx) / 3.0 - 4.0;
-    let playing = t.play == player::Play::Playing;
+    let gw = (x0 + w - gx) / 4.0 - 4.0;
     for (i, (label, act)) in [
-        (if playing { "STOP" } else { "PLAY" }, Act::Toggle),
+        ("PLAY", Act::Toggle),
+        ("STOP", Act::Stop),
         ("PREV", Act::Prev),
         ("NEXT", Act::Next),
     ]
@@ -729,7 +730,7 @@ pub fn workbench_face(
             ui,
             &p,
             r,
-            Id::new(("trax-wb", label)),
+            Id::new(("trax-wb-gadget", i)),
             label,
             ui.is_enabled(),
             &look,
@@ -1416,6 +1417,7 @@ mod tests {
             wb(&mut h, &mut home, &data, &save, false, Vec::new());
             for (label, act) in [
                 ("PLAY", Act::Toggle),
+                ("STOP", Act::Stop),
                 ("PREV", Act::Prev),
                 ("NEXT", Act::Next),
                 ("REPEAT", Act::Repeat),
@@ -1430,7 +1432,7 @@ mod tests {
         }
 
         #[test]
-        fn playing_it_reads_stop_and_its_boxes_say_where_it_is() {
+        fn its_boxes_say_where_it_is_and_stop_has_its_own_gadget() {
             let data = Data::builtin().unwrap();
             let mut save = hosaka(&data);
             let mut h = Harness::new(900.0, 700.0);
@@ -1438,7 +1440,7 @@ mod tests {
             player::apply(&mut save, &data, &mut home.player, Act::Pick(1));
             player::tick(&mut save, &data, &mut home.player, 12.0, true);
             wb(&mut h, &mut home, &data, &save, false, Vec::new());
-            assert!(h.find("STOP").is_some() && h.find("PLAY").is_none());
+            assert!(h.find("STOP").is_some() && h.find("PLAY").is_some());
             let rd = player::readout(&save, &data, &home.player, home.heard.rate);
             for s in [
                 "POS".to_string(),
@@ -1452,8 +1454,10 @@ mod tests {
             ] {
                 assert!(painted(&h, &s), "{s}: {:?}", h.painted_text());
             }
+            // STOP goes back to the top; PLAY, again, pauses.
+            assert_eq!(press(&mut h, &mut home, &data, &save, "STOP"), [Act::Stop]);
             assert_eq!(
-                press(&mut h, &mut home, &data, &save, "STOP"),
+                press(&mut h, &mut home, &data, &save, "PLAY"),
                 [Act::Toggle]
             );
         }
