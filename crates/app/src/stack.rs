@@ -1,11 +1,13 @@
 //! The Stack chrome (the Sense/Net deck): the run screen as a HyperCard stack. The deck is a
 //! field of meters that fill with darker patterns as they rise, programs are rounded buttons
 //! with a hatched shadow, the terminal is the Message box under a scrolling log field, and a
-//! fight brings up a double-bordered Mac alert with the best move as its default button. Two
+//! fight puts the Script card under the ICE: the deck's program as a stack of operator blocks
+//! with fields, after HyperCard 1.2's button script editor, and Step, Run and Pause. What the
+//! card shows is core's (`ninsei_core::stack_fight`); this only draws it and routes edits. Two
 //! theme colours (lit ink on dark paper); anything it doesn't draw is Classic.
 
-use egui::{Align2, Color32, Id, Rect, RichText, Sense, Stroke, StrokeKind, Ui, vec2};
-use ninsei_core::data::Effect;
+use egui::{Align2, Color32, Id, Rect, RichText, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
+use ninsei_core::stack_fight::{self, Block, BlockKind, Field};
 use ninsei_core::{Action, Game, LogKind, Phase, tuning};
 
 use crate::chrome::{ChromeView, FrameCx, MenuPart, Menus, act};
@@ -21,10 +23,19 @@ mod look {
     pub const BUTTON_R: f32 = 9.0;
     /// How far a button's hatched shadow falls.
     pub const DROP: f32 = 4.0;
-    pub const ALERT_W: f32 = 460.0;
-    /// Where the fight's alert sits on the screen.
-    pub const ALERT_LEFT: f32 = 60.0;
-    pub const ALERT_TOP: f32 = 300.0;
+    /// The Script card: a block's height and the gap above it, the gutter the ▶ sits in, the
+    /// widest a block grows, a comment's row, the room inside a block, a field's width for a
+    /// number, the gap between fields, and a block's move and close boxes.
+    pub const BLOCK_H: f32 = 30.0;
+    pub const BLOCK_GAP: f32 = 8.0;
+    pub const GUTTER: f32 = 18.0;
+    pub const BLOCK_W: f32 = 600.0;
+    pub const BLOCK_PAD: f32 = 8.0;
+    pub const NUMBER_W: f32 = 56.0;
+    pub const FIELD_GAP: f32 = 6.0;
+    /// The palette's blocks: their width and height.
+    pub const CHIP_W: f32 = 56.0;
+    pub const CHIP_H: f32 = 20.0;
     /// How round the small buttons are.
     pub const SMALL_R: u8 = 6;
     /// The Control Panel window, and where its slider and check box sit inside it.
@@ -75,21 +86,6 @@ pub fn meter_pattern(frac: f32) -> &'static str {
     } else {
         "p75"
     }
-}
-
-/// The program a fight's alert offers first: the program that breaks the most now.
-pub fn best_move(g: &Game) -> Option<usize> {
-    (0..g.hdd.len())
-        .filter_map(|i| g.preview(i).ok().map(|p| (i, p.hit())))
-        .filter(|&(_, hit)| hit > 0)
-        .max_by_key(|&(i, hit)| (hit, std::cmp::Reverse(i)))
-        .map(|(i, _)| i)
-}
-
-/// The first shield that can go up now.
-fn shield_move(g: &Game) -> Option<usize> {
-    (0..g.hdd.len())
-        .find(|&i| matches!(g.hdd[i].spec.effect, Effect::Shield(_)) && g.preview(i).is_ok())
 }
 
 /// A field: a 1-px frame round what `body` draws.
@@ -182,19 +178,11 @@ impl ChromeView for Stack {
         ui.label(RichText::new(p.deck.clone()).strong().color(ink));
         ui.add_space(4.0);
         field(ui, ink, |ui| {
-            let cpu = g.combat.as_ref().map_or(d.cpu_max, |c| c.cpu);
-            meter(ui, p, "CPU", cpu, d.cpu_max, format!("{cpu}/{}", d.cpu_max));
-            let ifs = g.ifs_left();
-            meter(
-                ui,
-                p,
-                "RAM",
-                ifs,
-                d.ram_max,
-                format!("{ifs}/{} GB", d.ram_max),
-            );
-            let hdd = g.hdd.len() as u32;
-            meter(ui, p, "HDD", hdd, d.hdd_max, format!("{hdd}/{}", d.hdd_max));
+            // The limits in the deck's words: CPU and RAM fill with what's left this turn.
+            let b = stack_fight::card(g).budgets;
+            meter(ui, p, "CPU", b.cpu.0, b.cpu.1, b.cpu_words());
+            meter(ui, p, "RAM", b.ifs.0, b.ifs.1, b.ifs_words());
+            meter(ui, p, "HDD", b.hdd.0, b.hdd.1, b.hdd_words());
             meter(
                 ui,
                 p,
@@ -238,7 +226,6 @@ impl ChromeView for Stack {
     fn warez(&self, p: &mut Panes, ui: &mut Ui) {
         let g = p.game;
         let fighting = g.phase == Phase::Combat;
-        let best = if fighting { best_move(g) } else { None };
         ui.label(
             RichText::new(format!("On disk  {}/{}", g.hdd.len(), g.deck.hdd_max))
                 .strong()
@@ -250,7 +237,7 @@ impl ChromeView for Stack {
             let sub = format!("run · cpu {}", w.cpu);
             let id = ui.id().with(("stack-prog", s.uid));
             ui.horizontal(|ui| {
-                if button(ui, p, id, &w.file(), &sub, on, best == Some(i)) {
+                if button(ui, p, id, &w.file(), &sub, on, false) {
                     p.act(Action::Run(i));
                 }
                 if p.game.has_tool("hexed") && ui.small_button("hex").clicked() {
@@ -431,9 +418,27 @@ impl ChromeView for Stack {
         p.network(ui);
     }
 
+    /// The ICE card. In a fight the Script card sits under the ICE and its hotbar; otherwise
+    /// the card scrolls as any other.
     fn target(&self, p: &mut Panes, ui: &mut Ui) {
         round(ui);
-        p.target(ui);
+        if p.game.phase == Phase::Combat && p.game.combat.is_some() {
+            p.target(ui);
+            ui.add_space(6.0);
+            // The card takes the rest of the pane, and no more.
+            let rest = ui.available_rect_before_wrap().intersect(ui.max_rect());
+            let mut card = ui.new_child(egui::UiBuilder::new().max_rect(rest));
+            script_card(p, &mut card);
+        } else {
+            egui::ScrollArea::vertical()
+                .auto_shrink([false, false])
+                .show(ui, |ui| p.target(ui));
+        }
+    }
+
+    /// The ICE card lays itself out: the Script card scrolls its own blocks.
+    fn scroll_bars(&self, tab: Tab) -> Option<[bool; 2]> {
+        (tab == Tab::Target).then_some([false, false])
     }
 
     fn hex(&self, p: &mut Panes, ui: &mut Ui) {
@@ -463,136 +468,411 @@ impl ChromeView for Stack {
             });
     }
 
-    /// A fight brings up a Mac alert over the card. It's small and off to the side of the
-    /// action, and closing it just tucks it away for this fight.
-    fn overlay(&self, ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
-        let Some(f) = Fight::of(ctx, cx) else {
-            return Vec::new();
-        };
-        let look = liza::Look {
-            ink: cx.pal.fg,
-            paper: cx.pal.bg,
-            font: egui::TextStyle::Monospace.resolve(&ctx.global_style()),
-            stripes: None,
-            gray: None,
-        };
-        let screen = ctx.content_rect();
-        // Over the lower left, below the ICE's numbers and clear of the programs (the Stack's
-        // layout keeps them on the right).
-        let at = egui::pos2(
-            screen.left() + look::ALERT_LEFT,
-            screen.top() + look::ALERT_TOP,
-        );
-        let id = Id::new("stack-alert");
-        let pressed = f.with(|a| liza::alert(ctx, id, at, look::ALERT_W, a, &look));
-        f.press(ctx, pressed)
-    }
-
-    /// The fight's alert takes Enter (its default, the best move) and Esc (Close) while the
-    /// Message box isn't being typed in, before the run's own hotkeys see them.
+    /// In a fight, while nothing else has the keyboard: Enter presses Run, the default, and Esc
+    /// pauses a running program. Esc never closes the card.
     fn keys(&self, ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
-        let Some(f) = Fight::of(ctx, cx) else {
+        if !cx.keys_free || ctx.egui_wants_keyboard_input() {
             return Vec::new();
-        };
-        let pressed = f.with(|a| liza::alert_keys(ctx, Id::new("stack-alert"), a));
-        f.press(ctx, pressed)
+        }
+        let b = stack_fight::card(cx.game).buttons;
+        let mut out = Vec::new();
+        if b.default_run() && fresh_key(ctx, egui::Key::Enter) {
+            out.push(act(Action::Play));
+        }
+        if b.pause && fresh_key(ctx, egui::Key::Escape) {
+            out.push(act(Action::Pause));
+        }
+        out
     }
 }
 
-/// The fight's alert: what it says and what each button does, left to right: Close, then a
-/// shield, then the action (the best move, its default, else end turn).
-struct Fight {
-    title: String,
-    message: String,
-    buttons: Vec<String>,
-    acts: Vec<Option<Action>>,
-    default: Option<usize>,
-    keys: bool,
-    closed: Id,
-}
-
-impl Fight {
-    /// The alert, while it's up.
-    fn of(ctx: &egui::Context, cx: &FrameCx) -> Option<Fight> {
-        let g = cx.game;
-        let (Some(c), Some(closed)) = (&g.combat, alert_key(g)) else {
-            return None;
-        };
-        if !alert_up(ctx, g) {
-            return None;
-        }
-        let def = &g.data.ice[c.ice];
-        let best = best_move(g);
-        let mut buttons = vec!["Close".to_string()];
-        let mut acts = vec![None];
-        if let Some(s) = shield_move(g) {
-            buttons.push(format!("Shield: {}", g.hdd[s].spec.name));
-            acts.push(Some(Action::Run(s)));
-        }
-        match best {
-            Some(b) => {
-                buttons.push(format!("Run {}", g.hdd[b].spec.name));
-                acts.push(Some(Action::Run(b)));
-            }
-            None => {
-                buttons.push("End turn".to_string());
-                acts.push(Some(Action::EndTurn));
-            }
-        }
-        Some(Fight {
-            title: format!("{} rezzed.", def.name),
-            message: format!(
-                "{}, strength {} of {}. It's holding the line.",
-                def.class.label(),
-                c.strength,
-                c.strength_max
-            ),
-            default: best.map(|_| buttons.len() - 1),
-            buttons,
-            acts,
-            keys: cx.keys_free && !ctx.egui_wants_keyboard_input(),
-            closed,
+/// A fresh press of `key` with no modifiers (a held key goes once), taken so nothing after
+/// sees it.
+fn fresh_key(ctx: &egui::Context, key: egui::Key) -> bool {
+    let fresh = ctx.input(|i| {
+        i.events.iter().any(|e| {
+            matches!(e, egui::Event::Key { key: k, pressed: true, repeat: false, modifiers, .. }
+                if *k == key && modifiers.is_none())
         })
-    }
+    });
+    fresh && ctx.input_mut(|i| i.consume_key(egui::Modifiers::NONE, key))
+}
 
-    /// Runs `f` on the alert as the kit takes it.
-    fn with<R>(&self, f: impl FnOnce(&liza::Alert) -> R) -> R {
-        let labels: Vec<&str> = self.buttons.iter().map(String::as_str).collect();
-        f(&liza::Alert {
-            icon: "⚠",
-            title: &self.title,
-            message: &self.message,
-            buttons: &labels,
-            default: self.default,
-            cancel: Some(0),
-            keys: self.keys,
-        })
+/// The Script card's look: Liza's two colours and type.
+fn card_look<'a>(p: &Panes<'a>) -> liza::Look<'a> {
+    liza::Look {
+        ink: p.pal.fg,
+        paper: p.pal.bg,
+        font: egui::TextStyle::Monospace.resolve(&egui::Style::default()),
+        stripes: None,
+        gray: p.game.data.pattern("p50"),
     }
+}
 
-    /// What pressing button `i` does: Close tucks the alert away, the rest act.
-    fn press(&self, ctx: &egui::Context, i: Option<usize>) -> Vec<Request> {
-        match i {
-            Some(0) => {
-                ctx.data_mut(|d| d.insert_temp(self.closed, true));
-                Vec::new()
+/// A string's width in `font`, on a whole pixel.
+fn text_w(ui: &Ui, text: &str, font: &egui::FontId) -> f32 {
+    ui.fonts_mut(|f| {
+        f.layout_no_wrap(text.to_string(), font.clone(), Color32::WHITE)
+            .size()
+            .x
+    })
+    .ceil()
+}
+
+/// The Script card: a title line with what's left this turn, the program's blocks (scrolling
+/// when they run past the card), then the palette row and Step, Run and Pause. Edits and
+/// presses become actions; nothing here changes the game.
+fn script_card(p: &mut Panes, ui: &mut Ui) {
+    let g = p.game;
+    let card = stack_fight::card(g);
+    let look = card_look(p);
+    let ink = look.ink;
+    let mut acts: Vec<Action> = Vec::new();
+    // The title line: the card's name at the left, what's left this turn at the right.
+    let line_h = ui.fonts_mut(|f| f.row_height(&look.font)).ceil() + 4.0;
+    let (title, _) =
+        ui.allocate_exact_size(vec2(ui.available_width().floor(), line_h), Sense::hover());
+    let bold = egui::FontId::new(look.font.size, egui::FontFamily::Monospace);
+    ui.painter().text(
+        pos2(title.left(), title.center().y).round(),
+        Align2::LEFT_CENTER,
+        "Script",
+        bold,
+        ink,
+    );
+    ui.painter().text(
+        pos2(title.right() - 1.0, title.center().y).round(),
+        Align2::RIGHT_CENTER,
+        card.budgets.left_words(),
+        look.font.clone(),
+        ink,
+    );
+    blocks(ui, g, &card, &look, &mut acts);
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        ui.label(RichText::new("Blocks:").monospace().color(ink));
+        for kind in stack_fight::PALETTE {
+            if let Some(a) = palette_chip(ui, g, kind, &look) {
+                acts.push(a);
             }
-            Some(i) => self.acts[i].clone().map(act).into_iter().collect(),
-            None => Vec::new(),
+        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let b = card.buttons;
+            // Right to left: Pause, Run, Step, so they read Step, Run, Pause.
+            for (label, on, default, a) in [
+                ("Pause", b.pause, false, Action::Pause),
+                ("Run", b.run, b.default_run(), Action::Play),
+                ("Step", b.step, false, Action::Step),
+            ] {
+                let pressed = ui
+                    .add_enabled_ui(on, |ui| liza::push_button(ui, label, default, &look))
+                    .inner
+                    .clicked();
+                if pressed {
+                    acts.push(a);
+                }
+            }
+        });
+    });
+    // A block dragged from the palette rides the pointer.
+    if let Some(kind) = egui::DragAndDrop::payload::<BlockKind>(ui.ctx())
+        && let Some(at) = ui.ctx().pointer_interact_pos()
+    {
+        let painter = ui.ctx().layer_painter(egui::LayerId::new(
+            egui::Order::Tooltip,
+            Id::new("stack-drag"),
+        ));
+        let r = Rect::from_min_size(at + vec2(8.0, 8.0), vec2(look::CHIP_W, look::CHIP_H));
+        liza::shadowed(&painter, r, &look);
+        painter.text(
+            r.center(),
+            Align2::CENTER_CENTER,
+            kind.label(),
+            look.font.clone(),
+            ink,
+        );
+    }
+    for a in acts {
+        p.act(a);
+    }
+}
+
+/// The program's rows in a framed box, a whole row at a time: the blocks, any stray text, and
+/// the dotted slot at the end, with Liza's scroll bar once they run past it. The window keeps
+/// the line about to run in view.
+fn blocks(
+    ui: &mut Ui,
+    g: &Game,
+    card: &stack_fight::Card,
+    look: &liza::Look,
+    acts: &mut Vec<Action>,
+) {
+    let row_h = look::BLOCK_H + look::BLOCK_GAP;
+    let foot = liza::size::BUTTON_H + 2.0 * liza::size::RING_OUT + 8.0;
+    let rows = (((ui.available_height() - foot - look::BLOCK_GAP) / row_h).floor() as usize).max(2);
+    let h = rows as f32 * row_h + look::BLOCK_GAP;
+    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width().floor(), h), Sense::hover());
+    let rect = Rect::from_min_size(rect.min.round(), rect.size());
+    let n = card.blocks.len() + card.stray.len() + 1;
+    let id = Id::new("stack-script");
+    let key = id.with("list");
+    let mut list: crate::kit::List = ui.data(|d| d.get_temp(key)).unwrap_or_default();
+    let current = card.blocks.iter().position(|b| b.current);
+    let follow = (ui.data(|d| d.get_temp::<Option<usize>>(key.with("cur"))) != Some(current))
+        .then_some(current)
+        .flatten();
+    list.view(n, follow, rows);
+    let bar = Rect::from_min_max(
+        pos2(rect.right() - liza::size::SCROLL_W, rect.top()),
+        rect.max,
+    );
+    let s = crate::kit::scrollbar::Scroll {
+        offset: list.top as f32 * row_h,
+        view: rows as f32 * row_h,
+        content: n as f32 * row_h,
+        line: row_h,
+    };
+    let painter = ui.painter().clone();
+    painter.rect_filled(rect, 0.0, look.paper);
+    if s.active()
+        && let Some(o) = liza::scroll_bar(ui, &painter, bar, id.with("bar"), s, look)
+    {
+        list.top = (o / row_h).round() as usize;
+    }
+    let shown = list.view(n, None, rows);
+    painter.rect_stroke(rect, 0.0, Stroke::new(1.0, look.ink), StrokeKind::Inside);
+    let right = if s.active() {
+        bar.left()
+    } else {
+        rect.right() - 1.0
+    };
+    for i in shown {
+        let row = Rect::from_min_size(
+            pos2(rect.left() + 1.0, rect.top() + list.row(i) as f32 * row_h),
+            vec2((right - rect.left() - 1.0).min(look::BLOCK_W), row_h),
+        );
+        if let Some(b) = card.blocks.get(i) {
+            block_row(ui, row, g, b, look, acts);
+        } else if let Some((text, why)) = card.stray.get(i - card.blocks.len()) {
+            let at = pos2(
+                row.left() + look::GUTTER + look::BLOCK_PAD,
+                row.center().y + 4.0,
+            );
+            painter.text(
+                at,
+                Align2::LEFT_CENTER,
+                format!("{text}   {why}"),
+                look.font.clone(),
+                look.ink,
+            );
+        } else {
+            end_slot(ui, row, g, look, acts);
         }
     }
+    if s.active()
+        && let Some(wheel) = crate::kit::scrollbar::take_wheel(ui, rect.with_max_x(bar.left()), id)
+    {
+        list.wheel(wheel / row_h);
+        ui.ctx().request_repaint();
+    }
+    ui.data_mut(|d| {
+        d.insert_temp(key, list);
+        d.insert_temp(key.with("cur"), current);
+    });
 }
 
-/// Where a fight's "closed" flag is kept: per run and per node.
-fn alert_key(g: &Game) -> Option<Id> {
-    g.combat
-        .as_ref()
-        .map(|c| Id::new(("stack-alert-closed", g.seed, c.node)))
+/// A block from the palette: a click adds it at the end; dragged, it drops where it lands.
+fn palette_chip(ui: &mut Ui, g: &Game, kind: BlockKind, look: &liza::Look) -> Option<Action> {
+    let (r, _) = ui.allocate_exact_size(vec2(look::CHIP_W, look::CHIP_H), Sense::hover());
+    let r = Rect::from_min_size(r.min.round(), r.size());
+    let resp = ui.interact(r, Id::new(("stack-chip", kind)), Sense::click_and_drag());
+    resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, kind.label()));
+    resp.dnd_set_drag_payload(kind);
+    let painter = ui.painter();
+    liza::shadowed(painter, r, look);
+    let (fg, bg) = if resp.is_pointer_button_down_on() {
+        (look.paper, look.ink)
+    } else {
+        (look.ink, look.paper)
+    };
+    painter.rect_filled(r.shrink(1.0), 0.0, bg);
+    painter.text(
+        r.center(),
+        Align2::CENTER_CENTER,
+        kind.label(),
+        look.font.clone(),
+        fg,
+    );
+    resp.clicked().then(|| stack_fight::add(g, kind))
 }
 
-/// The fight's alert is showing: a fight is on and it hasn't been closed.
-fn alert_up(ctx: &egui::Context, g: &Game) -> bool {
-    g.phase == Phase::Combat
-        && alert_key(g).is_some_and(|k| !ctx.data(|d| d.get_temp::<bool>(k)).unwrap_or(false))
+/// The dotted slot under the last block: a block dropped here goes at the end.
+fn end_slot(ui: &mut Ui, row: Rect, g: &Game, look: &liza::Look, acts: &mut Vec<Action>) {
+    let slot = Rect::from_min_max(
+        pos2(row.left() + look::GUTTER, row.top() + look::BLOCK_GAP),
+        row.right_bottom(),
+    );
+    let resp = ui.interact(slot, Id::new("stack-end-slot"), Sense::hover());
+    if let Some(kind) = resp.dnd_release_payload::<BlockKind>() {
+        acts.push(stack_fight::add(g, *kind));
+    }
+    let painter = ui.painter();
+    liza::dotted(painter, slot, look.ink);
+    if resp.dnd_hover_payload::<BlockKind>().is_some() {
+        liza::dotted(painter, slot.shrink(2.0), look.ink);
+    }
+}
+
+/// One line of the program: the ▶ in the gutter when it's next, then the block (a framed box
+/// with its number on the top edge, its keyword, its fields, its fault) and its move and
+/// close boxes; a comment is a plain `--` line. A block dropped on it goes in above it.
+fn block_row(
+    ui: &mut Ui,
+    row: Rect,
+    g: &Game,
+    b: &Block,
+    look: &liza::Look,
+    acts: &mut Vec<Action>,
+) {
+    let ink = look.ink;
+    let font = look.font.clone();
+    let small = egui::FontId::new((font.size * 0.85).round(), font.family.clone());
+    let note = b.kind == BlockKind::Rem;
+    let row = Rect::from_min_size(row.min.round(), row.size().round());
+    let drop = ui.interact(row, Id::new(("stack-row", b.no)), Sense::hover());
+    if let Some(kind) = drop.dnd_release_payload::<BlockKind>() {
+        acts.push(stack_fight::insert_before(g, b.no, *kind));
+    }
+    let painter = ui.painter().clone();
+    if drop.dnd_hover_payload::<BlockKind>().is_some() {
+        // Where it would land: a line above the block.
+        let y = row.top() + (look::BLOCK_GAP / 2.0).floor();
+        painter.line_segment(
+            [pos2(row.left() + look::GUTTER, y), pos2(row.right(), y)],
+            Stroke::new(2.0, ink),
+        );
+    }
+    let body = Rect::from_min_max(
+        pos2(row.left() + look::GUTTER, row.top() + look::BLOCK_GAP),
+        pos2(row.right() - look::BLOCK_PAD, row.bottom()),
+    );
+    if b.current {
+        painter.text(
+            pos2(row.left() + 2.0, body.center().y),
+            Align2::LEFT_CENTER,
+            "▶",
+            font.clone(),
+            ink,
+        );
+    }
+    // The move and close boxes, right to left.
+    let mut right = body.right();
+    for (glyph, what, a) in [
+        ("", "delete", Some(stack_fight::remove(g, b.no))),
+        ("▼", "move down", stack_fight::swap(g, b.no, false)),
+        ("▲", "move up", stack_fight::swap(g, b.no, true)),
+    ] {
+        let r = Rect::from_min_size(
+            pos2(right - look::BOX, body.center().y - look::BOX / 2.0).round(),
+            vec2(look::BOX, look::BOX),
+        );
+        right = r.left() - 4.0;
+        let on = a.is_some();
+        let resp = ui.interact(r, Id::new(("stack-box", b.no, what)), Sense::click());
+        resp.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, on, what));
+        if on {
+            painter.rect_filled(r, 0.0, look.paper);
+            painter.rect_stroke(r, 0.0, Stroke::new(1.0, ink), StrokeKind::Inside);
+            painter.text(r.center(), Align2::CENTER_CENTER, glyph, small.clone(), ink);
+            if resp.clicked()
+                && let Some(a) = a
+            {
+                acts.push(a);
+            }
+        }
+    }
+    if note {
+        painter.text(
+            pos2(body.left() + look::BLOCK_PAD, body.center().y),
+            Align2::LEFT_CENTER,
+            format!("{}  -- {}", b.no, b.text),
+            font.clone(),
+            ink,
+        );
+        return;
+    }
+    let frame = Rect::from_min_max(body.min.round(), pos2(right - 4.0, body.bottom()).round());
+    painter.rect_filled(frame, 0.0, look.paper);
+    painter.rect_stroke(frame, 0.0, Stroke::new(1.0, ink), StrokeKind::Inside);
+    // The line's number, set into the top edge.
+    let no = b.no.to_string();
+    let no_at = pos2(frame.left() + look::BLOCK_PAD, frame.top());
+    let no_w = text_w(ui, &no, &small);
+    painter.rect_filled(
+        Rect::from_min_size(no_at - vec2(3.0, 6.0), vec2(no_w + 6.0, 12.0)),
+        0.0,
+        look.paper,
+    );
+    painter.text(no_at, Align2::LEFT_CENTER, &no, small.clone(), ink);
+    // The keyword: STOP stands out inverted, the breakpoint.
+    let mut x = frame.left() + look::BLOCK_PAD;
+    let cy = frame.center().y + 2.0;
+    let word = format!("({})", b.kind.label());
+    let word_w = text_w(ui, &word, &font);
+    if b.kind == BlockKind::Stop {
+        painter.rect_filled(
+            Rect::from_min_size(pos2(x - 2.0, cy - 9.0), vec2(word_w + 4.0, 18.0)),
+            0.0,
+            ink,
+        );
+        painter.text(
+            pos2(x, cy),
+            Align2::LEFT_CENTER,
+            &word,
+            font.clone(),
+            look.paper,
+        );
+    } else {
+        painter.text(pos2(x, cy), Align2::LEFT_CENTER, &word, font.clone(), ink);
+    }
+    x += word_w + look::BLOCK_PAD;
+    if let Some(caption) = b.caption {
+        painter.text(pos2(x, cy), Align2::LEFT_CENTER, caption, font.clone(), ink);
+        x += text_w(ui, caption, &font) + look::FIELD_GAP;
+    }
+    if b.kind == BlockKind::Bad {
+        painter.text(pos2(x, cy), Align2::LEFT_CENTER, &b.text, font.clone(), ink);
+        x += text_w(ui, &b.text, &font) + look::FIELD_GAP;
+    }
+    let field_h = liza::size::FIELD_H;
+    for (ix, f) in b.fields.iter().enumerate() {
+        let id = Id::new(("stack-field", b.no, ix));
+        match f {
+            Field::Menu { value, options } => {
+                let fw = liza::popup_width(ui.ctx(), options, value, look);
+                let r = Rect::from_min_size(pos2(x, cy - field_h / 2.0), vec2(fw, field_h));
+                if let Some(k) = liza::popup_menu(ui, r, id, value, options, look)
+                    && let Some(a) = stack_fight::set_field(g, b.no, ix, &options[k])
+                {
+                    acts.push(a);
+                }
+                x += fw + look::FIELD_GAP;
+            }
+            Field::Number(n) => {
+                let r =
+                    Rect::from_min_size(pos2(x, cy - field_h / 2.0), vec2(look::NUMBER_W, field_h));
+                if let Some(t) = liza::text_field(ui, r, id, &n.to_string(), look)
+                    && let Some(a) = stack_fight::set_field(g, b.no, ix, &t)
+                {
+                    acts.push(a);
+                }
+                x += look::NUMBER_W + look::FIELD_GAP;
+            }
+        }
+    }
+    if let Some(why) = &b.fault {
+        painter.text(pos2(x, cy), Align2::LEFT_CENTER, why, small, ink);
+    }
 }
 
 /// The Speaker Volume slider's notches: 0-7, as the Mac's Control Panel had.
@@ -737,13 +1017,47 @@ pub(crate) mod tests {
             .expect("some run meets ICE")
     }
 
-    /// A frame of the Stack's overlay; returns what it asked for.
-    fn overlay(
-        h: &mut crate::uitest::Harness,
+    /// Frames of the ICE card in a `w`x`h` pane, the Stack's way; returns what each asked for.
+    pub(crate) fn ice_card(
+        hn: &mut crate::uitest::Harness,
         g: &Game,
-        keys_free: bool,
+        (w, h): (f32, f32),
         ev: Vec<egui::Event>,
     ) -> Vec<Request> {
+        let (mut term, mut focus, mut hex, mut keep) =
+            (ninsei_term::LineEditor::default(), false, None, Vec::new());
+        let mut suite = crate::suite::State::default();
+        let mut out = Vec::new();
+        hn.frame(ev, |ui| {
+            let mut child = ui.new_child(
+                egui::UiBuilder::new().max_rect(Rect::from_min_size(egui::Pos2::ZERO, vec2(w, h))),
+            );
+            let mut panes = Panes {
+                game: g,
+                pal: crate::theme::Palette::from_def(&g.data.themes[0]),
+                map: ninsei_core::netview::MapView::Paint,
+                deck: String::new(),
+                chrome: ninsei_core::hardware::Chrome::Stack,
+                corrupt: (0.0, 0),
+                term: &mut term,
+                focus_input: &mut focus,
+                bbs_open: false,
+                hex: &mut hex,
+                keep: &mut keep,
+                keep_room: 0,
+                suite: &mut suite,
+                hear: &Vec::new,
+                scope_rate: 0,
+                out: Vec::new(),
+            };
+            Stack.target(&mut panes, &mut child);
+            out = panes.out;
+        });
+        out
+    }
+
+    /// A frame of the Stack's keys; returns what they asked for.
+    fn keys(h: &mut crate::uitest::Harness, g: &Game, ev: Vec<egui::Event>) -> Vec<Request> {
         let mut suite = crate::suite::State::default();
         let mut out = Vec::new();
         h.frame(ev, |ui| {
@@ -752,120 +1066,220 @@ pub(crate) mod tests {
                 game: g,
                 pal: crate::theme::Palette::from_def(&g.data.themes[0]),
                 suite: &mut suite,
-                keys_free,
+                keys_free: true,
                 level: crate::volume::Level {
                     on: true,
                     volume: 100,
                 },
                 popup: &mut popup,
             };
-            // As the run does: the chrome's keys first, then the overlay.
             out = Stack.keys(ui.ctx(), &mut cx);
-            out.extend(Stack.overlay(ui.ctx(), &mut cx));
         });
         out
     }
 
-    fn runs(out: &[Request], i: usize) -> bool {
-        out.iter().any(
-            |r| matches!(r, Request::Cmd(ninsei_core::Command::Game(Action::Run(n))) if *n == i),
-        )
+    /// The game actions in `out`, applied to `g`.
+    fn apply(g: &mut Game, out: Vec<Request>) -> Vec<Action> {
+        let acts: Vec<Action> = out
+            .into_iter()
+            .filter_map(|r| match r {
+                Request::Cmd(ninsei_core::Command::Game(a)) => Some(a),
+                _ => None,
+            })
+            .collect();
+        for a in &acts {
+            g.apply(a.clone());
+        }
+        acts
+    }
+
+    /// A fight on the first seed that meets ICE, running `program`.
+    fn fight(program: &str) -> Game {
+        let mut g = a_fight(&Data::builtin().unwrap());
+        g.apply(Action::Program(program.into()));
+        g
+    }
+
+    const PANE: (f32, f32) = (820.0, 520.0);
+
+    fn press(h: &crate::uitest::Harness, text: &str) -> Vec<egui::Event> {
+        let r = h
+            .find(text)
+            .unwrap_or_else(|| panic!("no {text:?} in {:?}", h.texts()));
+        crate::uitest::click(r.center())
+    }
+
+    /// Clicks what says `text` in the ICE card; returns what the card asked for.
+    fn click_on(h: &mut crate::uitest::Harness, g: &Game, text: &str) -> Vec<Request> {
+        let ev = press(h, text);
+        ice_card(h, g, PANE, ev)
     }
 
     #[test]
-    fn enter_runs_the_best_move_and_esc_tucks_the_alert_away() {
-        let d = Data::builtin().unwrap();
-        let g = a_fight(&d);
-        let best = best_move(&g).expect("a breaker is on the disk");
+    fn the_card_replaces_the_alert() {
+        let g = fight("10 RUN icepick\n20 STOP");
         let mut h = crate::uitest::Harness::new(1280.0, 800.0);
-        overlay(&mut h, &g, true, vec![]);
-        let out = overlay(&mut h, &g, true, crate::uitest::key(egui::Key::Enter));
-        assert!(runs(&out, best), "Enter ran the best move");
-        overlay(&mut h, &g, true, crate::uitest::key(egui::Key::Escape));
-        assert!(!alert_up(&h.ctx, &g), "Esc closed it");
+        ice_card(&mut h, &g, PANE, vec![]);
+        ice_card(&mut h, &g, PANE, vec![]);
+        for word in ["Step", "Run", "Pause", "RUN", "IF", "GOTO", "STOP"] {
+            assert!(h.find(word).is_some(), "{word} in {:?}", h.texts());
+        }
+        assert!(h.find("Close").is_none(), "no alert");
+        assert_eq!(h.enabled("Pause"), Some(false), "nothing's running yet");
+        assert_eq!(h.enabled("Run"), Some(true));
+        let painted: Vec<String> = h.painted_text().into_iter().map(|t| t.0).collect();
+        assert!(painted.iter().any(|t| t == "(RUN)") && painted.iter().any(|t| t == "(STOP)"));
+        assert!(painted.iter().any(|t| t == "▶"), "the line about to run");
+        assert!(!painted.iter().any(|t| t.contains("rezzed")));
     }
 
     #[test]
-    fn the_alert_leaves_enter_alone_while_a_modal_has_the_keys() {
-        let d = Data::builtin().unwrap();
-        let g = a_fight(&d);
-        let best = best_move(&g).unwrap();
+    fn clicking_a_palette_block_adds_a_line() {
+        let mut g = fight("10 RUN icepick");
         let mut h = crate::uitest::Harness::new(1280.0, 800.0);
-        overlay(&mut h, &g, false, vec![]);
-        let out = overlay(&mut h, &g, false, crate::uitest::key(egui::Key::Enter));
-        assert!(!runs(&out, best));
-        overlay(&mut h, &g, false, crate::uitest::key(egui::Key::Escape));
-        assert!(alert_up(&h.ctx, &g));
+        ice_card(&mut h, &g, PANE, vec![]);
+        // The palette's GOTO (the first "GOTO" is the palette's: there's no GOTO block yet).
+        let out = click_on(&mut h, &g, "GOTO");
+        apply(&mut g, out);
+        assert_eq!(g.program.text(), "10 RUN icepick\n20 GOTO 10");
+        ice_card(&mut h, &g, PANE, vec![]);
+        // Line 20's move up: line 10's can't, so it's the only one that takes clicks.
+        let up = h.all("move up")[0];
+        let out = ice_card(&mut h, &g, PANE, crate::uitest::click(up.center()));
+        apply(&mut g, out);
+        assert_eq!(g.program.text(), "10 GOTO 10\n20 RUN icepick");
+        ice_card(&mut h, &g, PANE, vec![]);
+        // Line 10's close box: the top one.
+        let del = h
+            .all("delete")
+            .into_iter()
+            .min_by(|a, b| a.top().total_cmp(&b.top()))
+            .unwrap();
+        let out = ice_card(&mut h, &g, PANE, crate::uitest::click(del.center()));
+        apply(&mut g, out);
+        assert_eq!(g.program.text(), "20 RUN icepick");
     }
 
     #[test]
-    fn the_alerts_buttons_click_through() {
-        let d = Data::builtin().unwrap();
-        let g = a_fight(&d);
-        let best = best_move(&g).unwrap();
+    fn a_field_edit_rewrites_the_program() {
+        let mut g = fight("10 IF INTEG < 10\n20 RUN icepick");
         let mut h = crate::uitest::Harness::new(1280.0, 800.0);
-        overlay(&mut h, &g, true, vec![]);
-        overlay(&mut h, &g, true, vec![]);
-        let run = h
-            .find(&format!("Run {}", g.hdd[best].spec.name))
-            .unwrap_or_else(|| panic!("{:?}", h.texts()));
-        let out = overlay(&mut h, &g, true, crate::uitest::click(run.center()));
-        assert!(runs(&out, best));
-        let close = h.find("Close").unwrap();
-        overlay(&mut h, &g, true, crate::uitest::click(close.center()));
-        assert!(!alert_up(&h.ctx, &g));
+        ice_card(&mut h, &g, PANE, vec![]);
+        // The comparison's pop-up: open it, then pick ">".
+        click_on(&mut h, &g, "<");
+        ice_card(&mut h, &g, PANE, vec![]);
+        let out = click_on(&mut h, &g, ">");
+        assert_eq!(apply(&mut g, out).len(), 1);
+        assert_eq!(g.program.line(10).unwrap().text, "IF INTEG > 10");
+        // The RUN's program menu lists the disk; pick another.
+        let other = g.hdd[1].spec.name.clone();
+        ice_card(&mut h, &g, PANE, vec![]);
+        let shown = g.hdd[g.slot_named("icepick").unwrap()].spec.name.clone();
+        click_on(&mut h, &g, &shown);
+        ice_card(&mut h, &g, PANE, vec![]);
+        let out = click_on(&mut h, &g, &other);
+        apply(&mut g, out);
+        assert_eq!(g.program.line(20).unwrap().text, format!("RUN {other}"));
     }
 
     #[test]
-    fn the_alert_offers_the_hardest_hit() {
-        let d = Data::builtin().unwrap();
-        assert_eq!(
-            best_move(&Game::new(d.clone(), 3)),
-            None,
-            "nothing to hit out of a fight"
+    fn step_runs_a_pass_and_the_message_box_says_so() {
+        let mut g = fight("10 RUN icepick\n20 IF INTEG > 99\n30 GOTO 10");
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        ice_card(&mut h, &g, PANE, vec![]);
+        let turn = g.combat.as_ref().unwrap().turn;
+        let before = g.log.len();
+        let out = click_on(&mut h, &g, "Step");
+        assert_eq!(apply(&mut g, out), [Action::Step]);
+        if g.phase == Phase::Combat {
+            assert_eq!(g.combat.as_ref().unwrap().turn, turn + 1);
+        }
+        let said: Vec<&str> = g.log[before..].iter().map(|l| l.text.as_str()).collect();
+        assert!(
+            said.contains(&"20 IF INTEG > 99: no. skipping the next line."),
+            "{said:?}"
         );
-        let g = a_fight(&d);
-        let b = best_move(&g).expect("a breaker is on the disk");
-        let hit = g.preview(b).unwrap().hit();
-        assert!(hit > 0);
-        assert!((0..g.hdd.len()).all(|i| g.preview(i).map_or(0, |p| p.hit()) <= hit));
     }
 
     #[test]
-    fn the_esc_that_leaves_the_message_box_doesnt_close_the_alert() {
-        let d = Data::builtin().unwrap();
-        let g = a_fight(&d);
+    fn run_then_esc_pauses_and_the_hotbar_works() {
+        let mut g = fight("10 RUN icepick\n20 GOTO 10");
+        let c = g.combat.as_mut().unwrap();
+        (c.strength, c.strength_max) = (500, 500);
         let mut h = crate::uitest::Harness::new(1280.0, 800.0);
-        let mut line = String::new();
-        let mut suite = crate::suite::State::default();
-        let mut frame = |h: &mut crate::uitest::Harness, ev, focus: bool| {
-            h.frame(ev, |ui| {
-                let mut popup = crate::volume::Popup::default();
-                let mut cx = FrameCx {
-                    game: &g,
-                    pal: crate::theme::Palette::from_def(&d.themes[0]),
-                    suite: &mut suite,
-                    keys_free: true,
-                    level: crate::volume::Level {
-                        on: true,
-                        volume: 100,
-                    },
-                    popup: &mut popup,
-                };
-                Stack.keys(ui.ctx(), &mut cx);
-                // The Message box: a text field with the keyboard.
-                let r = ui.text_edit_singleline(&mut line);
-                if focus {
-                    r.request_focus();
-                }
-                Stack.overlay(ui.ctx(), &mut cx);
-            });
+        keys(&mut h, &g, vec![]);
+        let out = keys(&mut h, &g, crate::uitest::key(egui::Key::Enter));
+        assert_eq!(apply(&mut g, out), [Action::Play], "Enter presses Run");
+        assert_eq!(g.exec.state, ninsei_core::game::ExecState::Running);
+        let out = keys(&mut h, &g, crate::uitest::key(egui::Key::Escape));
+        assert_eq!(apply(&mut g, out), [Action::Pause], "Esc pauses");
+        // Esc again does nothing: there's nothing to close.
+        assert!(keys(&mut h, &g, crate::uitest::key(egui::Key::Escape)).is_empty());
+        ice_card(&mut h, &g, PANE, vec![]);
+        ice_card(&mut h, &g, PANE, vec![]);
+        let name = &g.hdd[0].spec.name;
+        let slot = h
+            .texts()
+            .into_iter()
+            .find(|t| t.starts_with("[0]") && t.contains(name.as_str()))
+            .map(String::from)
+            .unwrap_or_else(|| panic!("{:?}", h.texts()));
+        let out = click_on(&mut h, &g, &slot);
+        assert_eq!(
+            apply(&mut g, out),
+            [Action::Run(0)],
+            "the hotbar runs while paused"
+        );
+    }
+
+    #[test]
+    fn a_block_dragged_from_the_palette_lands_where_its_dropped() {
+        let mut g = fight("10 RUN icepick\n20 RUN patch");
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        ice_card(&mut h, &g, PANE, vec![]);
+        ice_card(&mut h, &g, PANE, vec![]);
+        let from = h.find("STOP").unwrap().center();
+        // Over the block on line 20: it goes in above it.
+        let to = h.all("move up")[0].center() + vec2(-200.0, 0.0);
+        let at = |pos| egui::Event::PointerMoved(pos);
+        let button = |pos, pressed| egui::Event::PointerButton {
+            pos,
+            button: egui::PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
         };
-        frame(&mut h, vec![], true);
-        frame(&mut h, vec![], true);
-        frame(&mut h, crate::uitest::key(egui::Key::Escape), false);
-        assert!(alert_up(&h.ctx, &g), "Esc only let go of the Message box");
-        frame(&mut h, crate::uitest::key(egui::Key::Escape), false);
-        assert!(!alert_up(&h.ctx, &g), "the next Esc closes the alert");
+        ice_card(&mut h, &g, PANE, vec![at(from), button(from, true)]);
+        ice_card(&mut h, &g, PANE, vec![at(from + vec2(20.0, -20.0))]);
+        ice_card(&mut h, &g, PANE, vec![at(to)]);
+        let out = ice_card(&mut h, &g, PANE, vec![button(to, false)]);
+        apply(&mut g, out);
+        assert_eq!(g.program.text(), "10 RUN icepick\n15 STOP\n20 RUN patch");
+    }
+
+    #[test]
+    fn the_card_stays_whole_at_three_sizes() {
+        let d = Data::builtin().unwrap();
+        let mut s = ninsei_core::hub::Save::default();
+        s.ensure_phonebook(&d, 0);
+        let safe = s.program_text(&d);
+        let g = fight(&safe);
+        for size in [(640.0, 400.0), (820.0, 520.0), (1100.0, 700.0)] {
+            let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+            ice_card(&mut h, &g, size, vec![]);
+            ice_card(&mut h, &g, size, vec![]);
+            assert!(h.cut_text().is_empty(), "{size:?}: {:?}", h.cut_text());
+            let pane = Rect::from_min_size(egui::Pos2::ZERO, vec2(size.0, size.1));
+            for (t, r) in h.painted_text() {
+                assert!(
+                    r.min.x >= 0.0 && r.right() <= pane.right() + 0.5,
+                    "{size:?}: {t} at {r:?}"
+                );
+            }
+            for name in ["Step", "Run", "Pause"] {
+                let r = h.find(name).unwrap();
+                assert!(pane.contains_rect(r), "{size:?}: {name} at {r:?}");
+                assert_eq!(r.min, r.min.round(), "{name} on whole pixels");
+            }
+        }
     }
 }

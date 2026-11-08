@@ -2220,17 +2220,16 @@ mod tests {
     }
 
     #[test]
-    fn enter_in_a_stack_fight_runs_the_best_move_and_leaves_the_message_box_alone() {
+    fn enter_in_a_stack_fight_presses_run_and_leaves_the_message_box_alone() {
         let d = Data::builtin().unwrap();
         let g = crate::stack::tests::a_fight(&d);
-        let best = crate::stack::best_move(&g).unwrap();
         let mut h = crate::uitest::Harness::new(1280.0, 800.0);
         stack_keys(&mut h, &g, Vec::new());
         let (out, focus) = stack_keys(&mut h, &g, crate::uitest::key(Key::Enter));
         assert!(
             out.iter()
-                .any(|r| matches!(r, Request::Cmd(Command::Game(Action::Run(n))) if *n == best)),
-            "Enter ran the best move"
+                .any(|r| matches!(r, Request::Cmd(Command::Game(Action::Play)))),
+            "Enter pressed Run"
         );
         assert!(!focus, "and didn't also go to the Message box");
         // Out of a fight, Enter goes to the Message box as before.
