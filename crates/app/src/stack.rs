@@ -184,13 +184,14 @@ impl ChromeView for Stack {
         field(ui, ink, |ui| {
             let cpu = g.combat.as_ref().map_or(d.cpu_max, |c| c.cpu);
             meter(ui, p, "CPU", cpu, d.cpu_max, format!("{cpu}/{}", d.cpu_max));
+            let ifs = g.ifs_left();
             meter(
                 ui,
                 p,
                 "RAM",
+                ifs,
                 d.ram_max,
-                d.ram_max,
-                format!("{} GB", d.ram_max),
+                format!("{ifs}/{} GB", d.ram_max),
             );
             let hdd = g.hdd.len() as u32;
             meter(ui, p, "HDD", hdd, d.hdd_max, format!("{hdd}/{}", d.hdd_max));
@@ -575,7 +576,7 @@ impl Fight {
                 ctx.data_mut(|d| d.insert_temp(self.closed, true));
                 Vec::new()
             }
-            Some(i) => self.acts[i].map(act).into_iter().collect(),
+            Some(i) => self.acts[i].clone().map(act).into_iter().collect(),
             None => Vec::new(),
         }
     }

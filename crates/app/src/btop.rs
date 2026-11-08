@@ -268,9 +268,9 @@ impl Panes<'_> {
                 },
                 MeterRow {
                     label: "RAM",
-                    value: d.ram_max,
+                    value: g.ifs_left(),
                     max: d.ram_max,
-                    note: format!("{} GB", d.ram_max),
+                    note: format!("{}/{} GB", g.ifs_left(), d.ram_max),
                     series: h.series(|s| s.ram),
                     hot: false,
                 },

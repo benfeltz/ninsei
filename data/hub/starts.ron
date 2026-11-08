@@ -12,6 +12,7 @@
 //   ranges   number ranges already known (the local exchange always is)
 //   bank     credits in the bank
 //   games    games already on the desktop, (id, Cracked or Boxed)
+//   program  the deck's program (BASIC, see docs/design.md "Fights"): every fight opens with it
 (
     always: [
         // The college's network: lightly watched, little worth taking, wide open. Its board
@@ -21,14 +22,50 @@
     ],
     kits: [
         // The Security Suite and nothing else: every breaker is found.
-        (id: "nothing", free: ["firewall", "patch"]),
+        (id: "nothing", free: ["firewall", "patch"],
+         program: r#"
+10 REM SAFE: the Sense/Net Security Suite's own program.
+20 REM When integrity runs low, patch the deck.
+30 IF INTEG < 7
+40 RUN patch
+50 REM When the ICE is about to strike, raise the firewall.
+60 IF NEXT ATTACK
+70 RUN firewall
+80 REM Then pick at the ICE until the cycles run out.
+90 RUN icepick
+100 GOTO 90
+"#),
         // The start players get: the suite and a generic breaker in the box; the specialists
         // (Decoder, Garrote, Crowbar) are found on the boards. The shop that sold the deck threw
         // in a dubbed disk: a crack whose intro advertises the board it came from.
         (id: "pick", default: true, free: ["firewall", "patch", "icepick"],
-         games: [("nibbler", Cracked)]),
+         games: [("nibbler", Cracked)],
+         program: r#"
+10 REM SAFE: the Sense/Net Security Suite's own program.
+20 REM When integrity runs low, patch the deck.
+30 IF INTEG < 7
+40 RUN patch
+50 REM When the ICE is about to strike, raise the firewall.
+60 IF NEXT ATTACK
+70 RUN firewall
+80 REM Then pick at the ICE until the cycles run out.
+90 RUN icepick
+100 GOTO 90
+"#),
         // The start before #103 and #105.
         (id: "classic", free: ["icepick", "firewall", "patch", "decoder"], boards: ["gutter"],
-         numbers: true, tools: ["wardial", "hexed", "nightcomm"], games: [("nibbler", Cracked)]),
+         numbers: true, tools: ["wardial", "hexed", "nightcomm"], games: [("nibbler", Cracked)],
+         program: r#"
+10 REM SAFE: the Sense/Net Security Suite's own program.
+20 REM When integrity runs low, patch the deck.
+30 IF INTEG < 7
+40 RUN patch
+50 REM When the ICE is about to strike, raise the firewall.
+60 IF NEXT ATTACK
+70 RUN firewall
+80 REM Then pick at the ICE until the cycles run out.
+90 RUN icepick
+100 GOTO 90
+"#),
     ],
 )

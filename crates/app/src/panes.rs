@@ -268,12 +268,13 @@ impl Panes<'_> {
             format!("{cpu}/{} cyc", d.cpu_max),
             false,
         );
+        let ifs = g.ifs_left();
         self.meter(
             ui,
             "RAM",
+            ifs,
             d.ram_max,
-            d.ram_max,
-            format!("{} GB", d.ram_max),
+            format!("{ifs}/{} GB", d.ram_max),
             false,
         );
         let hdd = g.hdd.len() as u32;

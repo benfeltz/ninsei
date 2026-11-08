@@ -3,7 +3,7 @@
 //! and which edges break first. Pure; the app's `fightview.rs` draws it.
 
 use crate::data::{Effect, Intent};
-use crate::game::Game;
+use crate::game::{ExecState, Game, Step, StepWhat};
 
 /// How a breaker matches the ICE's class.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -84,6 +84,100 @@ impl Game {
             cpu: w.cpu,
             outcome,
         })
+    }
+}
+
+/// One line of the deck's program, as every chrome shows it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LineView {
+    pub no: u32,
+    /// The statement as typed.
+    pub text: String,
+    /// The line about to run.
+    pub current: bool,
+    /// A STOP: the breakpoint.
+    pub stop: bool,
+    /// Why the line won't run as written, in the interpreter's words.
+    pub fault: Option<String>,
+}
+
+/// The deck's program in this fight, for the views: its lines with their marks, the budgets
+/// left this turn, and this turn's pass.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProgramView {
+    pub lines: Vec<LineView>,
+    pub state: ExecState,
+    /// Whether there's a fight for it to run in.
+    pub fighting: bool,
+    pub cpu_left: u32,
+    pub ifs_left: u32,
+    pub turn: u32,
+    pub trace: Vec<Step>,
+}
+
+impl Game {
+    /// GB left for IFs this turn: the deck's RAM outside a fight.
+    pub fn ifs_left(&self) -> u32 {
+        self.combat.as_ref().map_or(self.deck.ram_max, |c| c.ifs)
+    }
+
+    /// The deck's program as the views show it.
+    pub fn program_view(&self) -> ProgramView {
+        let fighting = self.combat.is_some() && self.phase == crate::game::Phase::Combat;
+        let lines = self
+            .program
+            .lines
+            .iter()
+            .map(|l| LineView {
+                no: l.no,
+                text: l.text.clone(),
+                current: fighting && self.exec.pc == Some(l.no),
+                stop: l.stmt == crate::basic::Stmt::Stop,
+                fault: self.program.fault(l.no),
+            })
+            .collect();
+        let c = self.combat.as_ref();
+        ProgramView {
+            lines,
+            state: self.exec.state,
+            fighting,
+            cpu_left: c.map_or(self.deck.cpu_max, |c| c.cpu),
+            ifs_left: self.ifs_left(),
+            turn: c.map_or(0, |c| c.turn),
+            trace: self.exec.trace.clone(),
+        }
+    }
+
+    /// A step of a pass as the deck's OS says it: one sentence per line executed.
+    pub fn step_text(&self, s: &Step) -> String {
+        let text = self.program.line(s.line).map_or("", |l| l.text.as_str());
+        let no = s.line;
+        match &s.what {
+            StepWhat::Ran { uid, outcome } => {
+                let name = self
+                    .hdd
+                    .iter()
+                    .find(|p| p.uid == *uid)
+                    .map_or("the program".to_string(), |p| p.spec.name.clone());
+                let did = match outcome {
+                    Outcome::Break { hit, .. } => format!("breaks {hit}"),
+                    Outcome::Shield(n) => format!("puts up shield {n}"),
+                    Outcome::Repair(n) => format!("restores {n} integrity"),
+                    Outcome::Scrub(n) => format!("scrubs {n} trace"),
+                    Outcome::Stun => "lags the ICE".to_string(),
+                };
+                format!("{no} {text}: {name} {did}.")
+            }
+            StepWhat::Skipped(why) => format!("{no} {text}: skipped. {why}"),
+            StepWhat::If(true) => format!("{no} {text}: yes."),
+            StepWhat::If(false) => format!("{no} {text}: no. skipping the next line."),
+            StepWhat::Goto(to) => format!("{no} GOTO {to}."),
+            StepWhat::Stop => format!("BREAK IN {no}"),
+            StepWhat::Break => format!("?BREAK IN {no}"),
+            StepWhat::OutOfCpu => "out of cycles. the turn is over.".to_string(),
+            StepWhat::OutOfRam => format!("{no} {text}: no memory left for it. the turn is over."),
+            StepWhat::End => "end of program. the turn is over.".to_string(),
+        }
     }
 }
 

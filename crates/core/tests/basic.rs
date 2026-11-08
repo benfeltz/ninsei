@@ -94,3 +94,268 @@ fn edits_insert_replace_and_remove() {
     assert_eq!(p.after(20), Some(25));
     assert_eq!(p.after(30), None);
 }
+
+// ---- running it --------------------------------------------------------------------------
+
+use ninsei_core::game::{ExecState, StepWhat};
+use ninsei_core::hub::Save;
+use ninsei_core::*;
+
+/// A bare run (the classic four on the HDD: icepick, firewall, patch, decoder) in a fight with
+/// ICE `ice`, too strong to fall or give up, running `program`.
+fn fight(ice: &str, program: &str) -> Game {
+    let mut g = Game::new(Data::builtin().unwrap(), 7);
+    let target = g.net.nodes[g.at].links[0];
+    let ice = g.data.ice.iter().position(|i| i.id == ice).unwrap();
+    g.net.nodes[target].kind = NodeKind::Ice;
+    g.net.nodes[target].ice = Some(ice);
+    g.net.nodes[target].cleared = false;
+    g.apply(Action::Move(target));
+    assert_eq!(g.phase, Phase::Combat);
+    let c = g.combat.as_mut().unwrap();
+    c.strength = 500;
+    c.strength_max = 500;
+    g.apply(Action::Program(program.into()));
+    g
+}
+
+fn combat(g: &Game) -> &Combat {
+    g.combat.as_ref().expect("still fighting")
+}
+
+fn ran(g: &Game) -> usize {
+    g.exec
+        .trace
+        .iter()
+        .filter(|s| matches!(s.what, StepWhat::Ran { .. }))
+        .count()
+}
+
+#[test]
+fn a_pass_is_a_turn() {
+    let mut g = fight("bulwark", SAMPLE);
+    assert_eq!((g.deck.cpu_max, combat(&g).turn), (3, 1));
+    assert!(
+        g.program_view().lines[0].current,
+        "the cursor on the first line"
+    );
+    g.apply(Action::Step);
+    // A backward GOTO keeps the pass going while cycles remain: three cycles, three RUNs.
+    assert_eq!(ran(&g), 3, "{:?}", g.exec.trace);
+    // Three icepicks for 3 each, then Bulwark fortifies 4: the ICE acted once.
+    assert_eq!(500 - combat(&g).strength, 9 - 4);
+    assert_eq!(g.exec.trace.last().unwrap().what, StepWhat::OutOfCpu);
+    // Then the ICE acted once: the turn is over and the budgets are back.
+    assert_eq!(combat(&g).turn, 2);
+    assert_eq!((combat(&g).cpu, combat(&g).ifs), (3, g.deck.ram_max));
+    assert_eq!(g.exec.state, ExecState::Paused);
+}
+
+#[test]
+fn an_if_costs_a_gb_true_or_false() {
+    let mut g = fight("bulwark", "10 IF INTEG < 100\n20 STOP");
+    g.apply(Action::Step);
+    assert_eq!(combat(&g).ifs, g.deck.ram_max - 1, "a true IF");
+    let mut g = fight("bulwark", "10 IF INTEG > 100\n20 RUN icepick\n30 STOP");
+    g.apply(Action::Step);
+    assert_eq!(combat(&g).ifs, g.deck.ram_max - 1, "a false IF");
+    assert_eq!(ran(&g), 0, "the false IF skipped its line");
+    assert_eq!(g.exec.state, ExecState::Stopped(30));
+    // GOTO and STOP are free.
+    let mut g = fight("bulwark", "10 GOTO 30\n20 RUN icepick\n30 STOP");
+    g.apply(Action::Step);
+    assert_eq!(combat(&g).ifs, g.deck.ram_max);
+}
+
+#[test]
+fn two_ifs_in_a_row_are_an_and() {
+    let mut g = fight(
+        "bulwark",
+        "10 IF INTEG > 100\n20 IF INTEG > 0\n30 RUN icepick\n40 STOP",
+    );
+    g.apply(Action::Step);
+    assert_eq!(ran(&g), 0, "the first IF skips the second and its line");
+    assert_eq!(
+        combat(&g).ifs,
+        g.deck.ram_max - 1,
+        "the skipped IF costs nothing"
+    );
+}
+
+#[test]
+fn out_of_ram_ends_the_pass() {
+    let program =
+        "10 IF TURN = 9\n20 STOP\n30 IF TURN = 9\n40 STOP\n50 IF TURN = 9\n60 STOP\n70 RUN icepick";
+    let mut g = fight("bulwark", program);
+    g.combat.as_mut().unwrap().ifs = 2;
+    g.apply(Action::Step);
+    let last = g.exec.trace.last().unwrap();
+    assert_eq!((last.line, &last.what), (50, &StepWhat::OutOfRam));
+    assert_eq!(ran(&g), 0);
+    assert_eq!(combat(&g).turn, 2, "the turn ended: the ICE acted");
+}
+
+#[test]
+fn stop_hands_over_the_turn() {
+    let mut g = fight("bulwark", "10 RUN icepick\n20 STOP\n30 RUN icepick");
+    g.apply(Action::Step);
+    assert_eq!(g.exec.state, ExecState::Stopped(20));
+    assert_eq!((combat(&g).turn, combat(&g).cpu), (1, 2), "no end of turn");
+    assert!(g.log.iter().any(|l| l.text == "BREAK IN 20"));
+    // The hotbar is live.
+    let pick = g.slot_named("icepick").unwrap();
+    g.apply(Action::Run(pick));
+    assert_eq!(combat(&g).cpu, 1);
+    // Step carries on after the STOP, in the same turn.
+    g.apply(Action::Step);
+    assert_eq!(ran(&g), 2, "{:?}", g.exec.trace);
+    assert_eq!(combat(&g).turn, 2);
+}
+
+#[test]
+fn a_cycle_less_loop_breaks() {
+    let mut g = fight("bulwark", "10 GOTO 10");
+    g.apply(Action::Play);
+    assert_eq!(g.exec.trace.last().unwrap().what, StepWhat::Break);
+    assert!(g.log.iter().any(|l| l.text == "?BREAK IN 10"));
+    assert_eq!(g.exec.state, ExecState::Paused, "the debugger has the turn");
+    assert_eq!(combat(&g).turn, 1, "a hang doesn't end the turn");
+    // A loop whose only RUN is guarded by a false IF hangs too.
+    let mut g = fight("bulwark", "10 IF INTEG > 100\n20 RUN icepick\n30 GOTO 10");
+    g.apply(Action::Step);
+    let last = g.exec.trace.last().unwrap();
+    assert_eq!((last.line, &last.what), (10, &StepWhat::Break));
+}
+
+#[test]
+fn a_run_that_cant_run_is_skipped_with_the_previews_words() {
+    let mut g = fight("bulwark", "10 RUN lagspike\n20 RUN torch\n30 RUN icepick");
+    let lag = g.data.warez_ix("lagspike").unwrap();
+    let slot = g.factory_slot(lag).unwrap();
+    g.hdd.push(slot);
+    g.combat.as_mut().unwrap().cpu = 1;
+    let why = g.preview(g.hdd.len() - 1).unwrap_err();
+    g.apply(Action::Step);
+    let t = &g.exec.trace;
+    assert_eq!((t[0].line, &t[0].what), (10, &StepWhat::Skipped(why)));
+    assert!(
+        matches!(&t[1].what, StepWhat::Skipped(w) if w.contains("torch")),
+        "{t:?}"
+    );
+    assert!(matches!(t[2].what, StepWhat::Ran { .. }));
+    assert_eq!(t[3].what, StepWhat::OutOfCpu);
+}
+
+#[test]
+fn next_reads_the_intent() {
+    use basic::Cond;
+    let g = fight("rototurret", "");
+    assert!(g.test(&Cond::Next(Move::Attack)));
+    assert!(!g.test(&Cond::Next(Move::Fortify)));
+    let mut g = fight(
+        "icewall",
+        "10 IF NEXT ATTACK\n20 RUN firewall\n30 IF NEXT FORTIFY\n40 STOP",
+    );
+    g.apply(Action::Step);
+    assert_eq!(
+        (combat(&g).shield, g.exec.state),
+        (0, ExecState::Stopped(40))
+    );
+    // Lagged ICE has no next move.
+    let mut g = fight("rototurret", "");
+    g.combat.as_mut().unwrap().stunned = true;
+    assert!(!g.test(&Cond::Next(Move::Attack)));
+}
+
+#[test]
+fn have_reads_the_hdd() {
+    use basic::Cond;
+    let g = fight("bulwark", "");
+    assert!(g.test(&Cond::Have("decoder".into())));
+    assert!(g.test(&Cond::Have("DECODER.EXE".into())));
+    assert!(!g.test(&Cond::Have("torch".into())));
+    assert!(g.test(&Cond::IceClass(IceClass::Barrier)));
+}
+
+#[test]
+fn edits_apply_to_the_next_pass() {
+    let mut g = fight("bulwark", "10 RUN icepick\n20 STOP");
+    g.apply(Action::Step);
+    assert_eq!(g.exec.state, ExecState::Stopped(20));
+    // Edited mid-pass: it carries on past the STOP into the new line.
+    g.apply(Action::Program(
+        "10 RUN icepick\n20 STOP\n30 RUN firewall".into(),
+    ));
+    g.apply(Action::Step);
+    assert_eq!(combat(&g).turn, 2);
+    assert!(
+        g.exec.trace.iter().any(|s| s.line == 30),
+        "{:?}",
+        g.exec.trace
+    );
+    // Between passes: the next one starts at the top of the new program.
+    g.apply(Action::Program("10 RUN firewall\n20 STOP".into()));
+    g.apply(Action::Step);
+    assert_eq!(
+        (combat(&g).shield, g.exec.state),
+        (5, ExecState::Stopped(20))
+    );
+}
+
+#[test]
+fn play_keeps_running_and_pause_hands_back() {
+    let mut g = fight("bulwark", SAMPLE);
+    g.apply(Action::Play);
+    assert_eq!((g.exec.state, combat(&g).turn), (ExecState::Running, 2));
+    g.apply(Action::Step);
+    assert_eq!((g.exec.state, combat(&g).turn), (ExecState::Running, 3));
+    g.apply(Action::Pause);
+    assert_eq!(g.exec.state, ExecState::Paused);
+    // An empty program is the hand-played fight: a step is the end of the turn.
+    g.apply(Action::Program(String::new()));
+    g.apply(Action::Step);
+    assert_eq!(combat(&g).turn, 4);
+    assert_eq!(g.exec.trace.last().unwrap().what, StepWhat::End);
+}
+
+#[test]
+fn the_program_survives_a_run() {
+    let d = Data::builtin().unwrap();
+    let mut s = Save::default();
+    s.ensure_key(0xC0FFEE);
+    s.ensure_phonebook(&d, 0);
+    let shipped = d.starts.kit("").program.clone();
+    assert!(shipped.contains("SAFE"), "the default kit ships SAFE");
+    assert_eq!(s.program_text(&d), shipped);
+    let mut g = s.jack_in(&d, 5);
+    assert_eq!(
+        g.program,
+        basic::parse(&shipped),
+        "every fight opens with it loaded"
+    );
+    g.apply(Action::Program("10 RUN icepick\n20 GOTO 10".into()));
+    g.phase = Phase::Flatlined;
+    s.record(&g, &[], &d.rig).unwrap();
+    assert_eq!(
+        s.kit(&d).program,
+        "10 RUN icepick\n20 GOTO 10",
+        "kept, even on a flatline"
+    );
+    // A save from before programs loads with the kit's.
+    let full = ron::to_string(&Save::default()).unwrap();
+    assert!(full.contains("program:None,"), "{full}");
+    let text = full.replace("program:None,", "");
+    let back: Save = ron::from_str(&text).unwrap();
+    assert_eq!(back.program, None);
+}
+
+#[test]
+fn every_kit_ships_a_program_that_reads() {
+    let d = Data::builtin().unwrap();
+    for k in &d.starts.kits {
+        assert!(!k.program.is_empty(), "{}", k.id);
+        assert_eq!(hub::program_fault(&k.program, &d), None, "{}", k.id);
+    }
+    assert!(hub::program_fault("10 RUN nosuch", &d).is_some());
+    assert!(hub::program_fault("10 GOTO 20", &d).is_some());
+}

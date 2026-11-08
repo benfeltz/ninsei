@@ -391,6 +391,33 @@ pub struct KitDef {
     /// Games already on the desktop (a game id and the copy): the disk the shop threw in.
     #[serde(default)]
     pub games: Vec<(String, GameCopy)>,
+    /// The program the deck ships with (BASIC text): every fight opens with it loaded.
+    #[serde(default)]
+    pub program: String,
+}
+
+/// What's wrong with a shipped program, if anything: a line that doesn't parse, a GOTO to
+/// nowhere, or a RUN or HAVE naming a program no warez is called.
+pub fn program_fault(text: &str, data: &Data) -> Option<String> {
+    let p = crate::basic::parse(text);
+    let known = |name: &str| {
+        data.warez
+            .iter()
+            .any(|w| w.id.eq_ignore_ascii_case(name) || w.name.eq_ignore_ascii_case(name))
+    };
+    p.lines.iter().find_map(|l| {
+        if let Some(why) = p.fault(l.no) {
+            return Some(format!("line {}: {why}", l.no));
+        }
+        match &l.stmt {
+            crate::basic::Stmt::Run(n) | crate::basic::Stmt::If(crate::basic::Cond::Have(n))
+                if !known(n) =>
+            {
+                Some(format!("line {}: no warez called `{n}`", l.no))
+            }
+            _ => None,
+        }
+    })
 }
 
 impl StartsDef {
@@ -430,6 +457,9 @@ impl StartsDef {
             }
             if let Some((g, _)) = k.games.iter().find(|(g, _)| data.game(g).is_none()) {
                 return err(format!("unknown game `{g}`"));
+            }
+            if let Some(why) = program_fault(&k.program, data) {
+                return err(format!("program: {why}"));
             }
         }
         for n in &self.always {
@@ -1008,6 +1038,10 @@ pub struct Save {
     /// The kit has been applied (a new save's first boot). Old saves have started.
     #[serde(default = "seen")]
     pub started: bool,
+    /// The deck's program (BASIC text), as the last fight left it. `None`: the one the
+    /// starting kit shipped.
+    #[serde(default)]
+    pub program: Option<String>,
     /// Intros that have played at least once (ids in `data/intros/`), so a replay teaches
     /// nothing new.
     #[serde(default)]
@@ -1145,6 +1179,7 @@ impl Default for Save {
             starters_given: false,
             kit: String::new(),
             started: false,
+            program: None,
             intros_seen: Vec::new(),
         }
     }
@@ -2084,6 +2119,7 @@ impl Save {
                 hdd: self.stat_cap(data, Upgrade::Hdd),
             },
             programs,
+            program: self.program_text(data),
             net: NetParams::default(),
             mods: RunMods::default(),
             site: None,
@@ -2100,6 +2136,13 @@ impl Save {
                 .collect(),
             origins,
         }
+    }
+
+    /// The deck's program: as the last run left it, or the one its kit shipped.
+    pub fn program_text(&self, data: &Data) -> String {
+        self.program
+            .clone()
+            .unwrap_or_else(|| data.starts.kit(&self.kit).program.clone())
     }
 
     /// Starts a run. Stash programs in the loadout leave the stash: they come back only
@@ -2126,6 +2169,8 @@ impl Save {
             _ => return None,
         };
         self.runs += 1;
+        // What you leave in the program is what the deck keeps, however the run ended.
+        self.program = Some(game.program.text());
         if let Some(site) = &game.site {
             self.heat_up(site.entry, end);
             // A client sold the number to the telco.

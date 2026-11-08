@@ -449,8 +449,8 @@ impl Panes<'_> {
                     ),
                     (
                         "MEMORY GB ",
-                        d.ram_max.to_string(),
-                        "decisions a turn",
+                        format!("{} / {}", g.ifs_left(), d.ram_max),
+                        "decisions left this turn",
                         false,
                     ),
                     (
@@ -497,6 +497,12 @@ impl Panes<'_> {
                     &p,
                     &[
                         ("CPU", d.cpu_max - cpu.min(d.cpu_max), d.cpu_max, false),
+                        (
+                            "RAM",
+                            d.ram_max - g.ifs_left().min(d.ram_max),
+                            d.ram_max,
+                            false,
+                        ),
                         ("HDD", hdd, d.hdd_max, hdd == d.hdd_max),
                         ("INTEG", d.integrity, d.integrity_max, low),
                         ("TRACE", d.trace, tuning::TRACE_MAX, trace_hot),
