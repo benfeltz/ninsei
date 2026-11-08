@@ -58,6 +58,13 @@ These are the numbers the kit draws to. Change them here and in `kit::workbench:
 | Check box | a bevelled box | 16×14, raised on `fill` when off; pressed in on `accent` with a `shadow` check when on; the label 6px after |
 | Laid-out push button | | the label with 12px either side, 22px tall |
 
+## Sliders and lists
+
+| | Workbench 1.3 | Desktop |
+|---|---|---|
+| Horizontal proportional gadget (a slider) | a prop gadget laid on its side (Preferences' colour sliders) | `hprop`: 14px tall, the container in `fill` with a 1px `shadow` edge along its top, a 24px knob in `ink`, bevelled; a click puts the knob under the pointer, a drag carries it and sets the value when it's let go |
+| List | a recessed box of rows with the proportional gadget down its right | `list_box`: the 1.3 bevel pressed in, `backdrop` inside, whole rows only; the gadget (16px) only when the rows run past the box, a row at a time; a click picks a row |
+
 ## Requester
 
 | | Workbench 1.3 | Desktop |
