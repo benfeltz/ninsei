@@ -278,6 +278,11 @@ pub struct Home {
     intro_playing: std::collections::HashMap<&'static str, f64>,
     /// For the app's speaker: an intro whose tune should start (its id), or stop.
     pub(crate) tune: Option<TuneCue>,
+    /// The music player's place: playing or not, and how far into the tune (the session's;
+    /// the save keeps the tune and repeat and shuffle).
+    pub(crate) player: ninsei_core::player::Transport,
+    /// When the player last moved on (the frames' time), so it keeps time between frames.
+    pub(crate) player_clock: Option<f64>,
     /// Where the Welcome to the Net stack is open.
     pub(crate) guide_at: ninsei_core::cards::Place,
     /// System's open panel, and its Disk panel's pick.
@@ -356,6 +361,8 @@ impl Home {
             intro_drawn: Default::default(),
             intro_playing: Default::default(),
             tune: None,
+            player: Default::default(),
+            player_clock: None,
             guide_at: ninsei_core::cards::Place::Home,
             system: crate::system::SystemUi::default(),
             desk_keys: true,

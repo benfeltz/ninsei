@@ -573,6 +573,33 @@ impl App {
         if self.save.sound { "on" } else { "off" }
     }
 
+    /// The desktop player: core moves it on while it's at home and nothing else has the music
+    /// channel (a cracktro's tune), by the real time since the last frame, since the audio
+    /// keeps playing between frames; then says what the speaker should play. While it plays,
+    /// frames keep coming a few times a second so the tune ends on time and the player's
+    /// clock moves.
+    fn play_desktop_music(&mut self, ctx: &egui::Context) {
+        use ninsei_core::player;
+        let now = ctx.input(|i| i.time);
+        let dt = self
+            .home
+            .player_clock
+            .map_or(0.0, |t| (now - t).clamp(0.0, 30.0)) as f32;
+        self.home.player_clock = Some(now);
+        let live = player::at_home(self.screen) && !self.speaker.intro_on();
+        let before = self.save.player.clone();
+        player::tick(&mut self.save, &self.data, &mut self.home.player, dt, live);
+        if self.save.player != before {
+            self.save_dirty = true;
+        }
+        let want = player::wanted(&self.save, &self.data, self.screen, &self.home.player);
+        if self.speaker.desktop(want.as_ref()) {
+            ctx.request_repaint();
+        } else if want.is_some() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        }
+    }
+
     /// Starts the handshake sound when a dial begins, and cuts it when a BBS line drops.
     fn sync_sound(&mut self) {
         if let Some(id) = self.home.dial_started.take()
@@ -1273,6 +1300,7 @@ impl eframe::App for App {
             }
             None => self.speaker.stop_music(),
         }
+        self.play_desktop_music(&ctx);
 
         let live = self.screen == Screen::Run && !self.crashed;
         if live

@@ -6,8 +6,11 @@
 //! trace can mute the stem without the loop losing its place; a tempo step renders the new
 //! loop in the background and swaps it in at the same point in the music. Loops render a
 //! slice a frame, never all at once. The speaker knows which kind of music is on, so a
-//! cracktro closing as you jack in can't cut the run's tune. Sound cues (`ninsei_core::cue`)
-//! are short clips that layer over everything and play out.
+//! cracktro closing as you jack in can't cut the run's tune. Desktop music (the player's tune,
+//! `ninsei_core::player`) is the third thing the channel holds, looped the same way: a
+//! cracktro or the run's tune takes the channel from it, and it comes back where the player
+//! says once they're done. The modem never touches it. Sound cues (`ninsei_core::cue`) are
+//! short clips that layer over everything and play out.
 //! Native output goes through cpal; the browser uses Web Audio. If there's no audio device
 //! (or the browser refuses), it stays quiet and the game carries on.
 
@@ -18,6 +21,7 @@ use ninsei_core::cue::{Cue, SoundDef};
 use ninsei_core::intro::{LoopRender, TuneDef};
 use ninsei_core::modem::Handshake;
 use ninsei_core::music::Wanted;
+use ninsei_core::player::Want;
 
 /// How loud cues play, under the modem.
 const CUE_GAIN: f32 = 0.8;
@@ -60,7 +64,15 @@ pub trait Output: Sized {
 #[derive(Clone, Debug, PartialEq)]
 enum Music {
     Quiet,
-    Intro,
+    /// A cracktro's tune, ringing until `until` on the frame clock.
+    Intro {
+        until: f64,
+    },
+    /// The desktop player's tune and the jump it started from ([`Want::cue`]).
+    Desktop {
+        id: String,
+        cue: u32,
+    },
     Run {
         pack: String,
         tier: u32,
@@ -86,6 +98,10 @@ pub struct Speaker<O: Output = backend::Out> {
     clips: HashMap<(String, Cue), Arc<Vec<f32>>>,
     music: Music,
     job: Option<Job>,
+    /// The desktop tune being rendered (its id and the render), a slice a frame.
+    desk_job: Option<(String, LoopRender)>,
+    /// The last desktop tune rendered, kept so a seek or a resume needn't render it again.
+    desk_loop: Option<(String, Clip)>,
     /// The master level (`Save::volume`), 0-1.
     volume: f32,
     /// What's playing, kept for [`Speaker::listen`]: the run loop's bed and stem (and whether
@@ -107,6 +123,8 @@ impl<O: Output> Speaker<O> {
             clips: HashMap::new(),
             music: Music::Quiet,
             job: None,
+            desk_job: None,
+            desk_loop: None,
             volume: 1.0,
             heard_loop: None,
             heard: Vec::new(),
@@ -183,6 +201,7 @@ impl<O: Output> Speaker<O> {
             // Sound back on starts the run's tune again on the next frame.
             self.music = Music::Quiet;
             self.job = None;
+            self.desk_job = None;
             self.heard_loop = None;
             self.heard.clear();
             self.heard_dial = None;
@@ -220,18 +239,25 @@ impl<O: Output> Speaker<O> {
     /// Plays a cracktro's tune on the music channel, cutting off whatever music is playing.
     pub fn tune(&mut self, tune: &TuneDef, secs: f32) {
         self.job = None;
+        self.desk_job = None;
+        let until = self.clock + f64::from(secs.max(0.0));
         if let Some(out) = self.out() {
             let mut samples = tune.render(out.rate(), secs);
             samples.iter_mut().for_each(|s| *s *= MUSIC_GAIN);
             out.music(samples);
-            self.music = Music::Intro;
+            self.music = Music::Intro { until };
             self.heard_loop = None;
         }
     }
 
+    /// Whether a cracktro's tune still has the music channel: the desktop's music waits.
+    pub fn intro_on(&self) -> bool {
+        matches!(self.music, Music::Intro { until } if self.clock < until)
+    }
+
     /// Cuts a cracktro's tune (the intro was skipped or closed). The run's tune plays on.
     pub fn stop_tune(&mut self) {
-        if self.music == Music::Intro {
+        if matches!(self.music, Music::Intro { .. }) {
             self.music = Music::Quiet;
             if let Some(out) = &mut self.out {
                 out.music(Vec::new());
@@ -303,6 +329,70 @@ impl<O: Output> Speaker<O> {
                 tier: job.tier,
                 tempo,
                 muted,
+            };
+        }
+        false
+    }
+
+    /// Keeps the desktop player's tune playing as `w` says (`None`: stopped or paused, or not
+    /// at home); called every frame. It never takes the channel from a cracktro still
+    /// playing or from the run's tune: it waits, and starts from where the player is once
+    /// they're done. A new tune renders a slice a frame; a jump (a seek, a new start) replays
+    /// the loop it has from the new place. True while it's still rendering.
+    pub fn desktop(&mut self, w: Option<&Want>) -> bool {
+        if self.intro_on() || matches!(self.music, Music::Run { .. }) {
+            self.desk_job = None;
+            return false;
+        }
+        let Some(w) = w else {
+            self.desk_job = None;
+            if matches!(self.music, Music::Desktop { .. }) {
+                self.music = Music::Quiet;
+                self.heard_loop = None;
+                if let Some(out) = &mut self.out {
+                    out.music(Vec::new());
+                }
+            }
+            return false;
+        };
+        if let Music::Desktop { id, cue } = &self.music
+            && id == w.id
+            && *cue == w.cue
+        {
+            return false;
+        }
+        let Some(out) = self.out() else { return false };
+        let rate = out.rate();
+        if !self.desk_loop.as_ref().is_some_and(|(id, _)| id == w.id) {
+            if !self.desk_job.as_ref().is_some_and(|(id, _)| id == w.id) {
+                self.desk_job = Some((w.id.to_string(), w.tune.loop_render(rate, 0, None)));
+            }
+            let Some((id, job)) = self.desk_job.take_if(|(_, j)| j.work(LOOP_SLICE)) else {
+                return true;
+            };
+            let (mut bed, _) = job.finish();
+            bed.iter_mut().for_each(|s| *s *= MUSIC_GAIN);
+            self.desk_loop = Some((id, Arc::new(bed)));
+        }
+        let Some((_, bed)) = &self.desk_loop else {
+            return false;
+        };
+        let bed = Arc::clone(bed);
+        let secs = bed.len() as f32 / rate.max(1) as f32;
+        let from = if secs > 0.0 {
+            (w.at % secs) / secs
+        } else {
+            0.0
+        };
+        let stem: Clip = Arc::new(Vec::new());
+        // If it couldn't start, the next frame tries again.
+        if let Some(out) = self.out.as_mut()
+            && out.music_loop(Arc::clone(&bed), Arc::clone(&stem), from, false)
+        {
+            self.heard_loop = Some((bed, stem, false));
+            self.music = Music::Desktop {
+                id: w.id.to_string(),
+                cue: w.cue,
             };
         }
         false
@@ -839,7 +929,10 @@ mod tests {
                 .push(if s.is_empty() { "stop" } else { "tune" }.into());
         }
         fn music_loop(&mut self, bed: Clip, stem: Clip, from: f32, muted: bool) -> bool {
-            assert_eq!(bed.len(), stem.len(), "the stem keeps step with the bed");
+            assert!(
+                stem.is_empty() || bed.len() == stem.len(),
+                "the stem keeps step with the bed"
+            );
             if self.refuse > 0 {
                 self.refuse -= 1;
                 self.said.push("refused".into());
@@ -1082,5 +1175,144 @@ mod tests {
         settle(&mut s, &at(&t, false, 0));
         settle(&mut s, &at(&t, false, 0));
         assert_eq!(said(&mut s), ["refused", "loop from 0 muted false"]);
+    }
+
+    mod desktop {
+        use super::*;
+        use ninsei_core::player::Want;
+
+        fn data() -> ninsei_core::Data {
+            ninsei_core::Data::builtin().unwrap()
+        }
+
+        fn want<'a>(d: &'a ninsei_core::Data, id: &'a str, at: f32, cue: u32) -> Want<'a> {
+            Want {
+                id,
+                tune: &d.tune(id).unwrap().tune,
+                at,
+                cue,
+            }
+        }
+
+        /// Frames of `desktop` until the loop is ready; how many it took.
+        fn settle(s: &mut Speaker<Log>, w: &Want) -> usize {
+            (1..1000).find(|_| !s.desktop(Some(w))).unwrap()
+        }
+
+        /// How far into the loop `at` seconds is, as the speaker starts it (the loop is
+        /// whole samples at the test output's rate).
+        fn place(d: &ninsei_core::Data, id: &str, at: f32) -> String {
+            let len = d.tune(id).unwrap().tune.loop_render(8000, 0, None).len();
+            let secs = len as f32 / 8000.0;
+            format!("loop from {} muted false", (at % secs) / secs)
+        }
+
+        #[test]
+        fn a_tune_loops_and_a_jump_replays_it_from_the_new_place() {
+            let d = data();
+            let mut s = Speaker::<Log>::new(true);
+            settle(&mut s, &want(&d, "chroma", 0.0, 0));
+            assert_eq!(said(&mut s), ["loop from 0 muted false"]);
+            for _ in 0..5 {
+                assert!(!s.desktop(Some(&want(&d, "chroma", 3.0, 0))));
+            }
+            assert!(said(&mut s).is_empty(), "the same cue carries on");
+            // A seek: the loop it has, from the new place, at once.
+            assert_eq!(settle(&mut s, &want(&d, "chroma", 20.0, 1)), 1);
+            assert_eq!(said(&mut s), [place(&d, "chroma", 20.0)]);
+            // Paused or stopped: the channel goes quiet; playing again needs no render.
+            s.desktop(None);
+            s.desktop(None);
+            assert_eq!(said(&mut s), ["stop"]);
+            assert_eq!(settle(&mut s, &want(&d, "chroma", 20.0, 1)), 1);
+            assert_eq!(said(&mut s), [place(&d, "chroma", 20.0)]);
+            // Another tune renders anew.
+            settle(&mut s, &want(&d, "welcome", 0.0, 2));
+            assert_eq!(said(&mut s), ["loop from 0 muted false"]);
+        }
+
+        #[test]
+        fn the_runs_tune_takes_the_channel_and_the_desk_gets_it_back_after() {
+            let d = data();
+            let t = tune();
+            let mut s = Speaker::<Log>::new(true);
+            settle(&mut s, &want(&d, "chroma", 12.0, 4));
+            said(&mut s);
+            // Jacking in: the run's tune starts, and the desktop waits.
+            super::settle(&mut s, &at(&t, false, 0));
+            assert!(!s.desktop(None));
+            assert!(!s.desktop(Some(&want(&d, "chroma", 12.0, 4))));
+            assert_eq!(
+                said(&mut s),
+                ["loop from 0 muted false"],
+                "the run's loop only"
+            );
+            // Jacking out: the run's tune stops and the desk's comes back where it was.
+            s.stop_music();
+            settle(&mut s, &want(&d, "chroma", 12.0, 4));
+            assert_eq!(said(&mut s), ["stop", place(&d, "chroma", 12.0).as_str()]);
+        }
+
+        #[test]
+        fn a_cracktro_wins_the_channel_until_it_ends() {
+            let d = data();
+            let t = tune();
+            let mut s = Speaker::<Log>::new(true);
+            s.tick(1.0);
+            settle(&mut s, &want(&d, "chroma", 5.0, 0));
+            said(&mut s);
+            s.tune(&t.tune, 2.0);
+            assert!(s.intro_on());
+            assert!(!s.desktop(Some(&want(&d, "chroma", 5.0, 0))));
+            assert_eq!(said(&mut s), ["tune"], "the cracktro has it");
+            // Its tune runs out: the desk's comes back from where the player is.
+            s.tick(3.5);
+            assert!(!s.intro_on());
+            settle(&mut s, &want(&d, "chroma", 5.0, 0));
+            assert_eq!(said(&mut s), [place(&d, "chroma", 5.0)]);
+            // Skipped early: the same.
+            s.tune(&t.tune, 2.0);
+            s.stop_tune();
+            settle(&mut s, &want(&d, "chroma", 5.0, 0));
+            assert_eq!(
+                said(&mut s),
+                ["tune", "stop", place(&d, "chroma", 5.0).as_str()]
+            );
+        }
+
+        #[test]
+        fn a_dial_never_touches_it() {
+            let d = data();
+            let mut s = Speaker::<Log>::new(true);
+            settle(&mut s, &want(&d, "chroma", 0.0, 0));
+            said(&mut s);
+            s.tick(1.0);
+            s.dial("555-0199");
+            assert!(!s.desktop(Some(&want(&d, "chroma", 0.0, 0))));
+            s.stop();
+            assert!(!s.desktop(Some(&want(&d, "chroma", 0.0, 0))));
+            assert!(said(&mut s).is_empty(), "music untouched by the modem");
+            assert!(matches!(s.music, Music::Desktop { .. }));
+        }
+
+        #[test]
+        fn it_is_heard_at_the_master_level() {
+            let d = data();
+            let mut s = Speaker::<Log>::new(true);
+            settle(&mut s, &want(&d, "chroma", 0.0, 0));
+            s.out.as_mut().unwrap().place = 0.5;
+            let full = s.listen(256);
+            assert!(full.iter().any(|v| *v != 0.0), "the vis hears it");
+            s.set_volume(0.5);
+            assert_eq!(said(&mut s).last().map(String::as_str), Some("volume 0.5"));
+            let half = s.listen(256);
+            assert!(
+                full.iter()
+                    .zip(&half)
+                    .all(|(a, b)| (a * 0.5 - b).abs() < 1e-6)
+            );
+            s.desktop(None);
+            assert!(s.listen(64).iter().all(|v| *v == 0.0), "stopped");
+        }
     }
 }
