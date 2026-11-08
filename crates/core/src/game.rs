@@ -1071,6 +1071,7 @@ impl Game {
 
     fn win_combat(&mut self) {
         let Some(c) = self.combat.take() else { return };
+        self.end_pass();
         self.phase = Phase::Exploring;
         self.net.nodes[c.node].cleared = true;
         let def = &self.data.ice[c.ice];
@@ -1140,10 +1141,8 @@ impl Game {
         c.cpu = self.deck.cpu_max;
         c.ifs = self.deck.ram_max;
         c.turn += 1;
+        self.end_pass();
         self.exec.pc = self.program.first();
-        self.exec.open = false;
-        self.exec.visited.clear();
-        self.exec.broke = None;
         if let ExecState::Stopped(_) = self.exec.state {
             self.exec.state = ExecState::Paused;
         }
@@ -1154,6 +1153,7 @@ impl Game {
         if self.deck.integrity == 0 {
             self.phase = Phase::Flatlined;
             self.combat = None;
+            self.end_pass();
             self.say(LogKind::Bad, "!! deck integrity zero. FLATLINE.");
             return Ok(());
         }
@@ -1327,9 +1327,12 @@ impl Game {
                             self.exec.visited.clear();
                             let uid = self.hdd[slot].uid;
                             self.apply(Action::Run(slot));
-                            // The RUN broke this ICE and the next one rezzed: the pass carries
-                            // on into its fight, from its first line.
-                            self.exec.open = true;
+                            // The RUN broke this ICE and the next one rezzed, its fight starting
+                            // with a fresh `Exec`: the pass carries on into it, from its first
+                            // line. A fight that's over closed the pass (`end_pass`).
+                            if self.phase == Phase::Combat && !self.exec.open {
+                                self.exec.open = true;
+                            }
                             self.trace_step(
                                 no,
                                 StepWhat::Ran {
@@ -1373,6 +1376,13 @@ impl Game {
                 }
             }
         }
+    }
+
+    /// No pass is under way: the turn or the fight is over. The next line starts at the top.
+    fn end_pass(&mut self) {
+        self.exec.open = false;
+        self.exec.visited.clear();
+        self.exec.broke = None;
     }
 
     /// The pass is over, and so is the turn: the ICE acts.
@@ -1878,6 +1888,7 @@ impl Game {
             self.deck.trace = TRACE_MAX;
             self.phase = Phase::Flatlined;
             self.combat = None;
+            self.end_pass();
             self.say(LogKind::Bad, "!! trace complete. they found you. FLATLINE.");
             return true;
         }
