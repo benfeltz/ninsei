@@ -117,9 +117,9 @@ pub struct Budgets {
 }
 
 impl Budgets {
-    /// "3 programs/turn".
+    /// "3 cycles/turn": a program takes one or two.
     pub fn cpu_words(&self) -> String {
-        format!("{} programs/turn", self.cpu.1)
+        format!("{} cycles/turn", self.cpu.1)
     }
 
     /// "6 IFs".
@@ -134,13 +134,13 @@ impl Budgets {
 
     /// The Script card's title line: what's left this turn.
     pub fn left_words(&self) -> String {
-        let runs = self.cpu.0;
+        let cycles = self.cpu.0;
         format!(
-            "{} of {} IFs, {} RUN{} left",
+            "{} of {} IFs, {} cycle{} left",
             self.ifs.0,
             self.ifs.1,
-            runs,
-            if runs == 1 { "" } else { "s" }
+            cycles,
+            if cycles == 1 { "" } else { "s" }
         )
     }
 }

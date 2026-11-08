@@ -178,7 +178,7 @@ Conditions read what is already on screen: `INTEG`, `TRACE`, `CPU` (cycles left)
 
 | Stat | Is | Rule | On the deck |
 |---|---|---|---|
-| CPU | tempo | each `RUN` spends one; at 0 the pass ends and the ICE acts | "3 programs a turn" |
+| CPU | tempo | each `RUN` spends one; at 0 the pass ends and the ICE acts | "3 cycles a turn" |
 | RAM | cleverness | each `IF` evaluated spends one GB for the turn, true or false; `GOTO` and `STOP` are free; program length never matters | "6 decisions a turn" |
 | HDD | vocabulary | the programs you carry are the verbs you can write | "6 programs carried" |
 

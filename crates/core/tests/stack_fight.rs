@@ -83,10 +83,10 @@ fn buttons_follow_the_state() {
 fn the_deck_card_words_the_limits() {
     let g = fight(SAMPLE);
     let b = stack_fight::card(&g).budgets;
-    assert_eq!(b.cpu_words(), "3 programs/turn");
+    assert_eq!(b.cpu_words(), "3 cycles/turn");
     assert_eq!(b.ifs_words(), "6 IFs");
     assert_eq!(b.hdd_words(), "4 of 6");
-    assert_eq!(b.left_words(), "6 of 6 IFs, 3 RUNs left");
+    assert_eq!(b.left_words(), "6 of 6 IFs, 3 cycles left");
 }
 
 #[test]
