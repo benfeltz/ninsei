@@ -9,7 +9,7 @@ use ninsei_core::Data;
 use ninsei_core::hub::Save;
 use ninsei_core::player::{self, Act, Transport};
 
-use crate::home::{WbOut, accent, font, ink, muted, shadow};
+use crate::home::{WbOut, accent, ink, muted, shadow};
 use crate::kit::cells::Unlit;
 use crate::kit::{Cells, List};
 
@@ -293,17 +293,6 @@ const LIZA_GAP: f32 = 2.0;
 /// A playlist cell's height.
 const LIZA_CELL_H: f32 = 20.0;
 
-/// The Liza look in the desk's colours, with the 50% gray.
-fn liza_look(data: &Data) -> crate::kit::liza::Look<'_> {
-    crate::kit::liza::Look {
-        ink: ink(),
-        paper: shadow(),
-        font: font(),
-        stripes: None,
-        gray: data.pattern("p50"),
-    }
-}
-
 /// Draws the Sense/Net's TRAX: a System 6 desk accessory with Winamp 2's transport. The tune
 /// and its crew, a position slider, ◀◀ ▶ ■ ▶▶, a volume thermometer, Repeat and Shuffle, the
 /// spectrum in 1-bit bars, and the playlist in a list box. `keys`: the window is in front
@@ -322,7 +311,7 @@ pub fn liza_face(
     use crate::kit::liza as kit;
     use egui::{Align2, Id, UiBuilder, pos2, vec2};
     pui.drawn = Some(ui.ctx().cumulative_pass_nr());
-    let look = liza_look(data);
+    let look = crate::liza::desk_look(data);
     let rows = player::rows(save, data);
     if pui.sel.is_none_or(|s| s >= rows.len()) {
         pui.sel = player::current(save, data).or((!rows.is_empty()).then_some(0));
