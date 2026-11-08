@@ -891,31 +891,30 @@ mod tests {
     fn the_frame_a_row_is_clicked_shows_one_cursor() {
         let mut h = crate::uitest::Harness::new(400.0, 400.0);
         let mut on: Vec<usize> = Vec::new();
-        let frame =
-            |h: &mut crate::uitest::Harness, ev: Vec<egui::Event>, on: &mut Vec<usize>| {
-                on.clear();
-                h.frame(ev, |ui| {
-                    let mut child = ui.new_child(
-                        egui::UiBuilder::new()
-                            .max_rect(Rect::from_min_size(pos2(10.0, 10.0), vec2(300.0, 100.0))),
-                    );
-                    list_box(
-                        &mut child,
-                        vec2(300.0, 100.0),
-                        Id::new("l"),
-                        4,
-                        20.0,
-                        1,
-                        &look(),
-                        |_, _, i, lit| {
-                            if lit {
-                                on.push(i);
-                            }
-                            format!("row {i}")
-                        },
-                    );
-                });
-            };
+        let frame = |h: &mut crate::uitest::Harness, ev: Vec<egui::Event>, on: &mut Vec<usize>| {
+            on.clear();
+            h.frame(ev, |ui| {
+                let mut child = ui.new_child(
+                    egui::UiBuilder::new()
+                        .max_rect(Rect::from_min_size(pos2(10.0, 10.0), vec2(300.0, 100.0))),
+                );
+                list_box(
+                    &mut child,
+                    vec2(300.0, 100.0),
+                    Id::new("l"),
+                    4,
+                    20.0,
+                    1,
+                    &look(),
+                    |_, _, i, lit| {
+                        if lit {
+                            on.push(i);
+                        }
+                        format!("row {i}")
+                    },
+                );
+            });
+        };
         frame(&mut h, Vec::new(), &mut on);
         assert_eq!(on, [1]);
         let at = h.find("row 3").unwrap().center();
