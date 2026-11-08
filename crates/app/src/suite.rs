@@ -987,118 +987,102 @@ impl Panes<'_> {
         let p = self.pal;
         let ctx = ui.ctx().clone();
         let l = module();
-        let area = ui.available_rect_before_wrap();
-        // The whole window takes the click that makes it the active one.
-        let tile = ui.interact(area, l.id(), Sense::click());
-        let focused = l.has_keys(&ctx);
-        if focused {
-            l.take_keys(&ctx);
-        }
-        let mut v = l.view(&ctx, g);
-        let rows = l.rows(g, &v);
+        let style = Listing::style(&p, mono(size::MONO));
         let note = rules::module_note(g);
-        let style = ninsei_term::widget::Style {
-            font: mono(size::MONO),
-            prompt: p.dim,
-            text: p.bright,
-            cursor: p.fg,
-            under_cursor: p.bg,
-            search: p.fg,
-        };
         let mut acts = Vec::new();
-        window_with(ui, &p, Tab::Script.number(), "", &note, focused, |ui| {
-            let inner = ui.available_rect_before_wrap();
-            let fit = Cells::fit_font(ui, inner, mono(size::MONO), Some(size::ROW_H));
-            let c = Cells::sized(
-                ui,
-                inner.min,
-                mono(size::MONO),
-                Some(size::ROW_H),
-                (fit.cols, fit.rows),
-            );
-            let painter = ui.painter_at(c.rect);
-            // The Watches go before the listing does when the window is short.
-            let watches = c.rows >= WATCH_ROWS + 3;
-            let n = c.rows - if watches { WATCH_ROWS } else { 0 };
-            let shown = l.window(ui, &c, &mut v, &rows, focused, n);
-            let w = number_w(&rows);
-            let text_c = 2 + w + 2;
-            for i in shown {
-                let (r, y) = (&rows[i], v.list.row(i));
-                let current = r.gutter == Gutter::Current;
-                let (num, ink) = if r.dim {
-                    (p.dim, p.dim)
-                } else if current {
-                    (p.bg, p.bg)
-                } else {
-                    (p.dim, p.fg)
-                };
-                if current {
-                    c.fill(&painter, 0, y, c.cols, 1, p.fg);
-                }
-                let mark = match r.gutter {
-                    Gutter::None => p.dim,
-                    Gutter::Current => p.bg,
-                    Gutter::Stop => p.bright,
-                };
-                c.text(&painter, 0, y, rules::module_mark(r.gutter), mark);
-                let line = match &r.fault {
-                    Some(f) => format!("{}  {f}", r.text),
-                    None => r.text.clone(),
-                };
-                let no = r.no.map_or(String::new(), |n| n.to_string());
-                if r.no.is_some() && r.no == v.edit.as_ref().map(|e| e.no) {
-                    c.fill(&painter, 0, y, c.cols, 1, p.bg);
-                    c.text_right(&painter, 2 + w, y, &no, p.bright);
-                    let at = c.at(text_c, y, c.cols.saturating_sub(text_c), 1);
-                    acts.extend(l.edit_row(ui, at, &mut v, g, &style));
-                    continue;
-                }
-                c.text_right(&painter, 2 + w, y, &no, num);
-                let room = c.cols.saturating_sub(text_c);
-                c.text_max(&painter, text_c, y, &line, room, ink);
-                // The cursor: a box round its row while the window is active.
-                if focused && r.no.is_some() && r.no == v.cursor {
-                    painter.rect_stroke(
-                        c.at(1, y, c.cols - 1, 1).shrink(0.5),
-                        0.0,
-                        Stroke::new(1.0, p.bright),
-                        StrokeKind::Inside,
-                    );
-                }
-            }
-            if watches {
-                let top = c.rows - WATCH_ROWS;
-                let y = c.at(0, top, 1, 1).center().y;
-                painter.line_segment(
-                    [pos2(c.rect.left(), y), pos2(c.rect.right(), y)],
-                    Stroke::new(1.0, p.dim),
+        l.show(ui, g, |ui, v, f| {
+            let (rows, focused) = (f.rows, f.focused);
+            window_with(ui, &p, Tab::Script.number(), "", &note, focused, |ui| {
+                let inner = ui.available_rect_before_wrap();
+                let fit = Cells::fit_font(ui, inner, mono(size::MONO), Some(size::ROW_H));
+                let c = Cells::sized(
+                    ui,
+                    inner.min,
+                    mono(size::MONO),
+                    Some(size::ROW_H),
+                    (fit.cols, fit.rows),
                 );
-                c.text(&painter, 0, top + 1, "WATCHES", p.bright);
-                let half = c.cols / 2;
-                let field = |at: usize, row: usize, room: usize, (name, value): &(&str, String)| {
-                    c.text(&painter, at, row, name, p.dim);
-                    c.text_max(&painter, at + 7, row, value, room.saturating_sub(8), p.fg);
-                };
-                let ws = rules::watches(g);
-                // TURN CPU / IFS INTEG / TRACE NEXT in two columns; ICE and LAST a row each.
-                for (k, pair) in ws[..6].chunks(2).enumerate() {
-                    field(0, top + 2 + k, half, &pair[0]);
-                    field(half, top + 2 + k, c.cols - half, &pair[1]);
+                let painter = ui.painter_at(c.rect);
+                // The Watches go before the listing does when the window is short.
+                let watches = c.rows >= WATCH_ROWS + 3;
+                let n = c.rows - if watches { WATCH_ROWS } else { 0 };
+                let shown = l.window(ui, &c, v, rows, focused, n);
+                let w = number_w(rows);
+                let text_c = 2 + w + 2;
+                for i in shown {
+                    let (r, y) = (&rows[i], v.list.row(i));
+                    let current = r.gutter == Gutter::Current;
+                    let (num, ink) = if r.dim {
+                        (p.dim, p.dim)
+                    } else if current {
+                        (p.bg, p.bg)
+                    } else {
+                        (p.dim, p.fg)
+                    };
+                    if current {
+                        c.fill(&painter, 0, y, c.cols, 1, p.fg);
+                    }
+                    let mark = match r.gutter {
+                        Gutter::None => p.dim,
+                        Gutter::Current => p.bg,
+                        Gutter::Stop => p.bright,
+                    };
+                    c.text(&painter, 0, y, rules::module_mark(r.gutter), mark);
+                    let line = match &r.fault {
+                        Some(f) => format!("{}  {f}", r.text),
+                        None => r.text.clone(),
+                    };
+                    let no = r.no.map_or(String::new(), |n| n.to_string());
+                    if r.no.is_some() && r.no == v.edit.as_ref().map(|e| e.no) {
+                        c.fill(&painter, 0, y, c.cols, 1, p.bg);
+                        c.text_right(&painter, 2 + w, y, &no, p.bright);
+                        let at = c.at(text_c, y, c.cols.saturating_sub(text_c), 1);
+                        acts.extend(l.edit_row(ui, at, v, g, &style));
+                        continue;
+                    }
+                    c.text_right(&painter, 2 + w, y, &no, num);
+                    let room = c.cols.saturating_sub(text_c);
+                    c.text_max(&painter, text_c, y, &line, room, ink);
+                    // The cursor: a box round its row while the window is active.
+                    if focused && r.no.is_some() && r.no == v.cursor {
+                        painter.rect_stroke(
+                            c.at(1, y, c.cols - 1, 1).shrink(0.5),
+                            0.0,
+                            Stroke::new(1.0, p.bright),
+                            StrokeKind::Inside,
+                        );
+                    }
                 }
-                field(0, top + 5, c.cols, &ws[6]);
-                field(0, top + 6, c.cols, &ws[7]);
-            }
-            l.click(&ctx, &tile, &c, &mut v, &rows, n, g);
-            ui.allocate_rect(inner, Sense::hover());
+                if watches {
+                    let top = c.rows - WATCH_ROWS;
+                    let y = c.at(0, top, 1, 1).center().y;
+                    painter.line_segment(
+                        [pos2(c.rect.left(), y), pos2(c.rect.right(), y)],
+                        Stroke::new(1.0, p.dim),
+                    );
+                    c.text(&painter, 0, top + 1, "WATCHES", p.bright);
+                    let half = c.cols / 2;
+                    let field =
+                        |at: usize, row: usize, room: usize, (name, value): &(&str, String)| {
+                            c.text(&painter, at, row, name, p.dim);
+                            c.text_max(&painter, at + 7, row, value, room.saturating_sub(8), p.fg);
+                        };
+                    let ws = rules::watches(g);
+                    // TURN CPU / IFS INTEG / TRACE NEXT in two columns; ICE and LAST a row each.
+                    for (k, pair) in ws[..6].chunks(2).enumerate() {
+                        field(0, top + 2 + k, half, &pair[0]);
+                        field(half, top + 2 + k, c.cols - half, &pair[1]);
+                    }
+                    field(0, top + 5, c.cols, &ws[6]);
+                    field(0, top + 6, c.cols, &ws[7]);
+                }
+                l.click(&ctx, f.tile, &c, v, rows, n, g);
+                ui.allocate_rect(inner, Sense::hover());
+            });
         });
         for a in acts {
             self.act(a);
         }
-        if tile.clicked() && v.edit.is_none() {
-            l.take_keys(&ctx);
-        }
-        l.keep(&ctx, v);
     }
 
     fn suite_todo(&mut self, ui: &mut Ui) {
@@ -1316,7 +1300,7 @@ fn legend_now(ctx: &egui::Context) -> Legend {
 /// nothing.
 fn fkey(ctx: &egui::Context, k: FKey, st: &State, g: &Game) -> Option<Request> {
     let m = module();
-    let cursor = m.view(ctx, g).cursor;
+    let cursor = m.cursor(ctx);
     if !rules::fkey_live(g, k, cursor) {
         return None;
     }
@@ -1495,7 +1479,7 @@ impl ChromeView for Suite {
     fn legend(&self, ui: &mut Ui, cx: &mut FrameCx) -> Vec<Request> {
         let p = cx.pal;
         let ctx = ui.ctx().clone();
-        let cursor = module().view(&ctx, cx.game).cursor;
+        let cursor = module().cursor(&ctx);
         // One row of cells: each key's cap in inverse and what it does, both clickable.
         let mut line: Sheet<FKey> = Sheet::new(cols_across(ui));
         let mut c = 0;
@@ -1532,7 +1516,7 @@ impl ChromeView for Suite {
         if cx.suite.dialogs.is_empty() {
             out.extend(
                 module()
-                    .keys(ctx, g, |key| {
+                    .keys(ctx, g, |key, _| {
                         Some(match key {
                             Key::ArrowUp => Bind::Up,
                             Key::ArrowDown => Bind::Down,

@@ -10,11 +10,12 @@
 
 use std::ops::Range;
 
-use egui::{Event, Id, Key, Rect, Response, UiBuilder, vec2};
-use ninsei_core::listing::{self, Gutter, Row};
+use egui::{Event, FontId, Id, Key, Rect, Response, Sense, Ui, UiBuilder, vec2};
+use ninsei_core::listing::{self, Gutter, Keys, Row};
 use ninsei_core::{Action, Game};
 
 use super::{Cells, List};
+use crate::theme::Palette;
 
 /// What a listing remembers between frames, in egui memory.
 #[derive(Clone, Debug, Default)]
@@ -52,6 +53,16 @@ pub enum Bind {
     Release,
 }
 
+/// What a pane's body gets each frame from [`Listing::show`].
+pub struct Frame<'a> {
+    /// The pane's own click (a row, or anywhere to take the keys).
+    pub tile: &'a Response,
+    /// The rows to draw, a line just opened included.
+    pub rows: &'a [Row],
+    /// The pane holds the keyboard (its cursor shows).
+    pub focused: bool,
+}
+
 /// One pane's listing, named by its focus id.
 pub struct Listing {
     id: Id,
@@ -60,11 +71,6 @@ pub struct Listing {
 impl Listing {
     pub fn new(name: &'static str) -> Listing {
         Listing { id: Id::new(name) }
-    }
-
-    /// The pane's keyboard focus.
-    pub fn id(&self) -> Id {
-        self.id
     }
 
     /// The retyped row's keyboard focus.
@@ -87,6 +93,53 @@ impl Listing {
 
     pub fn keep(&self, ctx: &egui::Context, v: View) {
         ctx.data_mut(|d| d.insert_temp(self.view_id(), v));
+    }
+
+    /// The cursor as last kept, read without copying the view (it may name a line that has
+    /// since gone; [`Listing::view`] puts it back on one).
+    pub fn cursor(&self, ctx: &egui::Context) -> Option<u32> {
+        let id = self.view_id();
+        ctx.data_mut(|d| d.get_temp_mut_or_default::<View>(id).cursor)
+    }
+
+    /// The line editor's look over a retyped row, from the theme.
+    pub fn style(p: &Palette, font: FontId) -> ninsei_term::widget::Style {
+        ninsei_term::widget::Style {
+            font,
+            prompt: p.dim,
+            text: p.bright,
+            cursor: p.fg,
+            under_cursor: p.bg,
+            search: p.fg,
+        }
+    }
+
+    /// The pane, around `body`: the whole of it takes the click that gives it the keys, it
+    /// keeps its arrows while it has them, and its view comes out of memory before `body` and
+    /// goes back after. `body` draws the frame and the rows in the deck's look.
+    pub fn show(&self, ui: &mut Ui, g: &Game, body: impl FnOnce(&mut Ui, &mut View, Frame)) {
+        let ctx = ui.ctx().clone();
+        let area = ui.available_rect_before_wrap();
+        let tile = ui.interact(area, self.id, Sense::click());
+        let focused = self.has_keys(&ctx);
+        if focused {
+            self.take_keys(&ctx);
+        }
+        let mut v = self.view(&ctx, g);
+        let rows = self.rows(g, &v);
+        body(
+            ui,
+            &mut v,
+            Frame {
+                tile: &tile,
+                rows: &rows,
+                focused,
+            },
+        );
+        if tile.clicked() && v.edit.is_none() {
+            self.take_keys(&ctx);
+        }
+        self.keep(&ctx, v);
     }
 
     /// Whether the pane holds the keyboard (not a retyped row: that's typing).
@@ -121,7 +174,7 @@ impl Listing {
     }
 
     /// This frame's keys while the pane holds the keyboard, through `bind` (a key with no
-    /// modifier, to what it does; `None` leaves it for the run). Moves act on a held key's
+    /// modifier and the keys that press now, to what it does; `None` leaves it for the run). Moves act on a held key's
     /// repeats; everything else acts once but takes its repeats too, so a held Enter never
     /// reaches the hotkeys. The keys taken, the characters they typed and any typing before a
     /// retype started come out of the frame. Returns the game actions.
@@ -129,7 +182,7 @@ impl Listing {
         &self,
         ctx: &egui::Context,
         g: &Game,
-        bind: impl Fn(Key) -> Option<Bind>,
+        bind: impl Fn(Key, &Keys) -> Option<Bind>,
     ) -> Vec<Action> {
         if !self.has_keys(ctx) {
             return Vec::new();
@@ -155,7 +208,7 @@ impl Listing {
             if !modifiers.is_none() || v.edit.is_some() {
                 continue;
             }
-            let Some(b) = bind(*key) else {
+            let Some(b) = bind(*key, &k) else {
                 continue;
             };
             taken.push(i);

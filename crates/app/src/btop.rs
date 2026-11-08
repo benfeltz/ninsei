@@ -963,27 +963,25 @@ pub mod script {
         if !cx.keys_free {
             return Vec::new();
         }
-        let g = cx.game;
-        let l = listing();
-        let k = btop_fight::keys(g, l.view(ctx, g).cursor);
-        l.keys(ctx, g, |key| {
-            Some(match key {
-                Key::R if k.run => Bind::Act(Action::Play),
-                Key::S if k.step => Bind::Act(Action::Step),
-                Key::C if k.cont => Bind::Act(Action::Play),
-                Key::P if k.pause => Bind::Act(Action::Pause),
-                Key::J | Key::ArrowDown => Bind::Down,
-                Key::K | Key::ArrowUp => Bind::Up,
-                Key::E | Key::Enter => Bind::Edit,
-                Key::O => Bind::Open,
-                Key::D => Bind::Delete,
-                Key::Escape => Bind::Release,
-                _ => return None,
+        listing()
+            .keys(ctx, cx.game, |key, k| {
+                Some(match key {
+                    Key::R if k.run => Bind::Act(Action::Play),
+                    Key::S if k.step => Bind::Act(Action::Step),
+                    Key::C if k.cont => Bind::Act(Action::Play),
+                    Key::P if k.pause => Bind::Act(Action::Pause),
+                    Key::J | Key::ArrowDown => Bind::Down,
+                    Key::K | Key::ArrowUp => Bind::Up,
+                    Key::E | Key::Enter => Bind::Edit,
+                    Key::O => Bind::Open,
+                    Key::D => Bind::Delete,
+                    Key::Escape => Bind::Release,
+                    _ => return None,
+                })
             })
-        })
-        .into_iter()
-        .map(act)
-        .collect()
+            .into_iter()
+            .map(act)
+            .collect()
     }
 
     /// Rows the listing leaves under it for the legend, a blank row first.
@@ -998,103 +996,88 @@ pub mod script {
         let pal = p.pal;
         let ctx = ui.ctx().clone();
         let l = listing();
-        let area = ui.available_rect_before_wrap();
-        // The whole tile takes the click that gives it the keyboard.
-        let tile = ui.interact(area, l.id(), Sense::click());
-        let focused = l.has_keys(&ctx);
-        if focused {
-            l.take_keys(&ctx);
-        }
-        let mut v = l.view(&ctx, g);
-        let rows = l.rows(g, &v);
-        let keys = btop_fight::keys(g, v.cursor);
-        let note = btop_fight::note(g);
-        let style = ninsei_term::widget::Style {
-            font: mono(MONO),
-            prompt: pal.dim,
-            text: pal.bright,
-            cursor: pal.fg,
-            under_cursor: pal.bg,
-            search: pal.fg,
-        };
-        boxed_lit(ui, &pal, btop_fight::title(g), &note, focused, |ui| {
-            let inner = ui.available_rect_before_wrap();
-            let c = cells_in(ui, inner);
-            let painter = ui.painter_at(c.rect);
-            // The legend goes before the listing does when the tile is short.
-            let legend = c.rows >= LEGEND_ROWS + 3;
-            let n = c.rows - if legend { LEGEND_ROWS } else { 0 };
-            let shown = l.window(ui, &c, &mut v, &rows, focused, n);
-            let w = number_w(&rows);
-            let text_c = 2 + w + 2;
-            for i in shown {
-                let (r, y) = (&rows[i], v.list.row(i));
-                let cursor = focused && r.no.is_some() && r.no == v.cursor;
-                let lit = r.gutter == Gutter::Current;
-                let (num, ink) = if r.dim {
-                    (pal.dim, pal.dim)
-                } else if lit {
-                    (pal.bright, pal.bright)
-                } else {
-                    (pal.dim, pal.fg)
-                };
-                if lit {
-                    c.fill(&painter, 0, y, c.cols, 1, pal.faint);
-                }
-                let mark = if r.gutter == Gutter::None {
-                    pal.dim
-                } else {
-                    pal.bright
-                };
-                c.text(&painter, 0, y, btop_fight::mark(r.gutter), mark);
-                let line = match &r.fault {
-                    Some(f) => format!("{}  {f}", r.text),
-                    None => r.text.clone(),
-                };
-                let no = r.no.map_or(String::new(), |n| n.to_string());
-                if r.no.is_some() && r.no == v.edit.as_ref().map(|e| e.no) {
-                    c.text_right(&painter, 2 + w, y, &no, pal.bright);
-                    let at = c.at(text_c, y, c.cols.saturating_sub(text_c), 1);
-                    if let Some(a) = l.edit_row(ui, at, &mut v, g, &style) {
-                        p.act(a);
+        let style = Listing::style(&pal, mono(MONO));
+        let mut acts = Vec::new();
+        l.show(ui, g, |ui, v, f| {
+            let (rows, focused) = (f.rows, f.focused);
+            let keys = btop_fight::keys(g, v.cursor);
+            let note = btop_fight::note(g);
+            boxed_lit(ui, &pal, btop_fight::title(g), &note, focused, |ui| {
+                let inner = ui.available_rect_before_wrap();
+                let c = cells_in(ui, inner);
+                let painter = ui.painter_at(c.rect);
+                // The legend goes before the listing does when the tile is short.
+                let legend = c.rows >= LEGEND_ROWS + 3;
+                let n = c.rows - if legend { LEGEND_ROWS } else { 0 };
+                let shown = l.window(ui, &c, v, rows, focused, n);
+                let w = number_w(rows);
+                let text_c = 2 + w + 2;
+                for i in shown {
+                    let (r, y) = (&rows[i], v.list.row(i));
+                    let cursor = focused && r.no.is_some() && r.no == v.cursor;
+                    let lit = r.gutter == Gutter::Current;
+                    let (num, ink) = if r.dim {
+                        (pal.dim, pal.dim)
+                    } else if lit {
+                        (pal.bright, pal.bright)
+                    } else {
+                        (pal.dim, pal.fg)
+                    };
+                    if lit {
+                        c.fill(&painter, 0, y, c.cols, 1, pal.faint);
                     }
-                } else if cursor {
-                    let lead = format!("{no:>w$}  ");
-                    let room = c.cols.saturating_sub(2);
-                    c.inverse(
-                        &painter,
-                        2,
-                        y,
-                        room,
-                        &format!("{lead}{line}"),
-                        pal.bg,
-                        pal.fg,
-                    );
-                } else {
-                    c.text_right(&painter, 2 + w, y, &no, num);
-                    let room = c.cols.saturating_sub(text_c);
-                    c.text_max(&painter, text_c, y, &line, room, ink);
-                }
-            }
-            if legend {
-                for (k, keys_row) in btop_fight::legend(&keys).iter().enumerate() {
-                    let y = c.rows - 2 + k;
-                    let mut x = 0;
-                    for (key, word, presses) in keys_row.iter() {
-                        let live = focused && *presses;
-                        let ink = if live { pal.fg } else { pal.dim };
-                        x += c.text(&painter, x, y, key, ink);
-                        x += c.text(&painter, x, y, &format!(" {word}  "), pal.dim);
+                    let mark = if r.gutter == Gutter::None {
+                        pal.dim
+                    } else {
+                        pal.bright
+                    };
+                    c.text(&painter, 0, y, btop_fight::mark(r.gutter), mark);
+                    let line = match &r.fault {
+                        Some(f) => format!("{}  {f}", r.text),
+                        None => r.text.clone(),
+                    };
+                    let no = r.no.map_or(String::new(), |n| n.to_string());
+                    if r.no.is_some() && r.no == v.edit.as_ref().map(|e| e.no) {
+                        c.text_right(&painter, 2 + w, y, &no, pal.bright);
+                        let at = c.at(text_c, y, c.cols.saturating_sub(text_c), 1);
+                        acts.extend(l.edit_row(ui, at, v, g, &style));
+                    } else if cursor {
+                        let lead = format!("{no:>w$}  ");
+                        let room = c.cols.saturating_sub(2);
+                        c.inverse(
+                            &painter,
+                            2,
+                            y,
+                            room,
+                            &format!("{lead}{line}"),
+                            pal.bg,
+                            pal.fg,
+                        );
+                    } else {
+                        c.text_right(&painter, 2 + w, y, &no, num);
+                        let room = c.cols.saturating_sub(text_c);
+                        c.text_max(&painter, text_c, y, &line, room, ink);
                     }
                 }
-            }
-            l.click(&ctx, &tile, &c, &mut v, &rows, n, g);
-            ui.allocate_rect(inner, Sense::hover());
+                if legend {
+                    for (k, keys_row) in btop_fight::legend(&keys).iter().enumerate() {
+                        let y = c.rows - 2 + k;
+                        let mut x = 0;
+                        for (key, word, presses) in keys_row.iter() {
+                            let live = focused && *presses;
+                            let ink = if live { pal.fg } else { pal.dim };
+                            x += c.text(&painter, x, y, key, ink);
+                            x += c.text(&painter, x, y, &format!(" {word}  "), pal.dim);
+                        }
+                    }
+                }
+                l.click(&ctx, f.tile, &c, v, rows, n, g);
+                ui.allocate_rect(inner, Sense::hover());
+            });
         });
-        if tile.clicked() && v.edit.is_none() {
-            l.take_keys(&ctx);
+        for a in acts {
+            p.act(a);
         }
-        l.keep(&ctx, v);
     }
 }
 
