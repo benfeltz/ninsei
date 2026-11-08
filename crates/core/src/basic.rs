@@ -44,8 +44,14 @@ pub struct Program {
     pub stray: Vec<String>,
 }
 
-/// Why a stray line isn't part of the program.
-pub const NO_NUMBER: &str = "?SYNTAX ERROR: no line number";
+/// Why a stray line isn't part of the program: a number past `MAX_LINE`, or none at all.
+pub fn stray_fault(text: &str) -> &'static str {
+    if text.starts_with(|c: char| c.is_ascii_digit()) {
+        "?ILLEGAL LINE NUMBER"
+    } else {
+        "?SYNTAX ERROR: no line number"
+    }
+}
 
 /// One numbered line.
 #[derive(Clone, Debug, PartialEq, Eq)]

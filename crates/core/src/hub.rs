@@ -403,7 +403,7 @@ pub struct KitDef {
 pub fn program_fault(text: &str, data: &Data) -> Option<String> {
     let p = crate::basic::parse(text);
     if let Some(s) = p.stray.first() {
-        return Some(format!("`{s}`: {}", crate::basic::NO_NUMBER));
+        return Some(format!("`{s}`: {}", crate::basic::stray_fault(s)));
     }
     let known = |typed: &str| {
         data.warez

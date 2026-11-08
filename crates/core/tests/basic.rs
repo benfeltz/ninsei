@@ -49,7 +49,21 @@ fn a_line_with_no_number_never_takes_anothers() {
         assert_eq!(back, p, "{text}");
         assert!(back.lines.iter().all(|l| l.stmt != Stmt::Run("c".into())));
     }
-    assert_eq!(basic::parse("99999 RUN a").stray, ["99999 RUN a"]);
+    assert_eq!(basic::stray_fault("RUN c"), "?SYNTAX ERROR: no line number");
+    // A number too big is a number all the same: it says so.
+    let big = basic::parse("70000 RUN icepick");
+    assert_eq!(big.stray, ["70000 RUN icepick"]);
+    assert_eq!(basic::stray_fault(&big.stray[0]), "?ILLEGAL LINE NUMBER");
+    let d = Data::builtin().unwrap();
+    let why = hub::program_fault("70000 RUN icepick", &d).unwrap();
+    assert!(why.contains("?ILLEGAL LINE NUMBER"), "{why}");
+    let mut g = fight("bulwark", "10 RUN icepick\n70000 RUN icepick");
+    let list = command::listing(&g);
+    assert!(
+        list.iter().any(|l| l.contains("?ILLEGAL LINE NUMBER")),
+        "{list:?}"
+    );
+    g.apply(Action::Step);
 }
 
 #[test]

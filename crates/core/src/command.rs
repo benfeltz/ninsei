@@ -132,7 +132,7 @@ pub fn listing(g: &crate::game::Game) -> Vec<String> {
     }
     for s in &v.stray {
         out.push(format!("       {s}"));
-        out.push(format!("       {}", crate::basic::NO_NUMBER));
+        out.push(format!("       {}", crate::basic::stray_fault(s)));
     }
     if v.lines.is_empty() && v.stray.is_empty() {
         out.push("no program.".to_string());
