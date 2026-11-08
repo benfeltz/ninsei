@@ -1001,7 +1001,20 @@ impl Home {
                     out,
                 );
             }
-            // Liza and Desktop list it plainly until they dress it.
+            // The Sense/Net's: a desk accessory.
+            Tool::Player if save.firmware_def(data).desktop == Desktop::Liza => {
+                crate::player_view::liza_face(
+                    child,
+                    data,
+                    save,
+                    &self.player,
+                    &mut self.player_ui,
+                    &self.heard,
+                    keys,
+                    out,
+                );
+            }
+            // Desktop lists it plainly until it dresses it.
             Tool::Player => crate::player_view::plain(child, data, save, &self.player, out),
             Tool::Shell => {}
             Tool::Game(_, copy) => self.play(child, data, save, tool, copy, keys, out),

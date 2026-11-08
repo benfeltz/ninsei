@@ -213,7 +213,7 @@ impl Liza {
             Tool::NightComm => (pos2(60.0, 46.0), vec2(880.0, 500.0)),
             Tool::TigerTeam => (pos2(50.0, 40.0), vec2(900.0, 540.0)),
             Tool::IceDb => (pos2(100.0, 60.0), vec2(700.0, 470.0)),
-            Tool::Player => (pos2(140.0, 70.0), vec2(560.0, 400.0)),
+            Tool::Player => (pos2(140.0, 60.0), vec2(480.0, 452.0)),
             Tool::Guide => (pos2(120.0, 30.0), book_window()),
             // Sized when it's first drawn (`home::size_game_window`).
             Tool::Game(_, copy) => {
