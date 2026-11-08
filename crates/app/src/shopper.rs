@@ -9,8 +9,8 @@ use ninsei_core::Data;
 use ninsei_core::book::Turn;
 use ninsei_core::hub::{Save, Upgrade};
 use ninsei_core::shopper::{
-    self, AdDef, AdSize, Block, Cell, GRID_COLS, GRID_ROWS, Item, Listing, Page, ShopperDef, Stock,
-    VendorDef,
+    self, AdDef, AdSize, Block, Cell, GRID_COLS, GRID_ROWS, Item, Listing, Page, ShopperDef, Spec,
+    Stock, VendorDef,
 };
 
 use crate::home::{WbOut, accent, backdrop, ink, muted};
@@ -515,16 +515,24 @@ fn full_ad(
         pos2(ui.max_rect().left(), ui.cursor().top()),
         ui.max_rect().max - vec2(0.0, FOOT + GUTTER),
     );
-    let copy = match art {
-        Some(art) => {
-            let pic = Rect::from_min_max(
-                pos2(body.left() + body.width() * 0.55, body.top()),
-                body.max,
-            );
+    // The right column: the picture, and under it the spec box, like a print ad's.
+    let copy = if art.is_some() || !l.specs.is_empty() {
+        let side = Rect::from_min_max(
+            pos2((body.left() + body.width() * 0.55).round(), body.top()),
+            body.max,
+        );
+        let boxed = spec_height(&l.specs);
+        let pic = Rect::from_min_max(side.min, pos2(side.right(), side.bottom() - boxed));
+        if let Some(art) = art {
             hero(ui, pic, &art.rows);
-            Rect::from_min_max(body.min, pos2(pic.left() - GUTTER, body.bottom()))
         }
-        None => body,
+        if !l.specs.is_empty() {
+            let r = Rect::from_min_max(pos2(side.left(), side.bottom() - boxed + GUTTER), side.max);
+            spec_box(ui, r, &l.specs);
+        }
+        Rect::from_min_max(body.min, pos2(side.left() - GUTTER, body.bottom()))
+    } else {
+        body
     };
     let mut c = pager::area(ui, copy);
     let ui_copy = &mut c;
@@ -551,6 +559,69 @@ fn full_ad(
         }
     }
     order(ui, data, save, l, a, out);
+}
+
+/// One line of the spec box, in the magazine's small type.
+const SPEC_ROW: f32 = 15.0;
+
+/// What the spec box takes under the picture, the gutter above it included.
+fn spec_height(specs: &[Spec]) -> f32 {
+    if specs.is_empty() {
+        0.0
+    } else {
+        GUTTER + SPEC_ROW * (specs.len() + 1) as f32 + 4.0
+    }
+}
+
+/// The ad's spec box: a ruled table of what the deck ships with and what it expands to, a
+/// product's own numbers (`Listing::specs`). Laid out in whole pixels inside `r`.
+fn spec_box(ui: &mut Ui, r: Rect, specs: &[Spec]) {
+    let p = ui.painter().with_clip_rect(r.intersect(ui.clip_rect()));
+    let font = FontId::proportional(size::SMALL);
+    let rule = |y: f32, w: f32| {
+        p.hline(
+            r.left()..=r.right(),
+            y.round() + w / 2.0,
+            Stroke::new(w, ink()),
+        )
+    };
+    let num = |n: u32, unit: &str| {
+        if unit.is_empty() {
+            n.to_string()
+        } else {
+            format!("{n} {unit}")
+        }
+    };
+    // Three columns: the line, then both numbers right-aligned to fixed stops.
+    let (left, mid, right) = (
+        r.left() + 4.0,
+        (r.left() + r.width() * 0.66).round(),
+        r.right() - 4.0,
+    );
+    let cell = |t: &str, x: f32, y: f32, align_right: bool| {
+        let g = p.layout_no_wrap(t.to_string(), font.clone(), ink());
+        let w = g.size().x;
+        let x = if align_right {
+            (x - w).floor()
+        } else {
+            x.round()
+        };
+        let y = (y + (SPEC_ROW - g.size().y) / 2.0).round();
+        p.galley(pos2(x, y), g, ink());
+    };
+    let top = r.top().round();
+    rule(top, 2.0);
+    cell("SPECS", left, top + 1.0, false);
+    cell("SHIPS WITH", mid, top + 1.0, true);
+    cell("EXPANDS TO", right, top + 1.0, true);
+    rule(top + SPEC_ROW + 1.0, 1.0);
+    for (i, s) in specs.iter().enumerate() {
+        let y = top + 3.0 + SPEC_ROW * (i + 1) as f32;
+        cell(&s.label, left, y, false);
+        cell(&num(s.ships, &s.unit), mid, y, true);
+        cell(&num(s.max, &s.unit), right, y, true);
+    }
+    rule(top + 3.0 + SPEC_ROW * (specs.len() + 1) as f32, 1.0);
 }
 
 /// A product picture (`data/art/`), as big as fits `r` at a whole-number scale, centred, in the
@@ -908,5 +979,90 @@ mod tests {
         frame(&mut h, &mut home, &data, &save, Tool::Rig, Vec::new());
         every_story(&h, "the contents");
         whole(&h, "the contents");
+    }
+
+    #[test]
+    fn every_deck_page_prints_its_spec_box_whole_and_nothing_else_does() {
+        let data = Data::builtin().unwrap();
+        let save = deck(&data);
+        let cat = save.catalog(&data);
+        let count = shopper::layout(&data.shopper, &cat).len();
+        for (w, hgt) in [
+            (1280.0, 800.0),
+            (pager::SIZE.x + 16.0, pager::SIZE.y + 16.0),
+        ] {
+            let (mut h, mut home) = (Harness::new(w, hgt), Home::new(Vec::new()));
+            crate::uitest::themed(&h.ctx, &data);
+            let page = Rect::from_min_size(Pos2::ZERO, pager::SIZE + egui::vec2(16.0, 16.0));
+            frame(&mut h, &mut home, &data, &save, Tool::Rig, Vec::new());
+            let mut boxes = Vec::new();
+            for _ in 0..count {
+                frame(&mut h, &mut home, &data, &save, Tool::Rig, Vec::new());
+                frame(&mut h, &mut home, &data, &save, Tool::Rig, Vec::new());
+                let seen = h.visible_text();
+                if seen.iter().any(|t| t == "SHIPS WITH") {
+                    // Whose page: the deck whose headline is on it.
+                    let l = cat
+                        .iter()
+                        .filter(|l| matches!(l.item, Item::Deck(_)))
+                        .find(|l| {
+                            let head = data.shopper.ad(&l.item).and_then(|a| a.headline.clone());
+                            seen.contains(&head.unwrap_or(l.name.clone()))
+                        })
+                        .expect("a deck's page");
+                    assert!(seen.iter().any(|t| t == "EXPANDS TO"));
+                    for s in &l.specs {
+                        let num = |n: u32| {
+                            if s.unit.is_empty() {
+                                n.to_string()
+                            } else {
+                                format!("{n} {}", s.unit)
+                            }
+                        };
+                        for t in [s.label.clone(), num(s.ships), num(s.max)] {
+                            assert!(seen.contains(&t), "{}: no {t:?} in {seen:?}", l.name);
+                        }
+                    }
+                    // The box is whole: every word of it on the page and none cut at a clip.
+                    let words: Vec<String> = ["SPECS", "SHIPS WITH", "EXPANDS TO"]
+                        .map(String::from)
+                        .into_iter()
+                        .chain(l.specs.iter().map(|s| s.label.clone()))
+                        .collect();
+                    for (t, r) in h.painted_text() {
+                        if words.contains(&t)
+                            || t.chars().next().is_some_and(|c| c.is_ascii_digit())
+                        {
+                            assert!(page.contains_rect(r), "{t:?} runs off the page at {r:?}");
+                        }
+                    }
+                    let cut = h.cut_text();
+                    assert!(
+                        !cut.iter().any(|(t, _)| words.contains(t)
+                            || t.starts_with(|c: char| c.is_ascii_digit())),
+                        "the spec box is cut: {cut:?}"
+                    );
+                    boxes.push(l.item.clone());
+                }
+                if h.enabled("▶") != Some(true) {
+                    break;
+                }
+                let next = press_on(&mut h, "▶");
+                frame(&mut h, &mut home, &data, &save, Tool::Rig, next);
+            }
+            let decks: Vec<Item> = data
+                .hardware
+                .decks
+                .iter()
+                .map(|d| Item::Deck(d.id.clone()))
+                .collect();
+            boxes.sort_by_key(|i| format!("{i:?}"));
+            let mut want = decks.clone();
+            want.sort_by_key(|i| format!("{i:?}"));
+            assert_eq!(
+                boxes, want,
+                "one spec box a deck, on its own page, and none elsewhere"
+            );
+        }
     }
 }

@@ -19,8 +19,9 @@
 //             size: Full (a page to itself) | Half | Box (four to a page)
 //             optional: vendor, headline, bullets (★ points), note (small print), callout
 //             (shown instead of the price, e.g. "CALL for SPECIAL PRICE!"; it still orders)
-//             A deck's Full ad takes its whole page: its picture (`art` in hardware.ron) and,
-//             under it, the add-ons for its desktop. Add-ons for an OS none of your decks run
+//             A deck's Full ad takes its whole page: its picture (`art` in hardware.ron), a
+//             spec box under the picture (shipped and maximum for each `stats` row, printed
+//             from hardware.ron, never typed here), and under the ad the add-ons for its desktop. Add-ons for an OS none of your decks run
 //             are listed with CALL NOW instead of a price.
 (
     title: "CPU SHOPPER",
@@ -49,7 +50,7 @@
     ],
     vendors: [
         (id: "onosendai", name: "Ono-Sendai Direct", hotline: Some("1-800-ONO-DECK"), slogan: Some("JACK IN TODAY"),
-         terms: ["FREE delivery to your deck.", "Firmware swaps free, forever.", "Looks and feel only. No performance claims.", "Credits only. No C.O.D."]),
+         terms: ["FREE delivery to your deck.", "Firmware swaps free, forever.", "Firmware is looks and feel only.", "Credits only. No C.O.D."]),
         (id: "hosaka", name: "Hosaka Corporate Sales", hotline: Some("1-800-HOSAKA-4"), slogan: Some("THE OFFICE OF TOMORROW"),
          terms: ["Volume licensing available.", "Installed by a Hosaka technician.", "Credits only."]),
         (id: "sensenet", name: "Sense/Net Home Computing", hotline: Some("1-800-SENSE-IT"), slogan: Some("THE COMPUTER FOR THE REST OF US"),
@@ -67,13 +68,13 @@
     ],
     ads: [
         (item: Deck("onosendai"), size: Full, vendor: Some("onosendai"), headline: Some("CYBERSPACE VII"),
-         bullets: ["Cyberspace 7.0 firmware", "Isometric wireframe map", "btop-style run screen", "AnarchyOS tiling desktop", "net traffic pane included", "6.2 classic panes, free"],
+         bullets: ["More cycles out of the box", "Cyberspace 7.0: wireframes on the grid", "AnarchyOS tiling desktop, btop runs", "net pane included, 6.2 classic free"],
          note: Some("trodes not included")),
         (item: Deck("hosaka"), size: Full, vendor: Some("hosaka"), headline: Some("Executive 4"),
-         bullets: ["PlanView 4.0 firmware", "Draftsman network plans", "Office-suite run screen", "Desktop (Workbench) OS"],
+         bullets: ["Memory and storage for every department", "PlanView 4.0: every node drafted", "Office-suite run screen", "Desktop (Workbench) OS"],
          callout: Some("CALL for SPECIAL PRICE!")),
         (item: Deck("sensenet"), size: Full, headline: Some("Personal Deck"),
-         bullets: ["Liza, the friendly desktop", "Your net as a HyperCard stack", "1-bit, crisp, everything labelled"]),
+         bullets: ["Friendly the moment you switch it on", "Liza: everything labelled, nothing to learn", "Your net as a HyperCard stack"]),
         (item: Upgrade(Ram), size: Half, bullets: ["Snaps into any deck", "Lifetime warranty"]),
         (item: Upgrade(Cpu), size: Half, bullets: ["Overclocked and burned in", "Every fight, every turn"]),
         (item: Tool("tigerteam"), size: Half, headline: Some("TIGER TEAM PRO 3.0"),
