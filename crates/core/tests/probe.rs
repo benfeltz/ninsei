@@ -121,3 +121,25 @@ fn careers_buy_a_bigger_chassis() {
     assert!(lines.iter().any(|l| l.contains("tier 3 on a cpu cap")) || s.career[2].runs == 0);
     assert!(lines.iter().any(|l| l.trim_start().starts_with("deck ")));
 }
+
+#[test]
+fn the_dumb_bot_is_two_lines() {
+    let data = Data::builtin().unwrap();
+    let dumb = ninsei_core::basic::parse(probe::DUMB);
+    assert_eq!(dumb.lines.len(), 2);
+    assert_eq!(Bot::Dumb.program(&data), probe::DUMB);
+    // The competent bot is the program a fresh deck ships: the default kit's SAFE.
+    assert_eq!(Bot::Smart.program(&data), data.starts.kit("").program);
+    // Both play fights through the interpreter: what's left in the run is their program.
+    for bot in [Bot::Dumb, Bot::Smart] {
+        let (g, log) = probe::play(Game::new(data.clone(), 3), bot);
+        assert_eq!(g.program, ninsei_core::basic::parse(&bot.program(&data)));
+        if log.fights > 0 {
+            assert!(
+                !log.breaks.is_empty(),
+                "{bot:?} broke nothing in {} fights",
+                log.fights
+            );
+        }
+    }
+}
