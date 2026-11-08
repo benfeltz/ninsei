@@ -277,3 +277,60 @@ fn play_with_safe_hands_back_every_quiet_turn() {
     g.apply(Action::Run(pick));
     assert!(g.combat.as_ref().unwrap().strength < before);
 }
+
+/// A turn of SAFE with a breaker in its loop, as the trace says it: (line, what).
+fn turn_of_safe_and_icepick() -> (Game, Vec<(u32, String)>) {
+    let mut s = fresh();
+    let mut g = fight_from(&mut s, "bulwark");
+    g.combat.as_mut().unwrap().intent_ix = 1;
+    g.deck.integrity = 5;
+    g.apply(Action::Program(format!(
+        "{}\n55 RUN icepick",
+        g.program.text()
+    )));
+    g.apply(Action::Finish);
+    let trace = g
+        .exec
+        .trace
+        .iter()
+        .map(|s| (s.line, format!("{:?}", s.what)))
+        .collect();
+    (g, trace)
+}
+
+#[test]
+fn finish_is_the_whole_turn_it_always_was() {
+    let (g, trace) = turn_of_safe_and_icepick();
+    let c = g.combat.as_ref().unwrap();
+    // Snapshot of today's whole-turn pass (141.8 step 1): the trace, the budgets and what the
+    // ICE has left.
+    let got = (trace, c.turn, c.cpu, c.ifs, c.strength, g.deck.integrity);
+    assert_eq!(format!("{got:?}"), SNAPSHOT, "{got:?}");
+}
+
+const SNAPSHOT: &str = "([(20, \"If(true)\"), (30, \"Ran { uid: 2, outcome: Repair(3) }\"), \
+    (40, \"If(true)\"), (50, \"Ran { uid: 1, outcome: Shield(5) }\"), \
+    (55, \"Ran { uid: 3, outcome: Break { hit: 3, vs: Plain } }\"), (55, \"OutOfCpu\")], \
+    2, 3, 6, 497, 8)";
+
+#[test]
+fn a_hang_holds_the_line_until_an_edit() {
+    let mut s = fresh();
+    let mut g = fight_from(&mut s, "bulwark");
+    g.apply(Action::Finish);
+    // SAFE comes round to line 20 having run nothing: the cursor stays on it.
+    assert_eq!(g.exec.broke, Some(20));
+    assert_eq!(g.exec.pc, Some(20));
+    let v = g.program_view();
+    assert_eq!(v.broke, Some(20));
+    assert!(v.lines.iter().find(|l| l.no == 20).unwrap().current);
+    assert_eq!(
+        g.combat.as_ref().unwrap().turn,
+        1,
+        "the turn is the player's"
+    );
+    // An edit clears it, and the next pass starts at the top.
+    g.apply(Action::Program(g.program.text()));
+    assert_eq!(g.exec.broke, None);
+    assert_eq!(g.exec.pc, g.program.first());
+}
