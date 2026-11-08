@@ -231,8 +231,10 @@ fn bad_yields_and_fight_rewards_are_rejected() {
 
 #[test]
 fn every_completion_verb_is_a_command() {
+    // `prog` reads the run's program, so verbs parse the way the run's terminal does.
+    let g = game(1);
     for v in command::VERBS {
-        match parse_command(v) {
+        match command::parse_in(&g, v) {
             Ok(_) => {}
             // Verbs that take an argument complain about it, not about the verb.
             Err(e) => assert!(e.contains("needs") && !e.contains("unknown"), "{v}: {e}"),

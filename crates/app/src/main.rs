@@ -920,6 +920,16 @@ impl App {
                 }
             }
             Command::Game(a) => self.game.apply(a),
+            Command::Debug(a) => {
+                for l in ninsei_core::command::debug(&mut self.game, a) {
+                    self.game.say(LogKind::Sys, l);
+                }
+            }
+            Command::Print(lines) => {
+                for l in lines {
+                    self.game.say(LogKind::Sys, l);
+                }
+            }
             Command::Hex(slot) => self.open_hex(slot),
             Command::Help => {
                 let lines: Vec<&str> = ninsei_core::command::help(&self.game).collect();

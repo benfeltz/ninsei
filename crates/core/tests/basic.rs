@@ -359,3 +359,73 @@ fn every_kit_ships_a_program_that_reads() {
     assert!(hub::program_fault("10 RUN nosuch", &d).is_some());
     assert!(hub::program_fault("10 GOTO 20", &d).is_some());
 }
+
+// ---- from the run terminal ---------------------------------------------------------------
+
+use ninsei_core::command::{self, Command};
+
+/// Types `line` into the run terminal and does what the app does with it.
+fn type_in(g: &mut Game, line: &str) -> Vec<String> {
+    match command::parse_in(g, line).unwrap_or_else(|e| panic!("{line}: {e}")) {
+        Command::Game(a) => {
+            g.apply(a);
+            Vec::new()
+        }
+        Command::Debug(a) => command::debug(g, a),
+        Command::Print(lines) => lines,
+        other => panic!("{line}: {other:?}"),
+    }
+}
+
+#[test]
+fn prog_edits_and_lists() {
+    let mut g = fight("bulwark", SAMPLE);
+    let list = type_in(&mut g, "prog");
+    assert!(
+        list[0].starts_with("turn 1  cpu 3/3  ram 6/6 GB"),
+        "{list:?}"
+    );
+    assert_eq!(list[1], ">   10 RUN icepick", "the line about to run");
+    assert_eq!(list.len(), 5);
+    type_in(&mut g, "prog 25 RUN firewall");
+    type_in(&mut g, "prog 30");
+    type_in(&mut g, "prog 15 JUMP");
+    assert_eq!(
+        g.program.text(),
+        "10 RUN icepick\n15 JUMP\n20 IF INTEG < 10\n25 RUN firewall\n40 GOTO 10"
+    );
+    type_in(&mut g, "prog del 15");
+    assert!(g.program.line(15).is_none());
+    // A bad line lists with the interpreter's reason under it.
+    type_in(&mut g, "prog 50 GOTO 99");
+    let list = type_in(&mut g, "list");
+    assert!(
+        list.iter().any(|l| l.contains("?UNDEF'D STATEMENT 99")),
+        "{list:?}"
+    );
+    assert!(command::parse_in(&g, "prog x RUN icepick").is_err());
+}
+
+#[test]
+fn step_from_the_shell_runs_a_pass() {
+    let mut g = fight("bulwark", SAMPLE);
+    let said = type_in(&mut g, "step");
+    assert_eq!(said[0], "10 RUN icepick: IcePick breaks 3.");
+    assert_eq!(said[1], "20 IF INTEG < 10: no. skipping the next line.");
+    assert_eq!(said.last().unwrap(), "out of cycles. the turn is over.");
+    assert_eq!(combat(&g).turn, 2);
+    // `play` runs passes until the fight ends (here the ICE falls): no mouse needed.
+    let mut g = fight("icewall", SAMPLE);
+    let c = g.combat.as_mut().unwrap();
+    (c.strength, c.strength_max) = (20, 20);
+    let said = type_in(&mut g, "play");
+    assert_eq!(g.phase, Phase::Exploring, "{said:?}");
+    assert!(said.len() > 6);
+    // STOP hands back; `pause` takes the turn back from a running program.
+    let mut g = fight("bulwark", "10 RUN icepick\n20 STOP");
+    let said = type_in(&mut g, "play");
+    assert_eq!(said.last().unwrap(), "BREAK IN 20");
+    assert_eq!(g.exec.state, ExecState::Stopped(20));
+    type_in(&mut g, "pause");
+    assert!(command::VERBS.contains(&"prog") && command::VERBS.contains(&"step"));
+}
