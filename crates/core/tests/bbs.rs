@@ -400,7 +400,6 @@ fn a_deck_mod_past_the_cap_is_refused_unpaid() {
         cpu: Some(g.deck.cpu_max),
         ram: Some(g.deck.ram_max),
         hdd: Some(g.deck.hdd_max),
-        integrity: None,
     };
     let before = g.deck.clone();
     let why = g.buy_blocker(area, file).expect("refused");

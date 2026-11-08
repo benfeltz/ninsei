@@ -21,13 +21,14 @@ pub struct Deck {
     pub caps: Caps,
 }
 
-/// A deck's ceilings per line (`None`: no ceiling), from its `stats` rows in `hardware.ron`.
+/// A deck's ceilings per line (`None`: no ceiling), from its `stats` rows in `hardware.ron`:
+/// the lines a deck mod or loot can raise in a run. Integrity only grows at home, where
+/// `Save::upgrade_blocker` holds its ceiling.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Caps {
     pub cpu: Option<u32>,
     pub ram: Option<u32>,
     pub hdd: Option<u32>,
-    pub integrity: Option<u32>,
 }
 
 impl Deck {

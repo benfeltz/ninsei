@@ -1695,7 +1695,7 @@ impl Save {
     }
 
     pub fn stash_cap(&self, defs: &[UpgradeDef]) -> u32 {
-        STASH_BASE_SLOTS + self.rig.bonus(Upgrade::Stash, defs)
+        Upgrade::Stash.fallback() + self.rig.bonus(Upgrade::Stash, defs)
     }
 
     /// HDD slots the next run's deck will have: the loadout's limit.
@@ -1893,7 +1893,6 @@ impl Save {
                 ram: self.stat_cap(data, Upgrade::Ram),
                 cpu: self.stat_cap(data, Upgrade::Cpu),
                 hdd: self.stat_cap(data, Upgrade::Hdd),
-                integrity: self.stat_cap(data, Upgrade::Integrity),
             },
             programs,
             net: NetParams::default(),
