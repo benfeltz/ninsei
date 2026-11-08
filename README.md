@@ -164,8 +164,8 @@ Runs are for taking things; home is for building. **Reach the exit** and the run
 
 | Pane | What it is |
 |---|---|
-| `deck.sys` | CPU (actions per turn), RAM (what's loaded), HDD (what you own), integrity (HP), trace, credits |
-| `warez/` | Your programs as a file tree: `ram/` is loaded and runnable, `hdd/` is stored |
+| `deck.sys` | CPU (actions per turn), RAM (decisions per turn: one GB per IF in your program), HDD (what you own), integrity (HP), trace, credits |
+| `warez/` | Your programs as a file tree: everything on `hdd/` runs |
 | `network.map` | The run, as floating wireframes, a technical draft or a 1-bit picture (below). Click a lit node to route there; nodes further than one layer ahead are fogged |
 | `target.ice` | The ICE you're fighting: strength, next intent, run buttons |
 | `hexedit` | Open any program's binary and patch its bytes (see Crafting) |
@@ -178,7 +178,7 @@ Tabs can be dragged, split and rearranged, and **your layout is saved** (one per
 
 ![net pane](docs/shots/net-pane-synthwave.png)
 
-On the **Sense/Net** the run screen is a HyperCard stack, in the theme's two colours. The panels still drag, resize, close and re-tab like every deck's, dressed as HyperCard windows: ink frames and splitters on paper, rounded tabs, and the front tab inverted. They start in the mockup's arrangement: the Card (the network, with ICE and Hex as its other tabs) large on the left, the deck and the programs on the right, and the Message box along the bottom. The deck is a field of meters that fill with darker patterns as they rise. Programs are rounded buttons with a hatched shadow: click one to run it in a fight, or to load or unload it otherwise. The Message box is the command line under a scrolling log field. When ICE rezzes, a double-bordered Mac alert offers your hardest-hitting program as its ringed default button, plus a shield; close it and fight from the panels. Damage glitches tear and smear but never split colour.
+On the **Sense/Net** the run screen is a HyperCard stack, in the theme's two colours. The panels still drag, resize, close and re-tab like every deck's, dressed as HyperCard windows: ink frames and splitters on paper, rounded tabs, and the front tab inverted. They start in the mockup's arrangement: the Card (the network, with ICE and Hex as its other tabs) large on the left, the deck and the programs on the right, and the Message box along the bottom. The deck is a field of meters that fill with darker patterns as they rise. Programs are rounded buttons with a hatched shadow: click one to run it in a fight. The Message box is the command line under a scrolling log field. When ICE rezzes, a double-bordered Mac alert offers your hardest-hitting program as its ringed default button, plus a shield; close it and fight from the panels. Damage glitches tear and smear but never split colour.
 
 ![the stack](docs/shots/stack-run.png)
 ![a fight on the stack](docs/shots/stack-fight.png)
@@ -189,7 +189,7 @@ On the **Ono-Sendai** the panes are dressed btop-style: boxed with their titles 
 
 - It turns over a grid that runs to the horizon, with slow digital rain behind it.
 - It comes apart edge by edge as its strength drops, jolts when you hit it, charges up before it attacks, and freezes and flickers when lagged.
-- Along the bottom, your loaded programs are a hotbar. A digit or a click runs one. Hovering one previews what it would do: the strength it would take off shows on the meter, and the edges it would break light up.
+- Along the bottom, your programs are a hotbar. A digit or a click runs one. Hovering one previews what it would do: the strength it would take off shows on the meter, and the edges it would break light up.
 - Packets fly from the program to the ICE, and the damage floats up.
 
 target.ice keeps the numbers view (intent and damage waterfalls).
@@ -204,12 +204,12 @@ target.ice keeps the numbers view (intent and damage waterfalls).
 On the **Hosaka** the run screen is a 90s productivity suite. Each pane is a document window with a title bar, a double border, a drop shadow and its number in the corner:
 
 - `SYSTEM RESOURCES`: a form of labelled fields, a utilization bar chart and a trace-by-hop line chart with its 75% and 100% limits
-- `WAREZ.WK1`: a spreadsheet with column letters, row numbers, a cell cursor and a formula bar (`B3: decoder.exe   =BREAK(CodeGate, 6)`). Click a header to sort, filter to loaded rows, double-click a row to load, run or unload, or right-click for more. The arrows move the cursor
+- `WAREZ.WK1`: a spreadsheet with column letters, row numbers, a cell cursor and a formula bar (`B3: decoder.exe   =BREAK(CodeGate, 6)`). Click a header to sort, double-click a row to run it in a fight, or right-click for more. The arrows move the cursor
 - `INCIDENT REPORT`: the ICE as a record, its strength as a column chart per turn, and its **agenda** of planned actions
 - `ACTIVITY LOG`: a ledger (`TIME`, `REF`, `ENTRY`) with a `Command:` field
 - `WORK ORDERS`: contracts as a table with a total outstanding, and the ghost bonus as a conditional cell (`+57¢ if TRACE ≤ 40%`); a client who turned on you is `VOID — DEFAULTED` (or `BURNED`, `SOLD OUT`...)
 
-An **F-key legend** runs along the bottom: **F1** help, **F2** load, **F3** unload, **F4** hex (on the sheet's cursor), **F8** jack (types `jack ` for you), **F10** end turn. The usual keys still work. The status line reads like a document: date and hop, `USER GUEST-0451`, `BRIGHTWATER MUTUAL.NET`, `NODE 4 OF 15`, `TRACE 37%`. A paid contract and the end of a session pop up as **dialogs**; Enter dismisses them, and they never block a fight.
+An **F-key legend** runs along the bottom: **F1** help, **F4** hex (on the sheet's cursor), **F8** jack (types `jack ` for you), **F10** end turn. The usual keys still work. The status line reads like a document: date and hop, `USER GUEST-0451`, `BRIGHTWATER MUTUAL.NET`, `NODE 4 OF 15`, `TRACE 37%`. A paid contract and the end of a session pop up as **dialogs**; Enter dismisses them, and they never block a fight.
 
 ![the suite](docs/shots/suite-incident.png)
 ![a dialog](docs/shots/suite-dialog.png)
@@ -248,11 +248,13 @@ Both are drawn in the theme's colours. The **Synthwave** theme gives the magenta
 ![draft as a blueprint](docs/shots/map-draft-blueprint.png)
 
 **Keys:** `0`-`9` run that slot, `space` ends the turn, `enter` or `/` focuses the terminal.
-**Terminal:** `run 2`, `end`, `jack 5`, `load 3`, `unload 1`, `hex 0`, `opt 0`, `newrun [hexseed]`, `theme amber|green|ice`, `crt`, `clear`.
+**Terminal:** `run 2`, `end`, `jack 5`, `prog`, `prog 20 IF INTEG < 7`, `step`, `play`, `pause`, `hex 0`, `opt 0`, `newrun [hexseed]`, `theme amber|green|ice`, `crt`, `clear`.
 
 ## Combat
 
-Turn-based. Each turn you get your deck's CPU to spend running loaded warez; then the ICE does what its intent says (attack, trace or fortify) and your shields drop. Class breakers (decoder vs code gate, garrote vs sentry, crowbar vs barrier) hit their class for double and everything else for half. Stunned ICE adapts: it can't be stunned again the turn after. Loading a program mid-fight costs 1 CPU.
+Turn-based. Each turn you get your deck's CPU to spend running the warez on your HDD; then the ICE does what its intent says (attack, trace or fortify) and your shields drop. Class breakers (decoder vs code gate, garrote vs sentry, crowbar vs barrier) hit their class for double and everything else for half. Stunned ICE adapts: it can't be stunned again the turn after.
+
+Your deck also holds a **program**, in a line-numbered BASIC (`RUN <program>`, `IF <condition>`, `GOTO <line>`, `STOP`), kept between runs and editable mid-fight; a new deck ships with Sense/Net's `SAFE`. One pass through it is one turn: each `RUN` spends a cycle, each `IF` a GB of RAM, and the pass ends when the program does, at a `STOP`, or when either runs out. From the terminal, `prog` lists it, `prog <n> <line>` types a line in, `step` plays a pass and `play` keeps going until a `STOP`; the hotbar still works whenever the program has handed you the turn.
 
 ## Encounters
 
@@ -260,7 +262,7 @@ Routing into a **MSG** node opens a `talk` window with whoever's on the other en
 
 ![encounter](docs/shots/encounter.png)
 
-- **a fence** trades you a program for one of yours, or buys one (per GB of RAM, more for optimized code)
+- **a fence** trades you a program for one of yours, or buys one (per CPU it takes, more for optimized code)
 - **a fixer** offers a contract
 - **an unsecured cache** might be payroll, might be a honeypot
 - **a runner in trouble** pays fragments if you fight off the Hunter pinning them
@@ -298,12 +300,12 @@ Every program is a 32-byte binary, and its stats are whatever the bytes say. Hit
 04     power                              10-1E  name (ASCII, zero padded)
 05     vs class   00 any 01 barrier       1F     checksum: sum of 00-1E mod 256
                   02 code gate 03 sentry
-06     cpu cost   07  ram cost
+06     cpu cost   07  reserved (00)
 ```
 
 The linker refuses to write a binary unless it checks out:
 
-- **Budget.** The effect's cost (break power, repair power, half of shield or scrub, 7 for a stun) must fit in `3×cpu + ram/2 + 2×opt`. Want more power? Pay for it in CPU or RAM. Flip the opcode to turn a shield into a breaker. Rename it while you're in there.
+- **Budget.** The effect's cost (break power, repair power, half of shield or scrub, 7 for a stun) must fit in `4×cpu + 2×opt`. Want more power? Pay for it in CPU. Flip the opcode to turn a shield into a breaker. Rename it while you're in there.
 - **Checksum.** Fixing it is your job; the inspector shows the computed value.
 - **Signature.** The opt level is signed with a per-run key, so you can't just type a bigger number. **Optimizer fragments** (loot, or the BBS's OPTIMIZERS area) raise it properly. A program at the same opt level carries a valid signature you can copy, if you're clever.
 
@@ -372,7 +374,7 @@ Splash art and bulletins use pipe codes (below), up to 78x24. `Data::validate` c
 
 Everything is data in [`data/`](data), compiled into the binary:
 
-- `warez.ron`: programs (RAM/CPU cost, effect)
+- `warez.ron`: programs (CPU cost, effect)
 - `ice.ron`: ICE (class, strength, intent cycle; tier 2 is black ICE)
 - `loot.ron`: weighted loot tables for ICE, black ICE and vaults (credits, warez, upgrades, fragments)
 - `events.ron`: MSG-node encounters
