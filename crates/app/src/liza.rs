@@ -276,6 +276,12 @@ fn look(d: Desk, data: &Data) -> Look<'_> {
     }
 }
 
+/// Liza's look as her windows' tools draw in it: from the desk's registers, which hold Liza's
+/// two colours while she draws (so a tool in a Liza window wears what the desktop does).
+pub(crate) fn desk_look(data: &Data) -> Look<'_> {
+    look(home::desk(), data)
+}
+
 impl DesktopView for Liza {
     fn show(&mut self, ui: &mut Ui, home: &mut Home, cx: &Cx, out: &mut Vec<WbOut>) {
         let (data, save, offset, live) = (cx.data, cx.save, cx.offset, cx.live);
