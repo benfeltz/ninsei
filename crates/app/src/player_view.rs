@@ -6,6 +6,7 @@
 
 use egui::{Color32, Key, Rect, Sense, Ui};
 use ninsei_core::Data;
+use ninsei_core::hardware::Desktop;
 use ninsei_core::hub::Save;
 use ninsei_core::player::{self, Act, Transport};
 
@@ -280,6 +281,27 @@ pub fn tile(
         None => {
             g.text(&p, 2, top + 1, "-", muted());
         }
+    }
+}
+
+/// Draws TRAX as `desktop` dresses it: the one place a desktop's player face is chosen
+/// (AnarchyOS's [`tile`], Liza's [`liza_face`], and [`plain`] for a desktop without its own).
+#[allow(clippy::too_many_arguments)]
+pub fn show(
+    ui: &mut Ui,
+    desktop: Desktop,
+    data: &Data,
+    save: &Save,
+    t: &Transport,
+    pui: &mut PlayerUi,
+    heard: &Heard,
+    keys: bool,
+    out: &mut Vec<WbOut>,
+) {
+    match desktop {
+        Desktop::Tiling => tile(ui, data, save, t, pui, heard, keys, out),
+        Desktop::Liza => liza_face(ui, data, save, t, pui, heard, keys, out),
+        Desktop::Workbench => plain(ui, data, save, t, out),
     }
 }
 
