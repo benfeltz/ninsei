@@ -138,7 +138,8 @@ pub trait ChromeView {
     fn legend(&self, _ui: &mut Ui, _cx: &mut FrameCx) -> Vec<Request> {
         Vec::new()
     }
-    /// Keys of its own, read every frame the run is on screen (on top of the shared hotkeys).
+    /// Keys of its own, read every frame the run is on screen, before the shared hotkeys: a key
+    /// it consumes (an alert's Enter) never reaches them.
     fn keys(&self, _ctx: &egui::Context, _cx: &mut FrameCx) -> Vec<Request> {
         Vec::new()
     }

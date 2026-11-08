@@ -931,3 +931,118 @@ fn every_panel_fits_its_window_on_liza_and_desktop() {
         }
     }
 }
+
+#[test]
+fn liza_draws_the_mac_controls_on_every_panel() {
+    // The theme panel's radios are the Mac's (and a blocked one is dimmed), Disk's buttons are
+    // Mac push buttons with their round corners.
+    let d = data();
+    let mut s = save(&d);
+    let mono = d.hardware.monitors.iter().find(|m| !m.colour).unwrap();
+    s.monitor = mono.id.clone();
+    s.phosphor = mono.locked_theme(&d).unwrap().to_string();
+    let mut h = Harness::new(900.0, 700.0);
+    let mut st = SystemUi {
+        panel: Panel::Theme,
+        ..SystemUi::default()
+    };
+    frame(&mut h, &d, &s, &mut st, Vec::new());
+    let other = d.themes.iter().find(|t| t.id != s.phosphor).unwrap();
+    assert_eq!(
+        h.enabled(&other.label),
+        Some(false),
+        "a blocked theme is disabled"
+    );
+    // The kit's radio (its circle 5.5 across the stroke), drawn dimmer than the ink.
+    let dimmed = h.painted().iter().any(|sh| {
+        matches!(sh, egui::Shape::Circle(c)
+            if c.radius == 5.5 && c.stroke.color.a() < ink().a())
+    });
+    assert!(dimmed, "the blocked themes' radios are the kit's, dimmed");
+
+    let (d, s, mut h, mut st) = on_disk();
+    let ev = press(&h, &file_of(&d, &s, &Disk::Stash(7)));
+    frame(&mut h, &d, &s, &mut st, ev);
+    let install = h.find("Install ▸").unwrap();
+    let rounded = h.painted().iter().any(|sh| {
+        matches!(sh, egui::Shape::Rect(r)
+            if r.rect.contains(install.center())
+                && r.corner_radius.nw as f32 == crate::kit::liza::size::BUTTON_R)
+    });
+    assert!(rounded, "Install is a Mac push button");
+}
+
+#[test]
+fn disks_keys_stand_aside_while_the_panel_list_has_the_focus() {
+    let (d, s, mut h, mut st) = on_disk();
+    let file = file_of(&d, &s, &Disk::Stash(7));
+    let over = h.find(&file).unwrap().center();
+    // Click Theme in the list and walk back down to Disk with the arrows: the list has the keys.
+    let ev = press(&h, "Theme");
+    frame(&mut h, &d, &s, &mut st, ev);
+    frame(&mut h, &d, &s, &mut st, key(Key::ArrowDown));
+    assert_eq!(st.panel, Panel::Disk);
+    let over = h.find(&file).map_or(over, |r| r.center());
+    frame(&mut h, &d, &s, &mut st, key_at(Key::ArrowDown, over));
+    assert_eq!(st.picked, None, "the list had the arrow, not Disk");
+    // A click on the disk takes the focus from the list, and the arrows are Disk's again.
+    let ev = press(&h, &file);
+    frame(&mut h, &d, &s, &mut st, ev);
+    assert!(st.picked.is_some());
+    let first = st.picked.clone();
+    frame(&mut h, &d, &s, &mut st, key_at(Key::ArrowUp, over));
+    assert_ne!(st.picked, first, "the arrow moved Disk's pick");
+}
+
+#[test]
+fn desktop_draws_workbench_controls_on_every_panel() {
+    let d = data();
+    let s = on_deck(&d, "hosaka");
+    assert_eq!(
+        s.firmware_def(&d).desktop,
+        ninsei_core::hardware::Desktop::Workbench
+    );
+    // Overview: no egui radio circles or check box ticks, only 1.3 gadgets.
+    let mut h = Harness::new(900.0, 700.0);
+    let mut st = SystemUi::default();
+    frame(&mut h, &d, &s, &mut st, Vec::new());
+    assert!(
+        !h.painted()
+            .iter()
+            .any(|sh| matches!(sh, egui::Shape::Circle(_))),
+        "a round radio button on Desktop"
+    );
+    // They still do their jobs.
+    let ev = press(&h, "Sound");
+    assert_eq!(frame(&mut h, &d, &s, &mut st, ev), [WbOut::Sound]);
+    for g in Glitches::ALL.into_iter().filter(|&g| g != s.glitches) {
+        let mut h = Harness::new(900.0, 700.0);
+        let mut st = SystemUi::default();
+        frame(&mut h, &d, &s, &mut st, Vec::new());
+        let ev = press(&h, g.label());
+        assert_eq!(frame(&mut h, &d, &s, &mut st, ev), [WbOut::Glitches(g)]);
+    }
+    // Disk's buttons are bevelled 1.3 push buttons.
+    let mut s = s;
+    stash(&d, &mut s, "torch", 7);
+    let mut h = Harness::new(900.0, 700.0);
+    let mut st = SystemUi {
+        panel: Panel::Disk,
+        ..SystemUi::default()
+    };
+    frame(&mut h, &d, &s, &mut st, Vec::new());
+    let ev = press(&h, &file_of(&d, &s, &Disk::Stash(7)));
+    frame(&mut h, &d, &s, &mut st, ev);
+    let install = h.find("Install ▸").expect("Install");
+    let bevelled = h.painted().iter().any(|sh| {
+        matches!(sh, egui::Shape::LineSegment { points, stroke }
+            if stroke.width == crate::kit::workbench::size::BEVEL
+                && points[0] == install.left_top())
+    });
+    assert!(bevelled, "Install is a 1.3 push button");
+    let ev = press(&h, "Install ▸");
+    assert_eq!(
+        frame(&mut h, &d, &s, &mut st, ev),
+        [WbOut::Install(Disk::Stash(7))]
+    );
+}

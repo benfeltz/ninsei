@@ -9,6 +9,7 @@ use ninsei_core::data::Effect;
 use ninsei_core::{Action, Game, LogKind, Phase, tuning};
 
 use crate::chrome::{ChromeView, FrameCx, MenuPart, Menus, act};
+use crate::kit::liza;
 use crate::panes::{Panes, Request, Tab};
 use crate::patterns;
 
@@ -134,7 +135,7 @@ fn button(ui: &mut Ui, p: &Panes, id: Id, text: &str, sub: &str, on: bool, ring:
     let (r, _) = ui.allocate_exact_size(vec2(w, look::BUTTON_H + look::DROP), Sense::hover());
     let face = Rect::from_min_size(r.min, vec2(w - look::DROP, look::BUTTON_H));
     let resp = ui.interact(face, id, if on { Sense::click() } else { Sense::hover() });
-    let painter = ui.painter_at(r.expand(4.0));
+    let painter = ui.painter_at(r.expand(liza::size::RING_OUT));
     if let Some(pat) = p.game.data.pattern("diagonal") {
         let shadow = face.translate(vec2(look::DROP, look::DROP));
         patterns::fill(&painter, pat, shadow, ink, paper);
@@ -149,13 +150,8 @@ fn button(ui: &mut Ui, p: &Panes, id: Id, text: &str, sub: &str, on: bool, ring:
         StrokeKind::Inside,
     );
     if ring {
-        // The default button's heavy outline.
-        painter.rect_stroke(
-            face.expand(3.0),
-            look::BUTTON_R + 3.0,
-            Stroke::new(2.0, ink),
-            StrokeKind::Inside,
-        );
+        // The default button's heavy outline, the same as the alert's.
+        liza::default_ring(&painter, face, look::BUTTON_R, ink);
     }
     let font = egui::TextStyle::Monospace.resolve(ui.style());
     let col = if on { fg } else { fg.gamma_multiply(0.5) };
@@ -486,98 +482,133 @@ impl ChromeView for Stack {
     /// A fight brings up a Mac alert over the card. It's small and off to the side of the
     /// action, and closing it just tucks it away for this fight.
     fn overlay(&self, ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
-        let g = cx.game;
-        let mut out = Vec::new();
-        let Some(c) = &g.combat else {
-            return out;
+        let Some(f) = Fight::of(ctx, cx) else {
+            return Vec::new();
         };
-        if g.phase != Phase::Combat {
-            return out;
+        let look = liza::Look {
+            ink: cx.pal.fg,
+            paper: cx.pal.bg,
+            font: egui::TextStyle::Monospace.resolve(&ctx.global_style()),
+            stripes: None,
+            gray: None,
+        };
+        let screen = ctx.content_rect();
+        // Over the lower left, below the ICE's numbers and clear of the programs (the Stack's
+        // layout keeps them on the right).
+        let at = egui::pos2(
+            screen.left() + look::ALERT_LEFT,
+            screen.top() + look::ALERT_TOP,
+        );
+        let id = Id::new("stack-alert");
+        let pressed = f.with(|a| liza::alert(ctx, id, at, look::ALERT_W, a, &look));
+        f.press(ctx, pressed)
+    }
+
+    /// The fight's alert takes Enter (its default, the best move) and Esc (Close) while the
+    /// Message box isn't being typed in, before the run's own hotkeys see them.
+    fn keys(&self, ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
+        let Some(f) = Fight::of(ctx, cx) else {
+            return Vec::new();
+        };
+        let pressed = f.with(|a| liza::alert_keys(ctx, Id::new("stack-alert"), a));
+        f.press(ctx, pressed)
+    }
+}
+
+/// The fight's alert: what it says and what each button does, left to right: Close, then a
+/// shield, then the action (the best move, its default, else end turn).
+struct Fight {
+    title: String,
+    message: String,
+    buttons: Vec<String>,
+    acts: Vec<Option<Action>>,
+    default: Option<usize>,
+    keys: bool,
+    closed: Id,
+}
+
+impl Fight {
+    /// The alert, while it's up.
+    fn of(ctx: &egui::Context, cx: &FrameCx) -> Option<Fight> {
+        let g = cx.game;
+        let (Some(c), Some(closed)) = (&g.combat, alert_key(g)) else {
+            return None;
+        };
+        if !alert_up(ctx, g) {
+            return None;
         }
-        let key = Id::new(("stack-alert-closed", g.seed, c.node));
-        if ctx.data(|d| d.get_temp::<bool>(key)).unwrap_or(false) {
-            return out;
-        }
-        let (ink, paper) = (cx.pal.fg, cx.pal.bg);
         let def = &g.data.ice[c.ice];
         let best = best_move(g);
-        let shield = shield_move(g);
-        let screen = ctx.content_rect();
-        egui::Area::new(Id::new("stack-alert"))
-            .order(egui::Order::Foreground)
-            // Over the lower left, below the ICE's numbers and clear of the programs (the
-            // Stack's layout keeps them on the right).
-            .fixed_pos(egui::pos2(
-                screen.left() + look::ALERT_LEFT,
-                screen.top() + look::ALERT_TOP,
-            ))
-            .show(ctx, |ui| {
-                ui.set_width(look::ALERT_W);
-                egui::Frame::new()
-                    .fill(paper)
-                    .stroke(Stroke::new(1.0, ink))
-                    .inner_margin(egui::Margin::same(4))
-                    .show(ui, |ui| {
-                        egui::Frame::new()
-                            .stroke(Stroke::new(3.0, ink))
-                            .inner_margin(egui::Margin::same(12))
-                            .show(ui, |ui| {
-                                ui.horizontal(|ui| {
-                                    ui.label(RichText::new("⚠").size(28.0).color(ink));
-                                    ui.vertical(|ui| {
-                                        ui.label(
-                                            RichText::new(format!("{} rezzed.", def.name))
-                                                .strong()
-                                                .color(ink),
-                                        );
-                                        ui.label(
-                                            RichText::new(format!(
-                                                "{}, strength {} of {}. It's holding the line.",
-                                                def.class.label(),
-                                                c.strength,
-                                                c.strength_max
-                                            ))
-                                            .color(ink),
-                                        );
-                                    });
-                                });
-                                ui.add_space(8.0);
-                                ui.horizontal(|ui| {
-                                    if ui.button("Close").clicked() {
-                                        ctx.data_mut(|d| d.insert_temp(key, true));
-                                    }
-                                    if let Some(s) = shield
-                                        && ui
-                                            .button(format!("Shield: {}", g.hdd[s].spec.name))
-                                            .clicked()
-                                    {
-                                        out.push(act(Action::Run(s)));
-                                    }
-                                    if let Some(b) = best {
-                                        let text =
-                                            RichText::new(format!("Run {}", g.hdd[b].spec.name))
-                                                .strong()
-                                                .color(ink);
-                                        let r = ui.button(text);
-                                        // The default button's heavy ring.
-                                        ui.painter().rect_stroke(
-                                            r.rect.expand(3.0),
-                                            4.0,
-                                            Stroke::new(2.0, ink),
-                                            StrokeKind::Outside,
-                                        );
-                                        if r.clicked() {
-                                            out.push(act(Action::Run(b)));
-                                        }
-                                    } else if ui.button("End turn").clicked() {
-                                        out.push(act(Action::EndTurn));
-                                    }
-                                });
-                            });
-                    });
-            });
-        out
+        let mut buttons = vec!["Close".to_string()];
+        let mut acts = vec![None];
+        if let Some(s) = shield_move(g) {
+            buttons.push(format!("Shield: {}", g.hdd[s].spec.name));
+            acts.push(Some(Action::Run(s)));
+        }
+        match best {
+            Some(b) => {
+                buttons.push(format!("Run {}", g.hdd[b].spec.name));
+                acts.push(Some(Action::Run(b)));
+            }
+            None => {
+                buttons.push("End turn".to_string());
+                acts.push(Some(Action::EndTurn));
+            }
+        }
+        Some(Fight {
+            title: format!("{} rezzed.", def.name),
+            message: format!(
+                "{}, strength {} of {}. It's holding the line.",
+                def.class.label(),
+                c.strength,
+                c.strength_max
+            ),
+            default: best.map(|_| buttons.len() - 1),
+            buttons,
+            acts,
+            keys: cx.keys_free && !ctx.egui_wants_keyboard_input(),
+            closed,
+        })
     }
+
+    /// Runs `f` on the alert as the kit takes it.
+    fn with<R>(&self, f: impl FnOnce(&liza::Alert) -> R) -> R {
+        let labels: Vec<&str> = self.buttons.iter().map(String::as_str).collect();
+        f(&liza::Alert {
+            icon: "⚠",
+            title: &self.title,
+            message: &self.message,
+            buttons: &labels,
+            default: self.default,
+            cancel: Some(0),
+            keys: self.keys,
+        })
+    }
+
+    /// What pressing button `i` does: Close tucks the alert away, the rest act.
+    fn press(&self, ctx: &egui::Context, i: Option<usize>) -> Vec<Request> {
+        match i {
+            Some(0) => {
+                ctx.data_mut(|d| d.insert_temp(self.closed, true));
+                Vec::new()
+            }
+            Some(i) => self.acts[i].map(act).into_iter().collect(),
+            None => Vec::new(),
+        }
+    }
+}
+
+/// Where a fight's "closed" flag is kept: per run and per node.
+fn alert_key(g: &Game) -> Option<Id> {
+    g.combat
+        .as_ref()
+        .map(|c| Id::new(("stack-alert-closed", g.seed, c.node)))
+}
+
+/// The fight's alert is showing: a fight is on and it hasn't been closed.
+fn alert_up(ctx: &egui::Context, g: &Game) -> bool {
+    g.phase == Phase::Combat
+        && alert_key(g).is_some_and(|k| !ctx.data(|d| d.get_temp::<bool>(k)).unwrap_or(false))
 }
 
 /// The Speaker Volume slider's notches: 0-7, as the Mac's Control Panel had.
@@ -602,8 +633,14 @@ fn control_panel(ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
         .show(ctx, |ui| {
             let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
             let painter = ui.painter().clone();
-            let two = crate::liza::Two { ink, paper };
-            let close = crate::liza::window_frame(&painter, data, rect, "Control Panel", true, two);
+            let look = liza::Look {
+                ink,
+                paper,
+                font: crate::home::font(),
+                stripes: data.pattern("pinstripes"),
+                gray: None,
+            };
+            let close = liza::window_frame(&painter, rect, "Control Panel", true, &look);
             let hit = |ui: &mut Ui, r: Rect, label: &str, sense: Sense| {
                 crate::volume::hit(ui, r, "stack-control-panel", label, sense)
             };
@@ -680,7 +717,7 @@ fn control_panel(ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use ninsei_core::Data;
 
@@ -699,16 +736,9 @@ mod tests {
         assert!(cover(0.5) < cover(0.9));
     }
 
-    #[test]
-    fn the_alert_offers_the_hardest_hit() {
-        let d = Data::builtin().unwrap();
-        assert_eq!(
-            best_move(&Game::new(d.clone(), 3)),
-            None,
-            "nothing to hit out of a fight"
-        );
-        // The first ICE ahead, on the first seed whose opening route has some.
-        let g = (0..50)
+    /// The first fight on the first seed whose opening route meets ICE.
+    pub(crate) fn a_fight(d: &Data) -> Game {
+        (0..50)
             .find_map(|seed| {
                 let mut g = Game::new(d.clone(), seed);
                 for _ in 0..20 {
@@ -720,10 +750,138 @@ mod tests {
                 }
                 None
             })
-            .expect("some run meets ICE");
+            .expect("some run meets ICE")
+    }
+
+    /// A frame of the Stack's overlay; returns what it asked for.
+    fn overlay(
+        h: &mut crate::uitest::Harness,
+        g: &Game,
+        keys_free: bool,
+        ev: Vec<egui::Event>,
+    ) -> Vec<Request> {
+        let mut suite = crate::suite::State::default();
+        let mut out = Vec::new();
+        h.frame(ev, |ui| {
+            let mut popup = crate::volume::Popup::default();
+            let mut cx = FrameCx {
+                game: g,
+                pal: crate::theme::Palette::from_def(&g.data.themes[0]),
+                suite: &mut suite,
+                keys_free,
+                level: crate::volume::Level {
+                    on: true,
+                    volume: 100,
+                },
+                popup: &mut popup,
+            };
+            // As the run does: the chrome's keys first, then the overlay.
+            out = Stack.keys(ui.ctx(), &mut cx);
+            out.extend(Stack.overlay(ui.ctx(), &mut cx));
+        });
+        out
+    }
+
+    fn runs(out: &[Request], i: usize) -> bool {
+        out.iter().any(
+            |r| matches!(r, Request::Cmd(ninsei_core::Command::Game(Action::Run(n))) if *n == i),
+        )
+    }
+
+    #[test]
+    fn enter_runs_the_best_move_and_esc_tucks_the_alert_away() {
+        let d = Data::builtin().unwrap();
+        let g = a_fight(&d);
+        let best = best_move(&g).expect("a breaker is loaded");
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        overlay(&mut h, &g, true, vec![]);
+        let out = overlay(&mut h, &g, true, crate::uitest::key(egui::Key::Enter));
+        assert!(runs(&out, best), "Enter ran the best move");
+        overlay(&mut h, &g, true, crate::uitest::key(egui::Key::Escape));
+        assert!(!alert_up(&h.ctx, &g), "Esc closed it");
+    }
+
+    #[test]
+    fn the_alert_leaves_enter_alone_while_a_modal_has_the_keys() {
+        let d = Data::builtin().unwrap();
+        let g = a_fight(&d);
+        let best = best_move(&g).unwrap();
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        overlay(&mut h, &g, false, vec![]);
+        let out = overlay(&mut h, &g, false, crate::uitest::key(egui::Key::Enter));
+        assert!(!runs(&out, best));
+        overlay(&mut h, &g, false, crate::uitest::key(egui::Key::Escape));
+        assert!(alert_up(&h.ctx, &g));
+    }
+
+    #[test]
+    fn the_alerts_buttons_click_through() {
+        let d = Data::builtin().unwrap();
+        let g = a_fight(&d);
+        let best = best_move(&g).unwrap();
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        overlay(&mut h, &g, true, vec![]);
+        overlay(&mut h, &g, true, vec![]);
+        let run = h
+            .find(&format!("Run {}", g.hdd[best].spec.name))
+            .unwrap_or_else(|| panic!("{:?}", h.texts()));
+        let out = overlay(&mut h, &g, true, crate::uitest::click(run.center()));
+        assert!(runs(&out, best));
+        let close = h.find("Close").unwrap();
+        overlay(&mut h, &g, true, crate::uitest::click(close.center()));
+        assert!(!alert_up(&h.ctx, &g));
+    }
+
+    #[test]
+    fn the_alert_offers_the_hardest_hit() {
+        let d = Data::builtin().unwrap();
+        assert_eq!(
+            best_move(&Game::new(d.clone(), 3)),
+            None,
+            "nothing to hit out of a fight"
+        );
+        let g = a_fight(&d);
         let b = best_move(&g).expect("a breaker is loaded");
         let hit = g.preview(b).unwrap().hit();
         assert!(hit > 0);
         assert!((0..g.hdd.len()).all(|i| g.preview(i).map_or(0, |p| p.hit()) <= hit));
+    }
+
+    #[test]
+    fn the_esc_that_leaves_the_message_box_doesnt_close_the_alert() {
+        let d = Data::builtin().unwrap();
+        let g = a_fight(&d);
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        let mut line = String::new();
+        let mut suite = crate::suite::State::default();
+        let mut frame = |h: &mut crate::uitest::Harness, ev, focus: bool| {
+            h.frame(ev, |ui| {
+                let mut popup = crate::volume::Popup::default();
+                let mut cx = FrameCx {
+                    game: &g,
+                    pal: crate::theme::Palette::from_def(&d.themes[0]),
+                    suite: &mut suite,
+                    keys_free: true,
+                    level: crate::volume::Level {
+                        on: true,
+                        volume: 100,
+                    },
+                    popup: &mut popup,
+                };
+                Stack.keys(ui.ctx(), &mut cx);
+                // The Message box: a text field with the keyboard.
+                let r = ui.text_edit_singleline(&mut line);
+                if focus {
+                    r.request_focus();
+                }
+                Stack.overlay(ui.ctx(), &mut cx);
+            });
+        };
+        frame(&mut h, vec![], true);
+        frame(&mut h, vec![], true);
+        frame(&mut h, crate::uitest::key(egui::Key::Escape), false);
+        assert!(alert_up(&h.ctx, &g), "Esc only let go of the Message box");
+        frame(&mut h, crate::uitest::key(egui::Key::Escape), false);
+        assert!(!alert_up(&h.ctx, &g), "the next Esc closes the alert");
     }
 }

@@ -14,6 +14,8 @@ use ninsei_core::suite::{self as rules, Notice, SheetCol, Watch};
 use ninsei_core::{Action, Command, ContractStatus, Effect, Game, LogKind, Phase, tuning};
 
 use crate::chrome::{ChromeView, FrameCx, MenuPart, Menus, act};
+use crate::kit::cells::cut;
+use crate::kit::{Cells, Sheet};
 use crate::panes::{Panes, Request, Tab};
 use crate::theme::Palette;
 
@@ -21,13 +23,11 @@ use crate::theme::Palette;
 pub mod size {
     pub const MONO: f32 = 12.0;
     pub const SMALL: f32 = 10.0;
+    pub const ROW_H: f32 = 17.0;
+    /// A pop-out dialog's title bar (the Sound dialog's).
     pub const TITLE_H: f32 = 18.0;
     /// How far a window's shadow falls.
     pub const SHADOW: f32 = 5.0;
-    pub const ROW_H: f32 = 17.0;
-    /// Spreadsheet column widths, in characters (row numbers, then `SheetCol::ALL`).
-    pub const ROWNUM_CH: f32 = 3.0;
-    pub const COL_CH: [f32; 6] = [5.0, 14.0, 5.0, 5.0, 5.0, 8.0];
     /// Report charts take this share of a window's height, within these bounds.
     pub const CHART_SHARE: f32 = 0.3;
     pub const CHART_MIN: f32 = 56.0;
@@ -86,72 +86,85 @@ fn small(s: impl Into<String>, c: Color32) -> RichText {
     RichText::new(s).font(mono(size::SMALL)).color(c)
 }
 
-/// A document window filling the pane: shadow, double border, a title bar with the window's
-/// number, and `body` inside.
-pub fn window(ui: &mut Ui, p: &Palette, num: usize, title: &str, body: impl FnOnce(&mut Ui)) {
+/// A document window filling the pane, on the suite's cells: a shadow, a double border with
+/// the close box `[■]` and the window's number `[n]` set in its top edge, Turbo Vision style,
+/// and `body` inside. `heading` is the document's own title row (a form's or a report's
+/// name); empty when the tab over the window already names it, since a window doesn't repeat
+/// its tab.
+pub fn window(ui: &mut Ui, p: &Palette, num: usize, heading: &str, body: impl FnOnce(&mut Ui)) {
     let full = ui.available_rect_before_wrap();
     let painter = ui.painter().clone();
     painter.rect_filled(full, 0.0, p.panel);
-    let win = Rect::from_min_max(
+    // Room for the window and its shadow (a drop of paint, not a cell of layout).
+    let area = Rect::from_min_max(
         full.min + vec2(4.0, 4.0),
         full.max - vec2(4.0 + size::SHADOW, 4.0 + size::SHADOW),
     );
-    painter.rect_filled(win.translate(vec2(size::SHADOW, size::SHADOW)), 0.0, p.bg);
-    painter.rect_filled(win, 0.0, p.bg);
-    painter.rect_stroke(win, 0.0, Stroke::new(1.0, p.fg), StrokeKind::Inside);
-    painter.rect_stroke(
-        win.shrink(3.0),
+    let mut g = Cells::fit_font(ui, area, mono(size::MONO), Some(size::ROW_H));
+    g.border = p.fg;
+    painter.rect_filled(
+        g.rect.translate(vec2(size::SHADOW, size::SHADOW)),
         0.0,
-        Stroke::new(1.0, p.dim),
-        StrokeKind::Inside,
+        p.bg,
     );
-    let bar = Rect::from_min_size(
-        win.min + vec2(4.0, 4.0),
-        vec2(win.width() - 8.0, size::TITLE_H),
-    );
-    painter.rect_filled(bar, 0.0, p.panel);
-    let clip = painter.with_clip_rect(bar);
-    clip.text(
-        bar.left_center() + vec2(4.0, 0.0),
-        Align2::LEFT_CENTER,
-        "[■]",
-        mono(size::SMALL),
-        p.dim,
-    );
-    clip.text(
-        bar.center(),
-        Align2::CENTER_CENTER,
-        title,
-        mono(size::MONO),
-        p.bright,
-    );
-    clip.text(
-        bar.right_center() - vec2(4.0, 0.0),
-        Align2::RIGHT_CENTER,
-        format!("[{num}]"),
-        mono(size::SMALL),
-        p.dim,
-    );
-    let inner = Rect::from_min_max(
-        pos2(win.left() + 9.0, bar.bottom() + 6.0),
-        win.max - vec2(9.0, 7.0),
-    );
-    if inner.width() > 8.0 && inner.height() > 8.0 {
-        ui.scope_builder(
-            UiBuilder::new()
-                .max_rect(inner)
-                .layout(egui::Layout::top_down(egui::Align::Min)),
-            |ui| {
-                ui.set_clip_rect(inner.intersect(ui.clip_rect()));
-                // Solid scroll bars, always there, like any document window.
-                // The thumb in the text colour on a `panel` track: visible on the window's `bg`.
-                ui.spacing_mut().scroll = crate::theme::visible_scroll();
-                ui.visuals_mut().extreme_bg_color = p.panel;
-                body(ui);
-            },
+    painter.rect_filled(g.rect, 0.0, p.bg);
+    g.frame_double(&painter, 0, 0, g.cols, g.rows);
+    // Too small for the frame's furniture, the body still gets the window's room: it may hold
+    // the only command line on screen.
+    let inner = if g.cols < 10 || g.rows < 4 {
+        area
+    } else {
+        // [■] and [n] in the top edge, the border broken around them.
+        g.paper = p.bg;
+        g.vision = true;
+        g.title(&painter, 1, 0, "[■]", p.dim);
+        let number = format!("[{num}]");
+        g.title(
+            &painter,
+            g.cols - number.chars().count() - 3,
+            0,
+            &number,
+            p.dim,
         );
-    }
+        // The document's heading, if it has one of its own, on the first row.
+        let top = if heading.is_empty() || g.rows < 5 {
+            1
+        } else {
+            let w = g.cols - 2;
+            let name = cut(heading, w.saturating_sub(2));
+            let n = name.chars().count();
+            g.fill(&painter, 1, 1, w, 1, p.panel);
+            g.text(&painter, 1 + (w - n) / 2, 1, &name, p.bright);
+            2
+        };
+        // The body: under the heading (or the top edge), inside the double line (it runs
+        // through the outer cells' centres).
+        let edge = g.at(0, g.rows - 1, g.cols, 1).center().y;
+        Rect::from_min_max(
+            g.at(1, top, 1, 1).min + vec2(2.0, 2.0),
+            pos2(g.at(g.cols - 1, 0, 1, 1).center().x - 4.0, edge - 4.0),
+        )
+    };
+    ui.scope_builder(
+        UiBuilder::new()
+            .max_rect(inner)
+            .layout(egui::Layout::top_down(egui::Align::Min)),
+        |ui| {
+            ui.set_clip_rect(inner.intersect(ui.clip_rect()));
+            // Solid scroll bars, always there, like any document window.
+            // The thumb in the text colour on a `panel` track: visible on the window's `bg`.
+            ui.spacing_mut().scroll = crate::theme::visible_scroll();
+            ui.visuals_mut().extreme_bg_color = p.panel;
+            body(ui);
+        },
+    );
     ui.allocate_rect(full, Sense::hover());
+}
+
+/// How many of the suite's cells fit across `ui`.
+fn cols_across(ui: &Ui) -> usize {
+    let area = Rect::from_min_size(ui.cursor().min, vec2(ui.available_width(), size::ROW_H));
+    Cells::fit_font(ui, area, mono(size::MONO), Some(size::ROW_H)).cols
 }
 
 /// A scrolling document body with its scroll bar always shown.
@@ -511,7 +524,7 @@ impl Panes<'_> {
         let cpu_left = g.combat.as_ref().map_or(0, |c| c.cpu);
         let mut acts: Vec<Request> = Vec::new();
         let st = &mut *self.suite;
-        window(ui, &p, Tab::Warez.number(), "WAREZ.WK1", |ui| {
+        window(ui, &p, Tab::Warez.number(), "", |ui| {
             let rows = st.rows(g);
             let picked = st.picked(g);
             // The cell address and formula bar.
@@ -548,12 +561,54 @@ impl Panes<'_> {
                     p.dim,
                 ));
             });
-            let cw = ui.fonts_mut(|f| f.glyph_width(&mono(size::MONO), 'M'));
-            let widths: Vec<f32> = std::iter::once(size::ROWNUM_CH)
-                .chain(size::COL_CH)
-                .map(|c| c * cw + 8.0)
+            // Columns in whole cells, each its widest real value (core's `sheet_widths`) with a
+            // cell of padding either side, so nothing is cut.
+            let (rownum, value_w) = rules::sheet_widths(&g.hdd);
+            let widths: Vec<usize> = std::iter::once(rownum)
+                .chain(value_w)
+                .map(|w| w + 2)
                 .collect();
-            let total_w: f32 = widths.iter().sum();
+            let starts: Vec<usize> = widths
+                .iter()
+                .scan(0, |at, w| {
+                    let s = *at;
+                    *at += w;
+                    Some(s)
+                })
+                .collect();
+            let total: usize = widths.iter().sum();
+            // A row of the sheet: its cells, and which column the pointer pressed, if any.
+            let row = |ui: &mut Ui| {
+                let (resp, g) = Cells::allocate(
+                    ui,
+                    mono(size::MONO),
+                    Some(size::ROW_H),
+                    (total, 1),
+                    vec2(0.0, 0.0),
+                    Sense::click(),
+                );
+                let hit = resp
+                    .interact_pointer_pos()
+                    .and_then(|q| g.cell_at(q))
+                    .and_then(|(c, _)| (0..widths.len()).rfind(|&k| starts[k] <= c));
+                (resp, g, hit)
+            };
+            // Where column `k`'s text goes: left, right or centred in it.
+            let put = |g: &Cells,
+                       painter: &egui::Painter,
+                       k: usize,
+                       text: &str,
+                       align: Align2,
+                       col: Color32| {
+                let (at, w) = (starts[k], widths[k]);
+                let n = text.chars().count();
+                let c = match align {
+                    Align2::LEFT_CENTER => at + 1,
+                    Align2::RIGHT_CENTER => at + w - 1 - n,
+                    _ => at + (w - n) / 2,
+                };
+                g.text(painter, c, 0, text, col);
+            };
             let foot_h = size::ROW_H * 2.0 + 6.0;
             ScrollArea::both()
                 .id_salt("suite-sheet")
@@ -561,15 +616,13 @@ impl Panes<'_> {
                 .max_height((ui.available_height() - foot_h).max(size::ROW_H * 3.0))
                 .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
                 .show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 0.0;
                     // Column letters, then row 1: the headers. Either sorts.
                     for header in [true, false] {
-                        let (r, resp) =
-                            ui.allocate_exact_size(vec2(total_w, size::ROW_H), Sense::click());
-                        let painter = ui.painter_at(r);
-                        let mut x = r.left();
-                        let mut hit = None;
+                        let (resp, cells, hit) = row(ui);
+                        let painter = ui.painter_at(resp.rect);
                         for (k, w) in widths.iter().enumerate() {
-                            let cell = Rect::from_min_size(pos2(x, r.top()), vec2(*w, r.height()));
+                            let cell = cells.at(starts[k], 0, *w, 1);
                             painter.rect_filled(cell, 0.0, p.panel);
                             painter.rect_stroke(
                                 cell,
@@ -591,20 +644,8 @@ impl Panes<'_> {
                                     format!("{}{arrow}", c.header())
                                 }
                             };
-                            painter.text(
-                                cell.center(),
-                                Align2::CENTER_CENTER,
-                                text,
-                                mono(size::MONO),
-                                if header { p.dim } else { p.bright },
-                            );
-                            if resp
-                                .interact_pointer_pos()
-                                .is_some_and(|q| cell.contains(q))
-                            {
-                                hit = Some(k);
-                            }
-                            x += w;
+                            let col = if header { p.dim } else { p.bright };
+                            put(&cells, &painter, k, &text, Align2::CENTER_CENTER, col);
                         }
                         if resp.clicked()
                             && let Some(k) = hit.filter(|k| *k > 0)
@@ -621,13 +662,10 @@ impl Panes<'_> {
                     for (n, &slot) in rows.iter().enumerate() {
                         let s = &g.hdd[slot];
                         let on = picked == Some(slot);
-                        let (r, resp) =
-                            ui.allocate_exact_size(vec2(total_w, size::ROW_H), Sense::click());
-                        let painter = ui.painter_at(r);
-                        let mut x = r.left();
-                        let mut hit = None;
+                        let (resp, cells, hit) = row(ui);
+                        let painter = ui.painter_at(resp.rect);
                         for (k, w) in widths.iter().enumerate() {
-                            let cell = Rect::from_min_size(pos2(x, r.top()), vec2(*w, r.height()));
+                            let cell = cells.at(starts[k], 0, *w, 1);
                             let cursor = on && k > 0 && SheetCol::ALL[k - 1] == st.col;
                             if k == 0 {
                                 painter.rect_filled(cell, 0.0, if on { p.dim } else { p.panel });
@@ -640,12 +678,16 @@ impl Panes<'_> {
                                 Stroke::new(1.0, p.faint),
                                 StrokeKind::Inside,
                             );
-                            let (text, col, align) = if k == 0 {
-                                (
-                                    (n + 2).to_string(),
-                                    if on { p.bg } else { p.dim },
+                            if k == 0 {
+                                let col = if on { p.bg } else { p.dim };
+                                put(
+                                    &cells,
+                                    &painter,
+                                    0,
+                                    &(n + 2).to_string(),
                                     Align2::CENTER_CENTER,
-                                )
+                                    col,
+                                );
                             } else {
                                 let c = SheetCol::ALL[k - 1];
                                 let colour = if cursor {
@@ -661,27 +703,8 @@ impl Panes<'_> {
                                     SheetCol::File | SheetCol::Status => Align2::LEFT_CENTER,
                                     _ => Align2::RIGHT_CENTER,
                                 };
-                                (c.cell(slot, s), colour, align)
-                            };
-                            let at = match align {
-                                Align2::LEFT_CENTER => cell.left_center() + vec2(4.0, 0.0),
-                                Align2::RIGHT_CENTER => cell.right_center() - vec2(4.0, 0.0),
-                                _ => cell.center(),
-                            };
-                            painter.with_clip_rect(cell).text(
-                                at,
-                                align,
-                                text,
-                                mono(size::MONO),
-                                col,
-                            );
-                            if resp
-                                .interact_pointer_pos()
-                                .is_some_and(|q| cell.contains(q))
-                            {
-                                hit = Some(k);
+                                put(&cells, &painter, k, &c.cell(slot, s), align, colour);
                             }
-                            x += w;
                         }
                         if resp.clicked() || resp.secondary_clicked() {
                             st.select(g, slot);
@@ -898,54 +921,77 @@ impl Panes<'_> {
         let p = self.pal;
         let mut pane = std::mem::take(&mut self.out);
         window(ui, &p, Tab::Terminal.number(), "ACTIVITY LOG", |ui| {
-            let cw = ui.fonts_mut(|f| f.glyph_width(&mono(size::MONO), 'M'));
-            let cols = [9.0 * cw, 5.0 * cw];
-            let header = |ui: &mut Ui, a: &str, b: &str, c: &str, col: Color32| {
-                ui.horizontal(|ui| {
-                    ui.spacing_mut().item_spacing.x = 0.0;
-                    ui.add_sized([cols[0], size::ROW_H - 3.0], egui::Label::new(t(a, col)));
-                    ui.add_sized([cols[1], size::ROW_H - 3.0], egui::Label::new(t(b, col)));
-                    ui.label(t(c, col));
-                });
-            };
-            header(ui, "TIME", "REF", "ENTRY", p.dim);
+            // The columns, in the suite's cells: time from 1, ref from 9, the entry from 14.
+            let (resp, cells) = Cells::allocate(
+                ui,
+                mono(size::MONO),
+                Some(size::ROW_H),
+                (cols_across(ui), 1),
+                vec2(0.0, 0.0),
+                Sense::hover(),
+            );
+            let painter = ui.painter_at(resp.rect);
+            for (c, head) in [(1, "TIME"), (9, "REF"), (14, "ENTRY")] {
+                cells.text(&painter, c, 0, head, p.dim);
+            }
             let (r, _) = ui.allocate_exact_size(vec2(ui.available_width(), 2.0), Sense::hover());
             ui.painter()
                 .line_segment([r.left_center(), r.right_center()], Stroke::new(1.0, p.dim));
             let input_h = size::MONO + 16.0;
-            ScrollArea::vertical()
-                .id_salt("suite-log")
-                .stick_to_bottom(true)
-                .auto_shrink([false, false])
-                .max_height(ui.available_height() - input_h)
-                .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
-                .show(ui, |ui| {
-                    ui.spacing_mut().item_spacing.y = 0.0;
-                    for l in &g.log {
-                        let col = match l.kind {
-                            LogKind::Sys => p.dim,
-                            LogKind::Info | LogKind::Good => p.fg,
-                            LogKind::Bad | LogKind::Loot => p.bright,
-                        };
-                        let row = ui.horizontal(|ui| {
-                            ui.spacing_mut().item_spacing.x = 0.0;
-                            ui.add_sized(
-                                [cols[0], size::ROW_H],
-                                egui::Label::new(t(format!("{:03}.{:02}", l.hop, l.turn), p.dim)),
+            // Whole rows: the log sticks to its bottom, so a view a whole number of rows tall
+            // never shows part of its top line.
+            let rows = ((ui.available_height() - input_h) / size::ROW_H)
+                .floor()
+                .max(1.0);
+            // The log's cells, measured once: every entry is one row of them.
+            let across = cols_across(ui);
+            let probe = Cells::sized(
+                ui,
+                egui::Pos2::ZERO,
+                mono(size::MONO),
+                Some(size::ROW_H),
+                (across, 1),
+            );
+            ui.scope(|ui| {
+                // Rows touch: `show_rows` lays them a row apart, and only paints those in view.
+                ui.spacing_mut().item_spacing.y = 0.0;
+                ScrollArea::vertical()
+                    .id_salt("suite-log")
+                    .stick_to_bottom(true)
+                    .auto_shrink([false, false])
+                    .max_height(rows * size::ROW_H)
+                    .scroll_bar_visibility(egui::scroll_area::ScrollBarVisibility::AlwaysVisible)
+                    .show_rows(ui, size::ROW_H, g.log.len(), |ui, shown| {
+                        for l in &g.log[shown] {
+                            let col = match l.kind {
+                                LogKind::Sys => p.dim,
+                                LogKind::Info | LogKind::Good => p.fg,
+                                LogKind::Bad | LogKind::Loot => p.bright,
+                            };
+                            let (r, _) = ui.allocate_exact_size(probe.rect.size(), Sense::hover());
+                            let cells = probe.clone().at_pos(r.min);
+                            let painter = ui.painter_at(r);
+                            // The time, the ref, then the entry, cut with … where the window
+                            // ends; plain text goes out a run at a time.
+                            let time = format!("{:03}.{:02}", l.hop, l.turn);
+                            cells.run(&painter, 1, 0, &time, p.dim);
+                            cells.run(&painter, 9, 0, rules::log_ref(l.kind), col);
+                            let entry = cut(&self.garble(&l.text), across.saturating_sub(14));
+                            if entry.is_ascii() {
+                                cells.run(&painter, 14, 0, &entry, col);
+                            } else {
+                                cells.text(&painter, 14, 0, &entry, col);
+                            }
+                            // The rule inside the row's last pixel, so the row's clip keeps all
+                            // of it.
+                            let y = r.bottom() - 0.5;
+                            painter.line_segment(
+                                [pos2(r.left(), y), pos2(r.right(), y)],
+                                Stroke::new(1.0, p.faint),
                             );
-                            ui.add_sized(
-                                [cols[1], size::ROW_H],
-                                egui::Label::new(t(rules::log_ref(l.kind), col)),
-                            );
-                            ui.label(t(self.garble(&l.text), col));
-                        });
-                        let r = row.response.rect;
-                        ui.painter().line_segment(
-                            [r.left_bottom(), pos2(ui.max_rect().right(), r.bottom())],
-                            Stroke::new(1.0, p.faint),
-                        );
-                    }
-                });
+                        }
+                    });
+            });
             ui.add_space(3.0);
             self.prompt_as(ui, "Command:", true);
         });
@@ -1188,18 +1234,14 @@ impl ChromeView for Suite {
     }
     fn network(&self, p: &mut Panes, ui: &mut Ui) {
         let pal = p.pal;
-        window(ui, &pal, Tab::Network.number(), "PLANVIEW.DWG", |ui| {
-            p.network(ui)
-        });
+        window(ui, &pal, Tab::Network.number(), "", |ui| p.network(ui));
     }
     fn target(&self, p: &mut Panes, ui: &mut Ui) {
         p.suite_target(ui);
     }
     fn hex(&self, p: &mut Panes, ui: &mut Ui) {
         let pal = p.pal;
-        window(ui, &pal, Tab::Hex.number(), "HEXEDIT.EXE", |ui| {
-            p.hex_pane(ui)
-        });
+        window(ui, &pal, Tab::Hex.number(), "", |ui| p.hex_pane(ui));
     }
     fn terminal(&self, p: &mut Panes, ui: &mut Ui) {
         p.suite_terminal(ui);
@@ -1255,36 +1297,36 @@ impl ChromeView for Suite {
             Phase::JackedOut => ("LOGGED OFF", false),
         };
         let n = g.net.nodes.len();
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 0.0;
-            ui.label(t(format!(" {mode} "), p.bg).background_color(if hot {
-                p.bright
-            } else {
-                p.fg
-            }));
-            let sep = |ui: &mut Ui| {
-                ui.label(t("  │  ", p.dim));
-            };
-            ui.label(t(
-                format!("  {}  HOP {}", rules::date(g.seed), g.hops),
-                p.fg,
-            ));
-            sep(ui);
-            ui.label(t(format!("USER {}", rules::user_id(g.seed)), p.fg));
-            sep(ui);
-            ui.label(t(
+        // One row of cells: the mode in inverse, then the fields between rules.
+        let mut line: Sheet<()> = Sheet::new(cols_across(ui));
+        let mut c = line.inv(
+            0,
+            0,
+            &format!(" {mode} "),
+            p.bg,
+            if hot { p.bright } else { p.fg },
+        );
+        let trace_hot = g.deck.trace * 4 >= tuning::TRACE_MAX * 3;
+        let fields = [
+            (format!("  {}  HOP {}", rules::date(g.seed), g.hops), p.fg),
+            (format!("USER {}", rules::user_id(g.seed)), p.fg),
+            (
                 rules::doc_name(g.site.as_ref().map(|s| s.name.as_str())),
                 p.bright,
-            ));
-            sep(ui);
-            ui.label(t(format!("NODE {} OF {n}", g.at + 1), p.fg));
-            sep(ui);
-            let trace_hot = g.deck.trace * 4 >= tuning::TRACE_MAX * 3;
-            ui.label(t(
+            ),
+            (format!("NODE {} OF {n}", g.at + 1), p.fg),
+            (
                 format!("TRACE {}%", g.deck.trace),
                 if trace_hot { p.bright } else { p.fg },
-            ));
-        });
+            ),
+        ];
+        for (i, (text, col)) in fields.iter().enumerate() {
+            if i > 0 {
+                c = line.put(c, 0, "  │  ", p.dim);
+            }
+            c = line.put(c, 0, text, *col);
+        }
+        line.paint(ui, mono(size::MONO), Some(size::ROW_H));
         true
     }
 
@@ -1293,26 +1335,23 @@ impl ChromeView for Suite {
     }
     fn legend(&self, ui: &mut Ui, cx: &mut FrameCx) -> Vec<Request> {
         let p = cx.pal;
-        let mut out = Vec::new();
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 4.0;
-            for (k, cap, label) in FKEYS {
-                if k == Key::F4 && !cx.game.has_tool("hexed") {
-                    continue;
-                }
-                let r = ui.add(
-                    egui::Label::new(t(cap, p.bg).background_color(p.fg)).sense(Sense::click()),
-                );
-                let l =
-                    ui.add(egui::Label::new(t(format!("{label}  "), p.fg)).sense(Sense::click()));
-                if (r.clicked() || l.clicked())
-                    && let Some(req) = fkey(k, cx.suite, cx.game)
-                {
-                    out.push(req);
-                }
+        // One row of cells: each key's cap in inverse and what it does, both clickable.
+        let mut line: Sheet<Key> = Sheet::new(cols_across(ui));
+        let mut c = 0;
+        for (k, cap, label) in FKEYS {
+            if k == Key::F4 && !cx.game.has_tool("hexed") {
+                continue;
             }
-        });
-        out
+            let start = c;
+            c = line.inv(c, 0, cap, p.bg, p.fg);
+            c = line.put(c + 1, 0, label, p.fg);
+            line.hit(start, 0, c - start, k);
+            c += 2;
+        }
+        line.paint(ui, mono(size::MONO), Some(size::ROW_H))
+            .into_iter()
+            .filter_map(|k| fkey(k, cx.suite, cx.game))
+            .collect()
     }
 
     fn keys(&self, ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
@@ -1379,16 +1418,59 @@ impl ChromeView for Suite {
         let p = cx.pal;
         let waiting = st.dialogs.len();
         let mut ok = was_up && cx.keys_free && ctx.input(|i| i.key_pressed(Key::Enter));
-        dialog(ctx, "suite-dialog", &p, &n.title, size::DIALOG_W, |ui| {
-            for l in &n.lines {
-                ui.label(t(l, p.fg));
-            }
-            ui.add_space(8.0);
-            let count = (waiting > 1).then(|| format!("1 of {waiting}"));
-            if buttons(ui, &p, count, &[("[  OK  ]", "Enter")]) == Some(0) {
-                ok = true;
-            }
-        });
+        egui::Area::new(egui::Id::new("suite-dialog"))
+            .order(egui::Order::Foreground)
+            .anchor(Align2::CENTER_CENTER, vec2(0.0, -40.0))
+            .show(ctx, |ui| {
+                egui::Frame::new()
+                    .fill(p.bg)
+                    .stroke(Stroke::new(2.0, p.fg))
+                    .inner_margin(egui::Margin::same(3))
+                    .shadow(egui::Shadow {
+                        offset: [8, 8],
+                        blur: 0,
+                        spread: 0,
+                        color: p.faint,
+                    })
+                    .show(ui, |ui| {
+                        // The body on the suite's cells: the title row, the lines, then the
+                        // count and the OK button.
+                        let cols = Cells::sized(
+                            ui,
+                            egui::Pos2::ZERO,
+                            mono(size::MONO),
+                            Some(size::ROW_H),
+                            (1, 1),
+                        );
+                        let cols = (size::DIALOG_W / cols.cw) as usize;
+                        let mut body: Sheet<()> = Sheet::new(cols);
+                        body.inv(0, 0, &" ".repeat(cols), p.bright, p.panel);
+                        let title = cut(&n.title, cols.saturating_sub(2));
+                        let tn = title.chars().count();
+                        body.inv((cols - tn) / 2, 0, &title, p.bright, p.panel);
+                        // Lines wrapped to the dialog, two cells in from each side.
+                        let lines = crate::kit::fit::wrap(&n.lines, cols.saturating_sub(4));
+                        for (i, l) in lines.iter().enumerate() {
+                            body.put(2, 2 + i, l, p.fg);
+                        }
+                        let foot = 3 + lines.len();
+                        if waiting > 1 {
+                            body.put(2, foot, &format!("1 of {waiting}"), p.dim);
+                        }
+                        let button = "[  OK  ]";
+                        let bx = cols - 2 - button.chars().count();
+                        body.put(bx - 6, foot, "Enter", p.dim);
+                        body.put(bx, foot, button, p.bright);
+                        body.hit(bx, foot, button.chars().count(), ());
+                        body.grow_to(foot + 2);
+                        if !body
+                            .paint(ui, mono(size::MONO), Some(size::ROW_H))
+                            .is_empty()
+                        {
+                            ok = true;
+                        }
+                    });
+            });
         if ok {
             st.dialogs.remove(0);
         }
@@ -1572,4 +1654,399 @@ fn buttons(
         });
     });
     hit
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::chrome::FrameCx;
+    use crate::uitest::{Harness, click};
+    use ninsei_core::Data;
+    use ninsei_core::hardware::Chrome;
+    use ninsei_core::hub::Save;
+
+    /// A run whose first program has a long name, the sheet drawn in a 900x500 window.
+    fn sheet(h: &mut Harness, d: &Data, g: &Game, st: &mut State, events: Vec<egui::Event>) {
+        let (mut term, mut focus, mut hex, mut keep) =
+            (ninsei_term::LineEditor::default(), false, None, Vec::new());
+        for ev in [events, Vec::new()] {
+            h.frame(ev, |ui| {
+                let mut child = ui.new_child(
+                    UiBuilder::new()
+                        .max_rect(Rect::from_min_size(egui::Pos2::ZERO, vec2(900.0, 500.0))),
+                );
+                let mut panes = Panes {
+                    game: g,
+                    pal: Palette::from_def(&d.themes[0]),
+                    map: ninsei_core::netview::MapView::Draft,
+                    deck: String::new(),
+                    chrome: Chrome::Suite,
+                    corrupt: (0.0, 0),
+                    term: &mut term,
+                    focus_input: &mut focus,
+                    bbs_open: false,
+                    hex: &mut hex,
+                    keep: &mut keep,
+                    keep_room: 0,
+                    suite: &mut *st,
+                    hear: &Vec::new,
+                    scope_rate: 0,
+                    out: Vec::new(),
+                };
+                panes.suite_warez(&mut child);
+            });
+        }
+    }
+
+    /// Each row of single glyphs the last frame painted, left to right: (where the row was
+    /// placed, each glyph's ink and text).
+    fn glyph_rows(h: &Harness) -> Vec<(i32, Vec<(Rect, String)>)> {
+        let mut rows: Vec<(i32, Vec<(Rect, String)>)> = Vec::new();
+        for s in h.painted() {
+            if let egui::Shape::Text(t) = s
+                && t.galley.text().chars().count() == 1
+            {
+                // A row's glyphs share where they were placed, whatever their ink's shape.
+                let r = t.visual_bounding_rect();
+                let y = t.pos.y.round() as i32;
+                match rows.iter_mut().find(|(ry, _)| *ry == y) {
+                    Some((_, v)) => v.push((r, t.galley.text().to_string())),
+                    None => rows.push((y, vec![(r, t.galley.text().to_string())])),
+                }
+            }
+        }
+        for (_, v) in &mut rows {
+            v.sort_by(|a, b| a.0.left().total_cmp(&b.0.left()));
+        }
+        rows
+    }
+
+    #[test]
+    fn the_sheet_shows_every_value_whole_and_a_click_lands_on_its_cell() {
+        let d = Data::builtin().unwrap();
+        let mut s = Save::default();
+        s.ensure_hardware(&d);
+        let mut g = s.jack_in(&d, &d.rig, 1);
+        g.hdd[0].spec.name = "A.MUCH.LONGER.PROGRAM.NAME".into();
+        let long = g.hdd[0].spec.file();
+        let uid = g.hdd[0].uid;
+        let mut st = State::default();
+        let mut h = Harness::new(900.0, 500.0);
+        sheet(&mut h, &d, &g, &mut st, Vec::new());
+        let rows = glyph_rows(&h);
+        let (_, name_row) = rows
+            .iter()
+            .find(|(_, v)| {
+                v.iter()
+                    .map(|g| g.1.as_str())
+                    .collect::<String>()
+                    .contains(&long)
+            })
+            .unwrap_or_else(|| panic!("{long} painted whole: {rows:?}"));
+        // The name's first glyph: click it, and the cursor goes to that program's FILE cell.
+        let joined: String = name_row.iter().map(|g| g.1.as_str()).collect();
+        let at = joined.find(&long).unwrap();
+        let first = name_row[joined[..at].chars().count()].0;
+        sheet(&mut h, &d, &g, &mut st, click(first.center()));
+        assert_eq!((st.sel, st.col), (Some(uid), SheetCol::File));
+        // The header row's RAM sorts.
+        let rows = glyph_rows(&h);
+        let (_, head) = rows
+            .iter()
+            .find(|(_, v)| {
+                v.iter()
+                    .map(|g| g.1.as_str())
+                    .collect::<String>()
+                    .contains("SLOT")
+            })
+            .expect("the headers");
+        let joined: String = head.iter().map(|g| g.1.as_str()).collect();
+        let ram = head[joined[..joined.find("RAM").unwrap()].chars().count()].0;
+        sheet(&mut h, &d, &g, &mut st, click(ram.center()));
+        assert_eq!(st.sort, SheetCol::Ram);
+    }
+
+    #[test]
+    fn the_legends_keys_click_through_to_their_requests() {
+        let d = Data::builtin().unwrap();
+        let mut s = Save::default();
+        s.ensure_hardware(&d);
+        let g = s.jack_in(&d, &d.rig, 1);
+        let mut st = State::default();
+        let mut h = Harness::new(900.0, 100.0);
+        let mut got = Vec::new();
+        let mut draw = |h: &mut Harness, st: &mut State, events| {
+            h.frame(events, |ui| {
+                let mut popup = crate::volume::Popup::default();
+                let mut cx = FrameCx {
+                    game: &g,
+                    pal: Palette::from_def(&d.themes[0]),
+                    suite: st,
+                    keys_free: true,
+                    level: crate::volume::Level {
+                        on: true,
+                        volume: 100,
+                    },
+                    popup: &mut popup,
+                };
+                got = Suite.legend(ui, &mut cx);
+            });
+        };
+        draw(&mut h, &mut st, Vec::new());
+        let load = h
+            .find("F2 Load")
+            .unwrap_or_else(|| panic!("{:?}", h.texts()));
+        draw(&mut h, &mut st, click(load.center()));
+        let slot = st.picked(&g).unwrap();
+        assert!(
+            matches!(got.as_slice(), [Request::Cmd(Command::Game(Action::Load(s)))] if *s == slot),
+            "{:?}",
+            got.len()
+        );
+    }
+
+    #[test]
+    fn a_window_keeps_to_its_pane_with_its_body_inside_the_frame() {
+        let d = Data::builtin().unwrap();
+        let p = Palette::from_def(&d.themes[0]);
+        let mut h = Harness::new(900.0, 600.0);
+        let pane = Rect::from_min_size(egui::pos2(20.0, 30.0), vec2(401.0, 233.0));
+        let mut body = Rect::NOTHING;
+        h.frame(Vec::new(), |ui| {
+            let mut child = ui.new_child(UiBuilder::new().max_rect(pane));
+            window(&mut child, &p, 3, "SYSTEM RESOURCES", |ui| {
+                body = ui.max_rect()
+            });
+        });
+        for s in h.painted() {
+            let r = s.visual_bounding_rect();
+            assert!(pane.expand(0.5).contains_rect(r), "{r:?} outside {pane:?}");
+        }
+        assert!(pane.contains_rect(body) && body.height() > 120.0);
+        let painted: String = h
+            .painted()
+            .iter()
+            .filter_map(|s| match s {
+                egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+                _ => None,
+            })
+            .collect();
+        for part in ["[■]", "SYSTEMRESOURCES", "[3]"] {
+            assert!(
+                painted.contains(part),
+                "{part} in the window's top: {painted}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_dialog_says_its_piece_and_ok_dismisses_it() {
+        let d = Data::builtin().unwrap();
+        let mut s = Save::default();
+        s.ensure_hardware(&d);
+        let g = s.jack_in(&d, &d.rig, 1);
+        let mut st = State::default();
+        st.watch.step(&g);
+        st.dialogs.push(ninsei_core::suite::Notice {
+            title: "PAYMENT RECEIVED".into(),
+            lines: vec![
+                "Ninsei Community College paid 120¢.".into(),
+                "You have been logged off. Thank you for using Hosaka. Have a pleasant day.".into(),
+            ],
+        });
+        let mut h = Harness::new(900.0, 600.0);
+        let draw = |h: &mut Harness, st: &mut State, events| {
+            h.frame(events, |ui| {
+                let mut popup = crate::volume::Popup::default();
+                let mut cx = FrameCx {
+                    game: &g,
+                    pal: Palette::from_def(&d.themes[0]),
+                    suite: st,
+                    keys_free: true,
+                    level: crate::volume::Level {
+                        on: true,
+                        volume: 100,
+                    },
+                    popup: &mut popup,
+                };
+                Suite.overlay(ui.ctx(), &mut cx);
+            });
+        };
+        // An area sits out its first frame while it measures itself.
+        draw(&mut h, &mut st, Vec::new());
+        draw(&mut h, &mut st, Vec::new());
+        let painted: String = h
+            .painted()
+            .iter()
+            .filter_map(|s| match s {
+                egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+                _ => None,
+            })
+            .collect();
+        assert!(painted.contains("PAYMENTRECEIVED") || painted.contains("PAYMENT RECEIVED"));
+        assert!(painted.contains("120"), "its line: {painted}");
+        // The long line wraps whole onto the next row, never cut.
+        assert!(painted.contains("pleasantday."), "{painted}");
+        assert!(!painted.contains('…'), "nothing cut: {painted}");
+        let ok = h
+            .find("[ OK ]")
+            .unwrap_or_else(|| panic!("{:?}", h.texts()));
+        draw(&mut h, &mut st, click(ok.center()));
+        assert!(st.dialogs.is_empty(), "OK dismissed it");
+    }
+
+    #[test]
+    fn the_log_lays_its_entries_a_row_apart() {
+        let d = Data::builtin().unwrap();
+        let mut s = Save::default();
+        s.ensure_hardware(&d);
+        let g = s.jack_in(&d, &d.rig, 1);
+        assert!(g.log.len() >= 3);
+        let p = Palette::from_def(&d.themes[0]);
+        let mut st = State::default();
+        let mut h = Harness::new(900.0, 600.0);
+        let (mut term, mut focus, mut hex, mut keep) =
+            (ninsei_term::LineEditor::default(), false, None, Vec::new());
+        for _ in 0..2 {
+            h.frame(Vec::new(), |ui| {
+                let room = Rect::from_min_size(egui::pos2(0.0, 0.0), vec2(840.0, 400.0));
+                let mut child = ui.new_child(UiBuilder::new().max_rect(room));
+                let mut panes = Panes {
+                    game: &g,
+                    pal: p,
+                    map: ninsei_core::netview::MapView::Draft,
+                    deck: String::new(),
+                    chrome: Chrome::Suite,
+                    corrupt: (0.0, 0),
+                    term: &mut term,
+                    focus_input: &mut focus,
+                    bbs_open: false,
+                    hex: &mut hex,
+                    keep: &mut keep,
+                    keep_room: 0,
+                    suite: &mut st,
+                    hear: &Vec::new,
+                    scope_rate: 0,
+                    out: Vec::new(),
+                };
+                panes.suite_terminal(&mut child);
+            });
+        }
+        // The rules under each entry, in the faint colour: a row apart, every one, each whole
+        // inside its row (a 1px line centred on the row's edge would lose half to the clip).
+        let mut ys: Vec<f32> = h
+            .painted()
+            .iter()
+            .filter_map(|s| match s {
+                egui::Shape::LineSegment { points, stroke } if stroke.color == p.faint => {
+                    Some(points[0].y)
+                }
+                _ => None,
+            })
+            .collect();
+        ys.sort_by(f32::total_cmp);
+        assert!(ys.len() >= g.log.len(), "a rule under each entry: {ys:?}");
+        for y in &ys {
+            assert!(
+                (y.fract() - 0.5).abs() < 0.01,
+                "on a pixel's centre, not its edge: {y}"
+            );
+        }
+        for w in ys.windows(2) {
+            assert!((w[1] - w[0] - size::ROW_H).abs() < 0.01, "{ys:?}");
+        }
+    }
+
+    #[test]
+    fn a_window_its_tab_names_doesnt_name_itself_again() {
+        let d = Data::builtin().unwrap();
+        let p = Palette::from_def(&d.themes[0]);
+        let pane = Rect::from_min_size(egui::pos2(20.0, 30.0), vec2(401.0, 233.0));
+        let body_top = |heading: &str| {
+            let mut h = Harness::new(900.0, 600.0);
+            let mut body = Rect::NOTHING;
+            h.frame(Vec::new(), |ui| {
+                let mut child = ui.new_child(UiBuilder::new().max_rect(pane));
+                window(&mut child, &p, 2, heading, |ui| body = ui.max_rect());
+            });
+            let painted: String = h
+                .painted()
+                .iter()
+                .filter_map(|s| match s {
+                    egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+                    _ => None,
+                })
+                .collect();
+            (body.top(), painted)
+        };
+        let (bare, painted) = body_top("");
+        assert_eq!(painted, "[■][2]", "only the badges in the edge");
+        let (headed, _) = body_top("SYSTEM RESOURCES");
+        assert!(
+            (headed - bare - size::ROW_H).abs() < 0.5,
+            "a heading takes one row"
+        );
+    }
+
+    #[test]
+    fn a_window_too_small_for_its_frame_still_draws_its_body() {
+        let d = Data::builtin().unwrap();
+        let p = Palette::from_def(&d.themes[0]);
+        let mut h = Harness::new(900.0, 600.0);
+        for size in [vec2(400.0, 60.0), vec2(60.0, 300.0), vec2(30.0, 30.0)] {
+            let mut ran = false;
+            h.frame(Vec::new(), |ui| {
+                let pane = Rect::from_min_size(egui::pos2(20.0, 30.0), size);
+                let mut child = ui.new_child(UiBuilder::new().max_rect(pane));
+                window(&mut child, &p, 6, "ACTIVITY LOG", |_| ran = true);
+            });
+            assert!(ran, "the body (and its command line) at {size:?}");
+        }
+    }
+
+    #[test]
+    fn a_long_log_paints_only_what_shows() {
+        let d = Data::builtin().unwrap();
+        let mut s = Save::default();
+        s.ensure_hardware(&d);
+        let mut g = s.jack_in(&d, &d.rig, 1);
+        let line = g.log[0].clone();
+        g.log = vec![line; 400];
+        let mut st = State::default();
+        let mut h = Harness::new(900.0, 600.0);
+        let (mut term, mut focus, mut hex, mut keep) =
+            (ninsei_term::LineEditor::default(), false, None, Vec::new());
+        for _ in 0..2 {
+            h.frame(Vec::new(), |ui| {
+                let room = Rect::from_min_size(egui::pos2(0.0, 0.0), vec2(840.0, 400.0));
+                let mut child = ui.new_child(UiBuilder::new().max_rect(room));
+                let mut panes = Panes {
+                    game: &g,
+                    pal: Palette::from_def(&d.themes[0]),
+                    map: ninsei_core::netview::MapView::Draft,
+                    deck: String::new(),
+                    chrome: Chrome::Suite,
+                    corrupt: (0.0, 0),
+                    term: &mut term,
+                    focus_input: &mut focus,
+                    bbs_open: false,
+                    hex: &mut hex,
+                    keep: &mut keep,
+                    keep_room: 0,
+                    suite: &mut st,
+                    hear: &Vec::new,
+                    scope_rate: 0,
+                    out: Vec::new(),
+                };
+                panes.suite_terminal(&mut child);
+            });
+        }
+        let texts = h
+            .painted()
+            .iter()
+            .filter(|s| matches!(s, egui::Shape::Text(_)))
+            .count();
+        // A screenful of rows, three pieces each, and the window's own furniture.
+        assert!(texts < 150, "{texts} pieces of text for a 400-entry log");
+    }
 }

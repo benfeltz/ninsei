@@ -350,3 +350,83 @@ fn the_calculator_knows_the_next_upgrade() {
         Some(cost)
     );
 }
+
+#[test]
+fn full_screen_gives_the_focused_tile_the_workspace() {
+    let mut t = tiled();
+    t.open(Tool::Terminal);
+    t.open(Tool::Rig);
+    let area = [0.0, 0.0, 1000.0, 600.0];
+    let tiled = t.layout(area, 10.0);
+    t.step(-1);
+    assert_eq!(t.focused(), Some(Tool::Terminal));
+    t.toggle_full();
+    assert!(t.shape().full);
+    assert_eq!(
+        t.layout(area, 10.0),
+        vec![(Tool::Terminal, [10.0, 10.0, 980.0, 580.0])],
+        "only the focused tile, over the whole workspace"
+    );
+    // Focus moves with it; the tiles stay where they were underneath.
+    t.step(1);
+    assert_eq!(t.layout(area, 10.0)[0].0, Tool::Rig);
+    t.step(-1);
+    t.toggle_full();
+    assert_eq!(t.layout(area, 10.0), tiled, "twice puts it back");
+    // Full screen is per workspace.
+    t.toggle_full();
+    t.switch(1);
+    assert!(!t.shape().full);
+    t.switch(0);
+    assert!(t.shape().full);
+}
+
+#[test]
+fn the_master_grows_and_shrinks_in_steps_within_limits() {
+    let mut t = tiled();
+    t.open(Tool::Terminal);
+    let area = [0.0, 0.0, 1000.0, 600.0];
+    let master_w = |t: &Tiling| t.layout(area, 10.0)[0].1[2];
+    let at = master_w(&t);
+    assert_eq!(t.shape().master, desktop::MASTER_PCT);
+    t.resize_master(1);
+    assert_eq!(t.shape().master, desktop::MASTER_PCT + desktop::MASTER_STEP);
+    assert!(master_w(&t) > at, "a step wider");
+    for _ in 0..20 {
+        t.resize_master(1);
+    }
+    assert_eq!(t.shape().master, desktop::MASTER_MAX);
+    for _ in 0..20 {
+        t.resize_master(-1);
+    }
+    assert_eq!(t.shape().master, desktop::MASTER_MIN);
+    let [mx, _, mw, _] = t.layout(area, 10.0)[0].1;
+    let [sx, _, sw, _] = t.layout(area, 10.0)[1].1;
+    assert_eq!(
+        sx,
+        mx + mw + 10.0,
+        "the stack starts a gap after the master"
+    );
+    assert_eq!(sx + sw, 990.0, "and ends at the edge");
+    // Each workspace has its own share.
+    t.switch(1);
+    assert_eq!(t.shape().master, desktop::MASTER_PCT);
+}
+
+#[test]
+fn a_tiling_saved_before_shapes_loads_and_lays_out_as_before() {
+    let old: Tiling =
+        ron::from_str("(workspaces: [[Shell, Terminal], [], []], current: 0, focus: 1)").unwrap();
+    assert!(old.shape.is_empty());
+    assert_eq!(old.shape(), desktop::Shape::default());
+    let mut now = tiled();
+    now.open(Tool::Terminal);
+    let area = [0.0, 0.0, 1000.0, 600.0];
+    assert_eq!(old.layout(area, 10.0), now.layout(area, 10.0));
+    // And a reshaped one round-trips.
+    let mut t = now.clone();
+    t.toggle_full();
+    t.resize_master(-2);
+    let back: Tiling = ron::from_str(&ron::to_string(&t).unwrap()).unwrap();
+    assert_eq!(back, t);
+}

@@ -133,6 +133,35 @@ fn the_sheet_sorts_and_filters() {
 }
 
 #[test]
+fn the_sheets_columns_hold_their_widest_value_and_header() {
+    let mut g = Game::new(data(), 7);
+    let (rownum, w) = suite::sheet_widths(&g.hdd);
+    assert_eq!(rownum, (g.hdd.len() + 1).to_string().len());
+    for (k, c) in SheetCol::ALL.iter().enumerate() {
+        assert!(
+            w[k] >= c.header().chars().count() + 2,
+            "{c:?}'s header and its arrow"
+        );
+        for (i, s) in g.hdd.iter().enumerate() {
+            assert!(w[k] >= c.cell(i, s).chars().count(), "{c:?} holds row {i}");
+        }
+    }
+    // A longer file name widens its column, and only that one.
+    let before = w;
+    g.hdd[0].spec.name = "A.MUCH.LONGER.PROGRAM.NAME".into();
+    let (_, after) = suite::sheet_widths(&g.hdd);
+    let file = SheetCol::ALL
+        .iter()
+        .position(|c| *c == SheetCol::File)
+        .unwrap();
+    assert_eq!(after[file], g.hdd[0].spec.file().chars().count());
+    assert!(after[file] > before[file]);
+    for k in (0..6).filter(|k| *k != file) {
+        assert_eq!(after[k], before[k]);
+    }
+}
+
+#[test]
 fn programs_read_as_formulas() {
     let g = Game::new(data(), 7);
     for s in &g.hdd {

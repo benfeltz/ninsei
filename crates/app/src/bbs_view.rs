@@ -2,12 +2,12 @@
 //! Draws whatever [`Session::render`] returns and feeds it keypresses.
 
 use egui::{
-    Align2, Color32, Context, Event, FontFamily, FontId, Key, Painter, Rect, RichText, Sense,
-    Stroke, pos2, vec2,
+    Align2, Color32, Context, Event, FontFamily, FontId, Key, RichText, Sense, Stroke, vec2,
 };
 use ninsei_core::ansi;
 use ninsei_core::bbs::{COLS, Line, Outcome, ROWS, Session};
 
+use crate::kit::Cells;
 use crate::theme::Palette;
 
 const FONT_SIZE: f32 = 13.0;
@@ -151,11 +151,6 @@ impl BbsView {
 /// in four intensities. The BBS window and the QWK reader both draw through it.
 pub fn paint_screen(ui: &mut egui::Ui, lines: &[String], color: bool, p: &Palette) {
     let font = FontId::new(FONT_SIZE, FontFamily::Monospace);
-    let cw = ui.ctx().fonts_mut(|f| f.glyph_width(&font, 'M'));
-    let size = vec2(
-        cw * COLS as f32 + PAD * 2.0,
-        ROW_HEIGHT * ROWS as f32 + PAD * 2.0,
-    );
     let fgc = |i: u8| if color { cga(i) } else { mono(i, p) };
     let bgc_of = |i: u8| {
         if i == 0 {
@@ -166,109 +161,125 @@ pub fn paint_screen(ui: &mut egui::Ui, lines: &[String], color: bool, p: &Palett
             mono(i, p).gamma_multiply(0.5)
         }
     };
-    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+    // The terminal's own cells: its font, rows packed tight, inside the padding.
+    let (resp, g) = Cells::allocate(
+        ui,
+        font,
+        Some(ROW_HEIGHT),
+        (COLS, ROWS),
+        vec2(PAD, PAD),
+        Sense::hover(),
+    );
+    let rect = resp.rect;
     let painter = ui.painter_at(rect);
     let bg = if color { Color32::BLACK } else { p.bg };
     painter.rect_filled(rect, 0.0, bg);
     let (mut fg_c, mut bg_c) = (ansi::DEFAULT_FG, ansi::DEFAULT_BG);
-    for (row, line) in lines.iter().enumerate() {
-        let top = rect.top() + PAD + row as f32 * ROW_HEIGHT;
+    for (row, line) in lines.iter().enumerate().take(ROWS) {
         let mut col = 0usize;
         for span in ansi::parse_line(line, &mut fg_c, &mut bg_c) {
             let fg = fgc(span.fg);
             let bgc = bgc_of(span.bg);
-            let x0 = rect.left() + PAD + col as f32 * cw;
             let n = span.text.chars().count();
             if bgc != Color32::TRANSPARENT {
-                let r = Rect::from_min_size(pos2(x0, top), vec2(cw * n as f32, ROW_HEIGHT));
-                painter.rect_filled(r, 0.0, bgc);
+                g.fill(&painter, col, row, n.min(COLS.saturating_sub(col)), 1, bgc);
             }
-            // Runs of ordinary glyphs go out as text; block elements are painted as
-            // solid cell rects so art joins up with no font gaps.
+            // Block elements are painted as solid parts of their cells so art joins up with
+            // no font gaps; runs of other glyphs go out as one piece of text from their first
+            // cell (the screen repaints every frame). Nothing past the 80th column.
             let mut run = String::new();
-            let mut run_col = col;
+            let mut from = col;
             for ch in span.text.chars() {
-                if let Some(shape) = block(ch) {
-                    flush(
-                        &painter,
-                        &mut run,
-                        pos2(rect.left() + PAD + run_col as f32 * cw, top),
-                        &font,
-                        fg,
-                    );
-                    let cell = Rect::from_min_size(
-                        pos2(rect.left() + PAD + col as f32 * cw, top),
-                        vec2(cw, ROW_HEIGHT),
-                    );
-                    paint_block(&painter, cell, shape, fg);
-                    col += 1;
-                    run_col = col;
+                if col >= COLS {
+                    break;
+                }
+                if g.block(&painter, col, row, ch, fg) {
+                    g.run(&painter, from, row, &std::mem::take(&mut run), fg);
+                    from = col + 1;
                 } else {
                     run.push(ch);
-                    col += 1;
                 }
+                col += 1;
             }
-            flush(
-                &painter,
-                &mut run,
-                pos2(rect.left() + PAD + run_col as f32 * cw, top),
-                &font,
-                fg,
+            g.run(&painter, from, row, &run, fg);
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::uitest::Harness;
+
+    #[test]
+    fn a_screen_paints_in_its_cells_with_block_art_solid() {
+        let data = ninsei_core::Data::builtin().unwrap();
+        let p = Palette::from_def(&data.themes[0]);
+        let mut lines = vec!["|15█|07A".to_string()];
+        lines.extend((1..ROWS).map(|_| "x".repeat(COLS)));
+        let mut h = Harness::new(1280.0, 800.0);
+        let mut screen = egui::Rect::NOTHING;
+        h.frame(Vec::new(), |ui| {
+            paint_screen(ui, &lines, true, &p);
+            screen = ui.min_rect();
+        });
+        let shapes = h.painted();
+        // Everything inside the 80x24 screen it allocated.
+        for s in shapes {
+            let r = s.visual_bounding_rect();
+            assert!(
+                screen.expand(1.0).contains_rect(r),
+                "{r:?} outside {screen:?}"
             );
         }
+        // The block is a solid white rect, not a glyph; the A is a glyph one cell over.
+        let white = cga(15);
+        let block = shapes
+            .iter()
+            .find_map(|s| match s {
+                egui::Shape::Rect(r) if r.fill == white => Some(r.rect),
+                _ => None,
+            })
+            .expect("the █ as a rect");
+        let a = shapes
+            .iter()
+            .find_map(|s| match s {
+                egui::Shape::Text(t) if t.galley.text() == "A" => Some(t.visual_bounding_rect()),
+                _ => None,
+            })
+            .expect("the A");
+        assert!(
+            a.left() >= block.right() - 1.0,
+            "the A sits in the next cell"
+        );
+        assert!(
+            !shapes
+                .iter()
+                .any(|s| matches!(s, egui::Shape::Text(t) if t.galley.text().contains('█')))
+        );
     }
-}
 
-#[derive(Clone, Copy)]
-enum Block {
-    /// A filled part of the cell: (x0, y0, x1, y1) as fractions.
-    Part(f32, f32, f32, f32),
-    /// The whole cell in the foreground colour at this opacity (░▒▓).
-    Shade(f32),
-}
-
-fn block(ch: char) -> Option<Block> {
-    Some(match ch {
-        '█' => Block::Part(0.0, 0.0, 1.0, 1.0),
-        '▀' => Block::Part(0.0, 0.0, 1.0, 0.5),
-        '▄' => Block::Part(0.0, 0.5, 1.0, 1.0),
-        '▌' => Block::Part(0.0, 0.0, 0.5, 1.0),
-        '▐' => Block::Part(0.5, 0.0, 1.0, 1.0),
-        '▪' => Block::Part(0.25, 0.3, 0.75, 0.7),
-        '░' => Block::Shade(0.25),
-        '▒' => Block::Shade(0.5),
-        '▓' => Block::Shade(0.75),
-        _ => return None,
-    })
-}
-
-fn paint_block(painter: &Painter, cell: Rect, b: Block, fg: Color32) {
-    match b {
-        Block::Part(x0, y0, x1, y1) => {
-            let r = Rect::from_min_max(
-                pos2(
-                    cell.left() + cell.width() * x0,
-                    cell.top() + cell.height() * y0,
-                ),
-                pos2(
-                    cell.left() + cell.width() * x1,
-                    cell.top() + cell.height() * y1,
-                ),
-            );
-            // Snap outward a hair so neighbouring cells meet with no seam.
-            painter.rect_filled(r.expand(0.25), 0.0, fg);
+    #[test]
+    fn nothing_past_the_80th_column_or_24th_row_in_either_mode() {
+        let data = ninsei_core::Data::builtin().unwrap();
+        let p = Palette::from_def(&data.themes[0]);
+        // A row 90 wide on a blue background with block art past the edge, and 26 rows.
+        let mut lines = vec![format!("|17|15{}{}", "x".repeat(78), "█".repeat(12))];
+        lines.extend((1..ROWS + 2).map(|_| "|20|14".to_string() + &"y".repeat(COLS)));
+        for color in [true, false] {
+            let mut h = Harness::new(1280.0, 800.0);
+            let mut screen = egui::Rect::NOTHING;
+            h.frame(Vec::new(), |ui| {
+                paint_screen(ui, &lines, color, &p);
+                screen = ui.min_rect();
+            });
+            for s in h.painted() {
+                let r = s.visual_bounding_rect();
+                assert!(
+                    screen.expand(1.0).contains_rect(r),
+                    "color {color}: {r:?} outside {screen:?}"
+                );
+            }
         }
-        Block::Shade(a) => {
-            painter.rect_filled(cell, 0.0, fg.gamma_multiply(a));
-        }
     }
-}
-
-/// Draws a run of ordinary glyphs starting at cell `at` (the cell's top-left corner).
-fn flush(painter: &Painter, run: &mut String, at: egui::Pos2, font: &FontId, fg: Color32) {
-    if run.is_empty() {
-        return;
-    }
-    let pos = pos2(at.x, at.y + (ROW_HEIGHT - FONT_SIZE) / 2.0 - 1.0);
-    painter.text(pos, Align2::LEFT_TOP, std::mem::take(run), font.clone(), fg);
 }

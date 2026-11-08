@@ -5,12 +5,14 @@
 //! `ninsei_core::history::plot`.
 
 use egui::{
-    Align2, Color32, FontFamily, FontId, Painter, Pos2, Rect, RichText, ScrollArea, Sense, Stroke,
-    Ui, UiBuilder, pos2, vec2,
+    Align2, Color32, FontFamily, FontId, Painter, Rect, RichText, ScrollArea, Sense, Stroke, Ui,
+    UiBuilder, pos2, vec2,
 };
 use ninsei_core::history::plot;
 use ninsei_core::{Action, ContractStatus, Effect, LogKind, Phase, tuning};
 
+use crate::kit::Cells;
+use crate::kit::cells::{Unlit, cut};
 use crate::netmap::mix;
 use crate::panes::Panes;
 use crate::theme::Palette;
@@ -45,69 +47,69 @@ pub fn ramp(p: &Palette, k: f32) -> Color32 {
     }
 }
 
-/// A btop box filling the pane: rounded border, the title cut into the top edge and an
-/// optional note cut into the bottom edge. `body` draws inside.
-pub fn boxed(ui: &mut Ui, p: &Palette, title: &str, note: &str, body: impl FnOnce(&mut Ui)) {
-    let rect = ui.available_rect_before_wrap().shrink(3.0);
-    let painter = ui.painter().clone();
-    painter.rect_stroke(rect, 6.0, Stroke::new(1.0, p.dim), egui::StrokeKind::Middle);
-    let cut = |at: Pos2, text: &str, color: Color32, align: Align2| {
-        let galley = painter.layout_no_wrap(text.to_string(), mono(MONO), color);
-        let r = align.anchor_size(at, galley.size()).expand2(vec2(4.0, 0.0));
-        painter.rect_filled(r, 0.0, p.bg);
-        painter.galley(r.min + vec2(4.0, 0.0), galley, color);
-    };
-    cut(
-        rect.left_top() + vec2(14.0, 0.0),
-        title,
-        p.bright,
-        Align2::LEFT_CENTER,
-    );
-    if !note.is_empty() {
-        cut(
-            rect.right_bottom() - vec2(14.0, 0.0),
-            note,
-            p.dim,
-            Align2::RIGHT_CENTER,
-        );
-    }
-    let inner = rect.shrink2(vec2(10.0, 12.0));
-    ui.scope_builder(UiBuilder::new().max_rect(inner), body);
-    ui.allocate_rect(rect, Sense::hover());
+/// The chrome's cells: 12pt with rows a little taller than the glyphs.
+fn cells_in(ui: &Ui, area: Rect) -> Cells {
+    Cells::fit_font(ui, area, mono(MONO), Some(MONO + 2.0))
 }
 
-/// A gradient meter `cells` wide: filled cells take the ramp's colour at their position,
-/// empty cells are dim dots. The value eases toward its target.
+/// A btop box filling the pane, on the chrome's cells: rounded border through the outer
+/// cells' centres, the title turned into the top edge (`┐title┌`) and an optional note into
+/// the bottom one. `body` draws inside.
+pub fn boxed(ui: &mut Ui, p: &Palette, title: &str, note: &str, body: impl FnOnce(&mut Ui)) {
+    let room = ui.available_rect_before_wrap();
+    let mut g = cells_in(ui, room.shrink(3.0));
+    (g.border, g.paper) = (p.dim, p.bg);
+    let painter = ui.painter().clone();
+    g.frame(&painter, 0, 0, g.cols, g.rows);
+    // Title and note cut with … to the room the border has, never dropped.
+    let title = cut(title, g.cols.saturating_sub(6));
+    g.title(&painter, 2, 0, &title, p.bright);
+    let spare = g.cols.saturating_sub(title.chars().count() + 10);
+    let note = cut(note, spare);
+    let n = note.chars().count();
+    if n > 0 {
+        g.note(&painter, g.cols - n - 4, g.rows - 1, &note, p.dim);
+    }
+    // The body sits where it always did: 10px and 12px inside the border line; in a box too
+    // small for that, it still gets the room (it may hold the only command line on screen).
+    let line = g.at(0, 0, 1, 1).center();
+    let end = g.at(g.cols - 1, g.rows - 1, 1, 1).center();
+    let inner = Rect::from_min_max(line, end).shrink2(vec2(10.0, 12.0));
+    let inner = if inner.is_positive() { inner } else { room };
+    ui.scope_builder(UiBuilder::new().max_rect(inner), body);
+    ui.allocate_rect(room, Sense::hover());
+}
+
+/// A gradient meter `cells` wide on the chrome's cells: lit cells take the ramp's colour at
+/// their place, the rest are dim dots. The value eases toward its target.
 fn meter(ui: &mut Ui, p: &Palette, id: &str, value: u32, max: u32, cells: usize) {
     let shown = ui.ctx().animate_value_with_time(
         ui.id().with(("meter", id)),
         value as f32,
         anim::EASE_SECS,
     );
-    let cw = ui.fonts_mut(|f| f.glyph_width(&mono(MONO), 'M'));
-    let (rect, _) = ui.allocate_exact_size(vec2(cw * cells as f32, MONO + 2.0), Sense::hover());
-    let painter = ui.painter_at(rect);
-    let frac = if max == 0 {
+    let (resp, g) = Cells::allocate(
+        ui,
+        mono(MONO),
+        Some(MONO + 2.0),
+        (cells, 1),
+        egui::Vec2::ZERO,
+        Sense::hover(),
+    );
+    let lit = if max == 0 {
         0.0
     } else {
-        (shown / max as f32).clamp(0.0, 1.0)
+        (shown / max as f32).clamp(0.0, 1.0) * cells as f32
     };
-    let on = frac * cells as f32;
-    for i in 0..cells {
-        let r = Rect::from_min_size(
-            pos2(rect.left() + i as f32 * cw, rect.top() + 2.0),
-            vec2(cw - 1.5, MONO - 2.0),
-        );
-        let k = (i as f32 + 0.5) / cells as f32;
-        let fill = (on - i as f32).clamp(0.0, 1.0);
-        if fill > 0.0 {
-            let part = Rect::from_min_size(r.min, vec2(r.width() * fill, r.height()));
-            painter.rect_filled(part, 1.0, ramp(p, k));
-        }
-        if fill < 1.0 {
-            painter.circle_filled(r.center(), 1.0, p.faint);
-        }
-    }
+    g.gauge(
+        &ui.painter_at(resp.rect),
+        0,
+        0,
+        cells,
+        lit,
+        |i| ramp(p, (i as f32 + 0.5) / cells as f32),
+        Unlit::Dot(p.faint),
+    );
 }
 
 /// Paints a dot graph in `rect`: one dot column per value, `rows` cells (4 dots each) tall,
@@ -187,6 +189,48 @@ fn graph(
         mono(10.0),
         p.dim,
     );
+}
+
+/// A program's name in the warez table: its 8.3 file, and `+On` when it's optimized.
+fn warez_name(w: &ninsei_core::binary::Spec) -> String {
+    if w.opt > 0 {
+        format!("{}+O{}", w.file(), w.opt)
+    } else {
+        w.file()
+    }
+}
+
+/// The warez table's columns: ID, NAME as wide as the widest name, then RAM and CPU while
+/// there's room for them. Names are never sliced: the numbers go first.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+struct WarezCols {
+    name: usize,
+    ram: bool,
+    cpu: bool,
+}
+
+impl WarezCols {
+    /// The columns for names up to `name` cells wide in a row of `room` cells.
+    fn fit(name: usize, room: usize) -> Self {
+        let name = name.max(4);
+        let base = 3 + name + 1;
+        WarezCols {
+            name,
+            ram: room >= base + 3,
+            cpu: room >= base + 3 + 4,
+        }
+    }
+
+    fn line(&self, id: &str, name: &str, ram: &str, cpu: &str) -> String {
+        let mut s = format!("{id:<3}{name:<w$} ", w = self.name);
+        if self.ram {
+            s.push_str(&format!("{ram:>3}"));
+        }
+        if self.cpu {
+            s.push_str(&format!("{cpu:>4}"));
+        }
+        s
+    }
 }
 
 /// One meter line in deck.sys.
@@ -349,10 +393,20 @@ impl Panes<'_> {
         let mut acts = Vec::new();
         let mut hex = None;
         boxed(ui, &p, "warez/", &note, |ui| {
-            ui.label(text(
-                format!("{:<3}{:<11}{:>3}{:>4}", "ID", "NAME", "RAM", "CPU"),
-                p.dim,
-            ));
+            // NAME is as wide as the widest real name; a narrow box drops CPU, then RAM,
+            // before it would slice a name.
+            let name_w = g
+                .hdd
+                .iter()
+                .map(|s| warez_name(&s.spec).chars().count())
+                .max()
+                .unwrap_or(0);
+            let cw = ui.fonts_mut(|f| f.glyph_width(&mono(MONO), 'M'));
+            // What the row's buttons and activity graph take on its right.
+            let controls = 24.0 + 3.0 * (2.0 * cw + 2.0 * ui.spacing().button_padding.x) + 15.0;
+            let room = ((ui.available_width() - controls) / cw).floor().max(0.0) as usize;
+            let cols = WarezCols::fit(name_w, room);
+            ui.label(text(cols.line("ID", "NAME", "RAM", "CPU"), p.dim));
             let mut order: Vec<usize> = (0..g.hdd.len()).collect();
             order.sort_by_key(|&i| !g.hdd[i].loaded);
             ScrollArea::vertical()
@@ -429,29 +483,19 @@ impl Panes<'_> {
                                     ui.with_layout(
                                         egui::Layout::left_to_right(egui::Align::Center),
                                         |ui| {
-                                            let name: String = if w.opt > 0 {
-                                                let base: String =
-                                                    w.file().chars().take(7).collect();
-                                                format!("{base}+O{}", w.opt)
-                                            } else {
-                                                w.file().chars().take(10).collect()
-                                            };
-                                            ui.add(
-                                                egui::Label::new(text(
-                                                    format!(
-                                                        "{:<3}{:<11}{:>3}{:>4}",
-                                                        i, name, w.ram, w.cpu
-                                                    ),
-                                                    col,
-                                                ))
-                                                .truncate(),
-                                            )
-                                            .on_hover_text(format!(
-                                                "{}\n{}\n{}",
-                                                w.name,
-                                                g.data.warez[s.warez].blurb,
-                                                w.effect.describe()
-                                            ));
+                                            let line = cols.line(
+                                                &i.to_string(),
+                                                &warez_name(w),
+                                                &w.ram.to_string(),
+                                                &w.cpu.to_string(),
+                                            );
+                                            ui.add(egui::Label::new(text(line, col)).truncate())
+                                                .on_hover_text(format!(
+                                                    "{}\n{}\n{}",
+                                                    w.name,
+                                                    g.data.warez[s.warez].blurb,
+                                                    w.effect.describe()
+                                                ));
                                         },
                                     );
                                 },
@@ -794,7 +838,7 @@ pub fn sound_popup(
     ctx: &egui::Context,
     cx: &mut crate::chrome::FrameCx,
 ) -> Vec<crate::panes::Request> {
-    use crate::cells::Cells;
+    use crate::kit::cells::Cells;
     let (p, now) = (cx.pal, cx.level);
     let (mut to, k) = crate::volume::start(ctx, now, egui::Key::M, vol::NOTCHES);
     if k.esc || k.ok {
@@ -875,7 +919,7 @@ pub fn sound_popup(
 /// The vis box: the spectrum as columns of whole cells, one cell wide with a cell between,
 /// lit bottom up along the ramp; the level cut into the bottom edge.
 pub fn vis_box(ui: &mut Ui, p: &Palette, samples: &[f32], rate: u32) {
-    use crate::cells::Cells;
+    use crate::kit::cells::Cells;
     let level = crate::vispane::held(ui, "btop-vis", ninsei_core::scope::level(samples));
     let note = ninsei_core::scope::db_text(level);
     boxed(ui, p, "vis", note.trim(), |ui| {
@@ -894,4 +938,125 @@ pub fn vis_box(ui: &mut Ui, p: &Palette, samples: &[f32], rate: u32) {
         }
         ui.allocate_rect(area, Sense::hover());
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::uitest::Harness;
+
+    #[test]
+    fn a_box_sits_on_whole_cells_with_its_body_inside() {
+        let data = ninsei_core::Data::builtin().unwrap();
+        let p = Palette::from_def(&data.themes[0]);
+        let mut h = Harness::new(800.0, 600.0);
+        let room = Rect::from_min_size(pos2(10.0, 10.0), vec2(301.0, 177.0));
+        let mut inner = Rect::NOTHING;
+        h.frame(Vec::new(), |ui| {
+            let mut child = ui.new_child(UiBuilder::new().max_rect(room));
+            boxed(&mut child, &p, "deck.sys", "seed 01", |ui| {
+                inner = ui.max_rect()
+            });
+        });
+        for s in h.painted() {
+            let r = s.visual_bounding_rect();
+            assert!(room.contains_rect(r), "{r:?} outside the pane {room:?}");
+        }
+        assert!(room.shrink(3.0).contains_rect(inner) && inner.width() > 250.0);
+        // 10px and 12px inside the border line, as before the box sat on cells.
+        let line = h
+            .rects()
+            .into_iter()
+            .find(|(_, fill, stroke)| *fill == Color32::TRANSPARENT && *stroke == p.dim)
+            .expect("the border")
+            .0;
+        assert!(
+            (inner.left() - line.left() - 10.0).abs() < 0.6,
+            "{inner:?} in {line:?}"
+        );
+        assert!((inner.top() - line.top() - 12.0).abs() < 0.6);
+        // The title's glyphs sit in the top row of cells, over the border.
+        let d = h
+            .painted()
+            .iter()
+            .find_map(|s| match s {
+                egui::Shape::Text(t) if t.galley.text() == "d" => Some(t.visual_bounding_rect()),
+                _ => None,
+            })
+            .expect("the title");
+        assert!(d.top() < inner.top(), "on the top edge, above the body");
+    }
+
+    #[test]
+    fn a_narrow_box_cuts_its_title_and_note_rather_than_dropping_them() {
+        let data = ninsei_core::Data::builtin().unwrap();
+        let p = Palette::from_def(&data.themes[0]);
+        let painted = |w: f32| {
+            let mut h = Harness::new(800.0, 600.0);
+            let room = Rect::from_min_size(pos2(10.0, 10.0), vec2(w, 120.0));
+            h.frame(Vec::new(), |ui| {
+                let mut child = ui.new_child(UiBuilder::new().max_rect(room));
+                boxed(
+                    &mut child,
+                    &p,
+                    "net  NINSEI COMMUNITY COLLEGE",
+                    "a long note",
+                    |_| {},
+                );
+            });
+            h.painted()
+                .iter()
+                .filter_map(|s| match s {
+                    egui::Shape::Text(t) => Some(t.galley.text().to_string()),
+                    _ => None,
+                })
+                .collect::<String>()
+        };
+        // Narrow: the title takes the edge, cut and marked.
+        let narrow = painted(200.0);
+        assert!(
+            narrow.starts_with("net") && narrow.contains('…'),
+            "{narrow}"
+        );
+        // Wider: the title whole, the note cut into what's left and marked.
+        let wide = painted(330.0);
+        assert!(wide.contains("NINSEICOMMUNITYCOLLEGE"), "{wide}");
+        assert!(wide.ends_with('…'), "the note, cut: {wide}");
+    }
+
+    #[test]
+    fn a_box_too_small_for_its_frame_still_draws_its_body() {
+        let data = ninsei_core::Data::builtin().unwrap();
+        let p = Palette::from_def(&data.themes[0]);
+        let mut h = Harness::new(800.0, 600.0);
+        let mut ran = false;
+        h.frame(Vec::new(), |ui| {
+            let room = Rect::from_min_size(pos2(10.0, 10.0), vec2(40.0, 24.0));
+            let mut child = ui.new_child(UiBuilder::new().max_rect(room));
+            boxed(&mut child, &p, "terminal", "help", |_| ran = true);
+        });
+        assert!(ran);
+    }
+
+    #[test]
+    fn the_warez_table_drops_numbers_before_it_slices_a_name() {
+        let cols = WarezCols::fit("firewall.exe+O2".len(), 40);
+        assert_eq!((cols.ram, cols.cpu), (true, true));
+        let row = cols.line("0", "firewall.exe+O2", "2", "1");
+        assert!(row.contains("firewall.exe+O2"), "{row}");
+        assert_eq!(
+            cols.line("ID", "NAME", "RAM", "CPU").len(),
+            row.len(),
+            "header on the row"
+        );
+        // Narrower: CPU goes, then RAM; the name stays whole.
+        let cols = WarezCols::fit(15, 3 + 16 + 3);
+        assert_eq!((cols.ram, cols.cpu), (true, false));
+        let cols = WarezCols::fit(15, 3 + 16);
+        assert_eq!((cols.ram, cols.cpu), (false, false));
+        assert!(
+            cols.line("0", "firewall.exe+O2", "2", "1")
+                .contains("firewall.exe+O2")
+        );
+    }
 }

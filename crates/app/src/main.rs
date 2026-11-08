@@ -2,7 +2,6 @@
 
 mod bbs_view;
 mod btop;
-mod cells;
 mod chrome;
 mod crash;
 mod crt;
@@ -13,6 +12,7 @@ mod glitch;
 mod hexview;
 mod home;
 mod hubtools;
+mod kit;
 mod liza;
 mod netmap;
 mod netmap_draft;
@@ -985,43 +985,6 @@ impl App {
         }
     }
 
-    /// Hotkeys work whenever the terminal isn't taking typing.
-    fn hotkeys(&mut self, ctx: &egui::Context) -> Vec<Request> {
-        let hex_typing = ctx.memory(|m| m.has_focus(hexview::grid_id()));
-        let talking = self.game.encounter.is_some();
-        let modal = self.bbs.is_some() || talking || self.sound_popup.is_open();
-        if modal || hex_typing || ctx.egui_wants_keyboard_input() {
-            return Vec::new();
-        }
-        let mut out = Vec::new();
-        ctx.input(|i| {
-            if i.key_pressed(Key::Space) {
-                out.push(Request::Cmd(Command::Game(Action::EndTurn)));
-            }
-            let digits = [
-                Key::Num0,
-                Key::Num1,
-                Key::Num2,
-                Key::Num3,
-                Key::Num4,
-                Key::Num5,
-                Key::Num6,
-                Key::Num7,
-                Key::Num8,
-                Key::Num9,
-            ];
-            for (n, k) in digits.iter().enumerate() {
-                if i.key_pressed(*k) {
-                    out.push(Request::Cmd(Command::Game(Action::Run(n))));
-                }
-            }
-            if i.key_pressed(Key::Enter) || i.key_pressed(Key::Slash) {
-                self.focus_input = true;
-            }
-        });
-        out
-    }
-
     /// The menu bar: the chrome's name, then its menus, each built from shared parts.
     fn menu_bar(&mut self, ui: &mut egui::Ui, pal: &theme::Palette) -> Vec<Request> {
         let mut out = Vec::new();
@@ -1480,6 +1443,57 @@ impl eframe::App for App {
     }
 }
 
+/// The run's keys this frame: the chrome's own first (an alert's Enter and Esc, which it takes),
+/// then the shared hotkeys with what's left.
+fn run_keys(
+    view: &dyn chrome::ChromeView,
+    ctx: &egui::Context,
+    cx: &mut FrameCx,
+    modal: bool,
+    focus_input: &mut bool,
+) -> Vec<Request> {
+    let mut out = view.keys(ctx, cx);
+    out.extend(hotkeys(ctx, cx.game, modal, focus_input));
+    out
+}
+
+/// Hotkeys work whenever the terminal isn't taking typing: Space ends the turn, a digit runs
+/// that slot, and Enter or / go to the Message box.
+fn hotkeys(ctx: &egui::Context, game: &Game, modal: bool, focus_input: &mut bool) -> Vec<Request> {
+    let hex_typing = ctx.memory(|m| m.has_focus(hexview::grid_id()));
+    let talking = game.encounter.is_some();
+    if modal || talking || hex_typing || ctx.egui_wants_keyboard_input() {
+        return Vec::new();
+    }
+    let mut out = Vec::new();
+    ctx.input(|i| {
+        if i.key_pressed(Key::Space) {
+            out.push(Request::Cmd(Command::Game(Action::EndTurn)));
+        }
+        let digits = [
+            Key::Num0,
+            Key::Num1,
+            Key::Num2,
+            Key::Num3,
+            Key::Num4,
+            Key::Num5,
+            Key::Num6,
+            Key::Num7,
+            Key::Num8,
+            Key::Num9,
+        ];
+        for (n, k) in digits.iter().enumerate() {
+            if i.key_pressed(*k) {
+                out.push(Request::Cmd(Command::Game(Action::Run(n))));
+            }
+        }
+        if i.key_pressed(Key::Enter) || i.key_pressed(Key::Slash) {
+            *focus_input = true;
+        }
+    });
+    out
+}
+
 impl App {
     /// The run's IDE: menu, status bar, dock panes and the run's modal windows.
     fn run_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, pal: &theme::Palette) {
@@ -1491,16 +1505,13 @@ impl App {
             self.sound_popup.close();
         }
         // Keys only drive the run once it's fully on screen.
-        let mut requests = if self.screen == Screen::Run {
-            self.hotkeys(&ctx)
-        } else {
-            Vec::new()
-        };
         let view = chrome::view(self.save.firmware_def(&self.data).chrome);
         let keys_free =
             self.bbs.is_none() && self.game.encounter.is_none() && !self.sound_popup.is_open();
         let level = volume::Level::of(&self.save);
-        if self.screen == Screen::Run {
+        // A BBS, a conversation or the sound pop-out has the keyboard: no hotkeys.
+        let modal = self.bbs.is_some() || self.sound_popup.is_open();
+        let mut requests = if self.screen == Screen::Run {
             let mut cx = FrameCx {
                 game: &self.game,
                 pal,
@@ -1509,8 +1520,10 @@ impl App {
                 level,
                 popup: &mut self.sound_popup,
             };
-            requests.extend(view.keys(&ctx, &mut cx));
-        }
+            run_keys(view, &ctx, &mut cx, modal, &mut self.focus_input)
+        } else {
+            Vec::new()
+        };
 
         egui::Panel::top("menu")
             .frame(
@@ -1976,5 +1989,52 @@ mod tests {
             assert!(!t.is_secondary());
         }
         assert!(Tab::Net.is_secondary());
+    }
+
+    /// One frame of the run's keys on the Stack chrome; returns what they asked for and
+    /// whether the Message box was asked for.
+    fn stack_keys(
+        h: &mut crate::uitest::Harness,
+        g: &ninsei_core::Game,
+        ev: Vec<egui::Event>,
+    ) -> (Vec<Request>, bool) {
+        let mut suite = crate::suite::State::default();
+        let (mut out, mut focus) = (Vec::new(), false);
+        h.frame(ev, |ui| {
+            let mut popup = crate::volume::Popup::default();
+            let mut cx = FrameCx {
+                game: g,
+                pal: theme::Palette::from_def(&g.data.themes[0]),
+                suite: &mut suite,
+                keys_free: true,
+                level: crate::volume::Level {
+                    on: true,
+                    volume: 100,
+                },
+                popup: &mut popup,
+            };
+            out = run_keys(&crate::stack::Stack, ui.ctx(), &mut cx, false, &mut focus);
+        });
+        (out, focus)
+    }
+
+    #[test]
+    fn enter_in_a_stack_fight_runs_the_best_move_and_leaves_the_message_box_alone() {
+        let d = Data::builtin().unwrap();
+        let g = crate::stack::tests::a_fight(&d);
+        let best = crate::stack::best_move(&g).unwrap();
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        stack_keys(&mut h, &g, Vec::new());
+        let (out, focus) = stack_keys(&mut h, &g, crate::uitest::key(Key::Enter));
+        assert!(
+            out.iter()
+                .any(|r| matches!(r, Request::Cmd(Command::Game(Action::Run(n))) if *n == best)),
+            "Enter ran the best move"
+        );
+        assert!(!focus, "and didn't also go to the Message box");
+        // Out of a fight, Enter goes to the Message box as before.
+        let calm = ninsei_core::Game::new(d.clone(), 3);
+        let (out, focus) = stack_keys(&mut h, &calm, crate::uitest::key(Key::Enter));
+        assert!(out.is_empty() && focus);
     }
 }
