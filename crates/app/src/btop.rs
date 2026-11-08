@@ -1163,6 +1163,11 @@ pub mod script {
             ninsei_term::Outcome::Submit(t) => Some(t.clone()),
             _ => None,
         });
+        // Ctrl+C backs out as Esc does (the editor has already cleared its line).
+        let cancelled = r
+            .outcomes
+            .iter()
+            .any(|o| matches!(o, ninsei_term::Outcome::Cancelled(_)));
         let ctx = ui.ctx().clone();
         if let Some(text) = submitted {
             if let Some(a) = btop_fight::retype(p.game, no, &text) {
@@ -1172,6 +1177,9 @@ pub mod script {
             if !text.trim().is_empty() {
                 v.cursor = Some(no);
             }
+            take_keys(&ctx);
+        } else if cancelled {
+            v.edit = None;
             take_keys(&ctx);
         } else if !r.focused {
             // Esc let go of the keyboard (it comes back to the tile), or a click went
@@ -1891,6 +1899,32 @@ mod script_tests {
             "STOPX",
             "the e itself typed nothing"
         );
+    }
+
+    #[test]
+    fn ctrl_c_in_a_retype_puts_the_line_back() {
+        let g = fight("10 RUN icepick\n20 STOP\n30 GOTO 10");
+        let mut h = Harness::new(1280.0, 800.0);
+        focus_on(&mut h, &g, 20);
+        frame(&mut h, &g, PANE, letter('e'));
+        let ctrl_c = vec![egui::Event::Key {
+            key: egui::Key::C,
+            physical_key: None,
+            pressed: true,
+            repeat: false,
+            modifiers: egui::Modifiers::CTRL,
+        }];
+        let out = frame(&mut h, &g, PANE, ctrl_c);
+        assert!(actions(out).is_empty());
+        frame(&mut h, &g, PANE, vec![]);
+        assert!(
+            script::view(&h.ctx, &g).edit.is_none(),
+            "the retype is over"
+        );
+        assert!(script::has_keys(&h.ctx), "the tile has the keys back");
+        // Enter now retypes again, it doesn't commit an empty line over 20.
+        let out = frame(&mut h, &g, PANE, crate::uitest::key(egui::Key::Enter));
+        assert!(actions(out).is_empty());
     }
 
     #[test]
