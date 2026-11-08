@@ -187,8 +187,9 @@ fn dialing_brings_the_loadout() {
     let (d, mut s) = book();
     s.rig.cpu = 1;
     let id = s.phonebook[0].id;
+    let cpu = s.stat_base(&d, hub::Upgrade::Cpu);
     let g = s.dial(&d, id, 5).unwrap();
-    assert_eq!(g.deck.cpu_max, tuning::START_CPU + 1);
+    assert_eq!(g.deck.cpu_max, cpu + 1);
     assert_eq!(g.hdd.len(), tuning::START_WAREZ.len());
     assert!(s.dial(&d, 999, 5).is_err());
 }

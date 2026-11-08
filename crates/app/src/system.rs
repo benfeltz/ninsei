@@ -440,7 +440,7 @@ fn disk_panel(
     let shelf = disk::shelf(save, data);
     let now = ui.input(|i| i.time);
     let map = defrag_map(ui, save, data, st, out);
-    let cap = save.hdd_cap(&data.rig) as usize;
+    let cap = save.hdd_cap(data) as usize;
     // A pick that's gone (scrapped, lost) is dropped.
     if st
         .picked

@@ -197,7 +197,7 @@ fn a_game_downloads_and_comes_home_cracked() {
     assert_eq!(save.copies("blox"), vec![GameCopy::Cracked]);
     assert_eq!(report.games, vec!["BLOX [PHS]".to_string()]);
     // A board won't sell the crack again; the run's kit carries it from the save.
-    let kit = save.kit(&d, &d.rig);
+    let kit = save.kit(&d);
     assert_eq!(kit.games, vec!["blox".to_string()]);
     let mut g = run_on_board(&d, board, kit.games);
     let (area, file) = blox_file(&g);
@@ -215,7 +215,7 @@ fn a_board_still_sells_the_crack_to_someone_with_the_box() {
     let (d, board, _) = gutter_stocks_blox();
     let mut save = Save::default();
     save.learn_game("blox", GameCopy::Boxed);
-    let kit = save.kit(&d, &d.rig);
+    let kit = save.kit(&d);
     assert!(kit.games.is_empty(), "a box isn't a crack");
     let mut g = run_on_board(&d, board, kit.games);
     let (area, file) = blox_file(&g);

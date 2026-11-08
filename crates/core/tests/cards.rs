@@ -39,7 +39,13 @@ fn facts_come_from_the_rules() {
         .flat_map(|(_, c)| c.text.iter().map(|l| cards::fill(l, &d)))
         .collect::<Vec<_>>()
         .join("\n");
-    assert!(all.contains(&format!("{} CPU", tuning::START_CPU)));
+    let cpu = d
+        .hardware
+        .starter_deck()
+        .stat(hub::Upgrade::Cpu)
+        .unwrap()
+        .base;
+    assert!(all.contains(&format!("{cpu} CPU")));
     assert_eq!(cards::fill("{nope} x", &d), "{nope} x");
 }
 

@@ -772,7 +772,7 @@ impl Probe {
         let ids: Vec<u32> = save.stash.iter().map(|s| s.id).collect();
         for id in ids {
             if !save.loadout.stash.contains(&id) {
-                let _ = save.toggle_stash(&data.rig, id);
+                let _ = save.toggle_stash(&data, id);
             }
         }
         // The coolest number at the tier it's playing (or the nearest below it). Heat only

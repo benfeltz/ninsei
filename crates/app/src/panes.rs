@@ -876,7 +876,7 @@ mod tests {
             s.install(&d, &Disk::Stash(id)).unwrap();
         }
         s.next_item = 9;
-        let g = s.jack_in(&d, &d.rig, 1);
+        let g = s.jack_in(&d, 1);
         (d, s, g)
     }
 

@@ -17,6 +17,17 @@ pub struct Deck {
     pub credits: u32,
     /// Optimizer fragments: the crafting material that raises a program's opt level.
     pub fragments: u32,
+    /// The chassis' ceilings: nothing bought or found takes a line past them.
+    pub caps: Caps,
+}
+
+/// A deck's ceilings per line (`None`: no ceiling), from its `stats` rows in `hardware.ron`.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Caps {
+    pub cpu: Option<u32>,
+    pub ram: Option<u32>,
+    pub hdd: Option<u32>,
+    pub integrity: Option<u32>,
 }
 
 /// One program on the HDD. Loaded programs occupy RAM and can be run.
@@ -54,13 +65,15 @@ pub struct Combat {
     pub leet: bool,
 }
 
-/// What the runner brings into a run: deck bonuses from the RIG and the programs on the HDD.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+/// What the runner brings into a run: the deck's numbers (its base plus RIG, up to its caps)
+/// and the programs on the HDD.
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Kit {
     pub ram: u32,
     pub cpu: u32,
     pub hdd: u32,
     pub integrity: u32,
+    pub caps: Caps,
     /// Programs to install: (factory origin, binary). Re-signed with the run's key on the way in.
     /// Empty means the starter programs.
     pub programs: Vec<(usize, Bin)>,
@@ -89,6 +102,32 @@ pub struct Kit {
     /// is empty. A save always passes its own (`Save::free`); empty means the classic four
     /// (`CLASSIC_WAREZ`), for a bare run.
     pub free: Vec<String>,
+}
+
+impl Default for Kit {
+    /// A bare deck: every line at its `tuning` constant, no ceilings, no programs.
+    fn default() -> Self {
+        use crate::hub::Upgrade;
+        Self {
+            ram: Upgrade::Ram.fallback(),
+            cpu: Upgrade::Cpu.fallback(),
+            hdd: Upgrade::Hdd.fallback(),
+            integrity: Upgrade::Integrity.fallback(),
+            caps: Caps::default(),
+            programs: Vec::new(),
+            net: NetParams::default(),
+            mods: RunMods::default(),
+            site: None,
+            board: 0,
+            jobs: Vec::new(),
+            trust: Vec::new(),
+            tools: Vec::new(),
+            games: Vec::new(),
+            texts: Vec::new(),
+            origins: Vec::new(),
+            free: Vec::new(),
+        }
+    }
 }
 
 /// Run-wide modifiers from the network's tier, traits and heat.
@@ -362,7 +401,7 @@ impl Game {
         Self::start(data, seed, &kit)
     }
 
-    /// A run with a kit from home: RIG bonuses and the chosen loadout.
+    /// A run with a kit from home: the deck's numbers and the chosen loadout.
     pub fn start(data: Data, seed: u64, kit: &Kit) -> Self {
         let mut rng = Rng::new(seed);
         let net = Network::generate_with(&mut rng, &data, &kit.net);
@@ -373,14 +412,15 @@ impl Game {
         };
         let bbs_stock = roll_stock(&data.boards[board], &mut rng);
         let deck = Deck {
-            cpu_max: START_CPU + kit.cpu,
-            ram_max: START_RAM + kit.ram,
-            hdd_max: START_HDD + kit.hdd,
-            integrity: START_INTEGRITY + kit.integrity,
-            integrity_max: START_INTEGRITY + kit.integrity,
+            cpu_max: kit.cpu,
+            ram_max: kit.ram,
+            hdd_max: kit.hdd,
+            integrity: kit.integrity,
+            integrity_max: kit.integrity,
             trace: 0,
             credits: 0,
             fragments: 0,
+            caps: kit.caps,
         };
         let mut game = Self {
             at: net.entry(),

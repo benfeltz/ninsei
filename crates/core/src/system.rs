@@ -7,7 +7,6 @@ use serde::{Deserialize, Serialize};
 use crate::binary;
 use crate::data::Data;
 use crate::hub::{Save, Upgrade};
-use crate::tuning::{START_CPU, START_INTEGRITY, START_RAM};
 
 /// System's panels, in the order its list shows them.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Default)]
@@ -167,25 +166,25 @@ pub fn overview(save: &Save, data: &Data) -> Overview {
         d.cost(save.rig.level(u))?;
         Some(format!("+{}", with_unit(d.step, u)))
     };
-    let base = |u: Upgrade, start: u32| start + save.rig.bonus(u, defs);
+    let base = |u: Upgrade| save.stat_value(data, u);
 
     // What the loadout will load: its programs' RAM, from their binaries.
-    let kit = save.kit(data, defs);
-    let ram = base(Upgrade::Ram, START_RAM);
+    let kit = save.kit(data);
+    let ram = base(Upgrade::Ram);
     let ram_used: u32 = kit
         .programs
         .iter()
         .filter_map(|(_, bin)| binary::check(bin, save.key).ok())
         .map(|s| s.ram)
         .sum();
-    let hdd = save.hdd_cap(defs);
+    let hdd = save.hdd_cap(data);
     let filled = kit.programs.len() as u32;
     let stash_cap = save.stash_cap(defs);
 
     let specs = vec![
         Spec {
             label: "CPU".into(),
-            value: with_unit(base(Upgrade::Cpu, START_CPU), Upgrade::Cpu),
+            value: with_unit(base(Upgrade::Cpu), Upgrade::Cpu),
             use_note: "per turn".into(),
             level: level(Upgrade::Cpu),
             next: next(Upgrade::Cpu),
@@ -213,10 +212,7 @@ pub fn overview(save: &Save, data: &Data) -> Overview {
         },
         Spec {
             label: "Integrity".into(),
-            value: with_unit(
-                base(Upgrade::Integrity, START_INTEGRITY),
-                Upgrade::Integrity,
-            ),
+            value: with_unit(base(Upgrade::Integrity), Upgrade::Integrity),
             use_note: String::new(),
             level: level(Upgrade::Integrity),
             next: next(Upgrade::Integrity),

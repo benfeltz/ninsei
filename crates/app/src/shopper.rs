@@ -5,13 +5,13 @@
 //! Order clicks as `WbOut::Order`. Nothing here knows what kind of item it's selling.
 
 use egui::{Align2, FontId, Rect, Response, RichText, Sense, Stroke, Ui, pos2, vec2};
+use ninsei_core::Data;
 use ninsei_core::book::Turn;
 use ninsei_core::hub::{Save, Upgrade};
 use ninsei_core::shopper::{
     self, AdDef, AdSize, Block, Cell, GRID_COLS, GRID_ROWS, Item, Listing, Page, ShopperDef, Stock,
     VendorDef,
 };
-use ninsei_core::{Data, tuning};
 
 use crate::home::{WbOut, accent, backdrop, ink, muted};
 use crate::pager::{self, Book};
@@ -353,13 +353,13 @@ fn section_page(
 
 /// What your rig will be next run, for the upgrades pages' running head.
 fn next_run(data: &Data, save: &Save) -> String {
-    let bonus = |u| save.rig.bonus(u, &data.rig);
+    let value = |u| save.stat_value(data, u);
     format!(
         "Your rig next run: CPU {}  RAM {}  HDD {}  INTEG {}  STASH {}",
-        tuning::START_CPU + bonus(Upgrade::Cpu),
-        tuning::START_RAM + bonus(Upgrade::Ram),
-        tuning::START_HDD + bonus(Upgrade::Hdd),
-        tuning::START_INTEGRITY + bonus(Upgrade::Integrity),
+        value(Upgrade::Cpu),
+        value(Upgrade::Ram),
+        value(Upgrade::Hdd),
+        value(Upgrade::Integrity),
         save.stash_cap(&data.rig),
     )
 }

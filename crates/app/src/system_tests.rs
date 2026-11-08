@@ -358,7 +358,7 @@ fn a_full_disk_greys_out_install() {
     let d = data();
     let mut s = save(&d);
     stash(&d, &mut s, "torch", 7);
-    let cap = s.hdd_cap(&d.rig) as usize;
+    let cap = s.hdd_cap(&d) as usize;
     let mut n = 100;
     while disk::installed(&s, &d).len() < cap {
         stash(&d, &mut s, "icepick", n);

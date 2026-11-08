@@ -33,7 +33,10 @@ fn the_overview_reports_the_deck_and_its_specs() {
     let labels: Vec<&str> = o.specs.iter().map(|s| s.label.as_str()).collect();
     assert_eq!(labels, ["CPU", "RAM", "HDD", "Integrity", "Stash"]);
     let cpu = spec(&o, "CPU");
-    assert!(cpu.value.starts_with(&tuning::START_CPU.to_string()));
+    assert!(
+        cpu.value
+            .starts_with(&s.stat_base(&d, Upgrade::Cpu).to_string())
+    );
     let max = d.rig.iter().find(|u| u.kind == Upgrade::Cpu).unwrap().max;
     assert_eq!(cpu.level, (0, max));
     assert!(cpu.next.is_some(), "a fresh deck has upgrades left");
@@ -61,7 +64,7 @@ fn ram_and_hdd_say_what_the_loadout_uses() {
     let d = data();
     let s = fresh(0);
     let o = system::overview(&s, &d);
-    let filled = s.kit(&d, &d.rig).programs.len();
+    let filled = s.kit(&d).programs.len();
     assert!(
         spec(&o, "HDD")
             .use_note

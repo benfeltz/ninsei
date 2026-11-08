@@ -35,7 +35,7 @@ fn end(g: &mut Game, phase: Phase) {
 #[test]
 fn the_loadout_goes_in_without_reticking() {
     let (d, mut s) = kitted();
-    let g = s.jack_in(&d, &d.rig, 1);
+    let g = s.jack_in(&d, 1);
     // They're on the deck, out of the stash, and still remembered on the disk.
     assert!(s.stash.iter().all(|i| i.id != 7 && i.id != 8));
     assert_eq!(s.loadout.stash, vec![7, 8]);
@@ -49,7 +49,7 @@ fn the_exit_brings_the_loadout_home_in_its_place() {
         .iter()
         .map(|p| p.at.clone())
         .collect();
-    let mut g = s.jack_in(&d, &d.rig, 1);
+    let mut g = s.jack_in(&d, 1);
     end(&mut g, Phase::JackedOut);
     let keep: Vec<usize> = g
         .loadout_keep()
@@ -65,14 +65,14 @@ fn the_exit_brings_the_loadout_home_in_its_place() {
         .collect();
     assert_eq!(after, before);
     // And the next run has them without anyone touching the disk.
-    let g2 = s.jack_in(&d, &d.rig, 2);
+    let g2 = s.jack_in(&d, 2);
     assert_eq!(g2.loadout_keep().len(), 2);
 }
 
 #[test]
 fn leaving_one_behind_drops_it_off_the_disk() {
     let (d, mut s) = kitted();
-    let mut g = s.jack_in(&d, &d.rig, 1);
+    let mut g = s.jack_in(&d, 1);
     end(&mut g, Phase::JackedOut);
     let torch = g
         .hdd
@@ -89,7 +89,7 @@ fn leaving_one_behind_drops_it_off_the_disk() {
 fn a_flatline_loses_the_brought_programs_but_not_the_free_ones() {
     let (d, mut s) = kitted();
     let free_before = s.loadout.starters.clone();
-    let mut g = s.jack_in(&d, &d.rig, 1);
+    let mut g = s.jack_in(&d, 1);
     end(&mut g, Phase::Flatlined);
     s.record(&g, &[], &d.rig).unwrap();
     assert!(s.item(7).is_none() && s.item(8).is_none());
@@ -100,7 +100,7 @@ fn a_flatline_loses_the_brought_programs_but_not_the_free_ones() {
 #[test]
 fn a_new_find_gets_a_new_id_and_waits_in_the_box() {
     let (d, mut s) = kitted();
-    let mut g = s.jack_in(&d, &d.rig, 1);
+    let mut g = s.jack_in(&d, 1);
     let w = d.warez_ix("scrubber").unwrap();
     let mut find = g.factory_slot(w).unwrap();
     find.uid = 9_999;

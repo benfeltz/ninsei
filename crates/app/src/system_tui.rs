@@ -692,7 +692,7 @@ fn disk_panel(
     shelf: &[Program],
     map: &[Option<usize>],
 ) {
-    let cap = save.hdd_cap(&data.rig) as usize;
+    let cap = save.hdd_cap(data) as usize;
     let mut y = TOP + 1;
     let c = g.put(1, y, "hdd", accent());
     if st.defrag.is_some() {

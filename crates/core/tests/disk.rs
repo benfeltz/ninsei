@@ -35,7 +35,7 @@ fn the_disk_is_the_loadout_in_load_order() {
     let d = data();
     let s = fresh();
     let on = disk::installed(&s, &d);
-    let kit = s.kit(&d, &d.rig);
+    let kit = s.kit(&d);
     assert_eq!(on.len(), kit.programs.len());
     for (p, (w, _)) in on.iter().zip(&kit.programs) {
         assert_eq!(
@@ -51,7 +51,7 @@ fn the_map_lays_programs_end_to_end_and_counts_free_blocks() {
     let s = fresh();
     let on = disk::installed(&s, &d);
     let map = disk::map(&s, &d);
-    assert_eq!(map.len(), s.hdd_cap(&d.rig) as usize * BLOCKS_PER_SLOT);
+    assert_eq!(map.len(), s.hdd_cap(&d) as usize * BLOCKS_PER_SLOT);
     let used: usize = on.iter().map(|p| p.blocks()).sum();
     assert_eq!(map.iter().filter(|b| b.is_some()).count(), used);
     // End to end: every used block comes before every free one.
@@ -85,7 +85,7 @@ fn install_and_remove_move_programs_between_the_box_and_the_disk() {
 #[test]
 fn a_full_disk_refuses_with_the_reason() {
     let (d, mut s, id) = with_torch();
-    let cap = s.hdd_cap(&d.rig) as usize;
+    let cap = s.hdd_cap(&d) as usize;
     // Fill the disk with free programs and stash copies until it's full.
     let mut n = 100;
     while disk::installed(&s, &d).len() < cap {
