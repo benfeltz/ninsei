@@ -45,6 +45,57 @@ pub enum Tool {
     TigerTeam,
     /// The Welcome to the Net stack (`data/stacks/welcome.ron`).
     Guide,
+    /// A copy of a game you own (`data/hub/games.ron`): its name, field, icon and intro all
+    /// come from its row, and the cracked and the boxed copy are two tools side by side.
+    Game(GameId, GameCopy),
+}
+
+/// The longest id a game may have (`id` in `games.ron`), so a [`Tool`] carries it by value.
+pub const GAME_ID_MAX: usize = 15;
+
+/// A game's id, held inline so a [`Tool::Game`] stays `Copy`. Saved as the plain id.
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+pub struct GameId {
+    len: u8,
+    bytes: [u8; GAME_ID_MAX],
+}
+
+impl GameId {
+    /// The id, if it's 1 to [`GAME_ID_MAX`] ASCII bytes.
+    pub fn new(id: &str) -> Option<GameId> {
+        if id.is_empty() || id.len() > GAME_ID_MAX || !id.is_ascii() {
+            return None;
+        }
+        let mut bytes = [0; GAME_ID_MAX];
+        bytes[..id.len()].copy_from_slice(id.as_bytes());
+        Some(GameId {
+            len: id.len() as u8,
+            bytes,
+        })
+    }
+
+    pub fn as_str(&self) -> &str {
+        std::str::from_utf8(&self.bytes[..self.len as usize]).unwrap_or("")
+    }
+}
+
+impl std::fmt::Debug for GameId {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{:?}", self.as_str())
+    }
+}
+
+impl Serialize for GameId {
+    fn serialize<S: serde::Serializer>(&self, s: S) -> Result<S::Ok, S::Error> {
+        s.serialize_str(self.as_str())
+    }
+}
+
+impl<'de> Deserialize<'de> for GameId {
+    fn deserialize<D: serde::Deserializer<'de>>(d: D) -> Result<Self, D::Error> {
+        let id = String::deserialize(d)?;
+        GameId::new(&id).ok_or_else(|| serde::de::Error::custom(format!("bad game id `{id}`")))
+    }
 }
 
 impl Tool {
@@ -66,9 +117,41 @@ impl Tool {
         true
     }
 
-    /// Volume name for the "insert volume" requester.
-    pub fn volume(self) -> &'static str {
+    /// A copy of game `id`, if the id can be one.
+    pub fn game(id: &str, copy: GameCopy) -> Option<Tool> {
+        GameId::new(id).map(|g| Tool::Game(g, copy))
+    }
+
+    /// The copies of games you own, as tools, in the order you came by them.
+    pub fn games(data: &Data, save: &Save) -> Vec<Tool> {
+        save.games
+            .iter()
+            .filter(|g| data.game(&g.id).is_some())
+            .filter_map(|g| Tool::game(&g.id, g.copy))
+            .collect()
+    }
+
+    /// What the tool is called: its volume name (the "insert volume" requester, the tiling
+    /// bar, the fit notice), or a game copy's label (`Nibbler`, `NIBBLER [2K4]`).
+    pub fn name(self, data: &Data) -> String {
         match self {
+            Tool::Game(id, copy) => data.game_label(id.as_str(), copy),
+            t => t.volume().to_string(),
+        }
+    }
+
+    /// The game this is a copy of, with its row.
+    pub fn game_def(self, data: &Data) -> Option<(&crate::data::GameDef, GameCopy)> {
+        match self {
+            Tool::Game(id, copy) => data.game(id.as_str()).map(|g| (g, copy)),
+            _ => None,
+        }
+    }
+
+    /// Volume name for the "insert volume" requester.
+    fn volume(self) -> &'static str {
+        match self {
+            Tool::Game(..) => "Game",
             Tool::Terminal => "CarrierTerm",
             Tool::Rig => "CPU Shopper",
             Tool::HexEd => "HexEd",
@@ -121,9 +204,15 @@ pub struct IconDef {
     pub pixels: Vec<String>,
 }
 
+/// How wide a piece of pixel art is: its first row's length (every row is as wide, checked
+/// by [`IconDef::check_art`]).
+fn art_width(pixels: &[String]) -> usize {
+    pixels.first().map_or(0, |r| r.chars().count())
+}
+
 impl IconDef {
     pub fn width(&self) -> usize {
-        self.pixels.first().map_or(0, |r| r.chars().count())
+        art_width(&self.pixels)
     }
 
     pub fn validate(icons: &[IconDef]) -> Result<(), String> {
@@ -133,20 +222,48 @@ impl IconDef {
             }
         }
         for i in icons {
-            let w = i.width();
-            if w == 0 || i.pixels.is_empty() {
-                return Err(format!("icon `{}` is empty", i.label));
+            if matches!(i.tool, Tool::Game(..)) {
+                return Err(format!(
+                    "icon `{}` is a game's: a game's icon is its `icon` in games.ron",
+                    i.label
+                ));
             }
-            for (n, row) in i.pixels.iter().enumerate() {
-                if row.chars().count() != w {
-                    return Err(format!("icon `{}` row {n} is not {w} wide", i.label));
-                }
-                if let Some(c) = row.chars().find(|c| !HUB_PALETTE_CHARS.contains(*c)) {
-                    return Err(format!("icon `{}` uses unknown colour `{c}`", i.label));
-                }
+            IconDef::check_art(&i.label, &i.pixels)?;
+        }
+        Ok(())
+    }
+
+    /// One icon's pixels: not empty, every row as wide as the first, every pixel in the 1.3
+    /// palette.
+    pub fn check_art(label: &str, pixels: &[String]) -> Result<(), String> {
+        let w = art_width(pixels);
+        if w == 0 {
+            return Err(format!("icon `{label}` is empty"));
+        }
+        for (n, row) in pixels.iter().enumerate() {
+            if row.chars().count() != w {
+                return Err(format!("icon `{label}` row {n} is not {w} wide"));
+            }
+            if let Some(c) = row.chars().find(|c| !HUB_PALETTE_CHARS.contains(*c)) {
+                return Err(format!("icon `{label}` uses unknown colour `{c}`"));
             }
         }
         Ok(())
+    }
+}
+
+/// A desktop icon as a desktop shows it, borrowed from `icons.ron` or a game's row: its label
+/// (a game copy's, worked out), the tool it opens and its pixel art.
+#[derive(Clone, Debug)]
+pub struct Icon<'a> {
+    pub label: std::borrow::Cow<'a, str>,
+    pub tool: Tool,
+    pub pixels: &'a [String],
+}
+
+impl Icon<'_> {
+    pub fn width(&self) -> usize {
+        art_width(self.pixels)
     }
 }
 
@@ -271,6 +388,9 @@ pub struct KitDef {
     pub ranges: Vec<String>,
     #[serde(default)]
     pub bank: u32,
+    /// Games already on the desktop (a game id and the copy): the disk the shop threw in.
+    #[serde(default)]
+    pub games: Vec<(String, GameCopy)>,
 }
 
 impl StartsDef {
@@ -307,6 +427,9 @@ impl StartsDef {
                 .find(|r| !data.exchanges.iter().any(|x| x.id == **r))
             {
                 return err(format!("unknown range `{r}`"));
+            }
+            if let Some((g, _)) = k.games.iter().find(|(g, _)| data.game(g).is_none()) {
+                return err(format!("unknown game `{g}`"));
             }
         }
         for n in &self.always {
@@ -717,7 +840,7 @@ impl Default for Loadout {
 
 /// A copy of a game: a cracked one plays its crew's cracktro, a boxed one its publisher's
 /// splash.
-#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum GameCopy {
     /// Downloaded from a board.
     Cracked,
@@ -857,6 +980,10 @@ pub struct Save {
     /// The copies of games you own (ids in `data/hub/games.ron`): one entry per game and copy.
     #[serde(default)]
     pub games: Vec<OwnedGame>,
+    /// How many rounds of each game have started, by game id: each new round deals a new
+    /// field ([`crate::games::new_game`]), and the same save and round replay the same game.
+    #[serde(default)]
+    pub game_rounds: std::collections::BTreeMap<String, u64>,
     /// Textfiles downloaded from boards, for the QWK reader.
     #[serde(default)]
     pub texts: Vec<KeptText>,
@@ -881,6 +1008,10 @@ pub struct Save {
     /// The kit has been applied (a new save's first boot). Old saves have started.
     #[serde(default = "seen")]
     pub started: bool,
+    /// Intros that have played at least once (ids in `data/intros/`), so a replay teaches
+    /// nothing new.
+    #[serde(default)]
+    pub intros_seen: Vec<String>,
 }
 
 fn seen() -> bool {
@@ -1006,6 +1137,7 @@ impl Default for Save {
             shell_history: Vec::new(),
             tools: Vec::new(),
             games: Vec::new(),
+            game_rounds: Default::default(),
             texts: Vec::new(),
             ice_seen: Vec::new(),
             intros: default_intros(),
@@ -1013,6 +1145,7 @@ impl Default for Save {
             starters_given: false,
             kit: String::new(),
             started: false,
+            intros_seen: Vec::new(),
         }
     }
 }
@@ -1127,8 +1260,45 @@ impl Save {
             Tool::IceDb => self.has_tool("icedb"),
             Tool::NightComm => self.has_tool("nightcomm"),
             Tool::TigerTeam => self.has_tool("tigerteam"),
+            Tool::Game(id, copy) => self.has_copy(id.as_str(), copy),
             _ => true,
         }
+    }
+
+    /// The desktop's icons: the tools you have, then each copy of a game you own, labelled as
+    /// that copy is (`Nibbler`, `NIBBLER [2K4]`) with the game's own art.
+    pub fn icons<'a>(&self, data: &'a Data) -> Vec<Icon<'a>> {
+        let tools = data
+            .icons
+            .iter()
+            .filter(|i| self.opens(i.tool))
+            .map(|i| Icon {
+                label: std::borrow::Cow::Borrowed(i.label.as_str()),
+                tool: i.tool,
+                pixels: &i.pixels,
+            });
+        let games = Tool::games(data, self).into_iter().filter_map(|t| {
+            let (g, _) = t.game_def(data)?;
+            Some(Icon {
+                label: std::borrow::Cow::Owned(t.name(data)),
+                tool: t,
+                pixels: &g.icon,
+            })
+        });
+        tools.chain(games).collect()
+    }
+
+    /// The round the next game of `id` deals (0 for the first).
+    pub fn game_round(&self, id: &str) -> u64 {
+        self.game_rounds.get(id).copied().unwrap_or(0)
+    }
+
+    /// Starts a round of game `id`: returns the round it deals, and the next one deals anew.
+    pub fn start_game(&mut self, id: &str) -> u64 {
+        let n = self.game_rounds.entry(id.to_string()).or_insert(0);
+        let round = *n;
+        *n += 1;
+        round
     }
 
     pub fn ensure_key(&mut self, fresh: u64) -> bool {
@@ -1182,6 +1352,9 @@ impl Save {
         for r in &kit.ranges {
             self.learn_range(r, came);
         }
+        for (g, copy) in &kit.games {
+            self.learn_game(g, *copy);
+        }
         self.bank += kit.bank;
         self.loadout.starters = kit.free.clone();
         true
@@ -1208,6 +1381,22 @@ impl Save {
         ids.into_iter()
             .filter_map(|id| self.entry(id).map(|e| format!("{} ({})", e.name, e.number)))
             .collect()
+    }
+
+    /// An intro has played. The first time, a crack's scroller teaches the board it advertises
+    /// (a splash advertises none). True if that put a new board in the phonebook.
+    pub fn saw_intro(&mut self, data: &Data, id: &str) -> bool {
+        if self.intros_seen.iter().any(|s| s == id) {
+            return false;
+        }
+        let Some(intro) = data.intro(id) else {
+            return false;
+        };
+        self.intros_seen.push(id.into());
+        match intro.board.as_deref() {
+            Some(b) if data.board(b).is_some() => self.learn_board(b, "a cracktro"),
+            _ => false,
+        }
     }
 
     /// What reading `effect` on `source` does for the save. Returns what it added, if anything.
@@ -2248,10 +2437,9 @@ pub fn shell_complete(before: &str, save: &Save, data: &Data) -> Vec<String> {
             .filter(|n| save.lookup(n).is_some() || save.lookup_board(data, n).is_some())
             .collect(),
         "wardial" | "scan" => save.ranges.iter().map(|r| r.id.clone()).collect(),
-        "run" | "open" => data
-            .icons
+        "run" | "open" => save
+            .icons(data)
             .iter()
-            .filter(|i| save.opens(i.tool))
             .map(|i| i.label.replace(' ', "").to_ascii_lowercase())
             .collect(),
         "theme" => data.themes.iter().map(|t| t.id.clone()).collect(),
@@ -2273,7 +2461,7 @@ fn shell_knows(save: &Save, verb: &str) -> bool {
 
 /// Runs one Shell line. Returns the lines to print and what to do.
 pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect) {
-    let icons: Vec<&IconDef> = data.icons.iter().filter(|i| save.opens(i.tool)).collect();
+    let icons = save.icons(data);
     let mut words = line.split_whitespace();
     let Some(cmd) = words.next() else {
         return (Vec::new(), ShellEffect::None);
@@ -2324,10 +2512,10 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
                 out.push(format!(
                     "  {:<10} {}{state}",
                     i.label,
-                    if i.tool == Tool::Shell {
-                        "tool"
-                    } else {
-                        "drawer"
+                    match i.tool {
+                        Tool::Shell => "tool",
+                        Tool::Game(..) => "game",
+                        _ => "drawer",
                     }
                 ));
             }
@@ -2475,7 +2663,19 @@ pub fn shell(line: &str, save: &Save, data: &Data) -> (Vec<String>, ShellEffect)
                 "stash" => Some(ShellEffect::System(crate::system::Panel::Disk)),
                 _ => None,
             };
-            match icons.iter().find(|i| key(&i.label) == key(name)) {
+            // A game by its box's name too (`run nibbler` opens the crack when that's the
+            // copy you have); its full label picks the copy.
+            let found = icons
+                .iter()
+                .find(|i| key(&i.label) == key(name))
+                .or_else(|| {
+                    icons.iter().find(|i| {
+                        i.tool
+                            .game_def(data)
+                            .is_some_and(|(g, _)| key(&g.name) == key(name))
+                    })
+                });
+            match found {
                 Some(i) => (Vec::new(), ShellEffect::Open(i.tool)),
                 None => match alias(name) {
                     Some(e) => (Vec::new(), e),

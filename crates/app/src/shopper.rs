@@ -281,14 +281,16 @@ fn contents(
     boxed(ui, features, 2.0, |ui| {
         ui.label(small("FEATURES"));
         ui.add_space(4.0);
+        // Set tight, a story to a leader line and its deck, so every cover story fits.
+        ui.spacing_mut().item_spacing.y = 1.0;
         for c in &def.cover {
             let at = toc.iter().find(|(s, ..)| *s == c.section);
             let page = at.map_or(String::new(), |&(_, _, n)| n.to_string());
             if leader(ui, &c.headline, &page).clicked() {
                 to = at.map(|&(_, i, _)| Turn::To(i));
             }
-            ui.label(text(&c.line, size::BODY));
-            ui.add_space(6.0);
+            ui.label(text(&c.line, size::SMALL));
+            ui.add_space(2.0);
         }
     });
     to
@@ -645,7 +647,9 @@ mod tests {
                 _ => ui.max_rect(),
             };
             let mut child = ui.new_child(UiBuilder::new().max_rect(r));
-            home.tool_in(&mut child, tool, data, save, &mut out, None, None, "test");
+            home.tool_in(
+                &mut child, tool, false, data, save, &mut out, None, None, "test",
+            );
         });
         out
     }
@@ -811,5 +815,98 @@ mod tests {
                 .any(|o| matches!(o, WbOut::Monitor(m) if *m == new.id)),
             "picking it in System plugs it in"
         );
+    }
+
+    #[test]
+    fn the_games_page_prints_paper_tigers_blox_ad_and_it_orders_the_box() {
+        let data = Data::builtin().unwrap();
+        let mut save = deck(&data);
+        save.bank = 1000;
+        let (mut h, mut home) = (Harness::new(1280.0, 800.0), Home::new(Vec::new()));
+        crate::uitest::themed(&h.ctx, &data);
+        let count = shopper::layout(&data.shopper, &save.catalog(&data)).len();
+        frame(&mut h, &mut home, &data, &save, Tool::Rig, Vec::new());
+        let painted = |h: &Harness, t: &str| {
+            h.painted_text()
+                .into_iter()
+                .find(|(s, _)| s == t)
+                .map(|(_, r)| r)
+        };
+        let mut headline = None;
+        for _ in 0..count {
+            if let Some(r) = painted(&h, "BLOX 2.0") {
+                headline = Some(r);
+                break;
+            }
+            let next = press_on(&mut h, "▶");
+            frame(&mut h, &mut home, &data, &save, Tool::Rig, next);
+            frame(&mut h, &mut home, &data, &save, Tool::Rig, Vec::new());
+        }
+        let headline = headline.expect("Paper Tiger's BLOX ad is in the issue");
+        assert!(
+            painted(&h, "PAPER TIGER SOFTWARE").is_some(),
+            "the vendor signs it"
+        );
+        assert!(h.cut_text().is_empty(), "cut: {:?}", h.cut_text());
+        // The ORDER button in the ad's box, the one nearest its headline.
+        let order = h
+            .all("ORDER")
+            .into_iter()
+            .min_by(|a, b| {
+                let d = |r: &Rect| r.center().distance(headline.center());
+                d(a).total_cmp(&d(b))
+            })
+            .expect("the ad takes orders");
+        let out = frame(
+            &mut h,
+            &mut home,
+            &data,
+            &save,
+            Tool::Rig,
+            click(order.center()),
+        );
+        assert!(
+            out.contains(&WbOut::Order(Item::Game("blox".into()))),
+            "{out:?}"
+        );
+    }
+
+    #[test]
+    fn the_cover_and_contents_print_every_story_whole() {
+        let data = Data::builtin().unwrap();
+        let save = deck(&data);
+        let (mut h, mut home) = (Harness::new(1280.0, 800.0), Home::new(Vec::new()));
+        crate::uitest::themed(&h.ctx, &data);
+        let page = Rect::from_min_size(Pos2::ZERO, pager::SIZE + egui::vec2(16.0, 16.0));
+        frame(&mut h, &mut home, &data, &save, Tool::Rig, Vec::new());
+        frame(&mut h, &mut home, &data, &save, Tool::Rig, Vec::new());
+        let whole = |h: &Harness, what: &str| {
+            assert!(h.cut_text().is_empty(), "{what} cut: {:?}", h.cut_text());
+            for (t, r) in h.painted_text() {
+                assert!(
+                    page.contains_rect(r),
+                    "{what}: {t:?} runs off the page at {r:?}"
+                );
+            }
+        };
+        // Every cover story, the Games one included, readable on the cover and in FEATURES.
+        let every_story = |h: &Harness, what: &str| {
+            let seen = h.visible_text();
+            for c in &data.shopper.cover {
+                for t in [&c.headline, &c.line] {
+                    assert!(
+                        seen.iter().any(|s| s.contains(t.as_str())),
+                        "{t} isn't readable on {what}"
+                    );
+                }
+            }
+        };
+        every_story(&h, "the cover");
+        whole(&h, "the cover");
+        let next = press_on(&mut h, "▶");
+        frame(&mut h, &mut home, &data, &save, Tool::Rig, next);
+        frame(&mut h, &mut home, &data, &save, Tool::Rig, Vec::new());
+        every_story(&h, "the contents");
+        whole(&h, "the contents");
     }
 }

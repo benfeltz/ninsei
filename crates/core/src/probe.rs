@@ -306,11 +306,33 @@ fn best_route(g: &Game) -> Option<usize> {
     })
 }
 
-/// What a player does at home before dialing: call the boards you know and read what opens
-/// doors (the partner directory, a post about another board), then download any tool or free
-/// breaker you're missing.
+/// Opens what's on the desktop, as a player does: each game and tool's intro plays, and the
+/// first time a crack's does it teaches the board it advertises (`Save::saw_intro`). The
+/// shop's disk on a new deck leads to the Gutter this way.
+fn open_desktop(save: &mut Save, data: &Data) {
+    if !save.intros {
+        return;
+    }
+    let games = save
+        .games
+        .iter()
+        .filter_map(|g| Some(data.game(&g.id)?.intro(g.copy).to_string()));
+    let tools = save
+        .tools
+        .iter()
+        .filter_map(|t| data.tool(t).and_then(|t| t.intro.clone()));
+    let intros: Vec<String> = games.chain(tools).collect();
+    for i in intros {
+        save.saw_intro(data, &i);
+    }
+}
+
+/// What a player does at home before dialing: open what's on the desktop, call the boards you
+/// know and read what opens doors (the partner directory, a post about another board), then
+/// download any tool or free breaker you're missing.
 fn errands(save: &mut Save, data: &Data) {
     use crate::game::Reading;
+    open_desktop(save, data);
     // Reading can learn boards, so read until nothing new turns up.
     loop {
         let known = save.boards.len();
@@ -1317,5 +1339,42 @@ impl Probe {
             out.push(format!("  {id:<12} {:>3}%", n * 100 / total));
         }
         out
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn fresh(data: &Data, intros: bool) -> Save {
+        let mut s = Save {
+            intros,
+            ..Save::default()
+        };
+        s.ensure_key(0xB07);
+        s.ensure_phonebook(data, 1);
+        s
+    }
+
+    #[test]
+    fn the_bot_opens_the_shops_disk_and_its_cracktro_leads_to_the_gutter() {
+        let data = Data::builtin().unwrap();
+        let mut s = fresh(&data, true);
+        errands(&mut s, &data);
+        let k = s
+            .boards
+            .iter()
+            .find(|k| k.id == "gutter")
+            .expect("knows it");
+        assert_eq!(k.source, "a cracktro");
+        // With intros off it reads its way there instead, through Sense/Net's post.
+        let mut s = fresh(&data, false);
+        errands(&mut s, &data);
+        let k = s
+            .boards
+            .iter()
+            .find(|k| k.id == "gutter")
+            .expect("knows it");
+        assert!(k.source.contains("message"), "{}", k.source);
     }
 }

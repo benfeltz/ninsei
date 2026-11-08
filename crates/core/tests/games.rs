@@ -137,7 +137,7 @@ fn gutter_stocks_blox() -> (Data, usize, usize) {
     let b = d.board("gutter").unwrap();
     let area = d.boards[b].areas.iter().position(|a| a.always).unwrap();
     d.boards[b].areas[area].files.push(BbsFileDef {
-        file: "BLOX.ZIP".into(),
+        file: "FREE-PHS.ZIP".into(),
         item: Drop::Game("blox".into()),
         price: 0,
         desc: "BLOX cracked".into(),
@@ -170,11 +170,13 @@ fn run_on_board(d: &Data, board: usize, kit_games: Vec<String>) -> Game {
     g
 }
 
-/// Where the BLOX file sits in today's listing.
+/// Where `gutter_stocks_blox`'s free BLOX file sits in today's listing (not the GAMES
+/// area's, which costs).
 fn blox_file(line: &dyn Line) -> (usize, usize) {
     for (a, files) in line.stock().iter().enumerate() {
         for (f, s) in files.iter().enumerate() {
-            if line.board().areas[a].files[s.def].item == Drop::Game("blox".into()) {
+            let def = &line.board().areas[a].files[s.def];
+            if def.item == Drop::Game("blox".into()) && def.file == "FREE-PHS.ZIP" {
                 return (a, f);
             }
         }
@@ -250,7 +252,7 @@ fn a_board_file_naming_an_unknown_game_is_rejected() {
     assert!(
         d.validate()
             .unwrap_err()
-            .contains("file `BLOX.ZIP` names unknown game `pong`")
+            .contains("file `FREE-PHS.ZIP` names unknown game `pong`")
     );
 }
 
@@ -289,22 +291,25 @@ fn shop_sells_games() -> Data {
 }
 
 #[test]
-fn no_game_is_for_sale_until_it_plays() {
+fn every_game_is_sold_boxed_now_it_plays() {
     let d = data();
-    assert!(d.games.iter().all(|g| g.shop.is_none()));
+    assert!(d.games.iter().all(|g| g.shop.is_some()));
     let cat = Save::default().catalog(&d);
-    assert!(!cat.iter().any(|l| l.section == Section::Games));
+    assert_eq!(
+        cat.iter().filter(|l| l.section == Section::Games).count(),
+        d.games.len()
+    );
     let pages = shopper::layout(&d.shopper, &cat);
     assert!(
-        !shopper::contents(&pages)
+        shopper::contents(&pages)
             .iter()
             .any(|(s, ..)| *s == Section::Games),
-        "IN THIS ISSUE has no Games line"
+        "IN THIS ISSUE has a Games line"
     );
     let index = shopper::advertisers(&d.shopper, &cat, &pages);
     assert!(
-        !index.iter().any(|(v, _)| v == "papertiger"),
-        "no Paper Tiger in the index"
+        index.iter().any(|(v, _)| v == "papertiger"),
+        "Paper Tiger in the index"
     );
 }
 
@@ -332,18 +337,19 @@ fn a_game_bought_by_mail_is_boxed() {
 }
 
 #[test]
-fn a_game_is_in_the_next_issue_without_an_ad() {
-    let d = shop_sells_games();
-    assert!(
-        !d.shopper
-            .ads
-            .iter()
-            .any(|a| matches!(a.item, Item::Game(_))),
-        "no ad is written yet"
-    );
+fn a_game_without_an_ad_is_a_price_list_line_and_bloxs_is_paper_tigers_boxed_ad() {
+    let d = data();
     let cat = Save::default().catalog(&d);
     let pages = shopper::layout(&d.shopper, &cat);
-    for g in d.games.iter().filter(|g| g.shop.is_some()) {
+    let blocks = || {
+        pages.iter().flat_map(|p| match p {
+            Page::Section {
+                sections, blocks, ..
+            } if sections.contains(&Section::Games) => blocks.iter().map(|(b, _)| b).collect(),
+            _ => Vec::new(),
+        })
+    };
+    for g in &d.games {
         let ix = cat
             .iter()
             .position(|l| l.item == Item::Game(g.id.clone()))
@@ -352,17 +358,38 @@ fn a_game_is_in_the_next_issue_without_an_ad() {
         assert_eq!(l.section, Section::Games);
         assert_eq!(l.stock, Stock::Price(g.shop.as_ref().unwrap().price));
         assert_eq!(d.shopper.vendor_of(l), "papertiger");
-        let in_list = pages.iter().any(|p| match p {
-            Page::Section {
-                sections, blocks, ..
-            } => sections.contains(&Section::Games)
-                && blocks.iter().any(
-                    |(b, _)| matches!(b, Block::List { listings, .. } if listings.contains(&ix)),
-                ),
+        let ad = d
+            .shopper
+            .ads
+            .iter()
+            .position(|a| a.item == Item::Game(g.id.clone()));
+        let printed = blocks().any(|b| match (b, ad) {
+            (Block::Ad { listing, ad: a }, Some(want)) => *listing == ix && *a == want,
+            (Block::List { listings, .. }, None) => listings.contains(&ix),
             _ => false,
         });
-        assert!(in_list, "{} is a price-list line in Games", g.id);
+        assert!(
+            printed,
+            "{}: an ad if it has one, a price-list line if not",
+            g.id
+        );
     }
+    let blox = d
+        .shopper
+        .ads
+        .iter()
+        .find(|a| a.item == Item::Game("blox".into()))
+        .unwrap();
+    assert_eq!(blox.size, shopper::AdSize::Box);
+    // Ordering from the ad boxes the game.
+    let mut s = Save {
+        bank: 100,
+        ..Save::default()
+    };
+    s.buy_item(&d, &blox.item).unwrap();
+    assert_eq!(s.copies("blox"), vec![GameCopy::Boxed]);
+    // And the cover points at the Games section.
+    assert!(d.shopper.cover.iter().any(|c| c.section == Section::Games));
 }
 
 #[test]
@@ -387,14 +414,14 @@ fn the_listing_marks_a_crack_you_have_as_yours() {
         words[words.len() - 2].parse().unwrap()
     };
     let (files, areas) = screens(Vec::new());
-    let blox = files.lines().find(|l| l.contains("BLOX.ZIP")).unwrap();
+    let blox = files.lines().find(|l| l.contains("FREE-PHS.ZIP")).unwrap();
     assert!(
         blox.contains("[EXE]") && !blox.contains("[yours]"),
         "{blox}"
     );
     let before = left(&areas);
     let (files, areas) = screens(vec!["blox".into()]);
-    let blox = files.lines().find(|l| l.contains("BLOX.ZIP")).unwrap();
+    let blox = files.lines().find(|l| l.contains("FREE-PHS.ZIP")).unwrap();
     assert!(
         blox.contains("[yours]") && !blox.contains("[EXE]"),
         "{blox}"
@@ -1050,5 +1077,253 @@ fn same_seed_same_game_for_every_engine() {
             frames
         };
         assert_eq!(play(3), play(3), "{}", g.id);
+    }
+}
+
+/// The world guide: who exists on the Net (`docs/world.md`).
+const WORLD: &str = include_str!("../../../docs/world.md");
+
+/// Whether `name` is written in the guide as a whole name: not inside a longer word (`lag` in
+/// `lagspike` doesn't count).
+fn in_world(name: &str) -> bool {
+    let word = |c: Option<char>| c.is_some_and(|c| c.is_alphanumeric() || c == '_');
+    WORLD.match_indices(name).any(|(i, _)| {
+        !word(WORLD[..i].chars().next_back()) && !word(WORLD[i + name.len()..].chars().next())
+    })
+}
+
+#[test]
+fn in_world_matches_whole_names_only() {
+    assert!(in_world("lag") && in_world("m0th") && in_world("THE NEON GUTTER"));
+    assert!(!in_world("ag") && !in_world("spike") && !in_world("m0t"));
+}
+
+#[test]
+fn every_game_crack_signs_its_crew_advertises_the_gutter_and_greets_only_the_world() {
+    let d = data();
+    for g in &d.games {
+        let i = d.intro(&g.crack).unwrap();
+        assert_eq!(
+            i.board.as_deref(),
+            Some("gutter"),
+            "{}: games are the Gutter's",
+            g.id
+        );
+        assert!(i.tag.is_some(), "{}: the crew's tag", g.id);
+        assert!(
+            in_world(&i.group),
+            "{}: crew {} isn't in world.md",
+            g.id,
+            i.group
+        );
+        for greet in &i.greetz {
+            // A greet is a name from the guide, maybe with the crew's own aside after it.
+            let name = greet.split(" (").next().unwrap();
+            assert!(
+                in_world(name),
+                "{}: greets {name:?}, who isn't in world.md",
+                g.id
+            );
+        }
+        // The art names the board's own file, 8.3 with the crew's tag, in full.
+        let art: String = i.frames.concat().concat();
+        let gutter = &d.boards[d.board("gutter").unwrap()];
+        let file = gutter
+            .areas
+            .iter()
+            .flat_map(|a| &a.files)
+            .find(|f| f.item == Drop::Game(g.id.clone()))
+            .map(|f| f.file.clone())
+            .unwrap();
+        assert!(art.contains(&file), "{}: the art doesn't name {file}", g.id);
+    }
+}
+
+#[test]
+fn games_are_sold_on_the_gutter_only() {
+    let d = data();
+    for b in &d.boards {
+        let games: Vec<&str> = b
+            .areas
+            .iter()
+            .flat_map(|a| &a.files)
+            .filter_map(|f| match &f.item {
+                Drop::Game(id) => Some(id.as_str()),
+                _ => None,
+            })
+            .collect();
+        if b.id == "gutter" {
+            let mut all: Vec<&str> = d.games.iter().map(|g| g.id.as_str()).collect();
+            let mut have = games.clone();
+            all.sort();
+            have.sort();
+            assert_eq!(have, all, "the Gutter stocks every game once");
+            // In 8.3, with the crew's tag.
+            for f in b.areas.iter().flat_map(|a| &a.files) {
+                if let Drop::Game(id) = &f.item {
+                    let tag = d
+                        .intro(&d.game(id).unwrap().crack)
+                        .unwrap()
+                        .tag
+                        .clone()
+                        .unwrap();
+                    let (stem, ext) = f.file.split_once('.').unwrap();
+                    assert!(stem.len() <= 8 && ext.len() <= 3, "{} isn't 8.3", f.file);
+                    assert!(
+                        stem.ends_with(&format!("-{tag}")),
+                        "{} lacks -{tag}",
+                        f.file
+                    );
+                }
+            }
+        } else {
+            assert!(games.is_empty(), "{} sells games: {games:?}", b.id);
+        }
+    }
+}
+
+#[test]
+fn the_gutters_games_area_stocks_every_game_and_a_download_comes_home_cracked() {
+    let d = data();
+    let board = d.board("gutter").unwrap();
+    let mut seen: Vec<String> = Vec::new();
+    for key in 1..200u64 {
+        let mut s = Save::default();
+        s.ensure_key(key);
+        s.learn_board("gutter", "a test");
+        s.bank = 1000;
+        let call = s.home_call(&d, &d.rig, board);
+        for (a, files) in call.stock().iter().enumerate() {
+            for (f, st) in files.iter().enumerate() {
+                let def = &call.board().areas[a].files[st.def];
+                let Drop::Game(id) = &def.item else { continue };
+                if seen.contains(id) {
+                    continue;
+                }
+                seen.push(id.clone());
+                let bank = s.bank;
+                let line = s.home_buy(&d, &d.rig, board, a, f).unwrap();
+                let label = d.game_label(id, GameCopy::Cracked);
+                assert!(line.contains(&label), "{line}");
+                assert_eq!(s.copies(id), vec![GameCopy::Cracked]);
+                assert_eq!(s.bank, bank - def.price, "{id} costs {}¢", def.price);
+            }
+        }
+        if seen.len() == d.games.len() {
+            return;
+        }
+    }
+    panic!("in 200 saves the Gutter only ever stocked {seen:?}");
+}
+
+#[test]
+fn every_splash_ends_on_its_last_frame() {
+    // A splash runs once, Loading then Ready: it mustn't loop back before the game opens.
+    let d = data();
+    for g in &d.games {
+        let i = d.intro(&g.splash).unwrap();
+        let last = ((i.secs - 0.01) / i.frame_secs) as usize % i.frames.len();
+        assert_eq!(last, i.frames.len() - 1, "{} loops back", g.splash);
+    }
+}
+
+#[test]
+fn the_2400_club_greets_only_what_a_kid_on_the_gutter_could_know() {
+    // Kids on a 2400 line know the scene boards and the customer line every deck ships with;
+    // CorpLink is a megacorp's staff intranet, and only its staff know its name.
+    let d = data();
+    let i = d.intro(&d.game("nibbler").unwrap().crack).unwrap();
+    assert!(
+        !i.greetz.iter().any(|g| g.contains("CORPLINK")),
+        "{:?}",
+        i.greetz
+    );
+}
+
+#[test]
+fn a_crack_posted_on_another_board_or_misnamed_is_rejected() {
+    // Posted on Dead Sector, though its crew posts it on the Gutter.
+    let mut d = data();
+    let ds = d.board("deadsector").unwrap();
+    d.boards[ds].areas[0].files.push(BbsFileDef {
+        file: "BLOX-PHS.ZIP".into(),
+        item: Drop::Game("blox".into()),
+        price: 30,
+        desc: "BLOX".into(),
+    });
+    assert!(d.validate().unwrap_err().contains("its crew's board"));
+    // Named without the crew's tag, or past 8.3.
+    for bad in ["BLOX.ZIP", "BLOX-2K4.ZIP", "BLOXBLOX-PHS.ZIP"] {
+        let mut d = data();
+        let g = d.board("gutter").unwrap();
+        let f = d.boards[g]
+            .areas
+            .iter_mut()
+            .flat_map(|a| a.files.iter_mut())
+            .find(|f| f.item == Drop::Game("blox".into()))
+            .unwrap();
+        f.file = bad.into();
+        assert!(
+            d.validate()
+                .unwrap_err()
+                .contains("ending in its crew's tag"),
+            "{bad}"
+        );
+    }
+}
+
+// Acceptance tests for 47.5 (Cracktros, splashes and where games are sold).
+
+#[test]
+fn acceptance_a_splash_names_no_board_and_carries_no_tag() {
+    // A publisher's splash comes in the box: it has never heard of a board, and no crew signs it.
+    let d = data();
+    for g in &d.games {
+        let i = d.intro(&g.splash).unwrap();
+        assert!(i.tag.is_none() && i.board.is_none(), "{}", g.splash);
+        let text = format!("{}{}", i.frames.concat().concat(), i.scroller(&d)).to_uppercase();
+        for b in &d.boards {
+            for name in [b.name.to_uppercase(), b.id.to_uppercase(), b.phone.clone()] {
+                assert!(!text.contains(&name), "{} names {name}", g.splash);
+            }
+        }
+        assert!(!text.contains("GUTTER"), "{} names the Gutter", g.splash);
+    }
+    // And the data can't give one a tag.
+    let mut d = data();
+    let s = d.game("nibbler").unwrap().splash.clone();
+    let n = d.intros.iter().position(|i| i.id == s).unwrap();
+    d.intros[n].tag = Some("PT".into());
+    assert!(d.validate().unwrap_err().contains("carries no crew's tag"));
+}
+
+#[test]
+fn acceptance_a_crack_carries_its_crews_one_tag_on_the_desktop_the_board_and_the_scroller() {
+    let d = data();
+    let gutter = &d.boards[d.board("gutter").unwrap()];
+    let mut crews: Vec<(&str, &str)> = Vec::new();
+    for g in &d.games {
+        let i = d.intro(&g.crack).unwrap();
+        let tag = i.tag.as_deref().unwrap();
+        // One crew, one tag.
+        if let Some((_, t)) = crews.iter().find(|(c, _)| *c == i.group) {
+            assert_eq!(*t, tag, "{} signs two tags", i.group);
+        }
+        crews.push((&i.group, tag));
+        // The desktop's label, the board's file and the scroller all carry it.
+        let label = d.game_label(&g.id, GameCopy::Cracked);
+        assert!(label.ends_with(&format!("[{tag}]")), "{label}");
+        let file = gutter
+            .areas
+            .iter()
+            .flat_map(|a| &a.files)
+            .find(|f| f.item == Drop::Game(g.id.clone()))
+            .unwrap();
+        assert!(file.file.contains(&format!("-{tag}.")), "{}", file.file);
+        let scroller = i.scroller(&d);
+        assert!(
+            scroller.contains(&i.group) && scroller.contains(&gutter.name),
+            "{scroller}"
+        );
     }
 }

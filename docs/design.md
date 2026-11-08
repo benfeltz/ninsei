@@ -40,6 +40,7 @@ deck ─> firmware ─────┘
 | fights | a Mac alert beside the card: the hardest hit as the ringed default button, a shield ✅ | the map dives into the node: the ICE as a wireframe over a horizon grid, a program hotbar with previews ✅ | an incident report with a strength chart and an agenda ✅ |
 | damage | 1-bit glitches: tearing and noise, never an RGB split ✅ (pattern smears and inverted rows: an idea) | screen glitches: tearing, RGB split, corrupted text ✅ | the same, plus corporate error dialogs (idea below) |
 | add-ons | Alarm Clock, a Calculator desk accessory under the eye, a desktop pattern, MultiFinder ✅ |  |  |
+| games | a window like any program's, titled by the copy's label (`Nibbler`, `NIBBLER [2K4]`), in Liza's two colours: the field in its frame, walls and covered squares in the 50% gray pattern, blocks outlined; a **Games** menu before Special lists each copy you own ✅ | a tile, labelled in lower case like the others (`blox [phs]`), from the launcher or `run blox`; the leader's keys stay the desktop's ✅ | a window titled with its version (`Minefield 1.1`), its icon among the others ✅ |
 
 
 ## The decks
@@ -48,7 +49,7 @@ Each brand sells a line of models that share its firmware and differ only in pri
 
 ### Sense/Net Personal Deck: the starter
 
-**Fantasy.** Everybody's first deck, sold by the simstim giant that sells experiences to ordinary people. It's a friendly consumer machine that ships with a welcome stack and a smile, and the net seen through it is approachable, maybe a bit naive. The cracks show if you look: the fine print, the people its manual would rather you didn't meet.
+**Fantasy.** Everybody's first deck, sold by the simstim giant that sells experiences to ordinary people. It's a friendly consumer machine that ships with a welcome stack and a smile, and the net seen through it is approachable, maybe a bit naive. The cracks show if you look: the fine print, the people its manual would rather you didn't meet. The shop that sold it threw in a dubbed disk, a cracked NIBBLER whose cracktro gives a number Sense/Net never would: the first door off the friendly net comes from the kid at the counter, not the manual.
 
 **Feel.** Friendly, tidy, a little toy-like. A 1-bit world where everything is a picture: a menu bar, icons and folders, windows with striped title bars and a close box, a Trash. A run is a HyperCard stack: the network is a card you're looking at, drawn in MacPaint.
 

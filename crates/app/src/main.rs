@@ -8,6 +8,7 @@ mod crt;
 mod crt_gl;
 mod encounter_view;
 mod fightview;
+mod games_view;
 mod glitch;
 mod hexview;
 mod home;
@@ -657,8 +658,8 @@ impl App {
                 self.home
                     .say(format!("New BBS in CarrierTerm: {}", r.boards.join(", ")));
             }
-            if !r.tools.is_empty() {
-                self.home.say(format!("Unpacked: {}", r.tools.join(", ")));
+            if let Some(line) = unpacked(&r) {
+                self.home.say(line);
             }
             self.booked = Some(r);
         }
@@ -768,6 +769,8 @@ impl App {
             | WbOut::Glitches(_)
             | WbOut::Intros(_)
             | WbOut::GuideSeen
+            | WbOut::GameStarted(_)
+            | WbOut::SawIntro(_)
             | WbOut::HelpSeen
             | WbOut::Tiling(_)
             | WbOut::ShellHistory(_)
@@ -1278,80 +1281,7 @@ impl eframe::App for App {
 
         // The desktop: on its own while home, dragging during the transitions.
         if !matches!(self.screen, Screen::Run | Screen::Crash) {
-            // One theme colours everything: load the desktop's palette from it.
-            if let Some(t) = self.data.theme(&self.run_theme) {
-                home::set_desk(home::Desk::from_def(t));
-            }
-            let offset = self.screen.drag() * ctx.content_rect().height();
-            let live = self.screen.hub_live();
-            // Dev key: free credits at home, for trying out RIG and the BBSes.
-            if live && ctx.input(|i| i.key_pressed(egui::Key::F8)) {
-                let msg = self.save.dev_credits();
-                self.save_dirty = true;
-                self.home.say(msg);
-            }
-            let mut outs = Vec::new();
-            egui::Area::new(egui::Id::new("workbench"))
-                .order(egui::Order::Foreground)
-                .movable(false)
-                .fixed_pos(egui::pos2(0.0, 0.0))
-                .show(&ctx, |ui| {
-                    ui.set_min_size(ctx.content_rect().size());
-                    let desk = self.save.firmware_def(&self.data).desktop;
-                    let view = self.desktops.get(desk);
-                    outs = self
-                        .home
-                        .show(view, ui, &self.data, &self.save, offset, live);
-                });
-            for o in outs {
-                // Settings go on the save first (tested in `settings`); then the repaint.
-                let before = (self.save.monitor.clone(), self.save.layout_key(&self.data));
-                let o = match settings::apply(&mut self.save, &self.data, o) {
-                    settings::Applied::Other(o) => o,
-                    applied => {
-                        self.settled(&ctx, applied, before);
-                        continue;
-                    }
-                };
-                match o {
-                    WbOut::Dial(entry, seed) if live => self.dial(entry, seed),
-                    WbOut::Dial(..) => {}
-                    WbOut::HelpSeen => {
-                        self.save.tiling_help_seen = true;
-                        self.save_dirty = true;
-                    }
-                    WbOut::Tiling(t) => {
-                        self.save.tiling = t;
-                        self.save_dirty = true;
-                    }
-                    WbOut::ShellHistory(h) => {
-                        if self.save.shell_history != h {
-                            self.save.shell_history = h;
-                            self.save_dirty = true;
-                        }
-                    }
-                    WbOut::Order(item) => self.order(&ctx, item),
-                    WbOut::GuideSeen => {
-                        self.save.guide_seen = true;
-                        self.save_dirty = true;
-                    }
-                    WbOut::Crt => {
-                        self.toggle_crt();
-                        self.home
-                            .say(format!("crt {}", if self.crt { "on" } else { "off" }));
-                    }
-                    WbOut::Sound => {
-                        let state = self.toggle_sound();
-                        self.home.say(format!("sound {state}"));
-                    }
-                    WbOut::At(from, line) => self.modem(from, &line),
-                    other => self.home_action(other),
-                }
-            }
-            if live {
-                self.home_bbs_ui(&ctx, &pal);
-            }
-            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+            self.hub_ui(&ctx, &pal);
         }
 
         // Damage glitches go on top of the preset, for the shader only: the mouse keeps the
@@ -1495,6 +1425,102 @@ fn hotkeys(ctx: &egui::Context, game: &Game, modal: bool, focus_input: &mut bool
 }
 
 impl App {
+    /// The desktop and anything called up over it (a board dialled from home), with what they
+    /// send applied: on its own while home, dragging during the transitions.
+    fn hub_ui(&mut self, ctx: &egui::Context, pal: &theme::Palette) {
+        let (ctx, pal) = (ctx.clone(), *pal);
+        // One theme colours everything: load the desktop's palette from it.
+        if let Some(t) = self.data.theme(&self.run_theme) {
+            home::set_desk(home::Desk::from_def(t));
+        }
+        let offset = self.screen.drag() * ctx.content_rect().height();
+        let live = self.screen.hub_live();
+        // Dev key: free credits at home, for trying out RIG and the BBSes.
+        if live && ctx.input(|i| i.key_pressed(egui::Key::F8)) {
+            let msg = self.save.dev_credits();
+            self.save_dirty = true;
+            self.home.say(msg);
+        }
+        let mut outs = Vec::new();
+        egui::Area::new(egui::Id::new("workbench"))
+            .order(egui::Order::Foreground)
+            .movable(false)
+            .fixed_pos(egui::pos2(0.0, 0.0))
+            .show(&ctx, |ui| {
+                ui.set_min_size(ctx.content_rect().size());
+                // A game lives while any desktop still has its window open.
+                let (desktops, save) = (&self.desktops, &self.save);
+                self.home
+                    .keep_open(ui.input(|i| i.time), |t| desktops.is_open(save, t));
+                let desk = self.save.firmware_def(&self.data).desktop;
+                let view = self.desktops.get(desk);
+                // A board called from home owns the keyboard while it's up.
+                let keys = self.home_bbs.is_none();
+                outs = self
+                    .home
+                    .show(view, ui, &self.data, &self.save, offset, live, keys);
+            });
+        for o in outs {
+            // Settings go on the save first (tested in `settings`); then the repaint.
+            let before = (self.save.monitor.clone(), self.save.layout_key(&self.data));
+            let o = match settings::apply(&mut self.save, &self.data, o) {
+                settings::Applied::Other(o) => o,
+                applied => {
+                    self.settled(&ctx, applied, before);
+                    continue;
+                }
+            };
+            match o {
+                WbOut::Dial(entry, seed) if live => self.dial(entry, seed),
+                WbOut::Dial(..) => {}
+                WbOut::HelpSeen => {
+                    self.save.tiling_help_seen = true;
+                    self.save_dirty = true;
+                }
+                WbOut::Tiling(t) => {
+                    self.save.tiling = t;
+                    self.save_dirty = true;
+                }
+                WbOut::ShellHistory(h) => {
+                    if self.save.shell_history != h {
+                        self.save.shell_history = h;
+                        self.save_dirty = true;
+                    }
+                }
+                WbOut::Order(item) => self.order(&ctx, item),
+                WbOut::GuideSeen => {
+                    self.save.guide_seen = true;
+                    self.save_dirty = true;
+                }
+                WbOut::GameStarted(id) => {
+                    self.save.start_game(&id);
+                    self.save_dirty = true;
+                }
+                WbOut::SawIntro(id) => {
+                    // Core keeps what's been seen; only a first play changes the save.
+                    let seen = self.save.intros_seen.len();
+                    self.save.saw_intro(&self.data, &id);
+                    self.save_dirty |= self.save.intros_seen.len() != seen;
+                }
+                WbOut::Crt => {
+                    self.toggle_crt();
+                    self.home
+                        .say(format!("crt {}", if self.crt { "on" } else { "off" }));
+                }
+                WbOut::Sound => {
+                    let state = self.toggle_sound();
+                    self.home.say(format!("sound {state}"));
+                }
+                WbOut::At(from, line) => self.modem(from, &line),
+                other => self.home_action(other),
+            }
+        }
+        if live {
+            self.home_bbs_ui(&ctx, &pal);
+        }
+        ctx.request_repaint_after(std::time::Duration::from_millis(250));
+    }
+
     /// The run's IDE: menu, status bar, dock panes and the run's modal windows.
     fn run_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, pal: &theme::Palette) {
         let pal = *pal;
@@ -1686,9 +1712,119 @@ impl App {
     }
 }
 
+/// The Shell's line for what came home off a run's boards: the tools by name, then the games
+/// by their crack's label (`Unpacked: HexEd, BLOX [PHS]`).
+fn unpacked(r: &ninsei_core::hub::RunReport) -> Option<String> {
+    let all: Vec<&str> = r.tools.iter().chain(&r.games).map(String::as_str).collect();
+    (!all.is_empty()).then(|| format!("Unpacked: {}", all.join(", ")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_board_called_from_home_takes_the_keyboard_from_a_game() {
+        use crate::uitest::{Harness, key};
+        use ninsei_core::hub::GameCopy;
+        let mut h = Harness::new(1280.0, 800.0);
+        let cc = eframe::CreationContext::_new_kittest(h.ctx.clone());
+        let mut app = App::new(&cc, Data::builtin().unwrap(), Some(7));
+        app.save.decks.push("onosendai".into());
+        app.save.deck = "onosendai".into();
+        app.save.firmware = app.save.deck_def(&app.data).firmware[0].id.clone();
+        app.save.tiling_help_seen = true;
+        app.save.intros = false;
+        app.save.learn_game("minefield", GameCopy::Cracked);
+        app.load_layout();
+        let mine = Tool::game("minefield", GameCopy::Cracked).unwrap();
+        app.home.open(mine);
+        let frame = |h: &mut Harness, app: &mut App, ev: Vec<egui::Event>| {
+            let pal = app.pal;
+            h.frame(ev, |ui| app.hub_ui(ui.ctx(), &pal));
+        };
+        for _ in 0..3 {
+            frame(&mut h, &mut app, Vec::new());
+        }
+        assert_eq!(app.save.tiling.focused(), Some(mine));
+        let at = app.home.game(mine).unwrap().cursor();
+        frame(&mut h, &mut app, key(egui::Key::ArrowRight));
+        let moved = app.home.game(mine).unwrap().cursor();
+        assert_ne!(moved, at, "the focused tile has the keys");
+        app.home_action(WbOut::Call("sensenet".into()));
+        assert!(app.home_bbs.is_some(), "the call is up");
+        frame(&mut h, &mut app, key(egui::Key::ArrowRight));
+        frame(&mut h, &mut app, key(egui::Key::Space));
+        let g = app.home.game(mine).unwrap();
+        assert_eq!(g.cursor(), moved, "the board has the keys, not the game");
+        assert!(g.paused(), "and the game waits behind it");
+        // Esc goes down the line, never to AnarchyOS's leader: the keys after it aren't the
+        // desktop's (a workspace switch, closing the tile, the launcher).
+        let tiling = app.save.tiling.clone();
+        for k in [egui::Key::Num2, egui::Key::X, egui::Key::Space] {
+            frame(&mut h, &mut app, key(egui::Key::Escape));
+            frame(&mut h, &mut app, key(k));
+        }
+        assert_eq!(app.save.tiling, tiling, "the tiles are as they were");
+        assert!(app.home_bbs.is_some(), "still on the call");
+    }
+
+    #[test]
+    fn a_game_open_on_one_desktop_survives_a_switch_of_firmware_and_back() {
+        use crate::uitest::Harness;
+        use ninsei_core::hub::GameCopy;
+        let mut h = Harness::new(1280.0, 800.0);
+        let cc = eframe::CreationContext::_new_kittest(h.ctx.clone());
+        let mut app = App::new(&cc, Data::builtin().unwrap(), Some(7));
+        app.save.decks.push("onosendai".into());
+        app.save.guide_seen = true;
+        app.save.tiling_help_seen = true;
+        app.save.intros = false;
+        app.save.learn_game("nibbler", GameCopy::Cracked);
+        let use_deck = |app: &mut App, deck: &str| {
+            app.save.deck = deck.into();
+            app.save.firmware = app.save.deck_def(&app.data).firmware[0].id.clone();
+        };
+        use_deck(&mut app, "sensenet");
+        let nib = Tool::game("nibbler", GameCopy::Cracked).unwrap();
+        app.home.open(nib);
+        let frames = |h: &mut Harness, app: &mut App, n: usize| {
+            for _ in 0..n {
+                let pal = app.pal;
+                h.frame(Vec::new(), |ui| app.hub_ui(ui.ctx(), &pal));
+            }
+        };
+        frames(&mut h, &mut app, 3);
+        let round = app.home.round(nib).expect("Nibbler plays on Liza");
+        assert_eq!(app.save.game_round("nibbler"), 1);
+        use_deck(&mut app, "onosendai");
+        frames(&mut h, &mut app, 3);
+        use_deck(&mut app, "sensenet");
+        frames(&mut h, &mut app, 3);
+        assert_eq!(app.home.round(nib), Some(round), "the same round");
+        assert_eq!(app.save.game_round("nibbler"), 1, "no new round dealt");
+    }
+
+    #[test]
+    fn games_downloaded_on_a_run_are_unpacked_with_the_tools() {
+        let mut r = ninsei_core::hub::RunReport {
+            end: RunEnd::Exit,
+            credits: 0,
+            banked: 0,
+            hops: 1,
+            seed: 0,
+            kept: Vec::new(),
+            learned: Vec::new(),
+            boards: Vec::new(),
+            tools: Vec::new(),
+            games: Vec::new(),
+        };
+        assert_eq!(unpacked(&r), None);
+        r.games = vec!["BLOX [PHS]".into()];
+        assert_eq!(unpacked(&r).as_deref(), Some("Unpacked: BLOX [PHS]"));
+        r.tools = vec!["HexEd".into()];
+        assert_eq!(unpacked(&r).as_deref(), Some("Unpacked: HexEd, BLOX [PHS]"));
+    }
 
     mod sound_pop_out {
         use super::*;
@@ -1732,6 +1868,47 @@ mod tests {
                 .center();
             frame(h, app, click(at));
             frame(h, app, Vec::new());
+        }
+
+        #[test]
+        fn a_slow_frames_command_runs_whole_on_the_run_terminal() {
+            let (mut h, mut app) = running("onosendai");
+            for _ in 0..3 {
+                frame(&mut h, &mut app, Vec::new());
+            }
+            // The keys of `help` and Enter land in one frame.
+            let mut ev = text("h");
+            ev.extend(text("elp"));
+            ev.extend(key(egui::Key::Enter));
+            frame(&mut h, &mut app, ev);
+            assert_eq!(app.term.history().last().map(String::as_str), Some("help"));
+            assert_eq!(app.term.text(), "");
+        }
+
+        #[test]
+        fn esc_in_a_slow_frame_keeps_the_typing_before_it() {
+            let (mut h, mut app) = running("onosendai");
+            for _ in 0..3 {
+                frame(&mut h, &mut app, Vec::new());
+            }
+            let before = app.game.log.len();
+            // `a b` and Esc in one frame: the line has them, and the run's hotkeys
+            // (Space ends the turn) don't.
+            let mut ev = text("a");
+            ev.extend(key(egui::Key::Space));
+            ev.extend(text(" "));
+            ev.extend(text("b"));
+            ev.extend(key(egui::Key::Escape));
+            frame(&mut h, &mut app, ev);
+            assert_eq!(app.term.text(), "a b", "the command line kept its keys");
+            assert_eq!(
+                app.game.log.len(),
+                before,
+                "the run's hotkeys heard none of them"
+            );
+            // The Esc let go of the keyboard: now Space is the run's.
+            frame(&mut h, &mut app, key(egui::Key::Space));
+            assert!(app.game.log.len() > before, "Space ends the turn again");
         }
 
         #[test]

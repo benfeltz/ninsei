@@ -117,3 +117,101 @@ fn boards_without_messages_have_no_messages_menu() {
     let keys: Vec<char> = sess.keys(&g).iter().map(|(k, _)| *k).collect();
     assert!(!keys.contains(&'M') && keys.contains(&'J'), "{keys:?}");
 }
+
+#[test]
+fn the_shops_disk_plays_a_cracktro_that_teaches_the_gutter_once() {
+    let d = data();
+    let mut s = fresh(&d);
+    assert!(!s.knows_board("gutter"));
+    let crack = d.game("nibbler").unwrap().crack.clone();
+    assert!(s.saw_intro(&d, &crack), "the first play books the Gutter");
+    let k = s.boards.iter().find(|k| k.id == "gutter").unwrap();
+    assert_eq!(k.source, "a cracktro");
+    // A replay changes nothing.
+    let before = s.clone();
+    assert!(!s.saw_intro(&d, &crack));
+    assert_eq!(s.to_text(), before.to_text());
+    // A splash advertises no board, and an unknown intro is nobody's.
+    let splash = d.game("nibbler").unwrap().splash.clone();
+    assert!(!s.saw_intro(&d, &splash) && !s.saw_intro(&d, "no-such-intro"));
+    assert_eq!(s.boards.len(), before.boards.len());
+    // Sense/Net's post still leads there, and doesn't book it twice.
+    let effect = data::ReadEffect::Board("gutter".into());
+    assert!(s.read_effect(&d, &effect, "Sense/Net").is_none());
+    assert_eq!(s.boards.iter().filter(|k| k.id == "gutter").count(), 1);
+}
+
+#[test]
+fn the_sense_net_post_still_teaches_the_gutter_and_the_cracktro_then_adds_nothing() {
+    let d = data();
+    let mut s = fresh(&d);
+    let (base, post) = gutter_post(&d);
+    let p = &d.boards[d.board(FIRST_BOARD).unwrap()].messages[base].posts[post];
+    assert!(
+        s.read_effect(&d, p.on_read.as_ref().unwrap(), "Sense/Net")
+            .is_some()
+    );
+    let crack = d.game("nibbler").unwrap().crack.clone();
+    assert!(!s.saw_intro(&d, &crack), "already known from the post");
+    assert_eq!(s.boards.iter().filter(|k| k.id == "gutter").count(), 1);
+    assert!(
+        s.boards
+            .iter()
+            .any(|k| k.id == "gutter" && k.source.contains("Sense/Net"))
+    );
+}
+
+// Acceptance tests for 47.6 (The starter disk teaches the Gutter).
+
+#[test]
+fn acceptance_a_new_deck_shows_the_disk_and_its_cracktro_puts_the_gutter_in_the_phonebook() {
+    let d = data();
+    let mut s = fresh(&d);
+    let labels: Vec<String> = s.icons(&d).iter().map(|i| i.label.to_string()).collect();
+    assert!(labels.contains(&"NIBBLER [2K4]".to_string()), "{labels:?}");
+    let gutter = d.board("gutter").unwrap();
+    assert!(!s.known_boards(&d).contains(&gutter));
+    let crack = d
+        .game("nibbler")
+        .unwrap()
+        .intro(hub::GameCopy::Cracked)
+        .to_string();
+    s.saw_intro(&d, &crack);
+    assert!(s.known_boards(&d).contains(&gutter));
+    // The phonebook finds it by its number, as CarrierTerm and the Shell's `dial` do.
+    let phone = d.boards[gutter].phone.clone();
+    assert_eq!(s.lookup_board(&d, &phone), Some(gutter));
+    // Played again and again: still one entry, from the first time.
+    for _ in 0..3 {
+        s.saw_intro(&d, &crack);
+    }
+    let found: Vec<&str> = s
+        .boards
+        .iter()
+        .filter(|k| k.id == "gutter")
+        .map(|k| k.source.as_str())
+        .collect();
+    assert_eq!(found, ["a cracktro"]);
+}
+
+#[test]
+fn acceptance_the_welcome_stack_never_mentions_the_disk() {
+    // Sense/Net didn't ship the disk; the shop threw it in. Its manual knows nothing of it.
+    let text = std::fs::read_to_string(concat!(
+        env!("CARGO_MANIFEST_DIR"),
+        "/../../data/stacks/welcome.ron"
+    ))
+    .unwrap()
+    .to_uppercase();
+    let d = data();
+    let mut words = vec!["GUTTER".to_string(), "CRACK".to_string()];
+    for g in &d.games {
+        words.push(g.name.to_uppercase());
+        let i = d.intro(&g.crack).unwrap();
+        words.push(i.group.to_uppercase());
+        words.push(format!("[{}]", i.tag.clone().unwrap()));
+    }
+    for w in words {
+        assert!(!text.contains(&w), "the welcome stack mentions {w}");
+    }
+}

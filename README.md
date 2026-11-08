@@ -338,6 +338,11 @@ A new deck knows **SENSE/NET CUSTOMERLINK** (`555-0001`), the free customer boar
 ![the post that leads to the Gutter](docs/shots/sensenet-post.png)
 ![a phonebook that grew from one number](docs/shots/sensenet-after.png)
 
+The shop that sold the deck threw in a disk: **NIBBLER [2K4]** is already on the desktop, a crack by THE 2400 CLUB. The first time its cracktro plays, its scroller's ad (`CALL THE NEON GUTTER 555-0199`) puts the Gutter in the phonebook too, so the post and the disk are two doors to the same board. Sense/Net never shipped the disk, so the welcome stack never mentions it.
+
+![a new deck with the shop's disk](docs/shots/starter-disk.png)
+![the Gutter in the phonebook after the cracktro](docs/shots/starter-disk-phonebook-mono.png)
+
 ### Calling boards from home
 
 Connect to a board in a run and its number goes in CarrierTerm's phonebook, even if you flatline. Or wardial the local exchange: every board picks up on its own number and shows as `B` in the scan grid. Then call it from home (**Call** in CarrierTerm, or `dial 555-0666` in the Shell). It opens over the desktop in its own look, with the modem handshake, and costs a phone bill per call (`call_cost`).

@@ -29,7 +29,7 @@ Three boards turn up on networks, one per tier, and one customer line you call f
 
 **The scene board.** The hangout on tier-1 LANs and the default board everywhere. Sysop **m0th**, who runs it from Ninsei on a 14400 line and writes the bulletins in l33t. The regulars are **c4se** (Chiba, wrote HexEd's checksum), **ratz** (Night City, never reads her mail), **zero_kool** (Hamburg, always in a door game), and whoever's new.
 
-What it's for: games, demos, cracks, the starter tools and the first breakers. WAREZ TOOLS is free and always stocked (the wardialer, the hex editor, the QWK reader, the ICE bestiary: m0th's own and his friends'). FREEWARE gives a new deck its first breaker. G-FILES teach the craft. TEXTFILES sell leaked phone lists, OPTIMIZERS sell fragments, and the ICEBREAKERS and DECK MODS areas carry the basics at honest prices. A GAMES area is coming (task 47.5).
+What it's for: games, demos, cracks, the starter tools and the first breakers. WAREZ TOOLS is free and always stocked (the wardialer, the hex editor, the QWK reader, the ICE bestiary: m0th's own and his friends'). FREEWARE gives a new deck its first breaker. G-FILES teach the craft. TEXTFILES sell leaked phone lists, OPTIMIZERS sell fragments, and the ICEBREAKERS and DECK MODS areas carry the basics at honest prices. GAMES carries the crews' cracks, cheap, two a call, the file named in 8.3 with the crew's tag (`NIBB-2K4.ZIP`, `BLOX-PHS.ZIP`, `MINE-PHS.ZIP`) and described the way m0th would ("PHOSPHOR, the real one"); the bulletin says so ("Kids, keep it clean"), and c4se is usually playing NIBBLER.
 
 The overlap is on purpose: the wardialer is a hacker's tool, and every kid on the Gutter starts with it. The Gutter is where you learn; Dead Sector is where you go once you have.
 
@@ -65,9 +65,9 @@ A crack is signed. Each crew has a voice, a signature in its scroller, a style o
 
 **the NiGHTMOTHS.** m0th's crew, the Gutter's house crew. They crack tools, not games, and give them away: WarDial, HexEd, ICE DB and the QWK reader all carry their mark (`data/intros/`). Signature: a big block-letter logo on a sine, the Gutter's ad underneath, square-wave leads over a triangle bass. Greet c4se, ratz, zero_kool, the Dead Sector crew, "kr4ken (no hard feelings)" and the phreaks of 555-7. They feud with kr4ken, politely.
 
-**PHOSPHOR.** The art crew. The best ANSI and the best tunes on the scene, and the first to crack a game: a PHOSPHOR crack is the one everybody copies. Signature: a logo that fills the screen, colour cycling, a fast arpeggio lead at 150+ bpm. They greet the NiGHTMOTHS and other artists, never the kids. Chiba.
+**PHOSPHOR.** The art crew. The best ANSI and the best tunes on the scene, and the first to crack a game: a PHOSPHOR crack is the one everybody copies. Signature: a logo that fills the screen, colour cycling, a fast arpeggio lead at 150+ bpm. They greet the NiGHTMOTHS and other artists, never the kids. Chiba. Shipped: BLOX and MINEFIELD (`data/intros/blox-crack.ron`, `minefield-crack.ron`, tag PHS): the logo cycling across the top, a piece falling down a well or a field opened square by square until it finds a mine, credits signed by the crew alone, at 168 and 156 bpm.
 
-**THE 2400 CLUB.** Kids with slow modems and fast fingers. Their cracks are late and sloppy, their frames cramped, their greetz lists twenty names long with spelling. Signature: a bouncing one-line logo, a two-track tune that rushes. They greet everyone, including people who don't know them, and want PHOSPHOR to notice. m0th lets them on the Gutter. Dead Sector doesn't.
+**THE 2400 CLUB.** Kids with slow modems and fast fingers. Their cracks are late and sloppy, their frames cramped, their greetz lists twenty names long with spelling. Signature: a bouncing one-line logo, a two-track tune that rushes. They greet everyone, including people who don't know them, and want PHOSPHOR to notice. m0th lets them on the Gutter. Dead Sector doesn't. Shipped: NIBBLER (`data/intros/nibbler-crack.ron`, tag 2K4), "krakked" late, in a cramped frame with a snake that doesn't fit it, eighteen greetz with asides ("PHOSPHOR (plz call!!)", "DEAD SECTOR (let us in!!)") and a two-track tune at 188 bpm; it begs PHOSPHOR to call and asks for an ANSI artist, paying in warez.
 
 **RAZORWIRE.** d1rge's people. They crack breakers and deck firmware for Dead Sector, and NiGHTCOMM is theirs ("d1rge & DEAD SECTOR" on the scroller). Never games, never greetz to kids; they greet the 555 phreaks, "everyone who ever hit a trap line", and "n0 0n3". Signature: a thin frame, red, a bass-heavy tune that doesn't hurry.
 
@@ -77,7 +77,7 @@ A crack is signed. Each crew has a voice, a signature in its scroller, a style o
 
 Boxed software is legitimate, friendly and knows nothing about the scene.
 
-**Paper Tiger Software.** Boxed games by mail order, the home-software house in CPU Shopper's Games section (`papertiger` in `shopper.ron`; its ads come with task 47.5). Warranty cards, a 1-800 line (1-800-PAPER-TG), "fun for the whole deck". Its splashes are a tagline and a logo: no crew, no greetz, no board.
+**Paper Tiger Software.** Boxed games by mail order, the home-software house in CPU Shopper's Games section (`papertiger` in `shopper.ron`): a Box ad for BLOX 2.0 ("Seven shapes. Just one more game!"), the other games as dot-leader lines. Warranty cards, a 1-800 line (1-800-PAPER-TG), "fun for the whole deck". Its splashes are a tagline and a logo: no crew, no greetz, no board. Each is the logo in a frame, the product and its version, a one-line pitch, Loading then Ready, and a soft sine jingle (`data/intros/*-splash.ron`).
 
 The magazine's advertisers (`data/hub/shopper.ron`), each with a voice:
 
@@ -110,7 +110,7 @@ A deck is a computer on your desk, sold by a company with a point of view (`docs
 
 **The magazine.** `data/hub/shopper.ron` dresses it: a mail-order computer magazine after Computer Shopper (1986), VOL. 9 NO. 11, 2¢ at the newsstand, "over 880 pages, 412 advertisers, 1,900 products". RIG is one of its issues: you don't open a shop, you flip through a magazine and order from an ad.
 
-**Who writes it.** Editors who have never seen your deck. They test hardware ("our lab jacks in"), run shootouts, and write cover lines; the advertisers write the ads in their own voices (the vendor table above). Sections, each exactly once: Decks, Upgrades, Monitors, Desktop add-ons, Run panes, Mail-order software, and Games (Paper Tiger's price list; its ads come with task 47.5).
+**Who writes it.** Editors who have never seen your deck. They test hardware ("our lab jacks in"), run shootouts, and write cover lines; the advertisers write the ads in their own voices (the vendor table above). Sections, each exactly once: Decks, Upgrades, Monitors, Desktop add-ons, Run panes, Mail-order software, and Games (Paper Tiger's price list and its BLOX ad; the cover's NEW line, "BLOX 2.0 IS HERE", points there).
 
 **What it knows.** Products, prices, versions, 1-800 hotlines, which deck an add-on fits, what's a REVIEW COPY this issue. It prices nothing itself: every item is priced in its own data file and turns up in the next issue on its own, as a dot-leader line until somebody writes it an ad.
 
