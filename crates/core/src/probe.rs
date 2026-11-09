@@ -63,7 +63,9 @@ impl Config {
 pub const DUMB: &str = "10 RUN icepick\n20 GOTO 10";
 
 /// The careful bot's program. It looks after the deck first: patch when integrity runs low,
-/// raise the firewall when a hit that matters is next, scrub a high trace. Then it uses the
+/// raise the firewall when a hit that matters is next, scrub a high trace. A SPOOF hides NEXT
+/// from it and it has no answer: a guard on integrity alone would cost a seventh IF, which the
+/// starter's 6 GB can't pay before the breakers, so it would never break anything. Then it uses the
 /// breaker made for the ICE in front of it, and the strongest breaker it carries after that.
 /// It buys the specialists, so it names them. Each specialist is written out six times (a
 /// maxed CPU) rather than looped: a RUN that can't run costs nothing, so a loop on a breaker
@@ -163,6 +165,10 @@ pub struct RunLog {
     /// they took together.
     pub fought: u32,
     pub turns: u32,
+    /// ICE turns that hid NEXT (`SPOOF`) or garbled a line of its program (`SEGFAULT`). A bot
+    /// can't retype a line mid-fight, so a garbled line stays garbled until the run ends.
+    pub spoofs: u32,
+    pub segfaults: u32,
     /// BBS downloads: (what kind of file, price).
     pub bought: Vec<(&'static str, u32)>,
     /// Contracts taken (jobs boards and fixers) and settled, and what they actually paid.
@@ -203,6 +209,19 @@ impl FightClock {
             .map(|c| (c.node, c.ice, c.turn));
         let same =
             matches!((self.on, now), (Some(a), Some(b)) if (a.0, a.1) == (b.0, b.1) && b.2 >= a.2);
+        // A turn of the ICE's went by: count what it did to the program.
+        if same
+            && self.on.zip(now).is_some_and(|(a, b)| b.2 > a.2)
+            && let Some(c) = g.combat.as_ref()
+        {
+            for s in &c.ice_exec.trace {
+                match s.what {
+                    StepWhat::Spoofed(_) => log.spoofs += 1,
+                    StepWhat::Segfaulted(Some(_)) => log.segfaults += 1,
+                    _ => {}
+                }
+            }
+        }
         if !same {
             if let Some(was) = self.on {
                 log.turns += was.2;
@@ -686,6 +705,9 @@ pub struct TierStats {
     /// Fights in these runs, and the turns they took.
     pub fights: u32,
     pub turns: u32,
+    /// ICE turns that hid NEXT or garbled a line of the bot's program.
+    pub spoofs: u32,
+    pub segfaults: u32,
 }
 
 impl TierStats {
@@ -694,6 +716,8 @@ impl TierStats {
         self.banked += u64::from(banked);
         self.fights += log.fought;
         self.turns += log.turns;
+        self.spoofs += log.spoofs;
+        self.segfaults += log.segfaults;
         match f {
             Fate::Exit => self.exits += 1,
             Fate::Traced => self.traced += 1,
@@ -1019,6 +1043,9 @@ impl Probe {
             s.ensure_hardware(&data);
             s
         });
+        // A garbled line came home from the last run: the bot retypes its program, as a player
+        // would at home.
+        save.program = Some(bot.program().to_string());
         // Call the boards you know first: they're where numbers, tools and breakers come from.
         errands(save, &data);
         // Bring everything stashed that fits.
@@ -1366,6 +1393,18 @@ impl Probe {
             for (t, ts) in s.spot[b].iter().enumerate() {
                 out.push(format!("  {:<10} {:>4} {}", bot.label(), t + 1, ts.row()));
             }
+        }
+        // What ICE did to each program rather than the deck. No bot retypes a garbled line
+        // mid-fight; the career bot retypes its program at home.
+        out.push("  ICE turns that hit the program:  SPOOF  SEGFAULT".into());
+        for (b, bot) in Bot::ALL.iter().enumerate() {
+            let (sp, sg) = s.spot[b]
+                .iter()
+                .fold((0, 0), |(a, b), t| (a + t.spoofs, b + t.segfaults));
+            out.push(format!(
+                "  {:<10}                       {sp:>5}  {sg:>8}",
+                bot.label()
+            ));
         }
         out.push(String::new());
         out.push("careers (smart bot, climbing)".into());

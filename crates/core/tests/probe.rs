@@ -272,10 +272,12 @@ fn the_report_names_all_three_programs_with_turns_per_fight() {
             .iter()
             .filter(|l| l.trim_start().starts_with(bot.label()))
             .count();
-        assert_eq!(rows, 3, "{} at each tier: {lines:#?}", bot.label());
+        // A row per tier, and one for what ICE did to its program.
+        assert_eq!(rows, 4, "{} at each tier: {lines:#?}", bot.label());
     }
     assert!(lines.iter().any(|l| l.contains("turns/fight")));
     assert!(lines.iter().any(|l| l.contains("fighting with SAFE_PICK")));
+    assert!(lines.iter().any(|l| l.contains("SPOOF  SEGFAULT")));
     let s = p.stats();
     assert!(
         s.spot

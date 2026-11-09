@@ -69,10 +69,10 @@
             20 ATTACK 8
             30 TRACE 4
             40 ATTACK 5"),
-    // Black ICE. A sentry that waits out a firewall on the clock and shoots the moment it's down,
-    // harder the weaker you are. It sits deep, where every layer adds to its strength.
+    // Black ICE. A sentry that hides what it'll do next from a deck behind a firewall, then runs
+    // the clock, and shoots the moment the firewall's down, harder the weaker you are. It sits deep, where every layer adds to its strength.
     (id: "archer",     name: "Archer",     class: Sentry,   tier: 2, strength: 11,
-        cpu: 1, ram: 2, verbs: [Attack, Trace],
+        cpu: 1, ram: 2, verbs: [Attack, Trace, Spoof],
         program: "
             10 IF TARGET SHIELD > 0
             20 GOTO 80
@@ -83,30 +83,34 @@
             60 GOTO 10
             70 ATTACK 6
             75 GOTO 10
-            80 TRACE 4
+            80 SPOOF 2
+            85 TRACE 4
             90 GOTO 10"),
-    // Black ICE. A code gate that traces you whenever you shield or patch, rewriting itself
-    // as it does; otherwise it hits. It sits deep, where every layer adds to its strength.
+    // Black ICE. A code gate that garbles the line that raised your firewall, traces you
+    // whenever you're shielded, rewriting itself as it does, and otherwise hits. It sits deep, where every layer adds to its strength.
     (id: "hydra",      name: "Hydra",      class: CodeGate, tier: 2, strength: 11,
-        cpu: 1, ram: 2, verbs: [Trace, Attack, Fortify],
+        cpu: 1, ram: 2, verbs: [Trace, Attack, Fortify, Segfault],
         program: "
-            10 IF TARGET SHIELD > 0
-            20 GOTO 70
-            30 IF TARGET RAN patch
+            10 IF TARGET RAN firewall
+            20 SEGFAULT
+            30 IF TARGET SHIELD > 0
             40 GOTO 70
             50 ATTACK 4
             60 GOTO 10
             70 TRACE 5
             80 FORTIFY 2
             90 GOTO 10"),
-    // A rival on the line, not the map: it hits, traces, and gives up when it's losing.
+    // A rival on the line, not the map: it hides its moves from a firewall, garbles a patcher's
+    // program, hits, and gives up when it's losing.
     (id: "rival",      name: "kr4ken",     class: CodeGate, tier: 0, strength: 20,
-        cpu: 1, ram: 1, verbs: [Attack, Trace, Fortify],
+        cpu: 1, ram: 2, verbs: [Attack, Trace, Fortify, Spoof, Segfault],
         program: "
             10 IF TARGET SHIELD > 0
-            20 TRACE 5
-            30 ATTACK 4
-            40 FORTIFY 3
-            50 ATTACK 5",
+            20 SPOOF 2
+            30 IF TARGET RAN patch
+            40 SEGFAULT
+            50 ATTACK 4
+            60 FORTIFY 3
+            70 ATTACK 5",
         yields: Some((below: 50, chance: 40, line: "ok ok, you win. take it and get off my line."))),
 ]
