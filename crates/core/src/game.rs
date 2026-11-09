@@ -130,6 +130,9 @@ pub struct Kit {
     pub tunes: Vec<String>,
     /// Textfiles already on your disk, as (board id, text id).
     pub texts: Vec<(String, String)>,
+    /// The ICE lines the deck has seen run before (from the save's ICE DB): (ICE id, line
+    /// numbers). A fight shows these in clear from its first turn.
+    pub ice_known: Vec<(String, Vec<u32>)>,
     /// For each of `programs`, the stash id it came from (`None` for a free program). The run
     /// remembers them so the loadout comes home in its place.
     pub origins: Vec<Option<u32>>,
@@ -161,6 +164,7 @@ impl Default for Kit {
             games: Vec::new(),
             tunes: Vec::new(),
             texts: Vec::new(),
+            ice_known: Vec::new(),
             origins: Vec::new(),
             free: Vec::new(),
         }
@@ -417,6 +421,10 @@ pub struct Game {
     pub boards_read: Vec<String>,
     /// You read a partner directory this run: the starter networks come home with you.
     pub starters_read: bool,
+    /// The lines of each ICE's program the deck has seen it run, as (index into `Data::ice`,
+    /// line numbers, sorted): what the save knew at the start, plus every line an ICE's pass
+    /// executes in this run. They come home even on a flatline. Never read by play.
+    pub ice_lines: Vec<(usize, Vec<u32>)>,
     /// What the run has been doing, for the graphs. Watches the rules, never changes them.
     pub history: crate::history::History,
     /// Sound cues waiting to be played. The app drains them each frame.
@@ -586,6 +594,13 @@ impl Game {
             fragments: 0,
             caps: kit.caps,
         };
+        let ice_lines = kit
+            .ice_known
+            .iter()
+            .filter_map(|(id, lines)| {
+                Some((data.ice.iter().position(|i| &i.id == id)?, lines.clone()))
+            })
+            .collect();
         let mut game = Self {
             at: net.entry(),
             outer: None,
@@ -612,6 +627,7 @@ impl Game {
             hints: Vec::new(),
             boards_read: Vec::new(),
             starters_read: false,
+            ice_lines,
             history: crate::history::History::default(),
             cues: Vec::new(),
             site: kit.site.clone(),
@@ -1231,6 +1247,31 @@ impl Game {
         Ok(())
     }
 
+    /// Notes that the deck saw the current ICE run line `no` (`Game::ice_lines`).
+    fn saw_ice_line(&mut self, no: u32) {
+        let Some(ice) = self.combat.as_ref().map(|c| c.ice) else {
+            return;
+        };
+        let lines = match self.ice_lines.iter().position(|(i, _)| *i == ice) {
+            Some(k) => &mut self.ice_lines[k].1,
+            None => {
+                self.ice_lines.push((ice, Vec::new()));
+                &mut self.ice_lines.last_mut().expect("just pushed").1
+            }
+        };
+        if let Err(at) = lines.binary_search(&no) {
+            lines.insert(at, no);
+        }
+    }
+
+    /// The lines of ICE `ice`'s program the deck has seen run (sorted).
+    pub fn ice_seen_lines(&self, ice: usize) -> &[u32] {
+        self.ice_lines
+            .iter()
+            .find(|(i, _)| *i == ice)
+            .map_or(&[], |(_, l)| l.as_slice())
+    }
+
     /// What an ICE's verb does, as `end_turn` used to do its intent: a hit less the shield
     /// (which the hit uses up), a trace, or strength. A lagged ICE does nothing.
     fn act(&mut self, act: Intent) -> StepWhat {
@@ -1486,6 +1527,9 @@ impl Game {
             let next = self.prog(side).after(no);
             self.ex_mut(side).pc = next;
             ran |= !matches!(stmt, Stmt::Rem);
+            if side == Side::Ice && !matches!(stmt, Stmt::Rem) {
+                self.saw_ice_line(no);
+            }
             match stmt {
                 Stmt::Rem => {}
                 Stmt::Bad(why) => self.trace_step(side, no, StepWhat::Skipped(why)),
