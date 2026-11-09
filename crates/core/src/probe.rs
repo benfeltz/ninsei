@@ -157,8 +157,11 @@ impl Bot {
 pub struct RunLog {
     /// Strength each program (by warez id) took off ICE.
     pub breaks: Vec<(String, u32)>,
+    /// Fights it walked into on the map.
     pub fights: u32,
-    /// Turns all its fights took, together.
+    /// Every fight it had, on the map, from an encounter or a client's setup, and the turns
+    /// they took together.
+    pub fought: u32,
     pub turns: u32,
     /// BBS downloads: (what kind of file, price).
     pub bought: Vec<(&'static str, u32)>,
@@ -181,6 +184,44 @@ impl RunLog {
     }
 }
 
+/// Tells fights apart as the bot plays, to count them and their turns. A fight is its node and
+/// its ICE, and its turn only goes up: one that starts on the node the last one fell on starts
+/// back at turn 1. A fight ends in the turn it's on (won in it, or lost at its end), so the last
+/// turn seen is the turns it took.
+#[derive(Default)]
+struct FightClock {
+    on: Option<(usize, usize, u32)>,
+}
+
+impl FightClock {
+    /// Looks at the game after an action.
+    fn see(&mut self, g: &Game, log: &mut RunLog) {
+        let now = g
+            .combat
+            .as_ref()
+            .filter(|_| g.phase == Phase::Combat)
+            .map(|c| (c.node, c.ice, c.turn));
+        let same =
+            matches!((self.on, now), (Some(a), Some(b)) if (a.0, a.1) == (b.0, b.1) && b.2 >= a.2);
+        if !same {
+            if let Some(was) = self.on {
+                log.turns += was.2;
+            }
+            if now.is_some() {
+                log.fought += 1;
+            }
+        }
+        self.on = now;
+    }
+
+    /// The run is over: a fight still open ends here.
+    fn close(&mut self, log: &mut RunLog) {
+        if let Some(was) = self.on.take() {
+            log.turns += was.2;
+        }
+    }
+}
+
 /// Plays a run to its end with `bot`. Never leaves a game unfinished: a run that stalls (it
 /// shouldn't) is ended by the turn limit.
 pub fn play(g: Game, bot: Bot) -> (Game, RunLog) {
@@ -198,6 +239,7 @@ pub fn play_knowing(mut g: Game, bot: Bot, known: &[String]) -> (Game, RunLog) {
     }
     // The program handed the turn over (a STOP or a hang): a bot has no hands, so it ends it.
     let mut handed = false;
+    let mut clock = FightClock::default();
     while steps < 5_000 {
         steps += 1;
         match g.phase {
@@ -215,20 +257,16 @@ pub fn play_knowing(mut g: Game, bot: Bot, known: &[String]) -> (Game, RunLog) {
                 };
                 let Some(to) = to else { break };
                 g.apply(Action::Move(to));
+                clock.see(&g, &mut log);
                 if g.phase == Phase::Combat {
                     log.fights += 1;
                 }
             }
             Phase::Combat => {
-                // A fight ends in the turn it's on: won in it, or the deck lost at its end.
-                let fight = g.combat.as_ref().map(|c| (c.node, c.turn));
-                let ended = |g: &Game| g.combat.as_ref().map(|c| c.node) != fight.map(|f| f.0);
                 if handed {
                     handed = false;
                     g.apply(Action::EndTurn);
-                    if ended(&g) {
-                        log.turns += fight.map_or(0, |f| f.1);
-                    }
+                    clock.see(&g, &mut log);
                     continue;
                 }
                 // Play sets it running and runs a line; the rest of the turn is Finish's.
@@ -236,10 +274,12 @@ pub fn play_knowing(mut g: Game, bot: Bot, known: &[String]) -> (Game, RunLog) {
                     true
                 } else {
                     g.apply(Action::Play);
+                    clock.see(&g, &mut log);
                     g.pass_open()
                 };
                 if carry_on {
                     g.apply(Action::Finish);
+                    clock.see(&g, &mut log);
                 }
                 for s in &g.exec.trace {
                     if let StepWhat::Ran {
@@ -253,9 +293,6 @@ pub fn play_knowing(mut g: Game, bot: Bot, known: &[String]) -> (Game, RunLog) {
                     }
                 }
                 handed = g.phase == Phase::Combat && g.exec.state != ExecState::Running;
-                if ended(&g) {
-                    log.turns += fight.map_or(0, |f| f.1);
-                }
             }
             Phase::Encounter => {
                 let pick = match bot {
@@ -267,6 +304,7 @@ pub fn play_knowing(mut g: Game, bot: Bot, known: &[String]) -> (Game, RunLog) {
                 };
                 let before = g.contracts.len();
                 g.apply(Action::Choose { choice, slot: None });
+                clock.see(&g, &mut log);
                 log.taken += (g.contracts.len() - before) as u32;
                 if g.encounter.as_ref().is_some_and(|e| e.done) {
                     g.apply(Action::EndEncounter);
@@ -275,6 +313,8 @@ pub fn play_knowing(mut g: Game, bot: Bot, known: &[String]) -> (Game, RunLog) {
             Phase::JackedOut | Phase::Flatlined => break,
         }
     }
+    // A run cut off by the step limit mid-fight still counts that fight's turns.
+    clock.close(&mut log);
     for k in g
         .contracts
         .iter()
@@ -650,7 +690,7 @@ impl TierStats {
     fn add(&mut self, f: Fate, banked: u32, log: &RunLog) {
         self.runs += 1;
         self.banked += u64::from(banked);
-        self.fights += log.fights;
+        self.fights += log.fought;
         self.turns += log.turns;
         match f {
             Fate::Exit => self.exits += 1,

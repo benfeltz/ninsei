@@ -284,3 +284,21 @@ fn the_report_names_all_three_programs_with_turns_per_fight() {
             .any(|t| t.fights > 0 && t.turns >= t.fights)
     );
 }
+
+#[test]
+fn every_fight_a_run_has_is_counted_with_its_turns() {
+    let data = Data::builtin().unwrap();
+    let mut encounter_fights = 0;
+    for seed in 0..60 {
+        let (g, log) = probe::play(Game::new(data.clone(), seed), Bot::Smart);
+        // Every fight the run met, the map's and the encounters' alike.
+        assert_eq!(log.fought as usize, g.history.met.len(), "seed {seed}");
+        assert!(log.fought >= log.fights, "seed {seed}");
+        assert!(
+            log.turns >= log.fought,
+            "a fight takes a turn at least: seed {seed}"
+        );
+        encounter_fights += log.fought - log.fights;
+    }
+    assert!(encounter_fights > 0, "some fights came from encounters");
+}
