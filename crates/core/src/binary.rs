@@ -4,7 +4,7 @@
 //! ```text
 //! 00-01  'W' 'Z'      magic
 //! 02     01           format version
-//! 03     opcode       01 BRK  02 SHD  03 REP  04 SCR  05 STN
+//! 03     opcode       01 BRK  02 SHD  03 REP  04 SCR  05 STN  06 SNF
 //! 04     power
 //! 05     vs class     00 any  01 barrier  02 code gate  03 sentry   (breakers only)
 //! 06     cpu cost     1..=MAX_CPU
@@ -169,6 +169,7 @@ pub fn encode(def: &WarezDef, key: u64) -> Bin {
         Effect::Repair(n) => (3, n, 0),
         Effect::Scrub(n) => (4, n, 0),
         Effect::Stun => (5, 0, 0),
+        Effect::Sniff => (6, 0, 0),
     };
     b[OFF_OPCODE] = op;
     b[OFF_POWER] = power.min(255) as u8;
@@ -194,6 +195,7 @@ pub fn cost(effect: Effect) -> u32 {
         Effect::Shield(n) | Effect::Scrub(n) => n.div_ceil(2),
         Effect::Repair(n) => n,
         Effect::Stun => COST_STUN,
+        Effect::Sniff => COST_SNIFF,
     }
 }
 
@@ -243,15 +245,17 @@ pub fn check(b: &Bin, key: u64) -> Result<Spec, Vec<String>> {
         3 => Some(Effect::Repair(power)),
         4 => Some(Effect::Scrub(power)),
         5 => Some(Effect::Stun),
+        6 => Some(Effect::Sniff),
         op => {
-            faults.push(format!("illegal opcode {op:02X} (01-05)"));
+            faults.push(format!("illegal opcode {op:02X} (01-06)"));
             None
         }
     };
     if b[OFF_VS] != 0 && b[OFF_OPCODE] != 1 {
         faults.push("vs class is only valid on BRK".to_string());
     }
-    if b[OFF_OPCODE] != 5 && !(1..=MAX_POWER).contains(&power) {
+    // STN and SNF carry no power.
+    if !matches!(b[OFF_OPCODE], 5 | 6) && !(1..=MAX_POWER).contains(&power) {
         faults.push(format!("power {power} out of range (1-{MAX_POWER})"));
     }
     let cpu = u32::from(b[OFF_CPU]);

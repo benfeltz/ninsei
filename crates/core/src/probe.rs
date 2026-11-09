@@ -489,6 +489,8 @@ fn worth(g: &Game, d: &Drop, known: &[String]) -> i64 {
                     Effect::Shield(_) | Effect::Scrub(_) => 35,
                     Effect::Repair(_) => 20,
                     Effect::Stun => 15,
+                    // Nothing the careful bot fights with reads it yet.
+                    Effect::Sniff => 10,
                 },
                 None => 0,
             }

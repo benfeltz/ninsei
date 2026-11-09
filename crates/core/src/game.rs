@@ -1151,6 +1151,13 @@ impl Game {
                     format!("{name} lags the ICE. it skips a beat."),
                 );
             }
+            crate::fight::Outcome::Sniff => {
+                c.spoofed = 0;
+                self.say(
+                    LogKind::Good,
+                    format!("{name} sniffs out the spoof. its NEXT is in the clear."),
+                );
+            }
         }
         Ok(())
     }

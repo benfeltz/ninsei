@@ -194,6 +194,7 @@ pub fn formula(spec: &Spec) -> String {
         Effect::Repair(n) => format!("=REPAIR({n})"),
         Effect::Scrub(n) => format!("=SCRUB(TRACE, {n})"),
         Effect::Stun => "=STUN(ICE, 1)".to_string(),
+        Effect::Sniff => "=SNIFF(ICE)".to_string(),
     }
 }
 

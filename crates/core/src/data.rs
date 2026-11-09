@@ -29,11 +29,16 @@ pub enum WarezKind {
 
 #[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Effect {
-    Break { power: u32, vs: Option<IceClass> },
+    Break {
+        power: u32,
+        vs: Option<IceClass>,
+    },
     Shield(u32),
     Repair(u32),
     Scrub(u32),
     Stun,
+    /// Clears an ICE's SPOOF: its NEXT shows again.
+    Sniff,
 }
 
 impl Effect {
@@ -45,6 +50,7 @@ impl Effect {
             Effect::Repair(n) => format!("repair {n}"),
             Effect::Scrub(n) => format!("trace -{n}"),
             Effect::Stun => "stun ICE 1 turn".to_string(),
+            Effect::Sniff => "clear a spoof".to_string(),
         }
     }
 }

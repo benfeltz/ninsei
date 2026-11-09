@@ -28,6 +28,8 @@ pub enum Outcome {
     Repair(u32),
     Scrub(u32),
     Stun,
+    /// Clears the ICE's SPOOF.
+    Sniff,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -64,6 +66,9 @@ impl Game {
         if w.effect == Effect::Stun && c.stun_immune {
             return Err("the ICE has adapted to lag. a stun won't land this turn.".into());
         }
+        if w.effect == Effect::Sniff && c.spoofed == 0 {
+            return Err("nothing to sniff: its NEXT is in the clear.".into());
+        }
         let outcome = match w.effect {
             Effect::Break { power, vs } => {
                 let class = self.data.ice[c.ice].class;
@@ -79,6 +84,7 @@ impl Game {
             Effect::Repair(n) => Outcome::Repair(n),
             Effect::Scrub(n) => Outcome::Scrub(n),
             Effect::Stun => Outcome::Stun,
+            Effect::Sniff => Outcome::Sniff,
         };
         Ok(Preview {
             cpu: w.cpu,
@@ -219,6 +225,7 @@ impl Game {
                     Outcome::Repair(n) => format!("restores {n} integrity"),
                     Outcome::Scrub(n) => format!("scrubs {n} trace"),
                     Outcome::Stun => "lags the ICE".to_string(),
+                    Outcome::Sniff => "clears the spoof".to_string(),
                 };
                 format!("{no} {text}: {name} {did}.")
             }

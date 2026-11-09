@@ -436,6 +436,7 @@ fn inspector(ui: &mut Ui, key: u64, h: &mut HexBuffer, p: &Palette) {
         3 => Some(Effect::Repair(power)),
         4 => Some(Effect::Scrub(power)),
         5 => Some(Effect::Stun),
+        6 => Some(Effect::Sniff),
         _ => None,
     };
     let budget = binary::budget(u32::from(b[binary::OFF_CPU]), u32::from(b[binary::OFF_OPT]));
@@ -496,7 +497,7 @@ fn picker(ui: &mut Ui, game: &Game, p: &Palette, out: &mut Vec<Request>) {
     }
     ui.add_space(8.0);
     for l in [
-        "00-02 magic 57 5A 01      03 opcode  01 BRK 02 SHD 03 REP 04 SCR 05 STN",
+        "00-02 magic 57 5A 01   03 opcode 01 BRK 02 SHD 03 REP 04 SCR 05 STN 06 SNF",
         "04 power   05 vs class   06 cpu cost   07 ram cost",
         "08 opt level, 09-0A its signature (fragments re-sign it)",
         "10-1E name   1F checksum = sum of 00-1E mod 256",
