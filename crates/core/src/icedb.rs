@@ -45,19 +45,37 @@ pub fn matching(save: &Save, data: &Data, class: IceClass) -> Vec<String> {
     out
 }
 
+/// A line of an entry's page, and whether the window mutes it (a listing line not yet seen
+/// run).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PageLine {
+    pub text: String,
+    pub muted: bool,
+}
+
+impl PageLine {
+    fn plain(text: String) -> PageLine {
+        PageLine { text, muted: false }
+    }
+}
+
 impl Entry<'_> {
     /// Its program, decompiled from the lines you've seen it run: a heading saying how much
     /// is known, then each line numbered, the unseen ones `????`. Empty until you've met it.
-    pub fn listing(&self) -> Vec<String> {
+    /// Each line comes with whether it's muted: a line not yet seen run.
+    pub fn listing(&self) -> Vec<PageLine> {
         let Some(s) = self.seen else {
             return Vec::new();
         };
         let rows = crate::ice_listing::decompile_def(&self.def.program, &self.def.verbs, &s.lines);
         let (seen, all) = crate::ice_listing::known(&rows);
-        let mut out = vec![format!(
+        let mut out = vec![PageLine::plain(format!(
             "listing        decompiled, {seen} of {all} lines seen"
-        )];
-        out.extend(rows.iter().map(|r| format!("  {:>3} {}", r.no, r.shown())));
+        ))];
+        out.extend(rows.iter().map(|r| PageLine {
+            text: format!("  {:>3} {}", r.no, r.shown()),
+            muted: r.text.is_none(),
+        }));
         out
     }
 
@@ -72,12 +90,15 @@ impl Entry<'_> {
 
     /// The entry's page, plain text lines. Unmet ICE shows nothing but question marks.
     pub fn lines(&self, save: &Save, data: &Data) -> Vec<String> {
+        self.page(save, data).into_iter().map(|l| l.text).collect()
+    }
+
+    /// The entry's page, each line with whether the window mutes it.
+    pub fn page(&self, save: &Save, data: &Data) -> Vec<PageLine> {
         let Some(s) = self.seen else {
-            return vec![
-                "????".into(),
-                String::new(),
-                "No record. You haven't met this one yet.".into(),
-            ];
+            return ["????", "", "No record. You haven't met this one yet."]
+                .map(|t| PageLine::plain(t.into()))
+                .into();
         };
         let d = self.def;
         let kind = match d.tier {
@@ -97,21 +118,24 @@ impl Entry<'_> {
             format!("met            {}", s.met),
             format!("broken         {}", s.broken),
             String::new(),
-        ];
+        ]
+        .into_iter()
+        .map(PageLine::plain)
+        .collect::<Vec<_>>();
         out.extend(self.listing());
         if d.yields.is_some() {
-            out.push("  gives up when it's losing".into());
+            out.push(PageLine::plain("  gives up when it's losing".into()));
         }
-        out.push(String::new());
+        out.push(PageLine::plain(String::new()));
         let m = matching(save, data, d.class);
-        if m.is_empty() {
-            out.push(format!(
+        out.push(PageLine::plain(if m.is_empty() {
+            format!(
                 "x2 vs {}: nothing you carry. find a breaker for its class.",
                 d.class.label()
-            ));
+            )
         } else {
-            out.push(format!("x2 vs {}: {}", d.class.label(), m.join(", ")));
-        }
+            format!("x2 vs {}: {}", d.class.label(), m.join(", "))
+        }));
         out
     }
 }

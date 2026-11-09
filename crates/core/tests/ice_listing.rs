@@ -186,6 +186,14 @@ fn the_ice_db_prints_what_you_have_seen() {
     );
     assert!(page.contains(&"   20 ????".to_string()), "{page:#?}");
     assert!(!page.iter().any(|l| l.starts_with("moves")), "{page:#?}");
+    // The window mutes exactly the unseen listing lines.
+    let muted: Vec<String> = e
+        .page(&s, &d)
+        .into_iter()
+        .filter(|l| l.muted)
+        .map(|l| l.text)
+        .collect();
+    assert_eq!(muted, ["   20 ????", "   40 ????"]);
     // An unmet ICE has no listing.
     let unmet = icedb::entries(&s, &d)
         .into_iter()
