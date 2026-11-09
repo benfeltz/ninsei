@@ -228,7 +228,11 @@ fn a_garbled_program_goes_home_until_retyped() {
     s.ensure_key(1);
     s.record(&g, &[], &d.rig).unwrap();
     let p = basic::parse(&s.program_text(&d));
-    assert!(p.fault(10).is_some(), "still bad at home: {p:?}");
+    assert_eq!(
+        p.fault(10).as_deref(),
+        Some("?SYNTAX ERROR IN 10"),
+        "the same fault at home: {p:?}"
+    );
 }
 
 #[test]

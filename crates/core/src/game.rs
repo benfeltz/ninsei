@@ -7,9 +7,6 @@ use crate::network::{NetParams, Network, NodeKind};
 use crate::rng::Rng;
 use crate::tuning::*;
 
-/// What a SEGFAULT scrambles a line into: nothing a BASIC keyword starts with.
-const SEGFAULT_GLYPHS: [char; 10] = ['#', '$', '%', '&', '@', '!', '?', '*', '~', '^'];
-
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Deck {
     pub cpu_max: u32,
@@ -1304,7 +1301,7 @@ impl Game {
             .line(no)
             .map_or(4, |l| l.text.chars().count().max(4));
         let text: String = (0..len)
-            .map(|_| SEGFAULT_GLYPHS[self.rng.below(SEGFAULT_GLYPHS.len())])
+            .map(|_| crate::basic::GARBAGE[self.rng.below(crate::basic::GARBAGE.len())])
             .collect();
         self.program.garble(no, &text);
         StepWhat::Segfaulted(Some(no))
@@ -1603,7 +1600,10 @@ impl Game {
             }
             match stmt {
                 Stmt::Rem => {}
-                Stmt::Bad(why) => self.trace_step(side, no, StepWhat::Skipped(why)),
+                Stmt::Bad(why) => {
+                    let why = self.prog(side).fault(no).unwrap_or(why);
+                    self.trace_step(side, no, StepWhat::Skipped(why));
+                }
                 Stmt::Run(name) if side == Side::Deck => {
                     let Some(slot) = self.slot_named(&name) else {
                         let why = format!("no program called {name} on the disk.");

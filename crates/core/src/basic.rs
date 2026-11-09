@@ -22,6 +22,14 @@ pub const MAX_LINE: u32 = 63999;
 /// The largest number an ICE's verb takes: a three-digit field, like the line number's five.
 pub const MAX_ARG: u32 = 999;
 
+/// What an ICE's SEGFAULT scrambles a line into: nothing a BASIC word starts with.
+pub const GARBAGE: [char; 10] = ['#', '$', '%', '&', '@', '!', '?', '*', '~', '^'];
+
+/// Whether a line's text is a SEGFAULT's garbage.
+pub fn garbled(text: &str) -> bool {
+    !text.is_empty() && text.chars().all(|c| GARBAGE.contains(&c))
+}
+
 /// The keywords, in the order a palette lists them.
 pub const KEYWORDS: [&str; 5] = ["RUN", "IF", "GOTO", "STOP", "REM"];
 
@@ -345,7 +353,10 @@ impl Program {
     /// What's wrong with line `no`, in the interpreter's words: a line that didn't parse, or a
     /// GOTO to a line that isn't there.
     pub fn fault(&self, no: u32) -> Option<String> {
-        match &self.line(no)?.stmt {
+        let line = self.line(no)?;
+        match &line.stmt {
+            // A SEGFAULT's garbage says so however it was parsed (an edit or a save re-parses).
+            Stmt::Bad(_) if garbled(&line.text) => Some(format!("?SYNTAX ERROR IN {no}")),
             Stmt::Bad(why) => Some(why.clone()),
             Stmt::Goto(to) if self.line(*to).is_none() => Some(format!("?UNDEF'D STATEMENT {to}")),
             _ => None,
