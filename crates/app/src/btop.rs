@@ -25,7 +25,8 @@ pub mod anim {
     pub const SPARK_POINTS: usize = 24;
     /// Rows of the damage waterfall shown.
     pub const WATERFALL_ROWS: usize = 6;
-    /// Upcoming ICE intents shown in the intent waterfall.
+    /// Rows in the intent waterfall: NEXT, then `????` for the turns after it, which the ICE's
+    /// program will decide when it gets there.
     pub const INTENTS_AHEAD: usize = 4;
     /// Actions a program's row stays lit after it runs.
     pub const RUN_GLOW_TICKS: u32 = 2;
