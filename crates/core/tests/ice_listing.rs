@@ -74,6 +74,9 @@ fn what_it_saw_comes_home_and_back_into_the_next_run() {
         seen.lines.contains(&10) && seen.lines.contains(&30),
         "{seen:?}"
     );
+    // The bestiary fills in either way, but only the ICE DB brings it into a fight.
+    assert!(s.kit(&d).ice_known.is_empty(), "no ICE DB, no knowledge in the fight");
+    s.tools.push("icedb".into());
     let kit = s.kit(&d);
     assert!(
         kit.ice_known

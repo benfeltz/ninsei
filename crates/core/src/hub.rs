@@ -2202,10 +2202,11 @@ impl Save {
                 .iter()
                 .map(|k| (k.board.clone(), k.id.clone()))
                 .collect(),
+            // What earlier runs saw is the ICE DB's: without it the deck starts each fight blind.
             ice_known: self
                 .ice_seen
                 .iter()
-                .filter(|s| !s.lines.is_empty())
+                .filter(|s| self.has_tool("icedb") && !s.lines.is_empty())
                 .map(|s| (s.id.clone(), s.lines.clone()))
                 .collect(),
             origins,
