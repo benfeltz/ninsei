@@ -187,3 +187,21 @@ fn the_ice_db_prints_what_you_have_seen() {
         .unwrap();
     assert!(unmet.listing().is_empty());
 }
+
+#[test]
+fn the_ono_shows_a_window_of_the_listing_from_the_ice_cursor() {
+    let mut s = fresh();
+    let mut g = fight_from(&mut s, "enigma");
+    g.apply(Action::EndTurn);
+    // Enigma carries on from 40 after its first turn's ATTACK at 30.
+    let w = btop_fight::ice_window(&g, 3);
+    let lines: Vec<String> = w.iter().map(btop_fight::ice_line).collect();
+    assert_eq!(
+        lines,
+        ["▶  40 ????", "·  10 if target shield > 0", "·  20 ????"],
+        "from the cursor, wrapping to the top"
+    );
+    assert_eq!(btop_fight::ice_heading(&g), "PROG 2/4");
+    // Never more rows than the program has.
+    assert_eq!(btop_fight::ice_window(&g, 9).len(), 4);
+}

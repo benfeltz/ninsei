@@ -9,6 +9,7 @@
 use egui::{
     Align2, Color32, FontFamily, FontId, Painter, Pos2, Rect, Sense, Stroke, Ui, pos2, vec2,
 };
+use ninsei_core::btop_fight;
 use ninsei_core::fight::{self, Match, NextMove, Outcome};
 use ninsei_core::netview::{self, MapNode, Mesh};
 use ninsei_core::{Action, Game, Phase};
@@ -535,17 +536,17 @@ fn hud(painter: &Painter, rect: Rect, p: &Palette, g: &Game, preview: Option<fig
         mono(14.0),
         p.bright,
     );
-    // Past the next move, the ICE's program reads the fight as it will be then.
-    for k in 1..4 {
-        let col = if k == 1 {
-            p.fg
-        } else {
-            alpha(p.dim, 1.0 - k as f32 * 0.2)
+    // Under it, the ICE's program from where it carries on, as the deck has seen it.
+    for (k, r) in btop_fight::ice_window(g, 3).iter().enumerate() {
+        let col = match (r.next, r.text.is_some()) {
+            (true, _) => p.bright,
+            (false, true) => p.fg,
+            (false, false) => alpha(p.dim, 0.8),
         };
         painter.text(
-            pos2(rx + 42.0, y + 4.0 + k as f32 * 16.0),
+            pos2(rx + 42.0, y + 20.0 + k as f32 * 16.0),
             Align2::LEFT_CENTER,
-            format!("+{k}  ????"),
+            btop_fight::ice_line(r),
             mono(11.0),
             col,
         );
