@@ -1508,11 +1508,9 @@ impl Data {
         self.tunes.iter().find(|t| t.id == id)
     }
 
-    /// Every engine has a game, every game's field fits its engine and a screen, its tick is
-    /// sane, its crack is a crack and
-    /// its splash a splash, and its publisher advertises in CPU Shopper.
     /// An ICE's program must parse in its own vocabulary, every GOTO must land, every
-    /// `TARGET RAN` must name a program that exists, and it must have budgets to run with.
+    /// `TARGET RAN` must name a program that exists, a verb must be reachable from the top, and
+    /// it must have budgets to run with.
     fn validate_ice_program(&self, ice: &IceDef) -> Result<(), String> {
         use crate::basic::{Cond, Stmt, Vocab};
         if ice.cpu == 0 || ice.ram == 0 {
@@ -1550,6 +1548,9 @@ impl Data {
         Ok(())
     }
 
+    /// Every engine has a game, every game's field fits its engine and a screen, its tick is
+    /// sane, its crack is a crack and
+    /// its splash a splash, and its publisher advertises in CPU Shopper.
     fn validate_games(&self) -> Result<(), String> {
         for (i, g) in self.games.iter().enumerate() {
             let err = |m: String| Err(format!("game `{}`: {m}", g.id));
