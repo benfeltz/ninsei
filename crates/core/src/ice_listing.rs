@@ -61,6 +61,20 @@ pub fn rows(g: &Game) -> Vec<IceRow> {
     rows
 }
 
+/// The ICE card's heading over the listing (the Sense/Net's, and the classic panes'): how much
+/// of its program the deck has seen.
+pub fn heading(rows: &[IceRow]) -> String {
+    let (seen, all) = known(rows);
+    format!("its program: {seen} of {all} lines seen")
+}
+
+/// A row as the ICE card prints it: the cursor's ▶, the number right-aligned in five cells,
+/// the statement or `????`.
+pub fn card_line(r: &IceRow) -> String {
+    let mark = if r.cursor { "▶" } else { " " };
+    format!("{mark}{:>5} {}", r.no, r.shown())
+}
+
 /// How many of the program's lines are known: (seen, all).
 pub fn known(rows: &[IceRow]) -> (usize, usize) {
     (rows.iter().filter(|r| r.text.is_some()).count(), rows.len())
