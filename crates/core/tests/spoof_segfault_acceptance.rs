@@ -73,6 +73,14 @@ fn hydra_garbles_the_safe_program_the_turn_it_raises_a_firewall() {
         .map(|l| l.no)
         .collect();
     assert_eq!(garbled.len(), 1, "{}", g.program.text());
+    // Ben's call: the line that ran what its TARGET RAN named, SAFE's firewall line.
+    let fw_line = basic::parse(&safe)
+        .lines
+        .iter()
+        .find(|l| l.text.eq_ignore_ascii_case("RUN firewall"))
+        .map(|l| l.no)
+        .unwrap();
+    assert_eq!(garbled, [fw_line], "{}", g.program.text());
     assert!(
         g.log
             .iter()
