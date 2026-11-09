@@ -1197,6 +1197,11 @@ impl Game {
         c.ice_cpu = def.cpu;
         c.ice_ifs = def.ram;
         // A lagged ICE runs its program and does nothing it says: it loses this turn's moves.
+        // Said once, however its pass goes.
+        if c.stunned {
+            let name = def.name.clone();
+            self.say(LogKind::Good, format!("{name} is lagged and does nothing."));
+        }
         while self.line(Side::Ice) == Line::Went && self.deck.integrity > 0 {}
         let Some(c) = self.combat.as_mut() else {
             return Ok(());
@@ -1365,12 +1370,13 @@ impl Game {
     /// Adds a step to the pass and says it in the log as it happens: the OS's sentence, before
     /// anything the turn does after it. A RUN says nothing more: the program says what it did.
     /// The ICE's steps are said too, in the same voice, except the end of its turn, which the
-    /// next turn says well enough; what it does to the deck is said as bad news.
+    /// next turn says well enough, and its lagged verbs, which `end_turn` says once; what it
+    /// does to the deck is said as bad news.
     fn trace_step(&mut self, side: Side, line: u32, what: StepWhat) {
         let step = Step { line, what };
         let said = match side {
             Side::Deck => !matches!(step.what, StepWhat::Ran { .. }),
-            Side::Ice => !step.what.ends_turn(),
+            Side::Ice => !step.what.ends_turn() && step.what != StepWhat::Lagged,
         };
         if said {
             let text = self.step_text_of(side, &step);

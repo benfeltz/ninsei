@@ -257,6 +257,20 @@ fn a_lagged_ice_has_no_next_and_loses_its_move() {
     assert_eq!(g.combat.as_ref().unwrap().strength, strength);
     // It skipped its FORTIFY, as the intent cycle did.
     assert_eq!(g.ice_next(), Some(data::Intent::Attack(3)));
+    let lagged = |g: &Game| {
+        g.log
+            .iter()
+            .filter(|l| l.text == "Probe is lagged and does nothing.")
+            .count()
+    };
+    assert_eq!(lagged(&g), 1, "said once");
+    // A lagged ICE whose pass stops before any verb still says the lag worked.
+    let data = with_row(r"10 IF TURN = 1\n20 STOP\n30 ATTACK 1", 1, 1, "Attack").unwrap();
+    let mut g = fight_on(data, "probe", "");
+    g.combat.as_mut().unwrap().stunned = true;
+    g.apply(Action::EndTurn);
+    assert!(ice_did(&g).is_empty());
+    assert_eq!(lagged(&g), 1);
 }
 
 #[test]
