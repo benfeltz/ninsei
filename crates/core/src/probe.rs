@@ -3,14 +3,17 @@
 //!
 //! Two parts:
 //! - **Spot checks**: single runs on a plain network of each tier, by a dumb bot (first route,
-//!   [`DUMB`]: two lines of icepick) and a careful one ([`CAREFUL`], its own program).
+//!   [`DUMB`]: two lines of icepick), a careful one ([`CAREFUL`], its own program) and the
+//!   careful one fighting with the starter's `SAFE` plus a breaker ([`SAFE_PICK`]), the first
+//!   program a player writes.
 //!   In a fight a bot only drives the deck's program, written in the game's BASIC: it plays,
 //!   and when the program hands over the turn (a STOP, a hang) it ends the turn, having no
 //!   hands of its own. If a bot can't say it in the language, a player can't either.
 //! - **Careers**: the competent bot from a fresh save, run after run. It climbs tiers when it
 //!   keeps getting out, falls back when it doesn't, spends its bank in RIG and wardials for
 //!   bigger numbers. The report says how long the climb takes, what the money buys and when,
-//!   what kills runs and which programs carry fights.
+//!   what kills runs and which programs carry fights. The same careers are played again
+//!   fighting with [`SAFE_PICK`], for their exits and deaths only.
 //!
 //! [`Probe`] is resumable (`step` plays a few runs and returns), so the home Shell's `probe`
 //! command can run it a little each frame in the browser, where there are no threads. The CLI
@@ -103,6 +106,18 @@ pub const CAREFUL: &str = "\
 620 RUN icepick
 630 GOTO 600";
 
+/// The starter kit's `SAFE` (`data/hub/starts.ron`) with `55 RUN icepick` typed in: patch when
+/// low, firewall before an attack, and pick at the ICE. The first edit a player makes, and the
+/// program ICE that read the deck have to beat.
+pub const SAFE_PICK: &str = "\
+10 REM SAFE 1.0  (c) Sense/Net
+20 IF INTEG < 7
+30 RUN patch
+40 IF NEXT ATTACK
+50 RUN firewall
+55 RUN icepick
+60 GOTO 20";
+
 /// Which bot plays.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Bot {
@@ -110,14 +125,29 @@ pub enum Bot {
     Dumb,
     /// The careful bot: picks routes, shops, talks, and fights with [`CAREFUL`].
     Smart,
+    /// The careful bot fighting with [`SAFE_PICK`].
+    SafePick,
 }
 
 impl Bot {
-    /// The program the bot fights with. Neither is the kit's `SAFE`, which only defends.
+    /// The three, in the order the report lists them.
+    pub const ALL: [Bot; 3] = [Bot::Dumb, Bot::Smart, Bot::SafePick];
+
+    /// The program the bot fights with.
     pub fn program(self) -> &'static str {
         match self {
             Bot::Dumb => DUMB,
             Bot::Smart => CAREFUL,
+            Bot::SafePick => SAFE_PICK,
+        }
+    }
+
+    /// What the report calls it.
+    pub fn label(self) -> &'static str {
+        match self {
+            Bot::Dumb => "DUMB",
+            Bot::Smart => "CAREFUL",
+            Bot::SafePick => "SAFE_PICK",
         }
     }
 }
@@ -128,6 +158,8 @@ pub struct RunLog {
     /// Strength each program (by warez id) took off ICE.
     pub breaks: Vec<(String, u32)>,
     pub fights: u32,
+    /// Turns all its fights took, together.
+    pub turns: u32,
     /// BBS downloads: (what kind of file, price).
     pub bought: Vec<(&'static str, u32)>,
     /// Contracts taken (jobs boards and fixers) and settled, and what they actually paid.
@@ -170,7 +202,7 @@ pub fn play_knowing(mut g: Game, bot: Bot, known: &[String]) -> (Game, RunLog) {
         steps += 1;
         match g.phase {
             Phase::Exploring => {
-                if bot == Bot::Smart {
+                if bot != Bot::Dumb {
                     let here = (g.outer.is_some(), g.at);
                     if g.at_bbs() && !shopped.contains(&here) {
                         shopped.push(here);
@@ -179,7 +211,7 @@ pub fn play_knowing(mut g: Game, bot: Bot, known: &[String]) -> (Game, RunLog) {
                 }
                 let to = match bot {
                     Bot::Dumb => g.reachable().first().copied(),
-                    Bot::Smart => best_route(&g),
+                    Bot::Smart | Bot::SafePick => best_route(&g),
                 };
                 let Some(to) = to else { break };
                 g.apply(Action::Move(to));
@@ -188,9 +220,15 @@ pub fn play_knowing(mut g: Game, bot: Bot, known: &[String]) -> (Game, RunLog) {
                 }
             }
             Phase::Combat => {
+                // A fight ends in the turn it's on: won in it, or the deck lost at its end.
+                let fight = g.combat.as_ref().map(|c| (c.node, c.turn));
+                let ended = |g: &Game| g.combat.as_ref().map(|c| c.node) != fight.map(|f| f.0);
                 if handed {
                     handed = false;
                     g.apply(Action::EndTurn);
+                    if ended(&g) {
+                        log.turns += fight.map_or(0, |f| f.1);
+                    }
                     continue;
                 }
                 // Play sets it running and runs a line; the rest of the turn is Finish's.
@@ -215,11 +253,14 @@ pub fn play_knowing(mut g: Game, bot: Bot, known: &[String]) -> (Game, RunLog) {
                     }
                 }
                 handed = g.phase == Phase::Combat && g.exec.state != ExecState::Running;
+                if ended(&g) {
+                    log.turns += fight.map_or(0, |f| f.1);
+                }
             }
             Phase::Encounter => {
                 let pick = match bot {
                     Bot::Dumb => g.leave_choice(),
-                    Bot::Smart => talk(&g, known, &mut log),
+                    Bot::Smart | Bot::SafePick => talk(&g, known, &mut log),
                 };
                 let Some(choice) = pick.or_else(|| g.leave_choice()) else {
                     break;
@@ -600,12 +641,17 @@ pub struct TierStats {
     pub ice: u32,
     pub black_ice: u32,
     pub banked: u64,
+    /// Fights in these runs, and the turns they took.
+    pub fights: u32,
+    pub turns: u32,
 }
 
 impl TierStats {
-    fn add(&mut self, f: Fate, banked: u32) {
+    fn add(&mut self, f: Fate, banked: u32, log: &RunLog) {
         self.runs += 1;
         self.banked += u64::from(banked);
+        self.fights += log.fights;
+        self.turns += log.turns;
         match f {
             Fate::Exit => self.exits += 1,
             Fate::Traced => self.traced += 1,
@@ -616,6 +662,27 @@ impl TierStats {
 
     pub fn win_pct(&self) -> u32 {
         pct(self.exits, self.runs)
+    }
+
+    /// Turns a fight took, on average.
+    pub fn turns_per_fight(&self) -> f32 {
+        if self.fights == 0 {
+            0.0
+        } else {
+            self.turns as f32 / self.fights as f32
+        }
+    }
+
+    /// The row the report prints for it: out, traced, ICE, black ICE, turns a fight.
+    fn row(&self) -> String {
+        format!(
+            "{:>3}%  {:>5}%  {:>3}% {:>5}%  {:>5.1}",
+            self.win_pct(),
+            pct(self.traced, self.runs),
+            pct(self.ice, self.runs),
+            pct(self.black_ice, self.runs),
+            self.turns_per_fight()
+        )
     }
 }
 
@@ -691,10 +758,12 @@ pub const CHECKPOINTS: [u32; 6] = [10, 20, 40, 60, 80, 100];
 /// Everything the probe has seen so far.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Stats {
-    /// Spot checks: [dumb, smart] per tier 1..=3.
-    pub spot: [[TierStats; 3]; 2],
+    /// Spot checks: per bot in [`Bot::ALL`]'s order, per tier 1..=3.
+    pub spot: [[TierStats; 3]; 3],
     /// Career runs, per tier 1..=3.
     pub career: [TierStats; 3],
+    /// The same careers fighting with [`SAFE_PICK`], per tier 1..=3.
+    pub career_pick: [TierStats; 3],
     /// Run (1-based) of each career's first exit at tier 2 and tier 3; 0 if never.
     pub first_exit: Vec<[u32; 2]>,
     /// At each checkpoint: (careers that got there, total bank, total upgrade levels).
@@ -817,12 +886,17 @@ impl Probe {
     }
 
     fn spot_total(&self) -> u32 {
-        self.cfg.spot_runs * 3 * 2
+        self.cfg.spot_runs * 3 * Bot::ALL.len() as u32
+    }
+
+    /// Careers in all: each played with [`CAREFUL`], then again with [`SAFE_PICK`].
+    fn careers_total(&self) -> u32 {
+        self.cfg.careers * 2
     }
 
     /// Runs played and runs in all.
     pub fn progress(&self) -> (u32, u32) {
-        let total = self.spot_total() + self.cfg.careers * self.cfg.career_runs;
+        let total = self.spot_total() + self.careers_total() * self.cfg.career_runs;
         let done = self.spot_done + self.career * self.cfg.career_runs + self.run;
         (done.min(total), total)
     }
@@ -837,7 +911,7 @@ impl Probe {
         for _ in 0..runs {
             if self.spot_done < self.spot_total() {
                 self.spot_run();
-            } else if self.career < self.cfg.careers {
+            } else if self.career < self.careers_total() {
                 self.career_run();
             } else {
                 return true;
@@ -850,7 +924,7 @@ impl Probe {
         let k = self.spot_done;
         let per = self.cfg.spot_runs;
         let (bot_ix, tier, seed) = (k / (per * 3), (k / per) % 3 + 1, u64::from(k % per));
-        let bot = if bot_ix == 0 { Bot::Dumb } else { Bot::Smart };
+        let bot = Bot::ALL[bot_ix as usize];
         let mut save = Save {
             program: Some(bot.program().to_string()),
             ..Save::default()
@@ -867,18 +941,26 @@ impl Probe {
             last: Vec::new(),
         });
         if let Ok(g) = save.dial(&self.data, 0, self.cfg.seed ^ seed.wrapping_mul(0x9E37)) {
-            let (g, _) = play(g, bot);
+            let (g, log) = play(g, bot);
             let f = fate(&g);
             let banked = if f == Fate::Exit { g.deck.credits } else { 0 };
-            self.stats.spot[bot_ix as usize][tier as usize - 1].add(f, banked);
+            self.stats.spot[bot_ix as usize][tier as usize - 1].add(f, banked, &log);
         }
         self.spot_done += 1;
     }
 
+    /// Whether this career fights with [`SAFE_PICK`]: the second round of careers, on the same
+    /// seeds as the first.
+    fn picking(&self) -> bool {
+        self.career >= self.cfg.careers
+    }
+
     fn career_run(&mut self) {
+        let picking = self.picking();
+        let bot = if picking { Bot::SafePick } else { Bot::Smart };
         let mut rng = Rng::new(
             self.cfg.seed
-                ^ u64::from(self.career).wrapping_mul(0xC0FF_EE11)
+                ^ u64::from(self.career % self.cfg.careers.max(1)).wrapping_mul(0xC0FF_EE11)
                 ^ u64::from(self.run).wrapping_mul(0x9E37_79B9),
         );
         let data = self.data.clone();
@@ -886,7 +968,7 @@ impl Probe {
         let save = self.save.get_or_insert_with(|| {
             let mut s = Save {
                 kit,
-                program: Some(CAREFUL.to_string()),
+                program: Some(bot.program().to_string()),
                 ..Save::default()
             };
             let seed = rng.next_u64();
@@ -938,7 +1020,7 @@ impl Probe {
             return;
         };
         let known: Vec<String> = save.ranges.iter().map(|r| r.id.clone()).collect();
-        let (g, log) = play_knowing(g, Bot::Smart, &known);
+        let (g, log) = play_knowing(g, bot, &known);
         // Take home every program that isn't a starter, while the stash has room.
         let keep: Vec<usize> = (0..g.hdd.len())
             .filter(|&i| !save.free(&data).contains(&g.data.warez[g.hdd[i].warez].id))
@@ -946,12 +1028,51 @@ impl Probe {
         let report = save.record(&g, &keep, &data.rig);
         let banked = report.as_ref().map_or(0, |r| r.banked);
         let f = fate(&g);
-        self.stats.career[tier as usize - 1].add(f, banked);
+        if picking {
+            // The second round only says how its runs ended.
+            self.stats.career_pick[tier as usize - 1].add(f, banked, &log);
+        } else {
+            self.stats.career[tier as usize - 1].add(f, banked, &log);
+        }
+        if !picking {
+            self.tally(&log, tier, f, banked);
+        }
+        let exit = report.is_some_and(|r| r.end == RunEnd::Exit);
+        if !picking && exit && tier >= 2 && self.first[tier as usize - 2] == 0 {
+            self.first[tier as usize - 2] = self.run + 1;
+        }
+        // Climb after three exits in a row, drop back after two flatlines in a row.
+        if tier == self.tier {
+            self.recent.push(exit);
+        }
+        let last = |n: usize, want: bool| {
+            self.recent.len() >= n
+                && self.recent[self.recent.len() - n..]
+                    .iter()
+                    .all(|&x| x == want)
+        };
+        if last(3, true) && self.tier < 3 {
+            self.tier += 1;
+            self.recent.clear();
+        } else if last(2, false) && self.tier > 1 {
+            self.tier -= 1;
+            self.recent.clear();
+        }
+        self.shop(rng.next_u64());
+        self.next_run();
+    }
+
+    /// Adds a career run of the first round to everything else the report says.
+    fn tally(&mut self, log: &RunLog, tier: u32, f: Fate, banked: u32) {
+        let Some(save) = self.save.as_ref() else {
+            return;
+        };
+        let data = &self.data;
         if tier == 3 {
             // A run never changes the deck, so this is the deck it dialed on.
             let chassis = (
                 save.deck.clone(),
-                save.stat_cap(&data, Upgrade::Cpu).unwrap_or(0),
+                save.stat_cap(data, Upgrade::Cpu).unwrap_or(0),
             );
             match self
                 .stats
@@ -959,10 +1080,10 @@ impl Probe {
                 .iter_mut()
                 .find(|(c, _)| *c == chassis)
             {
-                Some((_, t)) => t.add(f, banked),
+                Some((_, t)) => t.add(f, banked, log),
                 None => {
                     let mut t = TierStats::default();
-                    t.add(f, banked);
+                    t.add(f, banked, log);
                     self.stats.t3_by_chassis.push((chassis, t));
                 }
             }
@@ -1001,41 +1122,28 @@ impl Probe {
                 None => self.stats.talks.push((t.to_string(), 1)),
             }
         }
-        for (id, n) in log.breaks {
-            match self.stats.breaks.iter_mut().find(|(w, _)| *w == id) {
-                Some((_, t)) => *t += u64::from(n),
-                None => self.stats.breaks.push((id, u64::from(n))),
+        for (id, n) in &log.breaks {
+            match self.stats.breaks.iter_mut().find(|(w, _)| w == id) {
+                Some((_, t)) => *t += u64::from(*n),
+                None => self.stats.breaks.push((id.clone(), u64::from(*n))),
             }
         }
-        let exit = report.is_some_and(|r| r.end == RunEnd::Exit);
-        if exit && tier >= 2 && self.first[tier as usize - 2] == 0 {
-            self.first[tier as usize - 2] = self.run + 1;
+    }
+
+    /// Shops for the career ([`Probe::spend`]). The second round's careers shop the same way,
+    /// but what they buy isn't the report's: it only says how their runs ended.
+    fn shop(&mut self, seed: u64) {
+        let kept = self.picking().then(|| self.stats.clone());
+        self.spend(seed);
+        if let Some(stats) = kept {
+            self.stats = stats;
         }
-        // Climb after three exits in a row, drop back after two flatlines in a row.
-        if tier == self.tier {
-            self.recent.push(exit);
-        }
-        let last = |n: usize, want: bool| {
-            self.recent.len() >= n
-                && self.recent[self.recent.len() - n..]
-                    .iter()
-                    .all(|&x| x == want)
-        };
-        if last(3, true) && self.tier < 3 {
-            self.tier += 1;
-            self.recent.clear();
-        } else if last(2, false) && self.tier > 1 {
-            self.tier -= 1;
-            self.recent.clear();
-        }
-        self.shop(rng.next_u64());
-        self.next_run();
     }
 
     /// Spends the bank the way a sensible player might: a reserve for the phone bill, then the
     /// cheapest of CPU, integrity and RAM, then HDD and stash; and a wardial when the next tier
     /// up has no number yet.
-    fn shop(&mut self, _seed: u64) {
+    fn spend(&mut self, _seed: u64) {
         let run = self.run + 1;
         let Some(save) = self.save.as_mut() else {
             return;
@@ -1136,7 +1244,10 @@ impl Probe {
 
     fn next_run(&mut self) {
         self.run += 1;
-        if let Some(i) = CHECKPOINTS.iter().position(|&c| c == self.run)
+        // The second round of careers (SAFE_PICK) only reports its exits and deaths.
+        let first = !self.picking();
+        if first
+            && let Some(i) = CHECKPOINTS.iter().position(|&c| c == self.run)
             && let Some(s) = &self.save
         {
             let levels: u32 = [
@@ -1157,7 +1268,8 @@ impl Probe {
             a.1 += u64::from(s.bank);
             a.2 += u64::from(levels);
         }
-        if self.t3_range == 0
+        if first
+            && self.t3_range == 0
             && let Some(s) = &self.save
             && s.ranges.iter().any(|k| {
                 self.data
@@ -1168,16 +1280,19 @@ impl Probe {
         {
             self.t3_range = self.run;
         }
-        if self.maxed == 0
+        if first
+            && self.maxed == 0
             && let Some(s) = &self.save
             && maxed_out(s, &self.data)
         {
             self.maxed = self.run;
         }
         if self.run >= self.cfg.career_runs {
-            self.stats.first_exit.push(self.first);
-            self.stats.t3_range.push(self.t3_range);
-            self.stats.maxed.push(self.maxed);
+            if first {
+                self.stats.first_exit.push(self.first);
+                self.stats.t3_range.push(self.t3_range);
+                self.stats.maxed.push(self.maxed);
+            }
             self.t3_range = 0;
             self.maxed = 0;
             self.career += 1;
@@ -1206,19 +1321,16 @@ impl Probe {
             out.push(format!("  careers climb to {}", short(&d.title(), 48)));
         }
         out.push(String::new());
-        out.push("single runs, plain network       dumb bot    smart bot".into());
-        for t in 0..3 {
-            let (d, m) = (&s.spot[0][t], &s.spot[1][t]);
-            out.push(format!(
-                "  tier {}                          {:>3}% out     {:>3}% out",
-                t + 1,
-                d.win_pct(),
-                m.win_pct()
-            ));
+        out.push("single runs, plain network".into());
+        out.push("  program    tier  out   traced  ice  black  turns/fight".into());
+        for (b, bot) in Bot::ALL.iter().enumerate() {
+            for (t, ts) in s.spot[b].iter().enumerate() {
+                out.push(format!("  {:<10} {:>4} {}", bot.label(), t + 1, ts.row()));
+            }
         }
         out.push(String::new());
         out.push("careers (smart bot, climbing)".into());
-        out.push("  tier  runs  out   traced  ice  black   avg banked/run".into());
+        out.push("  tier  runs  out   traced  ice  black  turns/fight  banked/run".into());
         for (t, c) in s.career.iter().enumerate() {
             let avg = if c.runs == 0 {
                 0
@@ -1226,17 +1338,20 @@ impl Probe {
                 c.banked / u64::from(c.runs)
             };
             out.push(format!(
-                "  {:>4} {:>5} {:>3}%  {:>5}%  {:>3}% {:>5}%  {:>8}¢",
+                "  {:>4} {:>5} {}  {:>12}¢",
                 t + 1,
                 c.runs,
-                c.win_pct(),
-                pct(c.traced, c.runs),
-                pct(c.ice, c.runs),
-                pct(c.black_ice, c.runs),
+                c.row(),
                 avg
             ));
         }
         let mut by = s.t3_by_chassis.clone();
+        let pick_rows: Vec<String> = s
+            .career_pick
+            .iter()
+            .enumerate()
+            .map(|(t, c)| format!("  {:>4} {:>5} {}", t + 1, c.runs, c.row()))
+            .collect();
         by.sort_by(|a, b| (a.0.1, &a.0.0).cmp(&(b.0.1, &b.0.0)));
         for ((deck, cap), t) in by {
             let deck = short(
@@ -1267,6 +1382,10 @@ impl Probe {
                 None => format!("  first {label} exit: never, in {n} careers"),
             });
         }
+        out.push(String::new());
+        out.push("the same careers fighting with SAFE_PICK".into());
+        out.push("  tier  runs  out   traced  ice  black  turns/fight".into());
+        out.extend(pick_rows);
         out.push(String::new());
         out.push("money".into());
         for (i, c) in CHECKPOINTS.iter().enumerate() {
