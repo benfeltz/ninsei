@@ -339,9 +339,12 @@ fn next_is_what_the_ice_does() {
                 let first = c.ice_exec.trace.iter().find(|s| {
                     c.ice_prog
                         .line(s.line)
-                        .is_some_and(|l| l.stmt.action().is_some())
+                        .is_some_and(|l| matches!(l.stmt, basic::Stmt::Act(_)))
                 });
-                let did = first.and_then(|s| c.ice_prog.line(s.line)?.stmt.action());
+                let did = first.and_then(|s| match c.ice_prog.line(s.line)?.stmt {
+                    basic::Stmt::Act(a) => Some(a),
+                    _ => None,
+                });
                 if stunned {
                     assert_eq!(said, None);
                 } else {

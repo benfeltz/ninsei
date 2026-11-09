@@ -1,6 +1,7 @@
 //! The deck's BASIC: parsing and printing programs, and running them in a fight.
 
 use ninsei_core::basic::{self, Cond, Move, Op, Stmt, Var};
+use ninsei_core::data::Intent;
 
 const SAMPLE: &str = "10 RUN icepick\n20 IF INTEG < 10\n30 RUN patch\n40 GOTO 10";
 
@@ -572,11 +573,11 @@ fn an_ice_program_parses_and_prints_back() {
         stmts,
         [
             &Stmt::If(Cond::Target(Target::Shield, Op::Gt, 0)),
-            &Stmt::Trace(4),
+            &Stmt::Act(Intent::Trace(4)),
             &Stmt::If(Cond::Target(Target::Integ, Op::Lt, 7)),
-            &Stmt::Attack(5),
+            &Stmt::Act(Intent::Attack(5)),
             &Stmt::If(Cond::Target(Target::Cpu, Op::Eq, 0)),
-            &Stmt::Fortify(2),
+            &Stmt::Act(Intent::Fortify(2)),
             &Stmt::If(Cond::TargetRan("patch".into())),
             &Stmt::If(Cond::SelfStr(Op::Lt, 10)),
             &Stmt::If(Cond::Cmp(Var::Turn, Op::Gt, 3)),
@@ -615,13 +616,16 @@ fn an_ice_only_has_its_own_verbs() {
         "10 ATTACK 3\n20 TRACE 4\n30 ATTACK",
         basic::Vocab::Ice(&verbs),
     );
-    assert_eq!(p.line(10).map(|l| &l.stmt), Some(&Stmt::Attack(3)));
+    assert_eq!(
+        p.line(10).map(|l| &l.stmt),
+        Some(&Stmt::Act(Intent::Attack(3)))
+    );
     assert!(p.fault(20).is_some(), "TRACE isn't on its row");
     assert!(p.fault(30).is_some(), "a verb takes a number");
     let big = basic::parse_with("10 ATTACK 999\n20 ATTACK 1000", basic::Vocab::Ice(&verbs));
     assert_eq!(
         big.line(10).map(|l| &l.stmt),
-        Some(&Stmt::Attack(basic::MAX_ARG))
+        Some(&Stmt::Act(Intent::Attack(basic::MAX_ARG)))
     );
     assert!(big.fault(20).is_some(), "past MAX_ARG: {big:?}");
 }

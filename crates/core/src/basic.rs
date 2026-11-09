@@ -46,6 +46,15 @@ pub enum Verb {
 }
 
 impl Verb {
+    /// The move it makes, with its number.
+    pub fn with(self, n: u32) -> Intent {
+        match self {
+            Verb::Attack => Intent::Attack(n),
+            Verb::Trace => Intent::Trace(n),
+            Verb::Fortify => Intent::Fortify(n),
+        }
+    }
+
     /// The word a program writes it as.
     pub fn word(self) -> &'static str {
         match self {
@@ -113,26 +122,10 @@ pub enum Stmt {
     Stop,
     /// A comment: does nothing.
     Rem,
-    /// An ICE's verb: hit the deck for n, less its shield.
-    Attack(u32),
-    /// An ICE's verb: raise the trace by n.
-    Trace(u32),
-    /// An ICE's verb: add n to its strength.
-    Fortify(u32),
+    /// An ICE's verb, as the move it makes: `ATTACK n`, `TRACE n` or `FORTIFY n`.
+    Act(Intent),
     /// Didn't parse; the interpreter's reason. Skipped when the program runs.
     Bad(String),
-}
-
-impl Stmt {
-    /// The ICE's action this statement takes, if it's one of the ICE's verbs.
-    pub fn action(&self) -> Option<Intent> {
-        match *self {
-            Stmt::Attack(n) => Some(Intent::Attack(n)),
-            Stmt::Trace(n) => Some(Intent::Trace(n)),
-            Stmt::Fortify(n) => Some(Intent::Fortify(n)),
-            _ => None,
-        }
-    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -280,7 +273,7 @@ impl Program {
             let Some(l) = self.line(no) else { continue };
             let after = self.after(no);
             match &l.stmt {
-                s if s.action().is_some() => return true,
+                Stmt::Act(_) => return true,
                 Stmt::Stop => {}
                 Stmt::If(_) => todo.extend(after.into_iter().chain(self.skip(after))),
                 Stmt::Goto(to) if self.line(*to).is_some() => todo.push(*to),
@@ -436,11 +429,7 @@ pub fn parse_stmt_with(text: &str, vocab: Vocab) -> Stmt {
             Vocab::Ice(verbs) => match verbs.iter().find(|v| v.word() == word) {
                 Some(v) => match rest {
                     [n] => match n.parse::<u32>() {
-                        Ok(n) if n <= MAX_ARG => match v {
-                            Verb::Attack => Stmt::Attack(n),
-                            Verb::Trace => Stmt::Trace(n),
-                            Verb::Fortify => Stmt::Fortify(n),
-                        },
+                        Ok(n) if n <= MAX_ARG => Stmt::Act(v.with(n)),
                         _ => bad("needs a number up to 999"),
                     },
                     _ => bad("needs a number"),

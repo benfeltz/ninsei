@@ -773,11 +773,8 @@ impl Game {
                 }
                 Stmt::Goto(to) if p.line(*to).is_some() => pc = Some(*to),
                 Stmt::Stop => return None,
-                stmt => {
-                    if let Some(a) = stmt.action() {
-                        return Some(a);
-                    }
-                }
+                Stmt::Act(a) => return Some(*a),
+                _ => {}
             }
         }
     }
@@ -1521,16 +1518,16 @@ impl Game {
                         Err(why) => self.trace_step(side, no, StepWhat::Skipped(why)),
                     }
                 }
-                Stmt::Attack(_) | Stmt::Trace(_) | Stmt::Fortify(_) if side == Side::Ice => {
+                Stmt::Act(a) if side == Side::Ice => {
                     if let Some(c) = self.combat.as_mut() {
                         c.ice_cpu -= 1;
                     }
                     self.ex_mut(side).visited.clear();
-                    let what = stmt.action().map_or(StepWhat::Lagged, |a| self.act(a));
+                    let what = self.act(a);
                     self.trace_step(side, no, what);
                 }
                 // The other side's words: its parser never lets them in.
-                Stmt::Run(_) | Stmt::Attack(_) | Stmt::Trace(_) | Stmt::Fortify(_) => {
+                Stmt::Run(_) | Stmt::Act(_) => {
                     let why = "?SYNTAX ERROR: unknown keyword".to_string();
                     self.trace_step(side, no, StepWhat::Skipped(why));
                 }

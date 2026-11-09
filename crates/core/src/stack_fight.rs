@@ -265,9 +265,7 @@ fn block(g: &Game, l: &basic::Line, pc: Option<u32>, fighting: bool) -> Block {
             (BlockKind::Rem, None, Vec::new(), words)
         }
         // An ICE's verbs are a bad line in the deck's program, which never parses them.
-        Stmt::Bad(_) | Stmt::Attack(_) | Stmt::Trace(_) | Stmt::Fortify(_) => {
-            (BlockKind::Bad, None, Vec::new(), l.text.clone())
-        }
+        Stmt::Bad(_) | Stmt::Act(_) => (BlockKind::Bad, None, Vec::new(), l.text.clone()),
     };
     Block {
         no: l.no,
