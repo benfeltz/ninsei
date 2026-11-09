@@ -92,6 +92,8 @@ impl Game {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NextMove {
     Act(Intent),
+    /// Its `SPOOF` hides it.
+    Spoofed,
     Lagged,
     Idle,
 }
@@ -99,6 +101,8 @@ pub enum NextMove {
 impl NextMove {
     /// What an idle ICE's NEXT reads.
     pub const IDLE: &'static str = "-";
+    /// What a spoofed NEXT reads, on every deck.
+    pub const SPOOFED: &'static str = "???";
 
     /// As a screen prints it: the move, or `-`; `lagged` is the deck's own words for a lag
     /// (the Sense/Net's "(lagged, skips)", the Hosaka's "(deferred)").
@@ -107,6 +111,7 @@ impl NextMove {
             NextMove::Act(i) => i.describe(),
             NextMove::Lagged => lagged.to_string(),
             NextMove::Idle => NextMove::IDLE.to_string(),
+            NextMove::Spoofed => NextMove::SPOOFED.to_string(),
         }
     }
 }
@@ -115,7 +120,9 @@ impl Game {
     /// The ICE's NEXT, if fighting: `Game::ice_next`, or why there's no move.
     pub fn next_move(&self) -> Option<NextMove> {
         let c = self.combat.as_ref()?;
-        Some(if c.stunned {
+        Some(if c.spoofed > 0 {
+            NextMove::Spoofed
+        } else if c.stunned {
             NextMove::Lagged
         } else {
             self.ice_next().map_or(NextMove::Idle, NextMove::Act)
@@ -233,6 +240,9 @@ impl Game {
             StepWhat::Traced(n) => format!("{no} {text}: traces +{n}."),
             StepWhat::Fortified(n) => format!("{no} {text}: fortifies +{n}."),
             StepWhat::Lagged => format!("{no} {text}: lagged. it does nothing."),
+            StepWhat::Spoofed(n) => {
+                format!("{no} {text}: its next moves are hidden for {n} turns.")
+            }
         };
         match ice {
             Some(c) => format!("{} {said}", self.data.ice[c.ice].name),

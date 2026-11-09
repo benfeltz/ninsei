@@ -81,6 +81,9 @@ pub struct Combat {
     /// The programs (by uid) the deck ran this turn, from its program or the hotbar: what
     /// `TARGET RAN` reads.
     pub ran: Vec<u32>,
+    /// Deck turns its NEXT stays hidden for (its `SPOOF n`), counted down as each of its turns
+    /// starts. A sniffer clears it.
+    pub spoofed: u32,
     /// CPU left this turn.
     pub cpu: u32,
     pub shield: u32,
@@ -548,6 +551,8 @@ pub enum StepWhat {
     Traced(u32),
     /// The ICE's `FORTIFY`: the strength it added.
     Fortified(u32),
+    /// The ICE's `SPOOF n`: its NEXT is hidden for n turns.
+    Spoofed(u32),
     /// An ICE's verb while it's lagged: it does nothing.
     Lagged,
 }
@@ -1074,6 +1079,7 @@ impl Game {
             ice_cpu: def.cpu,
             ice_ifs: def.ram,
             ran: Vec::new(),
+            spoofed: 0,
             cpu: self.deck.cpu_max,
             shield: 0,
             stunned: false,
@@ -1213,6 +1219,7 @@ impl Game {
         };
         let def = &self.data.ice[c.ice];
         c.stun_immune = false;
+        c.spoofed = c.spoofed.saturating_sub(1);
         c.ice_cpu = def.cpu;
         c.ice_ifs = def.ram;
         // A lagged ICE runs its program and does nothing it says: it loses this turn's moves.
@@ -1305,8 +1312,12 @@ impl Game {
                 c.strength_max = c.strength_max.max(c.strength);
                 StepWhat::Fortified(n)
             }
-            // What these do to the deck's program comes in steps 2 and 4 (141.3.3).
-            Intent::Spoof(_) | Intent::Segfault => StepWhat::Lagged,
+            Intent::Spoof(n) => {
+                c.spoofed = c.spoofed.max(n);
+                StepWhat::Spoofed(n)
+            }
+            // What this does to the deck's program comes in step 4 (141.3.3).
+            Intent::Segfault => StepWhat::Lagged,
         }
     }
 
@@ -1335,7 +1346,11 @@ impl Game {
                 op.test(v, *n)
             }
             Cond::IceClass(k) => c.is_some_and(|c| self.data.ice[c.ice].class == *k),
-            Cond::Next(m) => self.ice_next().is_some_and(|i| m.is(i)),
+            // Spoofed or lagged, NEXT names no move: the IF is false (and still spent its GB).
+            Cond::Next(m) => matches!(
+                self.next_move(),
+                Some(crate::fight::NextMove::Act(i)) if m.is(i)
+            ),
             Cond::Have(name) => self.slot_named(name).is_some(),
             Cond::Target(t, op, n) => {
                 let v = match t {
@@ -1425,7 +1440,10 @@ impl Game {
         if said {
             let text = self.step_text_of(side, &step);
             let kind = match step.what {
-                StepWhat::Hit { .. } | StepWhat::Traced(_) | StepWhat::Fortified(_) => LogKind::Bad,
+                StepWhat::Hit { .. }
+                | StepWhat::Traced(_)
+                | StepWhat::Fortified(_)
+                | StepWhat::Spoofed(_) => LogKind::Bad,
                 _ => LogKind::Program,
             };
             self.say(kind, text);

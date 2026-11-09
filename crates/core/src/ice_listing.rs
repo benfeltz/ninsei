@@ -57,7 +57,10 @@ pub fn rows(g: &Game) -> Vec<IceRow> {
         return Vec::new();
     };
     let cursor = c.ice_prog.rest(c.ice_exec.pc.or(c.ice_prog.first()));
-    let next = g.ice_next_at().map(|(no, _)| no);
+    // A spoofed or lagged ICE has no NEXT to mark.
+    let next = matches!(g.next_move(), Some(crate::fight::NextMove::Act(_)))
+        .then(|| g.ice_next_at().map(|(no, _)| no))
+        .flatten();
     let mut rows = decompile(&c.ice_prog, g.ice_seen_lines(c.ice));
     for r in &mut rows {
         r.cursor = Some(r.no) == cursor;
