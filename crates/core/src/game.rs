@@ -84,8 +84,12 @@ pub struct Combat {
     /// Deck turns its NEXT stays hidden for (its `SPOOF n`), counted down as each of its turns
     /// starts. A sniffer clears it.
     pub spoofed: u32,
-    /// The line of the deck's program that last ran a program this turn: what a SEGFAULT hits.
-    pub ran_line: Option<u32>,
+    /// The deck's program's RUNs this turn, in order: (the program's uid, the line it ran
+    /// from). Kept on the fight, so a hang or a Play that restarts the pass doesn't lose them.
+    pub ran_lines: Vec<(u32, u32)>,
+    /// The program the ICE's last true `TARGET RAN` named in its pass this turn: what its
+    /// SEGFAULT goes for.
+    pub marked: Option<String>,
     /// CPU left this turn.
     pub cpu: u32,
     pub shield: u32,
@@ -1085,7 +1089,8 @@ impl Game {
             ice_ifs: def.ram,
             ran: Vec::new(),
             spoofed: 0,
-            ran_line: None,
+            ran_lines: Vec::new(),
+            marked: None,
             cpu: self.deck.cpu_max,
             shield: 0,
             stunned: false,
@@ -1233,6 +1238,7 @@ impl Game {
         let def = &self.data.ice[c.ice];
         c.stun_immune = false;
         c.spoofed = c.spoofed.saturating_sub(1);
+        c.marked = None;
         c.ice_cpu = def.cpu;
         c.ice_ifs = def.ram;
         // A lagged ICE runs its program and does nothing it says: it loses this turn's moves.
@@ -1256,7 +1262,7 @@ impl Game {
         c.ifs = self.deck.ram_max;
         c.turn += 1;
         c.ran.clear();
-        c.ran_line = None;
+        c.ran_lines.clear();
         self.end_pass();
         self.exec.pc = self.top(Side::Deck);
         if let ExecState::Stopped(_) = self.exec.state {
@@ -1274,25 +1280,11 @@ impl Game {
         Ok(())
     }
 
-    /// The ICE's `SEGFAULT`: garbles the deck's line that last ran a program this turn (or its
-    /// first line that does something and isn't garbled), its text scrambled from the run's RNG
-    /// so the same seed garbles the same way. The line is bad until it's retyped; no meter moves.
+    /// The ICE's `SEGFAULT`: garbles a line of the deck's program, its text scrambled from the
+    /// run's RNG so the same seed garbles the same way. The line is bad until it's retyped; no
+    /// meter moves. Which line (`Game::segfault_target`) is readable from both programs.
     fn segfault(&mut self) -> StepWhat {
-        // The line its pass last ran a program from (kept on the fight, so a hang or a Play
-        // that restarts the pass doesn't lose it), or the first line that does something and
-        // isn't garbled already.
-        let ran = self
-            .combat
-            .as_ref()
-            .and_then(|c| c.ran_line)
-            .filter(|&no| self.program.line(no).is_some());
-        let hit = ran.or_else(|| {
-            self.program
-                .lines
-                .iter()
-                .find(|l| !matches!(l.stmt, Stmt::Rem | Stmt::Bad(_)))
-                .map(|l| l.no)
-        });
+        let hit = self.segfault_target();
         let Some(no) = hit else {
             return StepWhat::Segfaulted(None);
         };
@@ -1305,6 +1297,50 @@ impl Game {
             .collect();
         self.program.garble(no, &text);
         StepWhat::Segfaulted(Some(no))
+    }
+
+    /// The line a SEGFAULT hits. After a true `TARGET RAN <program>` in its pass: the last line
+    /// that ran that program this turn, or, if the hotbar ran it, the first line that RUNs it;
+    /// none if the program never names it. So moving the RUN, or running a second program in
+    /// its place, is the counter. With no `TARGET RAN`: the last line that ran any program this
+    /// turn, else the first line that does something. Never a line already garbled.
+    fn segfault_target(&self) -> Option<u32> {
+        let c = self.combat.as_ref()?;
+        let alive = |no: &u32| {
+            self.program
+                .line(*no)
+                .is_some_and(|l| !matches!(l.stmt, Stmt::Rem | Stmt::Bad(_)))
+        };
+        let Some(name) = &c.marked else {
+            return c
+                .ran_lines
+                .iter()
+                .rev()
+                .map(|(_, no)| *no)
+                .find(alive)
+                .or_else(|| self.program.lines.iter().map(|l| l.no).find(alive));
+        };
+        let named = |uid: u32| {
+            self.hdd.iter().any(|s| {
+                s.uid == uid
+                    && crate::basic::names(name, &s.spec.name, &self.data.warez[s.warez].id)
+            })
+        };
+        let slot = self.slot_named(name);
+        c.ran_lines
+            .iter()
+            .rev()
+            .filter(|(uid, _)| named(*uid))
+            .map(|(_, no)| *no)
+            .find(alive)
+            .or_else(|| {
+                self.program
+                    .lines
+                    .iter()
+                    .filter(|l| matches!(&l.stmt, Stmt::Run(n) if slot.is_some() && self.slot_named(n) == slot))
+                    .map(|l| l.no)
+                    .find(alive)
+            })
     }
 
     /// Notes that the deck saw the current ICE run line `no` (`Game::ice_lines`).
@@ -1616,7 +1652,7 @@ impl Game {
                             let uid = self.hdd[slot].uid;
                             self.apply(Action::Run(slot));
                             if let Some(c) = self.combat.as_mut() {
-                                c.ran_line = Some(no);
+                                c.ran_lines.push((uid, no));
                             }
                             // The RUN broke this ICE and the next one rezzed, its fight starting
                             // with a fresh `Exec`: the pass carries on into it, from its first
@@ -1674,6 +1710,12 @@ impl Game {
                     // through the RAM and ends the turn, it doesn't hang.
                     self.ex_mut(side).visited.clear();
                     let yes = self.test(&cond);
+                    // A true TARGET RAN marks the program its SEGFAULT goes for.
+                    if let (Side::Ice, true, Cond::TargetRan(name)) = (side, yes, &cond)
+                        && let Some(c) = self.combat.as_mut()
+                    {
+                        c.marked = Some(name.clone());
+                    }
                     self.trace_step(side, no, StepWhat::If(yes));
                     if !yes {
                         let to = self.prog(side).skip(next);

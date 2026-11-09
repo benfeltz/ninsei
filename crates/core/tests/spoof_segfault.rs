@@ -324,3 +324,50 @@ fn a_deck_program_can_read_a_spoof_or_a_segfault_coming() {
     // The Stack's NEXT menu offers them.
     assert!(basic::INTENTS.contains(&"SEGFAULT") && basic::INTENTS.contains(&"SPOOF"));
 }
+
+#[test]
+fn segfault_hits_the_line_that_ran_what_its_target_ran_named() {
+    use ninsei_core::*;
+    let hydra_like = r"10 IF TARGET RAN firewall\n20 SEGFAULT\n30 ATTACK 1";
+    // SAFE plus icepick: the firewall runs at 50, then icepick at 55. The firewall line goes.
+    let prog = "40 IF INTEG > 0\n50 RUN firewall\n55 RUN icepick";
+    let mut g = fight_on(with_row(hydra_like, "Segfault, Attack"), prog);
+    g.apply(Action::Finish);
+    assert!(g.program.fault(50).is_some(), "{}", g.program.text());
+    assert!(g.program.fault(55).is_none(), "not the last line that ran");
+
+    // Run from the hotbar: the line that would have run it goes.
+    let mut g = fight_on(
+        with_row(hydra_like, "Segfault, Attack"),
+        "10 RUN icepick\n20 RUN firewall",
+    );
+    let fw = g.slot_named("firewall").unwrap();
+    g.apply(Action::Run(fw));
+    g.apply(Action::EndTurn);
+    assert!(g.program.fault(20).is_some(), "{}", g.program.text());
+    assert!(g.program.fault(10).is_none());
+
+    // The counter: a program that doesn't name the firewall keeps every line.
+    let mut g = fight_on(with_row(hydra_like, "Segfault, Attack"), "10 RUN icepick");
+    let fw = g.slot_named("firewall").unwrap();
+    g.apply(Action::Run(fw));
+    g.apply(Action::EndTurn);
+    assert!(g.program.fault(10).is_none(), "{}", g.program.text());
+    assert!(
+        g.log
+            .iter()
+            .any(|l| l.text.contains("SEGFAULT: finds nothing to garble."))
+    );
+
+    // And a spare: with the first firewall line garbled, the next one that names it goes.
+    let mut g = fight_on(
+        with_row(hydra_like, "Segfault, Attack"),
+        "10 RUN firewall\n20 RUN icepick\n30 RUN firewall",
+    );
+    g.program.garble(10, "#$%&@!?*");
+    let fw = g.slot_named("firewall").unwrap();
+    g.apply(Action::Run(fw));
+    g.apply(Action::EndTurn);
+    assert!(g.program.fault(30).is_some(), "{}", g.program.text());
+    assert!(g.program.fault(20).is_none());
+}

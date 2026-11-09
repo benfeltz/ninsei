@@ -86,9 +86,8 @@
             80 SPOOF 2
             85 TRACE 4
             90 GOTO 10"),
-    // Black ICE. A code gate that garbles your program the turn you raise a firewall (the last
-    // line that ran a program), traces you whenever you're shielded, rewriting itself as it
-    // does, and otherwise hits. It sits deep, where every layer adds to its strength.
+    // Black ICE. A code gate that garbles the line that raised your firewall, traces you
+    // whenever you're shielded, rewriting itself as it does, and otherwise hits. It sits deep, where every layer adds to its strength.
     (id: "hydra",      name: "Hydra",      class: CodeGate, tier: 2, strength: 11,
         cpu: 1, ram: 2, verbs: [Trace, Attack, Fortify, Segfault],
         program: "
