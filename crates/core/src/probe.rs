@@ -1170,20 +1170,12 @@ impl Probe {
         }
     }
 
-    /// Shops for the career ([`Probe::spend`]). The second round's careers shop the same way,
-    /// but what they buy isn't the report's: it only says how their runs ended.
-    fn shop(&mut self, seed: u64) {
-        let kept = self.picking().then(|| self.stats.clone());
-        self.spend(seed);
-        if let Some(stats) = kept {
-            self.stats = stats;
-        }
-    }
-
     /// Spends the bank the way a sensible player might: a reserve for the phone bill, then the
     /// cheapest of CPU, integrity and RAM, then HDD and stash; and a wardial when the next tier
-    /// up has no number yet.
-    fn spend(&mut self, _seed: u64) {
+    /// up has no number yet. The second round's careers shop the same way, but what they buy
+    /// isn't the report's: it only says how their runs ended.
+    fn shop(&mut self, _seed: u64) {
+        let record = !self.picking();
         let run = self.run + 1;
         let Some(save) = self.save.as_mut() else {
             return;
@@ -1210,8 +1202,10 @@ impl Probe {
             for r in ranges {
                 let before = save.phonebook.len();
                 if save.wardial(data, &r).is_ok() {
-                    self.stats.scans += 1;
-                    self.stats.found += (save.phonebook.len() - before) as u32;
+                    if record {
+                        self.stats.scans += 1;
+                        self.stats.found += (save.phonebook.len() - before) as u32;
+                    }
                     break;
                 }
             }
@@ -1253,7 +1247,7 @@ impl Probe {
                 if save.use_deck(data, &deck).is_err() {
                     break;
                 }
-                if !owned {
+                if record && !owned {
                     let title = save.deck_def(data).title();
                     match self.stats.decks.iter_mut().find(|(t, _, _)| *t == title) {
                         Some((_, n, sum)) => {
@@ -1271,6 +1265,9 @@ impl Probe {
             }
             if save.buy(data, u).is_err() {
                 break;
+            }
+            if !record {
+                continue;
             }
             match self.stats.buys.iter_mut().find(|(k, _, _)| *k == u) {
                 Some((_, n, sum)) => {
