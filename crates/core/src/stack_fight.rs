@@ -238,6 +238,8 @@ fn if_fields(g: &Game, cond: &basic::Cond) -> Vec<Field> {
             vec![menu("NEXT", &SUBJECTS), menu(m, &basic::INTENTS)]
         }
         Cond::Have(name) => vec![menu("HAVE", &SUBJECTS), programs(g, shown(g, name))],
+        // An ICE's conditions: the deck's program never parses them.
+        Cond::Target(..) | Cond::TargetRan(_) | Cond::SelfStr(..) => Vec::new(),
     }
 }
 
@@ -262,7 +264,10 @@ fn block(g: &Game, l: &basic::Line, pc: Option<u32>, fighting: bool) -> Block {
             let words = l.text.get(3..).unwrap_or("").trim().to_string();
             (BlockKind::Rem, None, Vec::new(), words)
         }
-        Stmt::Bad(_) => (BlockKind::Bad, None, Vec::new(), l.text.clone()),
+        // An ICE's verbs are a bad line in the deck's program, which never parses them.
+        Stmt::Bad(_) | Stmt::Attack(_) | Stmt::Trace(_) | Stmt::Fortify(_) => {
+            (BlockKind::Bad, None, Vec::new(), l.text.clone())
+        }
     };
     Block {
         no: l.no,

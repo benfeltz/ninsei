@@ -1,10 +1,18 @@
 //! The deck's BASIC: the language a fight program is written in. Line-numbered, four keywords
 //! (`RUN`, `IF`, `GOTO`, `STOP`) plus `REM` for comments, and conditions that read what the
 //! fight screen already shows. This module only parses and prints; `Game` runs it (see
-//! `Game::pass`), so nothing here knows about a fight.
+//! `Game::line`), so nothing here knows about a fight.
+//!
+//! ICE are written in the same BASIC with their own vocabulary ([`Vocab`]): the verbs on their
+//! row in `ice.ron` (`ATTACK n`, `TRACE n`, `FORTIFY n`) where the deck has `RUN`, and
+//! conditions that read the fight from their side (`TARGET INTEG`, `TARGET SHIELD`,
+//! `TARGET CPU`, `TARGET RAN <program>`, `SELF STR`, `TURN`). A word outside a program's
+//! vocabulary is a bad line: the deck can't `ATTACK` and an ICE can't `RUN`.
 //!
 //! A line that doesn't parse is kept, marked bad with the interpreter's reason, and skipped
 //! when the program runs, so a typo never halts a fight.
+
+use serde::Deserialize;
 
 use crate::data::{IceClass, Intent};
 
@@ -22,6 +30,36 @@ pub const CLASSES: [&str; 3] = ["BARRIER", "CODEGATE", "SENTRY"];
 
 /// The moves `IF NEXT <intent>` reads.
 pub const INTENTS: [&str; 3] = ["ATTACK", "TRACE", "FORTIFY"];
+
+/// A verb an ICE's program may use, as its row in `ice.ron` lists it.
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Verb {
+    /// `ATTACK n`: hits the deck for n, less its shield.
+    Attack,
+    /// `TRACE n`: raises the trace by n.
+    Trace,
+    /// `FORTIFY n`: adds n to the ICE's strength.
+    Fortify,
+}
+
+impl Verb {
+    /// The word a program writes it as.
+    pub fn word(self) -> &'static str {
+        match self {
+            Verb::Attack => "ATTACK",
+            Verb::Trace => "TRACE",
+            Verb::Fortify => "FORTIFY",
+        }
+    }
+}
+
+/// The words a program may use: the deck's (`RUN` and the player's conditions) or an ICE's
+/// (its verbs and the conditions that read the deck). `IF`, `GOTO`, `STOP` and `REM` are both's.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Vocab<'a> {
+    Deck,
+    Ice(&'a [Verb]),
+}
 
 /// Whether `typed`, a program name in a `RUN` or `HAVE`, means the program called `name`
 /// whose factory id is `id`: its name, its file name (`name.exe`) or its id, in any case.
@@ -72,8 +110,26 @@ pub enum Stmt {
     Stop,
     /// A comment: does nothing.
     Rem,
+    /// An ICE's verb: hit the deck for n, less its shield.
+    Attack(u32),
+    /// An ICE's verb: raise the trace by n.
+    Trace(u32),
+    /// An ICE's verb: add n to its strength.
+    Fortify(u32),
     /// Didn't parse; the interpreter's reason. Skipped when the program runs.
     Bad(String),
+}
+
+impl Stmt {
+    /// The ICE's action this statement takes, if it's one of the ICE's verbs.
+    pub fn action(&self) -> Option<Intent> {
+        match *self {
+            Stmt::Attack(n) => Some(Intent::Attack(n)),
+            Stmt::Trace(n) => Some(Intent::Trace(n)),
+            Stmt::Fortify(n) => Some(Intent::Fortify(n)),
+            _ => None,
+        }
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -82,6 +138,22 @@ pub enum Cond {
     IceClass(IceClass),
     Next(Move),
     Have(String),
+    /// An ICE's: a number on the deck it's fighting.
+    Target(Target, Op, u32),
+    /// An ICE's: the deck ran this program this turn (by name, as `RUN` names it).
+    TargetRan(String),
+    /// An ICE's: its own strength.
+    SelfStr(Op, u32),
+}
+
+/// A number on the deck an ICE's condition reads.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Target {
+    Integ,
+    /// The shield up this turn.
+    Shield,
+    /// The deck's cycles left this turn.
+    Cpu,
 }
 
 /// A number a condition compares.
@@ -216,9 +288,14 @@ impl Program {
     }
 }
 
-/// Parses a whole program. A line with no number is kept as stray text, outside the program;
-/// a number given twice keeps the last.
+/// Parses a whole deck's program. A line with no number is kept as stray text, outside the
+/// program; a number given twice keeps the last.
 pub fn parse(text: &str) -> Program {
+    parse_with(text, Vocab::Deck)
+}
+
+/// Parses a whole program in vocabulary `vocab`, as [`parse`] does the deck's.
+pub fn parse_with(text: &str, vocab: Vocab) -> Program {
     let mut p = Program::default();
     for raw in text.lines() {
         let raw = raw.trim();
@@ -233,7 +310,11 @@ pub fn parse(text: &str) -> Program {
                 if rest.is_empty() {
                     p.remove(no);
                 } else {
-                    p.set_line(no, rest);
+                    p.put(Line {
+                        no,
+                        stmt: parse_stmt_with(rest, vocab),
+                        text: rest.to_string(),
+                    });
                 }
             }
             None => p.stray.push(raw.to_string()),
@@ -268,8 +349,14 @@ fn bad(why: &str) -> Stmt {
     Stmt::Bad(format!("?SYNTAX ERROR: {why}"))
 }
 
-/// Parses one statement (the text after a line number).
+/// Parses one statement of the deck's program (the text after a line number).
 pub fn parse_stmt(text: &str) -> Stmt {
+    parse_stmt_with(text, Vocab::Deck)
+}
+
+/// Parses one statement in vocabulary `vocab`. A word the vocabulary doesn't have is an
+/// unknown keyword, as any other word would be: the deck's BASIC has never heard of `ATTACK`.
+pub fn parse_stmt_with(text: &str, vocab: Vocab) -> Stmt {
     let t = tokens(text);
     let Some(head) = t.first() else {
         return bad("empty line");
@@ -279,7 +366,7 @@ pub fn parse_stmt(text: &str) -> Stmt {
         "REM" => Stmt::Rem,
         "STOP" if rest.is_empty() => Stmt::Stop,
         "STOP" => bad("STOP takes nothing"),
-        "RUN" => match rest {
+        "RUN" if vocab == Vocab::Deck => match rest {
             [name] => Stmt::Run(name.clone()),
             [] => bad("RUN needs a program"),
             _ => bad("RUN takes one program"),
@@ -291,11 +378,55 @@ pub fn parse_stmt(text: &str) -> Stmt {
             },
             _ => bad("GOTO needs a line number"),
         },
-        "IF" => match parse_cond(rest) {
-            Ok(c) => Stmt::If(c),
-            Err(why) => bad(why),
+        "IF" => match vocab {
+            Vocab::Deck => parse_cond(rest),
+            Vocab::Ice(_) => parse_ice_cond(rest),
+        }
+        .map_or_else(bad, Stmt::If),
+        word => match vocab {
+            Vocab::Ice(verbs) => match verbs.iter().find(|v| v.word() == word) {
+                Some(v) => match rest {
+                    [n] => match n.parse::<u32>() {
+                        Ok(n) => match v {
+                            Verb::Attack => Stmt::Attack(n),
+                            Verb::Trace => Stmt::Trace(n),
+                            Verb::Fortify => Stmt::Fortify(n),
+                        },
+                        Err(_) => bad("needs a number"),
+                    },
+                    _ => bad("needs a number"),
+                },
+                None => bad("unknown keyword"),
+            },
+            Vocab::Deck => bad("unknown keyword"),
         },
-        _ => bad("unknown keyword"),
+    }
+}
+
+/// An ICE's condition: what it reads on the deck, its own strength, or the turn.
+fn parse_ice_cond(t: &[String]) -> Result<Cond, &'static str> {
+    let up: Vec<String> = t.iter().map(|w| w.to_ascii_uppercase()).collect();
+    let words: Vec<&str> = up.iter().map(String::as_str).collect();
+    match words.as_slice() {
+        [] => Err("IF needs a condition"),
+        ["TARGET", "RAN", _] => Ok(Cond::TargetRan(t[2].clone())),
+        ["TARGET", "RAN"] => Err("RAN needs a program"),
+        ["TARGET", v, op, n] => {
+            let v = match *v {
+                "INTEG" => Target::Integ,
+                "SHIELD" => Target::Shield,
+                "CPU" => Target::Cpu,
+                _ => return Err("unknown condition"),
+            };
+            let (op, n) = compare(op, n)?;
+            Ok(Cond::Target(v, op, n))
+        }
+        ["SELF", "STR", op, n] => {
+            let (op, n) = compare(op, n)?;
+            Ok(Cond::SelfStr(op, n))
+        }
+        ["TURN", op, n] => cmp(Var::Turn, op, n),
+        _ => Err("unknown condition"),
     }
 }
 
@@ -332,6 +463,12 @@ fn parse_cond(t: &[String]) -> Result<Cond, &'static str> {
 }
 
 fn cmp(var: Var, op: &str, n: &str) -> Result<Cond, &'static str> {
+    let (op, n) = compare(op, n)?;
+    Ok(Cond::Cmp(var, op, n))
+}
+
+/// A comparison's operator and number.
+fn compare(op: &str, n: &str) -> Result<(Op, u32), &'static str> {
     let op = match op {
         "<" => Op::Lt,
         ">" => Op::Gt,
@@ -339,5 +476,5 @@ fn cmp(var: Var, op: &str, n: &str) -> Result<Cond, &'static str> {
         _ => return Err("compare with <, > or ="),
     };
     let n = n.parse::<u32>().map_err(|_| "compare with a number")?;
-    Ok(Cond::Cmp(var, op, n))
+    Ok((op, n))
 }

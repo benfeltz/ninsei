@@ -1198,6 +1198,8 @@ impl Game {
                 c.is_some_and(|c| !c.stunned) && self.intent().is_some_and(|i| m.is(i))
             }
             Cond::Have(name) => self.slot_named(name).is_some(),
+            // The ICE's own conditions, read from its side (141.3.1, step 3).
+            Cond::Target(..) | Cond::TargetRan(_) | Cond::SelfStr(..) => false,
         }
     }
 
@@ -1342,6 +1344,8 @@ impl Game {
             match stmt {
                 Stmt::Rem => {}
                 Stmt::Bad(why) => self.trace_step(no, StepWhat::Skipped(why)),
+                // The ICE's verbs: the deck's program never parses them (141.3.1, step 3).
+                Stmt::Attack(_) | Stmt::Trace(_) | Stmt::Fortify(_) => {}
                 Stmt::Run(name) => {
                     let Some(slot) = self.slot_named(&name) else {
                         let why = format!("no program called {name} on the disk.");
