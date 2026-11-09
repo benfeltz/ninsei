@@ -3,7 +3,7 @@
 //! and which edges break first. Pure; the app's `fightview.rs` draws it.
 
 use crate::data::{Effect, Intent};
-use crate::game::{ExecState, Game, Step, StepWhat};
+use crate::game::{ExecState, Game, Side, Step, StepWhat};
 
 /// How a breaker matches the ICE's class.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -151,11 +151,19 @@ impl Game {
         }
     }
 
-    /// A step of a pass as the deck's OS says it: one sentence per line executed.
+    /// A step of the deck's pass as the deck's OS says it: one sentence per line executed.
     pub fn step_text(&self, s: &Step) -> String {
-        let text = self.program.line(s.line).map_or("", |l| l.text.as_str());
+        self.step_text_of(Side::Deck, s)
+    }
+
+    /// A step of a side's pass as the deck's OS says it: one sentence per line executed. The
+    /// ICE's steps are named for the ICE, since the OS is watching it run.
+    pub fn step_text_of(&self, side: Side, s: &Step) -> String {
+        let ice = self.combat.as_ref().filter(|_| side == Side::Ice);
+        let prog = ice.map_or(&self.program, |c| &c.ice_prog);
+        let text = prog.line(s.line).map_or("", |l| l.text.as_str());
         let no = s.line;
-        match &s.what {
+        let said = match &s.what {
             StepWhat::Ran { uid, outcome } => {
                 let name = self
                     .hdd
@@ -175,11 +183,24 @@ impl Game {
             StepWhat::If(true) => format!("{no} {text}: yes."),
             StepWhat::If(false) => format!("{no} {text}: no. skipping the next line."),
             StepWhat::Goto(to) => format!("{no} GOTO {to}."),
+            StepWhat::Stop if ice.is_some() => format!("{no} STOP. its turn is over."),
             StepWhat::Stop => format!("BREAK IN {no}"),
+            StepWhat::Break if ice.is_some() => format!("stalls in {no}. it does nothing."),
             StepWhat::Break => format!("?BREAK IN {no}"),
             StepWhat::OutOfCpu => "out of cycles. the turn is over.".to_string(),
             StepWhat::OutOfRam => format!("{no} {text}: no memory left for it. the turn is over."),
             StepWhat::End => "end of program. the turn is over.".to_string(),
+            StepWhat::Hit { dmg, blocked: 0 } => format!("{no} {text}: hits for {dmg}."),
+            StepWhat::Hit { dmg, blocked } => {
+                format!("{no} {text}: hits for {dmg} ({blocked} blocked).")
+            }
+            StepWhat::Traced(n) => format!("{no} {text}: traces +{n}."),
+            StepWhat::Fortified(n) => format!("{no} {text}: fortifies +{n}."),
+            StepWhat::Lagged => format!("{no} {text}: lagged. it does nothing."),
+        };
+        match ice {
+            Some(c) => format!("{} {said}", self.data.ice[c.ice].name),
+            None => said,
         }
     }
 }

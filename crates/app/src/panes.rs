@@ -500,11 +500,11 @@ impl Panes<'_> {
                     format!("{}/{}", c.strength, c.strength_max),
                     false,
                 );
-                let intent = g.intent().map_or_else(String::new, |i| i.describe());
+                // A lagged ICE has no next move: its program's dry run says what it'll do.
                 let next = if c.stunned {
-                    format!("{intent} (lagged, skips)")
+                    "(lagged, skips)".to_string()
                 } else {
-                    intent
+                    g.ice_next().map_or_else(String::new, |i| i.describe())
                 };
                 ui.label(RichText::new(format!("NEXT  {next}")).color(p.bright));
                 ui.label(

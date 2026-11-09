@@ -366,7 +366,7 @@ pub fn show(ui: &mut Ui, panes: &mut Panes) {
     }
 
     // Its next move, telegraphed: a charge ring before an attack.
-    let intent = g.intent();
+    let intent = g.ice_next();
     if let Some(i) = intent
         && fight::threatens(i)
         && !c.stunned
@@ -521,15 +521,13 @@ fn hud(painter: &Painter, rect: Rect, p: &Palette, g: &Game, preview: Option<fig
         );
     }
     // Next moves, top right.
-    let n = ice.intents.len().max(1);
     let rx = rect.right() - 210.0;
     painter.text(pos2(rx, y), Align2::LEFT_CENTER, "NEXT", mono(12.0), p.dim);
-    let next = ice.intents[c.intent_ix % n];
-    let mark = if fight::threatens(next) { "▲ " } else { "" };
-    let now_line = if c.stunned {
-        format!("{} (lagged)", next.describe())
-    } else {
-        format!("{mark}{}", next.describe())
+    let now_line = match g.ice_next() {
+        _ if c.stunned => "(lagged)".to_string(),
+        Some(next) if fight::threatens(next) => format!("▲ {}", next.describe()),
+        Some(next) => next.describe(),
+        None => "-".to_string(),
     };
     painter.text(
         pos2(rx + 42.0, y),
@@ -538,8 +536,8 @@ fn hud(painter: &Painter, rect: Rect, p: &Palette, g: &Game, preview: Option<fig
         mono(14.0),
         p.bright,
     );
+    // Past the next move, the ICE's program reads the fight as it will be then.
     for k in 1..4 {
-        let i = ice.intents[(c.intent_ix + k) % n];
         let col = if k == 1 {
             p.fg
         } else {
@@ -548,7 +546,7 @@ fn hud(painter: &Painter, rect: Rect, p: &Palette, g: &Game, preview: Option<fig
         painter.text(
             pos2(rx + 42.0, y + 4.0 + k as f32 * 16.0),
             Align2::LEFT_CENTER,
-            format!("+{k}  {}", i.describe().to_lowercase()),
+            format!("+{k}  ????"),
             mono(11.0),
             col,
         );

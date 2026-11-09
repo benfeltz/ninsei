@@ -55,7 +55,7 @@ fn the_watches_read_the_incident_and_are_blank_outside_one() {
     assert_eq!(w["TURN"], c.turn.to_string());
     assert_eq!(w["CPU"], format!("{} / {}", c.cpu, g.deck.cpu_max));
     assert_eq!(w["IFS"], format!("{} / {}", c.ifs, g.deck.ram_max));
-    assert_eq!(w["NEXT"], g.intent().unwrap().describe());
+    assert_eq!(w["NEXT"], g.ice_next().unwrap().describe());
     assert_eq!(w["ICE"], g.data.ice[c.ice].name.to_uppercase());
     let last = g.exec.trace.last().unwrap();
     assert_eq!(

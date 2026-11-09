@@ -75,7 +75,7 @@ impl Entry<'_> {
         } else {
             format!("{}-{}", s.lo, s.hi)
         };
-        let intents: Vec<String> = d.intents.iter().map(|i| i.describe()).collect();
+        let moves: Vec<&str> = d.verbs.iter().map(|v| v.word()).collect();
         let mut out = vec![
             format!("{}  [{}]  {kind}", d.name, d.class.label()),
             String::new(),
@@ -83,14 +83,8 @@ impl Entry<'_> {
             format!("met            {}", s.met),
             format!("broken         {}", s.broken),
             String::new(),
-            "cycle".into(),
+            format!("moves          {}", moves.join(", ")),
         ];
-        out.extend(
-            intents
-                .iter()
-                .enumerate()
-                .map(|(i, x)| format!("  {}. {x}", i + 1)),
-        );
         if d.yields.is_some() {
             out.push("  gives up when it's losing".into());
         }

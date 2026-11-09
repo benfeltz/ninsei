@@ -543,9 +543,9 @@ impl Panes<'_> {
                 ui.columns(2, |cols| {
                     // Intent waterfall: what's coming falls toward now, at the bottom.
                     cols[0].label(text("INTENT", p.dim));
-                    let n = ice.intents.len().max(1);
+                    // Only the next move is known: the ICE's program reads the fight as it
+                    // will be when it gets there.
                     for k in (0..anim::INTENTS_AHEAD).rev() {
-                        let intent = &ice.intents[(c.intent_ix + k) % n];
                         let (mark, col) = match k {
                             0 => ("▶", p.bright),
                             1 => ("·", p.fg),
@@ -556,10 +556,12 @@ impl Panes<'_> {
                         } else {
                             format!("+{k}  ")
                         };
-                        let mut line = format!("{mark} {when}{}", intent.describe());
-                        if k == 0 && c.stunned {
-                            line.push_str(" (lagged)");
-                        }
+                        let what = match (k, c.stunned) {
+                            (0, true) => "(lagged)".to_string(),
+                            (0, false) => g.ice_next().map_or("-".into(), |i| i.describe()),
+                            _ => "????".to_string(),
+                        };
+                        let line = format!("{mark} {when}{what}");
                         cols[0].label(text(line, col));
                     }
                     // Damage waterfall: newest turn on top, older ones fade out below.

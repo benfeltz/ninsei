@@ -812,11 +812,10 @@ impl Panes<'_> {
                     1 => "MODERATE",
                     _ => "CRITICAL",
                 };
-                let intent = g.intent().map_or_else(String::new, |i| i.describe());
                 let next = if c.stunned {
-                    format!("{intent} (deferred)")
+                    "(deferred)".to_string()
                 } else {
-                    intent
+                    g.ice_next().map_or_else(String::new, |i| i.describe())
                 };
                 form(
                     ui,
@@ -837,7 +836,7 @@ impl Panes<'_> {
                             "bring it to zero",
                             false,
                         ),
-                        ("NEXT ACTION ", next, "", true),
+                        ("NEXT ACTION ", next.clone(), "", true),
                         ("SEVERITY    ", severity.to_string(), "", ice.tier >= 2),
                         (
                             "TURN / CPU  ",
@@ -867,7 +866,6 @@ impl Panes<'_> {
                     true,
                 );
                 heading(ui, &p, "AGENDA");
-                let n = ice.intents.len().max(1);
                 egui::Grid::new("suite-agenda")
                     .num_columns(2)
                     .spacing([16.0, 2.0])
@@ -876,14 +874,15 @@ impl Panes<'_> {
                         ui.label(t("PLANNED ACTION", p.dim));
                         ui.end_row();
                         for k in 0..size::AGENDA_ROWS {
-                            let intent = &ice.intents[(c.intent_ix + k) % n];
+                            // Only the next action is planned: past it, the ICE's program
+                            // reads the fight as it will be then.
                             let turn = format!("{:>4}", c.turn as usize + k);
                             if k == 0 {
                                 ui.label(t(turn, p.bg).background_color(p.fg));
-                                ui.label(t(intent.describe(), p.bg).background_color(p.fg));
+                                ui.label(t(next.clone(), p.bg).background_color(p.fg));
                             } else {
                                 ui.label(t(turn, p.dim));
-                                ui.label(t(intent.describe(), p.fg));
+                                ui.label(t("TBD", p.dim));
                             }
                             ui.end_row();
                         }

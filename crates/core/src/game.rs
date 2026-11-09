@@ -1,6 +1,6 @@
 //! Run state and the rules that change it. The app only ever calls [`Game::apply`].
 
-use crate::basic::{Cond, Program, Stmt, Var};
+use crate::basic::{Cond, Program, Stmt, Target, Var, Vocab};
 use crate::binary::{self, Bin, Spec};
 use crate::data::{BetrayalEffect, ChoiceEffect, Data, Drop, Intent, LootTable, Penalty};
 use crate::network::{NetParams, Network, NodeKind};
@@ -69,7 +69,18 @@ pub struct Combat {
     pub ice: usize,
     pub strength: u32,
     pub strength_max: u32,
-    pub intent_ix: usize,
+    /// The ICE's program, parsed in its own vocabulary.
+    pub ice_prog: Program,
+    /// Where the ICE's program is: the line it carries on from next turn, and its last turn's
+    /// pass.
+    pub ice_exec: Exec,
+    /// The ICE's actions left in its turn (its `cpu` from `ice.ron` at the start of each).
+    pub ice_cpu: u32,
+    /// The ICE's IFs left in its turn (its `ram`).
+    pub ice_ifs: u32,
+    /// The programs (by uid) the deck ran this turn, from its program or the hotbar: what
+    /// `TARGET RAN` reads.
+    pub ran: Vec<u32>,
     /// CPU left this turn.
     pub cpu: u32,
     pub shield: u32,
@@ -468,7 +479,14 @@ pub struct Exec {
     pub broke: Option<u32>,
 }
 
-/// How a line of the deck's program left the pass (`Game::line`).
+/// Whose program a line is from: the deck's, or the ICE's it's fighting.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Side {
+    Deck,
+    Ice,
+}
+
+/// How a line of a program left the pass (`Game::line`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Line {
     /// It ran; the pass carries on at the next line.
@@ -513,6 +531,17 @@ pub enum StepWhat {
     OutOfRam,
     /// The pass ran off the end of the program.
     End,
+    /// The ICE's `ATTACK`: what got through, and what the shield took.
+    Hit {
+        dmg: u32,
+        blocked: u32,
+    },
+    /// The ICE's `TRACE`: what it added.
+    Traced(u32),
+    /// The ICE's `FORTIFY`: the strength it added.
+    Fortified(u32),
+    /// An ICE's verb while it's lagged: it does nothing.
+    Lagged,
 }
 
 impl StepWhat {
@@ -703,11 +732,54 @@ impl Game {
         self.hdd.push(slot);
     }
 
-    /// The next thing the current ICE will do, if fighting.
-    pub fn intent(&self) -> Option<Intent> {
+    /// What the current ICE will do next, if fighting: a dry run of its program from where it
+    /// is to its first action, its IFs read against the fight as it stands now. It changes
+    /// nothing and draws nothing from the RNG, so it's recomputed whenever it's asked, and it
+    /// changes as the turn does (a shield up turns an ICE that reads `TARGET SHIELD`). `None`
+    /// when it won't act: lagged, or its program would stall, stop or run out of RAM or lines
+    /// first. Its turn (`end_turn`) runs the same program the same way, so this is what it does
+    /// if nothing changes.
+    pub fn ice_next(&self) -> Option<Intent> {
         let c = self.combat.as_ref()?;
-        let ice = &self.data.ice[c.ice];
-        Some(ice.intents[c.intent_ix % ice.intents.len()])
+        if c.stunned {
+            return None;
+        }
+        let p = &c.ice_prog;
+        let mut pc = c.ice_exec.pc.or(p.first());
+        let mut ifs = self.data.ice[c.ice].ram;
+        let mut visited = Vec::new();
+        loop {
+            let no = pc?;
+            if visited.contains(&no) {
+                return None;
+            }
+            visited.push(no);
+            let Some(l) = p.line(no) else {
+                pc = p.after(no);
+                continue;
+            };
+            let next = p.after(no);
+            pc = next;
+            match &l.stmt {
+                Stmt::If(cond) => {
+                    if ifs == 0 {
+                        return None;
+                    }
+                    ifs -= 1;
+                    visited.clear();
+                    if !self.test(cond) {
+                        pc = p.skip(next);
+                    }
+                }
+                Stmt::Goto(to) if p.line(*to).is_some() => pc = Some(*to),
+                Stmt::Stop => return None,
+                stmt => {
+                    if let Some(a) = stmt.action() {
+                        return Some(a);
+                    }
+                }
+            }
+        }
     }
 
     /// The main network, even while inside a subnet. Contracts point into it.
@@ -841,10 +913,10 @@ impl Game {
             Action::Read(r) => self.read(r),
             Action::Run(slot) => self.run(slot),
             Action::Step => self.go(false).map(|()| {
-                self.line();
+                self.line(Side::Deck);
             }),
             Action::Play => self.go(true).map(|()| {
-                self.line();
+                self.line(Side::Deck);
             }),
             Action::Finish => self.pass(false),
             Action::Pause => {
@@ -972,12 +1044,17 @@ impl Game {
             + self.mods.ice_bonus;
         let def = &self.data.ice[ice];
         let (name, class) = (def.name.clone(), def.class.label());
+        let ice_prog = crate::basic::parse_with(&def.program, Vocab::Ice(&def.verbs));
         self.combat = Some(Combat {
             node,
             ice,
             strength,
             strength_max: strength,
-            intent_ix: 0,
+            ice_prog,
+            ice_exec: Exec::default(),
+            ice_cpu: def.cpu,
+            ice_ifs: def.ram,
+            ran: Vec::new(),
             cpu: self.deck.cpu_max,
             shield: 0,
             stunned: false,
@@ -990,7 +1067,7 @@ impl Game {
         self.phase = Phase::Combat;
         // Every fight opens with the program loaded and the cursor on its first line.
         self.exec = Exec {
-            pc: self.top(),
+            pc: self.top(Side::Deck),
             ..Exec::default()
         };
         self.say(
@@ -1010,10 +1087,12 @@ impl Game {
         // Everything that decides what happens is in `preview`, which the fight view shows.
         let p = self.preview(slot)?;
         let name = self.hdd[slot].spec.name.clone();
+        let uid = self.hdd[slot].uid;
         let Some(c) = self.combat.as_mut() else {
             return Err("nothing to run against.".into());
         };
         c.cpu -= p.cpu;
+        c.ran.push(uid);
         match p.outcome {
             crate::fight::Outcome::Break { hit, vs } => {
                 let crit = match vs {
@@ -1105,59 +1184,40 @@ impl Game {
         }
     }
 
+    /// The end of the deck's turn: the ICE takes its turn, running its program (`Game::line`
+    /// from its side) until its cycles, its RAM or its program run out, or it stalls; then the
+    /// next turn starts.
     fn end_turn(&mut self) -> Result<(), String> {
         let mods = self.mods;
         let Some(c) = self.combat.as_mut() else {
             return Err("no fight in progress.".into());
         };
         let def = &self.data.ice[c.ice];
-        let intent = def.intents[c.intent_ix % def.intents.len()];
-        let name = def.name.clone();
-        let mut lines = Vec::new();
         c.stun_immune = false;
+        c.ice_cpu = def.cpu;
+        c.ice_ifs = def.ram;
+        // A lagged ICE runs its program and does nothing it says: it loses this turn's moves.
+        while self.line(Side::Ice) == Line::Went && self.deck.integrity > 0 {}
+        let Some(c) = self.combat.as_mut() else {
+            return Ok(());
+        };
         if c.stunned {
             c.stunned = false;
             c.stun_immune = true;
-            lines.push((LogKind::Good, format!("{name} is lagged and does nothing.")));
-        } else {
-            match intent {
-                Intent::Attack(n) => {
-                    let blocked = n.min(c.shield);
-                    let dmg = n - blocked;
-                    self.deck.integrity = self.deck.integrity.saturating_sub(dmg);
-                    let note = if blocked > 0 {
-                        format!(" ({blocked} blocked)")
-                    } else {
-                        String::new()
-                    };
-                    lines.push((LogKind::Bad, format!("{name} hits for {dmg}{note}")));
-                }
-                Intent::Trace(n) => {
-                    let n = mods.trace(n);
-                    self.deck.trace += n;
-                    lines.push((LogKind::Bad, format!("{name} traces +{n}")));
-                }
-                Intent::Fortify(n) => {
-                    c.strength += n;
-                    c.strength_max = c.strength_max.max(c.strength);
-                    lines.push((LogKind::Bad, format!("{name} fortifies +{n}")));
-                }
-            }
         }
-        c.intent_ix += 1;
+        c.ice_exec.open = false;
+        c.ice_exec.visited.clear();
         c.shield = 0;
         c.cpu = self.deck.cpu_max;
         c.ifs = self.deck.ram_max;
         c.turn += 1;
+        c.ran.clear();
         self.end_pass();
-        self.exec.pc = self.top();
+        self.exec.pc = self.top(Side::Deck);
         if let ExecState::Stopped(_) = self.exec.state {
             self.exec.state = ExecState::Paused;
         }
         self.deck.trace += mods.trace(TRACE_PER_COMBAT_TURN);
-        for (k, t) in lines {
-            self.say(k, t);
-        }
         if self.deck.integrity == 0 {
             self.phase = Phase::Flatlined;
             self.combat = None;
@@ -1167,6 +1227,37 @@ impl Game {
         }
         self.check_trace();
         Ok(())
+    }
+
+    /// What an ICE's verb does, as `end_turn` used to do its intent: a hit less the shield
+    /// (which the hit uses up), a trace, or strength. A lagged ICE does nothing.
+    fn act(&mut self, act: Intent) -> StepWhat {
+        let mods = self.mods;
+        let Some(c) = self.combat.as_mut() else {
+            return StepWhat::Lagged;
+        };
+        if c.stunned {
+            return StepWhat::Lagged;
+        }
+        match act {
+            Intent::Attack(n) => {
+                let blocked = n.min(c.shield);
+                c.shield -= blocked;
+                let dmg = n - blocked;
+                self.deck.integrity = self.deck.integrity.saturating_sub(dmg);
+                StepWhat::Hit { dmg, blocked }
+            }
+            Intent::Trace(n) => {
+                let n = mods.trace(n);
+                self.deck.trace += n;
+                StepWhat::Traced(n)
+            }
+            Intent::Fortify(n) => {
+                c.strength += n;
+                c.strength_max = c.strength_max.max(c.strength);
+                StepWhat::Fortified(n)
+            }
+        }
     }
 
     // ---- the deck's program -----------------------------------------------------
@@ -1179,7 +1270,7 @@ impl Game {
             .position(|s| crate::basic::names(name, &s.spec.name, &self.data.warez[s.warez].id))
     }
 
-    /// What an `IF` finds right now. Lagged ICE has no next move.
+    /// What an `IF` finds right now, the deck's or the ICE's. Lagged ICE has no next move.
     pub fn test(&self, cond: &Cond) -> bool {
         let c = self.combat.as_ref();
         match cond {
@@ -1194,12 +1285,23 @@ impl Game {
                 op.test(v, *n)
             }
             Cond::IceClass(k) => c.is_some_and(|c| self.data.ice[c.ice].class == *k),
-            Cond::Next(m) => {
-                c.is_some_and(|c| !c.stunned) && self.intent().is_some_and(|i| m.is(i))
-            }
+            Cond::Next(m) => self.ice_next().is_some_and(|i| m.is(i)),
             Cond::Have(name) => self.slot_named(name).is_some(),
-            // The ICE's own conditions, read from its side (141.3.1, step 3).
-            Cond::Target(..) | Cond::TargetRan(_) | Cond::SelfStr(..) => false,
+            Cond::Target(t, op, n) => {
+                let v = match t {
+                    Target::Integ => self.deck.integrity,
+                    Target::Shield => c.map_or(0, |c| c.shield),
+                    Target::Cpu => c.map_or(0, |c| c.cpu),
+                };
+                op.test(v, *n)
+            }
+            Cond::TargetRan(name) => c.is_some_and(|c| {
+                self.hdd.iter().any(|s| {
+                    c.ran.contains(&s.uid)
+                        && crate::basic::names(name, &s.spec.name, &self.data.warez[s.warez].id)
+                })
+            }),
+            Cond::SelfStr(op, n) => op.test(c.map_or(0, |c| c.strength), *n),
         }
     }
 
@@ -1211,52 +1313,73 @@ impl Game {
         self.exec.broke = None;
         self.exec.visited.clear();
         self.exec.pc = match (self.exec.state, self.exec.pc) {
-            (ExecState::Stopped(at), _) => self.rest(self.program.after(at)),
+            (ExecState::Stopped(at), _) => self.program.rest(self.program.after(at)),
             (_, Some(at)) if self.exec.open => match self.program.line(at) {
-                Some(_) => self.rest(Some(at)),
-                None => self.rest(self.program.after(at)),
+                Some(_) => self.program.rest(Some(at)),
+                None => self.program.rest(self.program.after(at)),
             },
-            _ => self.top(),
+            _ => self.top(Side::Deck),
         };
     }
 
-    /// Where the cursor rests from line `from` on: the first line that does something, past
-    /// any REMs (and numbers with no line).
-    fn rest(&self, mut from: Option<u32>) -> Option<u32> {
-        while let Some(no) = from {
-            match self.program.line(no) {
-                Some(l) if !matches!(l.stmt, Stmt::Rem) => break,
-                _ => from = self.program.after(no),
-            }
+    /// Where a side's cursor rests at the top of a pass: the first line that does something.
+    fn top(&self, side: Side) -> Option<u32> {
+        let p = self.prog(side);
+        p.rest(p.first())
+    }
+
+    /// The program a side runs: the deck's, or the ICE's in this fight.
+    fn prog(&self, side: Side) -> &Program {
+        match (side, self.combat.as_ref()) {
+            (Side::Ice, Some(c)) => &c.ice_prog,
+            _ => &self.program,
         }
-        from
     }
 
-    /// Where the cursor rests at the top of a pass: the first line that does something.
-    fn top(&self) -> Option<u32> {
-        self.rest(self.program.first())
+    /// Where a side's program is in this fight.
+    fn ex(&self, side: Side) -> &Exec {
+        match (side, self.combat.as_ref()) {
+            (Side::Ice, Some(c)) => &c.ice_exec,
+            _ => &self.exec,
+        }
     }
 
-    /// The line a false `IF` skips to: past the line it guards, and past that line's own
-    /// guarded line if it's an IF too (two IFs in a row are an AND).
-    fn skip(&self, guarded: Option<u32>) -> Option<u32> {
-        let n = guarded?;
-        let after = self.program.after(n);
-        match self.program.line(n).map(|l| &l.stmt) {
-            Some(Stmt::If(_)) => self.skip(after),
-            _ => after,
+    /// Where a side's program is in this fight, to move it. The ICE's only runs in a fight.
+    fn ex_mut(&mut self, side: Side) -> &mut Exec {
+        match (side, self.combat.as_mut()) {
+            (Side::Ice, Some(c)) => &mut c.ice_exec,
+            _ => &mut self.exec,
+        }
+    }
+
+    /// A side's budgets left this turn: (cycles, IFs).
+    fn budgets(&self, side: Side) -> (u32, u32) {
+        match (side, self.combat.as_ref()) {
+            (Side::Deck, Some(c)) => (c.cpu, c.ifs),
+            (Side::Ice, Some(c)) => (c.ice_cpu, c.ice_ifs),
+            (_, None) => (0, 0),
         }
     }
 
     /// Adds a step to the pass and says it in the log as it happens: the OS's sentence, before
     /// anything the turn does after it. A RUN says nothing more: the program says what it did.
-    fn trace_step(&mut self, line: u32, what: StepWhat) {
+    /// The ICE's steps are said too, in the same voice, except the end of its turn, which the
+    /// next turn says well enough; what it does to the deck is said as bad news.
+    fn trace_step(&mut self, side: Side, line: u32, what: StepWhat) {
         let step = Step { line, what };
-        if !matches!(step.what, StepWhat::Ran { .. }) {
-            let text = self.step_text(&step);
-            self.say(LogKind::Program, text);
+        let said = match side {
+            Side::Deck => !matches!(step.what, StepWhat::Ran { .. }),
+            Side::Ice => !step.what.ends_turn(),
+        };
+        if said {
+            let text = self.step_text_of(side, &step);
+            let kind = match step.what {
+                StepWhat::Hit { .. } | StepWhat::Traced(_) | StepWhat::Fortified(_) => LogKind::Bad,
+                _ => LogKind::Program,
+            };
+            self.say(kind, text);
         }
-        self.exec.trace.push(step);
+        self.ex_mut(side).trace.push(step);
     }
 
     /// The rest of this turn's pass of the deck's program, a line at a time (`Game::line`)
@@ -1264,7 +1387,7 @@ impl Game {
     /// (`Action::Play`); otherwise it stays running or paused as it was.
     fn pass(&mut self, play: bool) -> Result<(), String> {
         self.go(play)?;
-        while self.line() == Line::Went {}
+        while self.line(Side::Deck) == Line::Went {}
         Ok(())
     }
 
@@ -1282,74 +1405,90 @@ impl Game {
         Ok(())
     }
 
-    /// One line of the deck's program: the line about to run, and any REMs after it, so it
-    /// stops on the next line that does something. A pass runs
-    /// from the first line (or where a STOP or a pause left it) until the program ends, a STOP,
-    /// the cycles run out or there's no GB for another IF. Every RUN resolves through
-    /// `preview`, and runs as `Action::Run` would; one that can't run is skipped with the
-    /// preview's words. Coming back to a line without spending anything (no RUN's cycle, no IF's
-    /// GB) since it was last there is a hang:
-    /// `?BREAK IN <line>`, the cursor held there and the debugger has the turn. When the pass
-    /// is over, on the line that spends the last cycle, reaches the end or finds no GB, the
-    /// turn ends and the ICE acts.
-    fn line(&mut self) -> Line {
-        if !self.exec.open {
-            self.exec.open = true;
-            self.exec.trace.clear();
-            self.exec.visited.clear();
-            self.exec.pc = self.program.first();
+    /// One line of a side's program: the line about to run, and any REMs after it, so it
+    /// stops on the next line that does something. The only place a statement executes, the
+    /// deck's or the ICE's.
+    ///
+    /// The deck's pass runs from the first line (or where a STOP or a pause left it) until the
+    /// program ends, a STOP, the cycles run out or there's no GB for another IF. Every RUN
+    /// resolves through `preview`, and runs as `Action::Run` would; one that can't run is
+    /// skipped with the preview's words. Coming back to a line without spending anything (no
+    /// RUN's cycle, no IF's GB) since it was last there is a hang: `?BREAK IN <line>`, the
+    /// cursor held there and the debugger has the turn. When the pass is over, on the line that
+    /// spends the last cycle, reaches the end or finds no GB, the turn ends and the ICE acts.
+    ///
+    /// The ICE's pass (`end_turn`) carries on from where its last one left off, with its own
+    /// budgets: each verb spends one of its cycles, each IF one of its IFs. Its pass ends when
+    /// either runs out, at its program's end (the next starts at the top), on a STOP, or when
+    /// it hangs, which is a stall: it does nothing more this turn.
+    fn line(&mut self, side: Side) -> Line {
+        if self.phase != Phase::Combat || self.combat.is_none() {
+            return Line::Over;
         }
-        let mut last = self.exec.pc.unwrap_or(0);
+        if !self.ex(side).open {
+            let first = self.prog(side).first();
+            let e = self.ex_mut(side);
+            e.open = true;
+            e.trace.clear();
+            e.visited.clear();
+            // The ICE carries on where it left off; the deck starts at the top.
+            if side == Side::Deck || e.pc.is_none() {
+                e.pc = first;
+            }
+        }
+        let mut last = self.ex(side).pc.unwrap_or(0);
         // A line ran: the pass carries on, unless what it did ended it.
         let mut ran = false;
         loop {
-            let Some(c) = self.combat.as_ref().filter(|_| self.phase == Phase::Combat) else {
+            if self.combat.is_none() || self.phase != Phase::Combat {
                 // The fight ended mid-pass: won, or the deck went down.
                 return Line::Over;
-            };
-            let (cpu, ifs) = (c.cpu, c.ifs);
-            if cpu == 0 {
-                self.trace_step(last, StepWhat::OutOfCpu);
-                return self.close();
             }
-            let Some(no) = self.exec.pc else {
-                self.trace_step(last, StepWhat::End);
-                return self.close();
+            let (cpu, ifs) = self.budgets(side);
+            if cpu == 0 {
+                self.trace_step(side, last, StepWhat::OutOfCpu);
+                return self.close(side);
+            }
+            let Some(no) = self.ex(side).pc else {
+                self.trace_step(side, last, StepWhat::End);
+                return self.close(side);
             };
             // Stop on the next line that does something: a REM is passed over.
             let rem = self
-                .program
+                .prog(side)
                 .line(no)
                 .is_none_or(|l| matches!(l.stmt, Stmt::Rem));
             if ran && !rem {
                 return Line::Went;
             }
             last = no;
-            if self.exec.visited.contains(&no) {
-                self.trace_step(no, StepWhat::Break);
-                self.exec.state = ExecState::Paused;
-                self.exec.open = false;
-                self.exec.visited.clear();
-                self.exec.broke = Some(no);
+            if self.ex(side).visited.contains(&no) {
+                self.trace_step(side, no, StepWhat::Break);
+                let e = self.ex_mut(side);
+                e.open = false;
+                e.visited.clear();
+                if side == Side::Deck {
+                    e.state = ExecState::Paused;
+                    e.broke = Some(no);
+                }
                 return Line::Hung;
             }
-            self.exec.visited.push(no);
-            let Some(stmt) = self.program.line(no).map(|l| l.stmt.clone()) else {
-                self.exec.pc = self.program.after(no);
+            self.ex_mut(side).visited.push(no);
+            let Some(stmt) = self.prog(side).line(no).map(|l| l.stmt.clone()) else {
+                let after = self.prog(side).after(no);
+                self.ex_mut(side).pc = after;
                 continue;
             };
-            let next = self.program.after(no);
-            self.exec.pc = next;
+            let next = self.prog(side).after(no);
+            self.ex_mut(side).pc = next;
             ran |= !matches!(stmt, Stmt::Rem);
             match stmt {
                 Stmt::Rem => {}
-                Stmt::Bad(why) => self.trace_step(no, StepWhat::Skipped(why)),
-                // The ICE's verbs: the deck's program never parses them (141.3.1, step 3).
-                Stmt::Attack(_) | Stmt::Trace(_) | Stmt::Fortify(_) => {}
-                Stmt::Run(name) => {
+                Stmt::Bad(why) => self.trace_step(side, no, StepWhat::Skipped(why)),
+                Stmt::Run(name) if side == Side::Deck => {
                     let Some(slot) = self.slot_named(&name) else {
                         let why = format!("no program called {name} on the disk.");
-                        self.trace_step(no, StepWhat::Skipped(why));
+                        self.trace_step(side, no, StepWhat::Skipped(why));
                         continue;
                     };
                     match self.preview(slot) {
@@ -1364,6 +1503,7 @@ impl Game {
                                 self.exec.open = true;
                             }
                             self.trace_step(
+                                side,
                                 no,
                                 StepWhat::Ran {
                                     uid,
@@ -1371,42 +1511,69 @@ impl Game {
                                 },
                             );
                         }
-                        Err(why) => self.trace_step(no, StepWhat::Skipped(why)),
+                        Err(why) => self.trace_step(side, no, StepWhat::Skipped(why)),
                     }
+                }
+                Stmt::Attack(_) | Stmt::Trace(_) | Stmt::Fortify(_) if side == Side::Ice => {
+                    if let Some(c) = self.combat.as_mut() {
+                        c.ice_cpu -= 1;
+                    }
+                    self.ex_mut(side).visited.clear();
+                    let what = stmt.action().map_or(StepWhat::Lagged, |a| self.act(a));
+                    self.trace_step(side, no, what);
+                }
+                // The other side's words: its parser never lets them in.
+                Stmt::Run(_) | Stmt::Attack(_) | Stmt::Trace(_) | Stmt::Fortify(_) => {
+                    let why = "?SYNTAX ERROR: unknown keyword".to_string();
+                    self.trace_step(side, no, StepWhat::Skipped(why));
                 }
                 Stmt::If(cond) => {
                     if ifs == 0 {
-                        self.trace_step(no, StepWhat::OutOfRam);
-                        return self.close();
+                        // It stays on the IF it couldn't afford: the ICE comes back to it.
+                        self.ex_mut(side).pc = Some(no);
+                        self.trace_step(side, no, StepWhat::OutOfRam);
+                        return self.close(side);
                     }
                     if let Some(c) = self.combat.as_mut() {
-                        c.ifs -= 1;
+                        match side {
+                            Side::Deck => c.ifs -= 1,
+                            Side::Ice => c.ice_ifs -= 1,
+                        }
                     }
                     // Spending a GB is progress, as a RUN's cycle is: a loop of IFs idles
                     // through the RAM and ends the turn, it doesn't hang.
-                    self.exec.visited.clear();
+                    self.ex_mut(side).visited.clear();
                     let yes = self.test(&cond);
-                    self.trace_step(no, StepWhat::If(yes));
+                    self.trace_step(side, no, StepWhat::If(yes));
                     if !yes {
-                        self.exec.pc = self.skip(next);
+                        let to = self.prog(side).skip(next);
+                        self.ex_mut(side).pc = to;
                     }
                 }
                 Stmt::Goto(to) => {
-                    if self.program.line(to).is_some() {
-                        self.trace_step(no, StepWhat::Goto(to));
-                        self.exec.pc = Some(to);
+                    if self.prog(side).line(to).is_some() {
+                        self.trace_step(side, no, StepWhat::Goto(to));
+                        self.ex_mut(side).pc = Some(to);
                     } else {
                         let why = format!("?UNDEF'D STATEMENT {to}");
-                        self.trace_step(no, StepWhat::Skipped(why));
+                        self.trace_step(side, no, StepWhat::Skipped(why));
                     }
                 }
+                Stmt::Stop if side == Side::Ice => {
+                    self.trace_step(side, no, StepWhat::Stop);
+                    return self.close(side);
+                }
                 Stmt::Stop => {
-                    self.trace_step(no, StepWhat::Stop);
+                    self.trace_step(side, no, StepWhat::Stop);
                     self.exec.state = ExecState::Stopped(no);
                     // Carrying on after a STOP looks for a hang afresh; the cursor rests past
                     // any REMs after it, which that carrying on passes over.
                     self.exec.visited.clear();
-                    while let Some(n) = self.exec.pc.filter(|&n| self.rest(Some(n)) != Some(n)) {
+                    while let Some(n) = self
+                        .exec
+                        .pc
+                        .filter(|&n| self.program.rest(Some(n)) != Some(n))
+                    {
                         self.exec.visited.push(n);
                         self.exec.pc = self.program.after(n);
                     }
@@ -1431,9 +1598,16 @@ impl Game {
         self.exec.broke = None;
     }
 
-    /// The pass is over, and so is the turn: the ICE acts.
-    fn close(&mut self) -> Line {
-        self.apply(Action::EndTurn);
+    /// The pass is over. The deck's ends the turn, and the ICE acts; the ICE's ends its turn.
+    fn close(&mut self, side: Side) -> Line {
+        match side {
+            Side::Deck => self.apply(Action::EndTurn),
+            Side::Ice => {
+                let e = self.ex_mut(side);
+                e.open = false;
+                e.visited.clear();
+            }
+        }
         Line::Ended
     }
 

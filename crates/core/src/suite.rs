@@ -86,7 +86,7 @@ pub fn watches(g: &Game) -> Vec<(&'static str, String)> {
         format!("{} / {}", c.ifs, g.deck.ram_max),
         format!("{} / {}", g.deck.integrity, g.deck.integrity_max),
         format!("{} %", g.deck.trace),
-        g.intent().map_or(String::new(), |i| i.describe()),
+        g.ice_next().map_or(String::new(), |i| i.describe()),
         g.data.ice[c.ice].name.to_uppercase(),
         last,
     ];

@@ -241,6 +241,29 @@ impl Program {
         Program::free_line_between(Some(no), self.after(no))
     }
 
+    /// Where a cursor rests from line `from` on: the first line that does something, past any
+    /// REMs (and numbers with no line).
+    pub fn rest(&self, mut from: Option<u32>) -> Option<u32> {
+        while let Some(no) = from {
+            match self.line(no) {
+                Some(l) if !matches!(l.stmt, Stmt::Rem) => break,
+                _ => from = self.after(no),
+            }
+        }
+        from
+    }
+
+    /// The line a false `IF` skips to: past the line it guards, and past that line's own
+    /// guarded line if it's an IF too (two IFs in a row are an AND).
+    pub fn skip(&self, guarded: Option<u32>) -> Option<u32> {
+        let n = guarded?;
+        let after = self.after(n);
+        match self.line(n).map(|l| &l.stmt) {
+            Some(Stmt::If(_)) => self.skip(after),
+            _ => after,
+        }
+    }
+
     /// The program as text, one numbered line each, then the stray lines as typed.
     pub fn text(&self) -> String {
         self.lines

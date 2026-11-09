@@ -14,36 +14,35 @@
 // cpu: actions a turn (each verb spends one). ram: IFs a turn (each spends one). Both at least 1.
 //      Its turn ends when either runs out, at the end of the program (it starts at the top
 //      next turn), or when it goes round without spending either: it stalls.
-// intents: the old cycle, read by the game until the program replaces it (going).
 // yields: (below: pct, chance: pct, line: "...")  optional. Once a hit leaves it at `below`% of its
 //         strength or less, each hit has a `chance`% chance it gives up and says `line`.
 //         Giving up counts as a win.
 [
-    (id: "icewall",    name: "Ice Wall",   class: Barrier,  tier: 1, strength: 14, intents: [Fortify(3), Attack(3)],
+    (id: "icewall",    name: "Ice Wall",   class: Barrier,  tier: 1, strength: 14,
         cpu: 1, ram: 1, verbs: [Fortify, Attack],
         program: "10 FORTIFY 3\n20 ATTACK 3\n30 GOTO 10"),
-    (id: "bulwark",    name: "Bulwark",    class: Barrier,  tier: 1, strength: 18, intents: [Fortify(4), Attack(4), Attack(3)],
+    (id: "bulwark",    name: "Bulwark",    class: Barrier,  tier: 1, strength: 18,
         cpu: 1, ram: 1, verbs: [Fortify, Attack],
         program: "10 FORTIFY 4\n20 ATTACK 4\n30 ATTACK 3\n40 GOTO 10"),
-    (id: "enigma",     name: "Enigma",     class: CodeGate, tier: 1, strength: 12, intents: [Trace(6), Attack(3)],
+    (id: "enigma",     name: "Enigma",     class: CodeGate, tier: 1, strength: 12,
         cpu: 1, ram: 1, verbs: [Trace, Attack],
         program: "10 TRACE 6\n20 ATTACK 3\n30 GOTO 10"),
-    (id: "tollbooth",  name: "Tollbooth",  class: CodeGate, tier: 1, strength: 15, intents: [Trace(8), Fortify(2), Attack(4)],
+    (id: "tollbooth",  name: "Tollbooth",  class: CodeGate, tier: 1, strength: 15,
         cpu: 1, ram: 1, verbs: [Trace, Fortify, Attack],
         program: "10 TRACE 8\n20 FORTIFY 2\n30 ATTACK 4\n40 GOTO 10"),
-    (id: "rototurret", name: "Rototurret", class: Sentry,   tier: 1, strength: 11, intents: [Attack(5), Attack(4)],
+    (id: "rototurret", name: "Rototurret", class: Sentry,   tier: 1, strength: 11,
         cpu: 1, ram: 1, verbs: [Attack],
         program: "10 ATTACK 5\n20 ATTACK 4\n30 GOTO 10"),
-    (id: "hunter",     name: "Hunter",     class: Sentry,   tier: 1, strength: 13, intents: [Trace(4), Attack(6)],
+    (id: "hunter",     name: "Hunter",     class: Sentry,   tier: 1, strength: 13,
         cpu: 1, ram: 1, verbs: [Trace, Attack],
         program: "10 TRACE 4\n20 ATTACK 6\n30 GOTO 10"),
-    (id: "archer",     name: "Archer",     class: Sentry,   tier: 2, strength: 22, intents: [Attack(7), Trace(6), Attack(5)],
+    (id: "archer",     name: "Archer",     class: Sentry,   tier: 2, strength: 22,
         cpu: 1, ram: 1, verbs: [Attack, Trace],
         program: "10 ATTACK 7\n20 TRACE 6\n30 ATTACK 5\n40 GOTO 10"),
-    (id: "hydra",      name: "Hydra",      class: CodeGate, tier: 2, strength: 26, intents: [Trace(10), Attack(6), Fortify(4)],
+    (id: "hydra",      name: "Hydra",      class: CodeGate, tier: 2, strength: 26,
         cpu: 1, ram: 1, verbs: [Trace, Attack, Fortify],
         program: "10 TRACE 10\n20 ATTACK 6\n30 FORTIFY 4\n40 GOTO 10"),
-    (id: "rival",      name: "kr4ken",     class: CodeGate, tier: 0, strength: 20, intents: [Attack(4), Trace(5), Fortify(3), Attack(5)],
+    (id: "rival",      name: "kr4ken",     class: CodeGate, tier: 0, strength: 20,
         cpu: 1, ram: 1, verbs: [Attack, Trace, Fortify],
         program: "10 ATTACK 4\n20 TRACE 5\n30 FORTIFY 3\n40 ATTACK 5\n50 GOTO 10",
         yields: Some((below: 50, chance: 40, line: "ok ok, you win. take it and get off my line."))),

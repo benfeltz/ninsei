@@ -84,7 +84,6 @@ pub struct IceDef {
     /// 1 = ICE, 2 = black ICE, 0 = never placed on the map (met only through encounters).
     pub tier: u32,
     pub strength: u32,
-    pub intents: Vec<Intent>,
     /// Its behaviour, in the game's BASIC with its own vocabulary (`verbs`): run at the end of
     /// every turn of a fight from where it left off.
     pub program: String,
@@ -1041,9 +1040,6 @@ impl Data {
             }
         }
         for ice in &self.ice {
-            if ice.intents.is_empty() {
-                return Err(format!("ICE `{}` has no intents", ice.id));
-            }
             self.validate_ice_program(ice)
                 .map_err(|e| format!("ICE `{}`: {e}", ice.id))?;
             if ice.tier > 2 {
