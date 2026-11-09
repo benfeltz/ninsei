@@ -129,15 +129,35 @@ pub fn seal(b: &mut Bin, key: u64) {
     b[OFF_CHECKSUM] = checksum(b);
 }
 
+/// How an opcode's power and vs class make its effect.
+type MakeEffect = fn(u32, Option<IceClass>) -> Effect;
+
+/// Every opcode: its byte, its name as the hex editor shows it, and the effect it decodes to
+/// with this power and vs class. `check`, `encode`'s reverse and the hex view all read this, so
+/// a new opcode is one row.
+const OPCODES: [(u8, &str, MakeEffect); 6] = [
+    (0x01, "BRK break", |power, vs| Effect::Break { power, vs }),
+    (0x02, "SHD shield", |power, _| Effect::Shield(power)),
+    (0x03, "REP repair", |power, _| Effect::Repair(power)),
+    (0x04, "SCR scrub trace", |power, _| Effect::Scrub(power)),
+    (0x05, "STN stun", |_, _| Effect::Stun),
+    (0x06, "SNF sniff", |_, _| Effect::Sniff),
+];
+
 pub fn opcode_name(op: u8) -> &'static str {
-    match op {
-        0x01 => "BRK break",
-        0x02 => "SHD shield",
-        0x03 => "REP repair",
-        0x04 => "SCR scrub trace",
-        0x05 => "STN stun",
-        _ => "??? unknown",
-    }
+    OPCODES
+        .iter()
+        .find(|(o, _, _)| *o == op)
+        .map_or("??? unknown", |(_, name, _)| name)
+}
+
+/// The effect opcode `op` decodes to, with this power and vs class; `None` for an opcode that
+/// isn't one.
+pub fn effect_of(op: u8, power: u32, vs: Option<IceClass>) -> Option<Effect> {
+    OPCODES
+        .iter()
+        .find(|(o, _, _)| *o == op)
+        .map(|(_, _, make)| make(power, vs))
 }
 
 pub fn vs_name(vs: u8) -> &'static str {
@@ -239,18 +259,14 @@ pub fn check(b: &Bin, key: u64) -> Result<Spec, Vec<String>> {
             None
         }
     };
-    let effect = match b[OFF_OPCODE] {
-        1 => Some(Effect::Break { power, vs }),
-        2 => Some(Effect::Shield(power)),
-        3 => Some(Effect::Repair(power)),
-        4 => Some(Effect::Scrub(power)),
-        5 => Some(Effect::Stun),
-        6 => Some(Effect::Sniff),
-        op => {
-            faults.push(format!("illegal opcode {op:02X} (01-06)"));
-            None
-        }
-    };
+    let effect = effect_of(b[OFF_OPCODE], power, vs);
+    if effect.is_none() {
+        faults.push(format!(
+            "illegal opcode {:02X} (01-{:02X})",
+            b[OFF_OPCODE],
+            OPCODES.len()
+        ));
+    }
     if b[OFF_VS] != 0 && b[OFF_OPCODE] != 1 {
         faults.push("vs class is only valid on BRK".to_string());
     }

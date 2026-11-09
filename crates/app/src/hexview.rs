@@ -8,7 +8,7 @@ use egui::{
 };
 use ninsei_core::binary::{self, Bin, Field, LEN};
 use ninsei_core::hexedit::{HexBuffer, ROW};
-use ninsei_core::{Action, Command, Effect, Game, tuning};
+use ninsei_core::{Action, Command, Game, tuning};
 
 use crate::kit::Cells;
 use crate::panes::Request;
@@ -430,15 +430,7 @@ fn inspector(ui: &mut Ui, key: u64, h: &mut HexBuffer, p: &Palette) {
 
     // Budget: what the effect costs against what cpu/opt allow.
     let power = u32::from(b[binary::OFF_POWER]);
-    let effect = match b[binary::OFF_OPCODE] {
-        1 => Some(Effect::Break { power, vs: None }),
-        2 => Some(Effect::Shield(power)),
-        3 => Some(Effect::Repair(power)),
-        4 => Some(Effect::Scrub(power)),
-        5 => Some(Effect::Stun),
-        6 => Some(Effect::Sniff),
-        _ => None,
-    };
+    let effect = binary::effect_of(b[binary::OFF_OPCODE], power, None);
     let budget = binary::budget(u32::from(b[binary::OFF_CPU]), u32::from(b[binary::OFF_OPT]));
     if let Some(e) = effect {
         let cost = binary::cost(e);
