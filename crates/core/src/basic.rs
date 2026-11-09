@@ -264,6 +264,29 @@ impl Program {
         }
     }
 
+    /// Whether running from the top can reach one of an ICE's verbs, whichever way its IFs go:
+    /// a program whose every path loops, stops or ends first never acts.
+    pub fn can_act(&self) -> bool {
+        let mut seen = Vec::new();
+        let mut todo: Vec<u32> = self.first().into_iter().collect();
+        while let Some(no) = todo.pop() {
+            if seen.contains(&no) {
+                continue;
+            }
+            seen.push(no);
+            let Some(l) = self.line(no) else { continue };
+            let after = self.after(no);
+            match &l.stmt {
+                s if s.action().is_some() => return true,
+                Stmt::Stop => {}
+                Stmt::If(_) => todo.extend(after.into_iter().chain(self.skip(after))),
+                Stmt::Goto(to) if self.line(*to).is_some() => todo.push(*to),
+                _ => todo.extend(after),
+            }
+        }
+        false
+    }
+
     /// The program as text, one numbered line each, then the stray lines as typed.
     pub fn text(&self) -> String {
         self.lines

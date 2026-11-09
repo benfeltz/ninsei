@@ -1528,8 +1528,8 @@ impl Data {
         if let Some(s) = p.stray.first() {
             return Err(format!("program line `{s}` has no line number"));
         }
-        if !p.lines.iter().any(|l| l.stmt.action().is_some()) {
-            return Err("program never acts".into());
+        if !p.can_act() {
+            return Err("program never acts: no verb can be reached from the top".into());
         }
         for l in &p.lines {
             if let Some(why) = p.fault(l.no) {

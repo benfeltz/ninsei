@@ -79,6 +79,20 @@ fn a_bad_program_is_rejected() {
         (r"10 ATTACK 2", 0, 1, "Attack", "no cycles"),
         (r"10 ATTACK 2", 1, 0, "Attack", "no RAM"),
         (r"10 REM idle\n20 GOTO 10", 1, 1, "Attack", "never acts"),
+        (
+            r"10 GOTO 20\n20 GOTO 10\n30 ATTACK 1",
+            1,
+            1,
+            "Attack",
+            "loops before it acts",
+        ),
+        (
+            r"10 STOP\n20 ATTACK 1",
+            1,
+            1,
+            "Attack",
+            "stops before it acts",
+        ),
         (r"ATTACK 2", 1, 1, "Attack", "no line number"),
     ];
     for (program, cpu, ram, verbs, why) in bad {
@@ -247,7 +261,14 @@ fn a_lagged_ice_has_no_next_and_loses_its_move() {
 
 #[test]
 fn an_ice_that_goes_round_without_spending_stalls() {
-    let data = with_row(r"10 GOTO 20\n20 GOTO 10\n30 ATTACK 1", 1, 1, "Attack").unwrap();
+    // Strong, it loops between 40 and 50 spending nothing; weak, it would attack.
+    let data = with_row(
+        r"10 IF SELF STR > 400\n20 GOTO 40\n30 ATTACK 1\n40 GOTO 50\n50 GOTO 40",
+        1,
+        1,
+        "Attack",
+    )
+    .unwrap();
     let mut g = fight_on(data, "probe", "");
     assert_eq!(g.ice_next(), None);
     let integ = g.deck.integrity;
