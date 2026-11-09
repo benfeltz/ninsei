@@ -204,8 +204,11 @@ pub fn icedb(ui: &mut Ui, data: &Data, save: &Save, sel: &mut Option<usize>) {
             Some(e) => {
                 for (n, l) in e.lines(save, data).iter().enumerate() {
                     let t = RichText::new(l).monospace();
+                    // The decompiled listing's unseen lines recede, as an unmet entry does.
                     ui.label(if n == 0 {
                         t.strong().color(accent())
+                    } else if l.ends_with(ninsei_core::ice_listing::UNSEEN) {
+                        t.color(muted())
                     } else {
                         t.color(ink())
                     });
