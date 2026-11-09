@@ -6,7 +6,7 @@
 //          Attack   `ATTACK n`  hits the deck for n, less its shield
 //          Trace    `TRACE n`   raises the trace by n
 //          Fortify  `FORTIFY n` adds n to its strength
-//        a verb not on the list is a bad line, which `Data::validate` refuses.
+//        n is 0 to 999; a verb not on the list is a bad line, which `Data::validate` refuses.
 // program: line-numbered: its verbs, `IF <condition>` (false skips the next line), `GOTO n`,
 //          `STOP` (ends its turn) and `REM`. Its conditions read the deck it's fighting:
 //          `TARGET INTEG|SHIELD|CPU <|>|= n`, `TARGET RAN <program>` (the deck ran it this

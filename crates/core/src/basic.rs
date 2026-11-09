@@ -19,6 +19,9 @@ use crate::data::{IceClass, Intent};
 /// The highest line number, as on the machines this BASIC imitates.
 pub const MAX_LINE: u32 = 63999;
 
+/// The largest number an ICE's verb takes: a three-digit field, like the line number's five.
+pub const MAX_ARG: u32 = 999;
+
 /// The keywords, in the order a palette lists them.
 pub const KEYWORDS: [&str; 5] = ["RUN", "IF", "GOTO", "STOP", "REM"];
 
@@ -433,12 +436,12 @@ pub fn parse_stmt_with(text: &str, vocab: Vocab) -> Stmt {
             Vocab::Ice(verbs) => match verbs.iter().find(|v| v.word() == word) {
                 Some(v) => match rest {
                     [n] => match n.parse::<u32>() {
-                        Ok(n) => match v {
+                        Ok(n) if n <= MAX_ARG => match v {
                             Verb::Attack => Stmt::Attack(n),
                             Verb::Trace => Stmt::Trace(n),
                             Verb::Fortify => Stmt::Fortify(n),
                         },
-                        Err(_) => bad("needs a number"),
+                        _ => bad("needs a number up to 999"),
                     },
                     _ => bad("needs a number"),
                 },

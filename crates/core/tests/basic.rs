@@ -618,4 +618,10 @@ fn an_ice_only_has_its_own_verbs() {
     assert_eq!(p.line(10).map(|l| &l.stmt), Some(&Stmt::Attack(3)));
     assert!(p.fault(20).is_some(), "TRACE isn't on its row");
     assert!(p.fault(30).is_some(), "a verb takes a number");
+    let big = basic::parse_with("10 ATTACK 999\n20 ATTACK 1000", basic::Vocab::Ice(&verbs));
+    assert_eq!(
+        big.line(10).map(|l| &l.stmt),
+        Some(&Stmt::Attack(basic::MAX_ARG))
+    );
+    assert!(big.fault(20).is_some(), "past MAX_ARG: {big:?}");
 }

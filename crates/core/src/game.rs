@@ -1247,13 +1247,14 @@ impl Game {
                 self.deck.integrity = self.deck.integrity.saturating_sub(dmg);
                 StepWhat::Hit { dmg, blocked }
             }
+            // Saturating: a program's numbers are data, and data can be silly.
             Intent::Trace(n) => {
                 let n = mods.trace(n);
-                self.deck.trace += n;
+                self.deck.trace = self.deck.trace.saturating_add(n);
                 StepWhat::Traced(n)
             }
             Intent::Fortify(n) => {
-                c.strength += n;
+                c.strength = c.strength.saturating_add(n);
                 c.strength_max = c.strength_max.max(c.strength);
                 StepWhat::Fortified(n)
             }
