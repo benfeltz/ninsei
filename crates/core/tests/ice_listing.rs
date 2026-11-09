@@ -231,3 +231,39 @@ fn the_hosaka_lists_the_observed_procedure() {
     );
     assert_eq!(suite::PROCEDURE_COLUMNS, ["STEP", "STATEMENT"]);
 }
+
+#[test]
+fn a_fight_that_rezzes_on_the_node_that_just_fell_is_booked_and_its_lines_come_home() {
+    let d = data();
+    let mut s = fresh();
+    let mut g = fight_from(&mut s, "enigma");
+    // A client's setup: Enigma falls and Hunter rezzes on the same node, in one action.
+    let was = history::Snap::of(&g);
+    let hunter = ix(&g, "hunter");
+    {
+        let c = g.combat.as_mut().unwrap();
+        c.ice = hunter;
+        c.turn = 1;
+        c.ice_prog = basic::parse_with(
+            &d.ice[hunter].program,
+            basic::Vocab::Ice(&d.ice[hunter].verbs),
+        );
+        c.ice_exec = Default::default();
+    }
+    let mut h = std::mem::take(&mut g.history);
+    h.record(&was, &g, Action::Run(0), None);
+    g.history = h;
+    let met: Vec<(usize, bool)> = g.history.met.iter().map(|m| (m.ice, m.broken)).collect();
+    assert_eq!(met, [(ix(&g, "enigma"), true), (hunter, false)]);
+    // Its lines are booked to a new entry.
+    g.apply(Action::EndTurn);
+    assert!(!g.ice_seen_lines(hunter).is_empty());
+    g.phase = Phase::JackedOut;
+    s.record(&g, &[], &d.rig).unwrap();
+    let seen = s
+        .ice_seen
+        .iter()
+        .find(|x| x.id == "hunter")
+        .expect("hunter booked");
+    assert_eq!(seen.lines, g.ice_seen_lines(hunter));
+}
