@@ -176,7 +176,7 @@ The two decks are a start. Each new one should be a new point of view, not a pal
 | `GOTO <line>` | jumps; the only loop |
 | `STOP` | breaks to the debugger and hands you the turn; the breakpoint, and the only one |
 
-Conditions read what is already on screen: `INTEG`, `TRACE`, `CPU` (cycles left), `TURN`, `ICE` (its strength), `ICE <class>` (`BARRIER`, `CODEGATE`, `SENTRY`), `NEXT <intent>` (`ATTACK`, `TRACE`, `FORTIFY`: the telegraphed move, what the ICE's program will do next as the fight stands now), `HAVE <program>`. Comparisons `< > =` against a number; no `AND`, `OR` or variables (two IFs in a row are an AND, two guarded lines an OR).
+Conditions read what is already on screen: `INTEG`, `TRACE`, `CPU` (cycles left), `TURN`, `ICE` (its strength), `ICE <class>` (`BARRIER`, `CODEGATE`, `SENTRY`), `NEXT <intent>` (`ATTACK`, `TRACE`, `FORTIFY`, `SPOOF`, `SEGFAULT`: the telegraphed move, what the ICE's program will do next as the fight stands now), `HAVE <program>`. Comparisons `< > =` against a number; no `AND`, `OR` or variables (two IFs in a row are an AND, two guarded lines an OR).
 
 **The deck's stats are the program's limits**, and each is a different kind of decision:
 

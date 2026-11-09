@@ -299,3 +299,28 @@ fn every_opcode_has_a_name_and_an_effect() {
     assert_eq!(binary::opcode_name(0x06), "SNF sniff");
     assert_eq!(binary::effect_of(0x07, 3, None), None);
 }
+
+#[test]
+fn a_deck_program_can_read_a_spoof_or_a_segfault_coming() {
+    use ninsei_core::basic::{Cond, Move};
+    use ninsei_core::*;
+    let p = basic::parse("10 IF NEXT SEGFAULT\n20 STOP\n30 IF NEXT SPOOF");
+    assert_eq!(
+        p.line(10).map(|l| &l.stmt),
+        Some(&Stmt::If(Cond::Next(Move::Segfault)))
+    );
+    assert_eq!(
+        p.line(30).map(|l| &l.stmt),
+        Some(&Stmt::If(Cond::Next(Move::Spoof)))
+    );
+    let data = with_row(
+        r"10 SEGFAULT\n20 SPOOF 1\n30 ATTACK 1",
+        "Segfault, Spoof, Attack",
+    );
+    let mut g = fight_on(data, "");
+    assert!(g.test(&Cond::Next(Move::Segfault)));
+    g.apply(Action::EndTurn);
+    assert!(g.test(&Cond::Next(Move::Spoof)));
+    // The Stack's NEXT menu offers them.
+    assert!(basic::INTENTS.contains(&"SEGFAULT") && basic::INTENTS.contains(&"SPOOF"));
+}

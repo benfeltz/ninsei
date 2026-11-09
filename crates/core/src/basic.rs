@@ -40,7 +40,7 @@ pub const CONDITIONS: [&str; 7] = ["INTEG", "TRACE", "CPU", "TURN", "ICE", "NEXT
 pub const CLASSES: [&str; 3] = ["BARRIER", "CODEGATE", "SENTRY"];
 
 /// The moves `IF NEXT <intent>` reads.
-pub const INTENTS: [&str; 3] = ["ATTACK", "TRACE", "FORTIFY"];
+pub const INTENTS: [&str; 5] = ["ATTACK", "TRACE", "FORTIFY", "SPOOF", "SEGFAULT"];
 
 /// A verb an ICE's program may use, as its row in `ice.ron` lists it.
 #[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -208,15 +208,36 @@ pub enum Move {
     Attack,
     Trace,
     Fortify,
+    Spoof,
+    Segfault,
 }
 
 impl Move {
+    /// Every move, in [`INTENTS`]' order.
+    pub const ALL: [Move; 5] = [
+        Move::Attack,
+        Move::Trace,
+        Move::Fortify,
+        Move::Spoof,
+        Move::Segfault,
+    ];
+
+    /// The word `IF NEXT` names it by.
+    pub fn word(self) -> &'static str {
+        INTENTS[Move::ALL
+            .iter()
+            .position(|m| *m == self)
+            .expect("every move is in ALL")]
+    }
+
     pub fn is(self, intent: Intent) -> bool {
         matches!(
             (self, intent),
             (Move::Attack, Intent::Attack(_))
                 | (Move::Trace, Intent::Trace(_))
                 | (Move::Fortify, Intent::Fortify(_))
+                | (Move::Spoof, Intent::Spoof(_))
+                | (Move::Segfault, Intent::Segfault)
         )
     }
 }
@@ -513,12 +534,11 @@ fn parse_cond(t: &[String]) -> Result<Cond, &'static str> {
         [] => Err("IF needs a condition"),
         ["HAVE", _] => Ok(Cond::Have(t[1].clone())),
         ["HAVE"] => Err("HAVE needs a program"),
-        ["NEXT", m] => match *m {
-            "ATTACK" => Ok(Cond::Next(Move::Attack)),
-            "TRACE" => Ok(Cond::Next(Move::Trace)),
-            "FORTIFY" => Ok(Cond::Next(Move::Fortify)),
-            _ => Err("NEXT reads ATTACK, TRACE or FORTIFY"),
-        },
+        ["NEXT", m] => Move::ALL
+            .into_iter()
+            .find(|mv| mv.word() == *m)
+            .map(Cond::Next)
+            .ok_or("NEXT reads ATTACK, TRACE, FORTIFY, SPOOF or SEGFAULT"),
         ["ICE", "BARRIER"] => Ok(Cond::IceClass(IceClass::Barrier)),
         ["ICE", "CODEGATE"] | ["ICE", "CODE", "GATE"] => Ok(Cond::IceClass(IceClass::CodeGate)),
         ["ICE", "SENTRY"] => Ok(Cond::IceClass(IceClass::Sentry)),

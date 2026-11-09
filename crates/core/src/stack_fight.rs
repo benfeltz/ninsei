@@ -204,7 +204,7 @@ fn programs(g: &Game, value: String) -> Field {
 
 /// The fields of an IF, from its condition's text after `IF`.
 fn if_fields(g: &Game, cond: &basic::Cond) -> Vec<Field> {
-    use basic::{Cond, Move, Op, Var};
+    use basic::{Cond, Op, Var};
     let op = |o: &Op| match o {
         Op::Lt => "<",
         Op::Gt => ">",
@@ -230,12 +230,7 @@ fn if_fields(g: &Game, cond: &basic::Cond) -> Vec<Field> {
             vec![menu("ICE CLASS", &SUBJECTS), menu(class, &basic::CLASSES)]
         }
         Cond::Next(m) => {
-            let m = match m {
-                Move::Attack => "ATTACK",
-                Move::Trace => "TRACE",
-                Move::Fortify => "FORTIFY",
-            };
-            vec![menu("NEXT", &SUBJECTS), menu(m, &basic::INTENTS)]
+            vec![menu("NEXT", &SUBJECTS), menu(m.word(), &basic::INTENTS)]
         }
         Cond::Have(name) => vec![menu("HAVE", &SUBJECTS), programs(g, shown(g, name))],
         // An ICE's conditions: the deck's program never parses them.
