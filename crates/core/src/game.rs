@@ -598,7 +598,8 @@ impl Game {
             .ice_known
             .iter()
             .filter_map(|(id, lines)| {
-                Some((data.ice.iter().position(|i| &i.id == id)?, lines.clone()))
+                let ice = data.ice.iter().position(|i| &i.id == id)?;
+                Some((ice, crate::ice_listing::tidy(lines.clone())))
             })
             .collect();
         let mut game = Self {
@@ -1264,9 +1265,7 @@ impl Game {
                 &mut self.ice_lines.last_mut().expect("just pushed").1
             }
         };
-        if let Err(at) = lines.binary_search(&no) {
-            lines.insert(at, no);
-        }
+        crate::ice_listing::note_line(lines, no);
     }
 
     /// The lines of ICE `ice`'s program the deck has seen run (sorted).

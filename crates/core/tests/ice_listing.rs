@@ -282,3 +282,35 @@ fn a_fight_that_rezzes_on_the_node_that_just_fell_is_booked_and_its_lines_come_h
         .expect("hunter booked");
     assert_eq!(seen.lines, g.ice_seen_lines(hunter));
 }
+
+#[test]
+fn lines_from_a_save_in_any_order_are_kept_tidy() {
+    let d = data();
+    let mut s = fresh();
+    s.tools.push("icedb".into());
+    s.ice_seen.push(hub::IceSeen {
+        id: "enigma".into(),
+        met: 1,
+        broken: 0,
+        lo: 12,
+        hi: 12,
+        lines: vec![30, 10, 30],
+    });
+    let mut g = fight_from(&mut s, "enigma");
+    let e = ix(&g, "enigma");
+    assert_eq!(g.ice_seen_lines(e), [10, 30]);
+    let shown: Vec<String> = ice_listing::rows(&g)
+        .iter()
+        .map(|r| r.shown().to_string())
+        .collect();
+    assert_eq!(shown, ["IF TARGET SHIELD > 0", "????", "ATTACK 4", "????"]);
+    g.apply(Action::EndTurn);
+    g.phase = Phase::JackedOut;
+    s.record(&g, &[], &d.rig).unwrap();
+    let seen = s.ice_seen.iter().find(|x| x.id == "enigma").unwrap();
+    assert!(
+        seen.lines.windows(2).all(|w| w[0] < w[1]),
+        "{:?}",
+        seen.lines
+    );
+}

@@ -2337,10 +2337,10 @@ impl Save {
                 continue;
             };
             if let Some(s) = self.ice_seen.iter_mut().find(|s| s.id == def.id) {
+                // A save's own list may not be tidy (hand-edited, or older): tidy it first.
+                s.lines = crate::ice_listing::tidy(std::mem::take(&mut s.lines));
                 for &no in lines {
-                    if let Err(at) = s.lines.binary_search(&no) {
-                        s.lines.insert(at, no);
-                    }
+                    crate::ice_listing::note_line(&mut s.lines, no);
                 }
             }
         }

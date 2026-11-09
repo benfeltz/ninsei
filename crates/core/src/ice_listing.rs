@@ -80,6 +80,20 @@ pub fn card_line(r: &IceRow) -> String {
     format!("{mark}{:>5} {}", r.no, r.shown())
 }
 
+/// Adds line `no` to `lines`, kept sorted, each once: how a deck remembers a line it saw.
+pub fn note_line(lines: &mut Vec<u32>, no: u32) {
+    if let Err(at) = lines.binary_search(&no) {
+        lines.insert(at, no);
+    }
+}
+
+/// Line numbers as a deck keeps them: sorted, each once, whatever order they came in.
+pub fn tidy(mut lines: Vec<u32>) -> Vec<u32> {
+    lines.sort_unstable();
+    lines.dedup();
+    lines
+}
+
 /// How many of the program's lines are known: (seen, all).
 pub fn known(rows: &[IceRow]) -> (usize, usize) {
     (rows.iter().filter(|r| r.text.is_some()).count(), rows.len())
