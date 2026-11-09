@@ -42,12 +42,14 @@ fn the_listing_marks_the_current_line_the_stops_and_the_faults() {
     let mut g = fight();
     let rows = btop_fight::rows(&g);
     assert_eq!(rows.len(), g.program.lines.len(), "one row a line of SAFE");
+    // SAFE opens with a REM: the cursor rests on the first line that does something.
+    assert_eq!(rows[0].gutter, Gutter::None, "never on a REM");
     assert_eq!(
-        rows[0].gutter,
+        rows[1].gutter,
         Gutter::Current,
-        "the cursor on the first line"
+        "the cursor on the first line that runs"
     );
-    assert_eq!(rows[0].no, g.exec.pc);
+    assert_eq!(rows[1].no, g.exec.pc);
     assert!(
         rows.iter().all(|r| !r.dim && r.fault.is_none()),
         "SAFE reads"
@@ -101,7 +103,7 @@ fn the_edge_counts_down_this_turn() {
     g.apply(Action::Program(
         "10 IF INTEG > 0\n20 RUN icepick\n30 STOP".into(),
     ));
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     let c = g.combat.as_ref().unwrap();
     assert!(
         c.cpu < g.deck.cpu_max && c.ifs < g.deck.ram_max,
@@ -125,7 +127,7 @@ fn the_keys_follow_the_debugger() {
     g.apply(Action::Program(
         "10 STOP\n20 RUN icepick\n30 GOTO 10".into(),
     ));
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     assert!(
         matches!(g.exec.state, ExecState::Stopped(10)),
         "{:?}",
@@ -202,7 +204,7 @@ fn an_edit_mid_fight_changes_what_the_next_pass_runs() {
     g.apply(Action::Program("10 STOP\n20 GOTO 10".into()));
     g.apply(btop_fight::retype(&g, 10, "RUN icepick").unwrap());
     let before = g.combat.as_ref().unwrap().strength;
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     assert!(
         g.combat.as_ref().is_none_or(|c| c.strength < before),
         "the retyped line ran"
@@ -301,7 +303,7 @@ fn ice_bas_is_one_program_before_during_and_after_a_fight() {
     let k = btop_fight::keys(&g, btop_fight::home(&g));
     assert!(k.run && k.step);
     // Step hits the STOP: continue presses now.
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     assert!(
         matches!(g.exec.state, ExecState::Stopped(_)),
         "{:?}",
@@ -312,6 +314,7 @@ fn ice_bas_is_one_program_before_during_and_after_a_fight() {
     g.apply(btop_fight::delete(&g, first).unwrap());
     let before = g.combat.as_ref().unwrap().strength;
     g.apply(Action::Play);
+    g.apply(Action::Finish);
     g.apply(Action::Pause);
     let after = g.combat.as_ref().map_or(0, |c| c.strength);
     assert!(after < before, "the program attacked: {before} -> {after}");

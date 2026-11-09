@@ -312,12 +312,17 @@ pub enum Action {
     Move(usize),
     /// Run the program in HDD slot `n`: the hotbar, the manual override.
     Run(usize),
-    /// The deck's program: run one pass (one turn, unless it STOPs or hangs).
+    /// The deck's program: run the line under the cursor and stop on the next (gdb's `step`).
+    /// The line that ends the pass ends the turn too, and the ICE acts.
     Step,
-    /// The deck's program: keep running passes (the driver applies `Step` while
-    /// `ExecState::Running`); runs the first one now.
+    /// The deck's program: run the rest of this turn's pass (gdb's `finish`), until the turn
+    /// ends, a STOP or a hang. Leaves the program running or paused as it was.
+    Finish,
+    /// The deck's program: keep running, a line at a time, turn after turn (the driver
+    /// applies `Step` while `ExecState::Running`); runs the first line now.
     Play,
-    /// The deck's program: stop running passes and hand the turn to the hotbar.
+    /// The deck's program: stop where it is, partway through a pass or not, and hand the turn
+    /// to the hotbar. Step or Play carry on from there.
     Pause,
     /// Replace the deck's program with this text. Allowed any time, mid-fight too.
     Program(String),
@@ -430,7 +435,8 @@ pub enum ExecState {
     /// The debugger has the turn: the hotbar plays, Step or Play hands it back.
     #[default]
     Paused,
-    /// Playing: the driver steps a pass at a time until a STOP, a hang or the fight's end.
+    /// Playing: the driver steps a line at a time, turn after turn, until a STOP, a hang or
+    /// the fight's end.
     Running,
     /// A STOP on this line handed over the turn; the next pass carries on after it.
     Stopped(u32),
@@ -440,11 +446,36 @@ pub enum ExecState {
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Exec {
     pub state: ExecState,
-    /// The line about to run: the program's first at the start of a turn, or the one after a
-    /// STOP (`ExecState::Stopped`), where the next pass carries on.
+    /// The line about to run: the program's first at the start of a turn, partway down while
+    /// a pass is under way (after a STOP, a Step or a pause), or a hang's line, held.
     pub pc: Option<u32>,
     /// This turn's pass so far, or the last one: a step per line executed.
     pub trace: Vec<Step>,
+    /// The lines this pass has come to since it last spent a budget (a RUN's cycle or an
+    /// IF's GB): coming back to one is a hang.
+    pub visited: Vec<u32>,
+    /// A pass is under way this turn: the next line carries it on instead of starting at the
+    /// top. The turn's end closes it.
+    pub open: bool,
+    /// A hang on this line (`?BREAK IN n`), the cursor held on it until the next Step, Play,
+    /// edit or the turn's end.
+    pub broke: Option<u32>,
+}
+
+/// How a line of the deck's program left the pass (`Game::line`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Line {
+    /// It ran; the pass carries on at the next line.
+    Went,
+    /// A STOP: the debugger has the turn, and the next line carries on after it.
+    Stopped,
+    /// A hang: `?BREAK IN n`, the cursor held on the line.
+    Hung,
+    /// The pass is over (out of cycles, out of GB or the program's end) and so is the turn:
+    /// the ICE has acted.
+    Ended,
+    /// The fight is over.
+    Over,
 }
 
 /// One line executed in a pass.
@@ -468,7 +499,7 @@ pub enum StepWhat {
     Goto(u32),
     /// A STOP: the turn is the hotbar's.
     Stop,
-    /// The pass went round without running anything: `?BREAK IN <line>`.
+    /// The pass went round without spending anything (no RUN, no IF): `?BREAK IN <line>`.
     Break,
     /// The pass ended: no cycles left.
     OutOfCpu,
@@ -747,7 +778,7 @@ impl Game {
     pub fn apply(&mut self, action: Action) {
         // A pass is made of actions (each RUN, then the end of the turn), applied one by one
         // so history and cues hear each of them; the pass itself adds nothing on top.
-        if matches!(action, Action::Step | Action::Play) {
+        if matches!(action, Action::Step | Action::Play | Action::Finish) {
             if let Err(e) = self.try_apply(action) {
                 self.say(LogKind::Sys, format!("err: {e}"));
             }
@@ -802,8 +833,13 @@ impl Game {
             Action::TakeJob { job } => self.take_job(job),
             Action::Read(r) => self.read(r),
             Action::Run(slot) => self.run(slot),
-            Action::Step => self.pass(false),
-            Action::Play => self.pass(true),
+            Action::Step => self.go(false).map(|()| {
+                self.line();
+            }),
+            Action::Play => self.go(true).map(|()| {
+                self.line();
+            }),
+            Action::Finish => self.pass(false),
             Action::Pause => {
                 if self.exec.state == ExecState::Running {
                     self.exec.state = ExecState::Paused;
@@ -947,7 +983,7 @@ impl Game {
         self.phase = Phase::Combat;
         // Every fight opens with the program loaded and the cursor on its first line.
         self.exec = Exec {
-            pc: self.program.first(),
+            pc: self.top(),
             ..Exec::default()
         };
         self.say(
@@ -1036,6 +1072,7 @@ impl Game {
 
     fn win_combat(&mut self) {
         let Some(c) = self.combat.take() else { return };
+        self.end_pass();
         self.phase = Phase::Exploring;
         self.net.nodes[c.node].cleared = true;
         let def = &self.data.ice[c.ice];
@@ -1105,7 +1142,8 @@ impl Game {
         c.cpu = self.deck.cpu_max;
         c.ifs = self.deck.ram_max;
         c.turn += 1;
-        self.exec.pc = self.program.first();
+        self.end_pass();
+        self.exec.pc = self.top();
         if let ExecState::Stopped(_) = self.exec.state {
             self.exec.state = ExecState::Paused;
         }
@@ -1116,6 +1154,7 @@ impl Game {
         if self.deck.integrity == 0 {
             self.phase = Phase::Flatlined;
             self.combat = None;
+            self.end_pass();
             self.say(LogKind::Bad, "!! deck integrity zero. FLATLINE.");
             return Ok(());
         }
@@ -1156,13 +1195,37 @@ impl Game {
     }
 
     /// Replaces the deck's program. Stopped partway through a turn, it carries on from the
-    /// first line after the STOP; otherwise the next pass starts at the top.
+    /// first line after the STOP; paused partway, from the line it was on (or the next one);
+    /// otherwise the next pass starts at the top.
     fn edit_program(&mut self, text: &str) {
         self.program = crate::basic::parse(text);
-        self.exec.pc = match self.exec.state {
-            ExecState::Stopped(at) => self.program.after(at),
-            _ => self.program.first(),
+        self.exec.broke = None;
+        self.exec.visited.clear();
+        self.exec.pc = match (self.exec.state, self.exec.pc) {
+            (ExecState::Stopped(at), _) => self.rest(self.program.after(at)),
+            (_, Some(at)) if self.exec.open => match self.program.line(at) {
+                Some(_) => self.rest(Some(at)),
+                None => self.rest(self.program.after(at)),
+            },
+            _ => self.top(),
         };
+    }
+
+    /// Where the cursor rests from line `from` on: the first line that does something, past
+    /// any REMs (and numbers with no line).
+    fn rest(&self, mut from: Option<u32>) -> Option<u32> {
+        while let Some(no) = from {
+            match self.program.line(no) {
+                Some(l) if !matches!(l.stmt, Stmt::Rem) => break,
+                _ => from = self.program.after(no),
+            }
+        }
+        from
+    }
+
+    /// Where the cursor rests at the top of a pass: the first line that does something.
+    fn top(&self) -> Option<u32> {
+        self.rest(self.program.first())
     }
 
     /// The line a false `IF` skips to: past the line it guards, and past that line's own
@@ -1187,58 +1250,88 @@ impl Game {
         self.exec.trace.push(step);
     }
 
-    /// One pass of the deck's program: from the first line (or where a STOP left it) until
-    /// the program ends, a STOP, the cycles run out or there's no GB for another IF. Every RUN
-    /// resolves through `preview`, and runs as `Action::Run` would; one that can't run is
-    /// skipped with the preview's words. A pass that comes back to a line without running
-    /// anything is a hang: `?BREAK IN <line>`, and the debugger has the turn. Unless it
-    /// stopped or hung, the turn ends and the ICE acts.
-    /// `play` sets the program running (`Action::Play`); a step leaves it as it was.
+    /// The rest of this turn's pass of the deck's program, a line at a time (`Game::line`)
+    /// until the turn ends, a STOP, a hang or the fight's end. `play` sets the program running
+    /// (`Action::Play`); otherwise it stays running or paused as it was.
     fn pass(&mut self, play: bool) -> Result<(), String> {
+        self.go(play)?;
+        while self.line() == Line::Went {}
+        Ok(())
+    }
+
+    /// Hands the turn to the deck's program: a STOP or a hang is behind it now.
+    fn go(&mut self, play: bool) -> Result<(), String> {
         if self.phase != Phase::Combat {
             return Err("no fight in progress.".into());
         }
-        // After a STOP the pass carries on from `pc`, this turn's pass and all.
-        let resume = matches!(self.exec.state, ExecState::Stopped(_));
-        if !resume {
-            self.exec.trace.clear();
-            self.exec.pc = self.program.first();
-        }
+        self.exec.broke = None;
         self.exec.state = if play || self.exec.state == ExecState::Running {
             ExecState::Running
         } else {
             ExecState::Paused
         };
-        let mut visited: Vec<u32> = Vec::new();
+        Ok(())
+    }
+
+    /// One line of the deck's program: the line about to run, and any REMs after it, so it
+    /// stops on the next line that does something. A pass runs
+    /// from the first line (or where a STOP or a pause left it) until the program ends, a STOP,
+    /// the cycles run out or there's no GB for another IF. Every RUN resolves through
+    /// `preview`, and runs as `Action::Run` would; one that can't run is skipped with the
+    /// preview's words. Coming back to a line without spending anything (no RUN's cycle, no IF's
+    /// GB) since it was last there is a hang:
+    /// `?BREAK IN <line>`, the cursor held there and the debugger has the turn. When the pass
+    /// is over, on the line that spends the last cycle, reaches the end or finds no GB, the
+    /// turn ends and the ICE acts.
+    fn line(&mut self) -> Line {
+        if !self.exec.open {
+            self.exec.open = true;
+            self.exec.trace.clear();
+            self.exec.visited.clear();
+            self.exec.pc = self.program.first();
+        }
         let mut last = self.exec.pc.unwrap_or(0);
+        // A line ran: the pass carries on, unless what it did ended it.
+        let mut ran = false;
         loop {
             let Some(c) = self.combat.as_ref().filter(|_| self.phase == Phase::Combat) else {
                 // The fight ended mid-pass: won, or the deck went down.
-                return Ok(());
+                return Line::Over;
             };
             let (cpu, ifs) = (c.cpu, c.ifs);
             if cpu == 0 {
                 self.trace_step(last, StepWhat::OutOfCpu);
-                break;
+                return self.close();
             }
             let Some(no) = self.exec.pc else {
                 self.trace_step(last, StepWhat::End);
-                break;
+                return self.close();
             };
+            // Stop on the next line that does something: a REM is passed over.
+            let rem = self
+                .program
+                .line(no)
+                .is_none_or(|l| matches!(l.stmt, Stmt::Rem));
+            if ran && !rem {
+                return Line::Went;
+            }
             last = no;
-            if visited.contains(&no) {
+            if self.exec.visited.contains(&no) {
                 self.trace_step(no, StepWhat::Break);
                 self.exec.state = ExecState::Paused;
-                self.exec.pc = self.program.first();
-                return Ok(());
+                self.exec.open = false;
+                self.exec.visited.clear();
+                self.exec.broke = Some(no);
+                return Line::Hung;
             }
-            visited.push(no);
+            self.exec.visited.push(no);
             let Some(stmt) = self.program.line(no).map(|l| l.stmt.clone()) else {
                 self.exec.pc = self.program.after(no);
                 continue;
             };
             let next = self.program.after(no);
             self.exec.pc = next;
+            ran |= !matches!(stmt, Stmt::Rem);
             match stmt {
                 Stmt::Rem => {}
                 Stmt::Bad(why) => self.trace_step(no, StepWhat::Skipped(why)),
@@ -1250,9 +1343,15 @@ impl Game {
                     };
                     match self.preview(slot) {
                         Ok(p) => {
-                            visited.clear();
+                            self.exec.visited.clear();
                             let uid = self.hdd[slot].uid;
                             self.apply(Action::Run(slot));
+                            // The RUN broke this ICE and the next one rezzed, its fight starting
+                            // with a fresh `Exec`: the pass carries on into it, from its first
+                            // line. A fight that's over closed the pass (`end_pass`).
+                            if self.phase == Phase::Combat && !self.exec.open {
+                                self.exec.open = true;
+                            }
                             self.trace_step(
                                 no,
                                 StepWhat::Ran {
@@ -1267,11 +1366,14 @@ impl Game {
                 Stmt::If(cond) => {
                     if ifs == 0 {
                         self.trace_step(no, StepWhat::OutOfRam);
-                        break;
+                        return self.close();
                     }
                     if let Some(c) = self.combat.as_mut() {
                         c.ifs -= 1;
                     }
+                    // Spending a GB is progress, as a RUN's cycle is: a loop of IFs idles
+                    // through the RAM and ends the turn, it doesn't hang.
+                    self.exec.visited.clear();
                     let yes = self.test(&cond);
                     self.trace_step(no, StepWhat::If(yes));
                     if !yes {
@@ -1290,13 +1392,38 @@ impl Game {
                 Stmt::Stop => {
                     self.trace_step(no, StepWhat::Stop);
                     self.exec.state = ExecState::Stopped(no);
-                    return Ok(());
+                    // Carrying on after a STOP looks for a hang afresh; the cursor rests past
+                    // any REMs after it, which that carrying on passes over.
+                    self.exec.visited.clear();
+                    while let Some(n) = self.exec.pc.filter(|&n| self.rest(Some(n)) != Some(n)) {
+                        self.exec.visited.push(n);
+                        self.exec.pc = self.program.after(n);
+                    }
+                    return Line::Stopped;
                 }
             }
         }
-        // The turn is over: the ICE acts.
+    }
+
+    /// Whether this turn's pass carries on at the next line: under way, in a fight, and not
+    /// handed over by a STOP or a hang.
+    pub fn pass_open(&self) -> bool {
+        self.phase == Phase::Combat
+            && self.exec.open
+            && !matches!(self.exec.state, ExecState::Stopped(_))
+    }
+
+    /// No pass is under way: the turn or the fight is over. The next line starts at the top.
+    fn end_pass(&mut self) {
+        self.exec.open = false;
+        self.exec.visited.clear();
+        self.exec.broke = None;
+    }
+
+    /// The pass is over, and so is the turn: the ICE acts.
+    fn close(&mut self) -> Line {
         self.apply(Action::EndTurn);
-        Ok(())
+        Line::Ended
     }
 
     // ---- encounters ----------------------------------------------------------
@@ -1796,6 +1923,7 @@ impl Game {
             self.deck.trace = TRACE_MAX;
             self.phase = Phase::Flatlined;
             self.combat = None;
+            self.end_pass();
             self.say(LogKind::Bad, "!! trace complete. they found you. FLATLINE.");
             return true;
         }

@@ -2781,7 +2781,7 @@ mod module_tests {
     #[test]
     fn each_step_of_a_pass_is_an_activity_row_with_its_reference() {
         let mut g = fight("10 IF INTEG > 0\n20 RUN icepick\n30 GOTO 10");
-        g.apply(Action::Step);
+        g.apply(Action::Finish);
         let mut h = Harness::new(1280.0, 1400.0);
         frame(&mut h, &g, vec![]);
         frame(&mut h, &g, vec![]);
@@ -2795,6 +2795,64 @@ mod module_tests {
         assert!(
             log.iter().any(|t| t.starts_with("10 IF INTEG > 0")),
             "{log:?}"
+        );
+    }
+
+    #[test]
+    fn a_narrow_module_window_cuts_the_hang_before_the_budgets() {
+        let mut g = fight("10 GOTO 20\n20 GOTO 10");
+        for _ in 0..3 {
+            g.apply(Action::Step);
+        }
+        let mut h = Harness::new(1280.0, 800.0);
+        let mut term = ninsei_term::LineEditor::default();
+        // Room for the budgets, not for the hang after them.
+        let size = (280.0, 400.0);
+        frame_with(&mut h, &g, size, &mut term, vec![]);
+        frame_with(&mut h, &g, size, &mut term, vec![]);
+        let rows = rows_in(&h, pane_rect(size));
+        let edge = rows
+            .iter()
+            .map(|(s, _)| s.replace(' ', ""))
+            .find(|s| s.contains("RAM"))
+            .unwrap_or_else(|| panic!("{rows:?}"));
+        let ram = format!("RAM{}/{}", g.ifs_left(), g.deck.ram_max);
+        assert!(edge.contains(&ram), "the budgets whole: {edge}");
+        assert!(
+            edge.contains('…') && !edge.contains("IN10"),
+            "the hang cut: {edge}"
+        );
+    }
+
+    #[test]
+    fn a_hang_shows_in_the_module_windows_edge_and_its_last_watch() {
+        let mut g = fight("10 GOTO 20\n20 GOTO 10");
+        for _ in 0..3 {
+            g.apply(Action::Step);
+        }
+        assert_eq!(g.exec.broke, Some(10));
+        let mut h = Harness::new(1280.0, 800.0);
+        frame(&mut h, &g, vec![]);
+        frame(&mut h, &g, vec![]);
+        let rows = rows_in(&h, pane_rect(PANE));
+        let flat: Vec<String> = rows.iter().map(|(s, _)| s.replace(' ', "")).collect();
+        assert!(
+            flat.iter().filter(|s| s.contains("?BREAKIN10")).count() >= 2,
+            "the edge and LAST: {rows:?}"
+        );
+        assert!(
+            flat.iter()
+                .any(|s| s.contains('▶') && s.contains("10GOTO20")),
+            "the ▶ held on line 10: {rows:?}"
+        );
+        g.apply(Action::Step);
+        frame(&mut h, &g, vec![]);
+        let rows = rows_in(&h, pane_rect(PANE));
+        assert!(
+            !rows
+                .iter()
+                .any(|(s, _)| s.replace(' ', "").contains("?BREAK")),
+            "{rows:?}"
         );
     }
 }

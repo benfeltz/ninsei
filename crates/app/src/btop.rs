@@ -1772,6 +1772,8 @@ mod script_tests {
         frame(&mut h, &g, size, vec![]);
         script::take_keys(&h.ctx);
         frame(&mut h, &g, size, vec![]);
+        // The cursor starts on the ▶ (line 20, past the REM): up to the REM.
+        frame(&mut h, &g, size, letter('k'));
         frame(&mut h, &g, size, letter('e'));
         frame(&mut h, &g, size, vec![]);
         assert!(h.ctx.memory(|m| m.has_focus(script::edit_id())), "retyping");
@@ -1893,5 +1895,62 @@ mod script_tests {
                 .any(|(_, fill, stroke)| *fill == Color32::TRANSPARENT && *stroke == p.bright),
             "the border lit"
         );
+    }
+
+    #[test]
+    fn a_narrow_tile_cuts_the_hang_before_the_budgets() {
+        let mut g = fight("10 GOTO 20\n20 GOTO 10");
+        for _ in 0..3 {
+            g.apply(Action::Step);
+        }
+        // Room for the budgets, not for the hang after them.
+        let size = (300.0, 300.0);
+        let mut h = Harness::new(1280.0, 800.0);
+        frame(&mut h, &g, size, vec![]);
+        frame(&mut h, &g, size, vec![]);
+        let rows = rows_painted(&h, pane_rect(size));
+        let edge = rows
+            .iter()
+            .map(|(s, _)| s.replace(' ', ""))
+            .find(|s| s.contains("cpu"))
+            .unwrap_or_else(|| panic!("{rows:?}"));
+        let ram = format!("ram{}/{}", g.ifs_left(), g.deck.ram_max);
+        assert!(edge.contains(&ram), "the budgets whole: {edge}");
+        assert!(
+            edge.contains('…') && !edge.contains("in10"),
+            "the hang cut: {edge}"
+        );
+    }
+
+    #[test]
+    fn a_hang_is_cut_into_the_tiles_bottom_edge_and_the_line_stays_lit() {
+        let mut g = fight("10 GOTO 20\n20 GOTO 10");
+        for _ in 0..3 {
+            g.apply(Action::Step);
+        }
+        assert_eq!(g.exec.broke, Some(10));
+        let mut h = Harness::new(1280.0, 800.0);
+        frame(&mut h, &g, PANE, vec![]);
+        frame(&mut h, &g, PANE, vec![]);
+        let rows = rows_painted(&h, pane_rect(PANE));
+        let edge = rows
+            .iter()
+            .find(|(s, _)| s.contains("?break"))
+            .map(|r| &r.0);
+        assert!(
+            edge.is_some_and(|s| s.replace(' ', "").contains("?breakin10")),
+            "{rows:?}"
+        );
+        assert!(
+            rows.iter()
+                .any(|(s, _)| s.contains('▶') && s.contains("10GOTO20")
+                    || s.contains('▶') && s.contains("10 GOTO 20")),
+            "the ▶ held on line 10: {rows:?}"
+        );
+        // The next Step takes it away.
+        g.apply(Action::Step);
+        frame(&mut h, &g, PANE, vec![]);
+        let rows = rows_painted(&h, pane_rect(PANE));
+        assert!(!rows.iter().any(|(s, _)| s.contains("?break")), "{rows:?}");
     }
 }

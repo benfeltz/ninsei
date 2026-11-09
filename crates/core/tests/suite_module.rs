@@ -49,7 +49,7 @@ fn the_watches_read_the_incident_and_are_blank_outside_one() {
     g.apply(Action::Program(
         "10 IF INTEG > 0\n20 RUN icepick\n30 STOP".into(),
     ));
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     let w: std::collections::HashMap<_, _> = suite::watches(&g).into_iter().collect();
     let c = g.combat.as_ref().unwrap();
     assert_eq!(w["TURN"], c.turn.to_string());
@@ -129,7 +129,7 @@ fn the_debuggers_keys_press_only_when_they_do_something() {
     assert!(suite::fkey_live(&g, FKey::Step, first) && suite::fkey_live(&g, FKey::Run, first));
     assert!(!suite::fkey_live(&g, FKey::Pause, first));
     g.apply(Action::Program("10 STOP\n20 GOTO 10".into()));
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     assert!(
         suite::fkey_live(&g, FKey::Run, None),
         "F9 carries on after a STOP"
@@ -143,7 +143,7 @@ fn each_step_of_a_pass_is_filed_under_its_own_reference() {
     g.apply(Action::Program(
         "10 IF INTEG > 0\n20 RUN icepick\n30 GOTO 10".into(),
     ));
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     let steps: Vec<_> = g.log[before..]
         .iter()
         .filter(|l| l.kind == LogKind::Program)
@@ -214,11 +214,12 @@ fn proc_7_is_one_program_before_during_and_after_an_incident() {
     // F8 Step hits the STOP; F9 Run carries on past it and the ICE loses strength.
     assert!(suite::fkey_live(&g, FKey::Step, Some(first)));
     let logged = g.log.len();
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     assert!(matches!(g.exec.state, ExecState::Stopped(_)));
     assert!(suite::fkey_live(&g, FKey::Run, None));
     let before = g.combat.as_ref().unwrap().strength;
     g.apply(Action::Play);
+    g.apply(Action::Finish);
     g.apply(Action::Pause);
     assert!(g.combat.as_ref().map_or(0, |c| c.strength) < before);
     assert!(
@@ -232,4 +233,28 @@ fn proc_7_is_one_program_before_during_and_after_an_incident() {
     g.phase = Phase::JackedOut;
     s.record(&g, &[], &d.rig).unwrap();
     assert_eq!(s.program_text(&d), kept);
+}
+
+#[test]
+fn the_last_watch_lets_go_of_a_hang_with_the_edge() {
+    let mut g = fight();
+    g.apply(Action::Program("10 GOTO 20\n20 GOTO 10".into()));
+    let last = |g: &Game| -> String {
+        suite::watches(g)
+            .into_iter()
+            .find(|(n, _)| *n == "LAST")
+            .unwrap()
+            .1
+    };
+    g.apply(Action::Finish);
+    assert_eq!(last(&g), "?BREAK IN 10");
+    // An edit lets go of it: the edge and LAST both.
+    g.apply(Action::Program(g.program.text()));
+    assert!(!suite::module_note(&g).contains("BREAK"));
+    assert_eq!(last(&g), "20 GOTO 10.");
+    // So does the turn's end.
+    g.apply(Action::Finish);
+    assert_eq!(last(&g), "?BREAK IN 10");
+    g.apply(Action::EndTurn);
+    assert!(!last(&g).contains("BREAK"), "{}", last(&g));
 }

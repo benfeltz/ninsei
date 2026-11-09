@@ -55,14 +55,14 @@ fn the_card_mirrors_the_program() {
     assert_eq!(value, "torch");
     assert!(!options.contains(&"torch".to_string()));
     assert!(c.blocks[6].fault.is_some(), "the bad line names its fault");
-    // The ▶ is on the line about to run, and only there.
+    // The ▶ is on the line about to run, and only there: never on a REM.
     let current: Vec<u32> = c
         .blocks
         .iter()
         .filter(|b| b.current)
         .map(|b| b.no)
         .collect();
-    assert_eq!(current, [5]);
+    assert_eq!(current, [10]);
 }
 
 #[test]
@@ -179,7 +179,7 @@ fn the_card_is_a_view_of_the_running_program() {
     g.apply(Action::Program(
         "10 RUN icepick\n20 STOP\n30 RUN icepick".into(),
     ));
-    g.apply(Action::Step);
+    g.apply(Action::Finish);
     let c = stack_fight::card(&g);
     assert_eq!(c.state, ExecState::Stopped(20));
     let current: Vec<u32> = c

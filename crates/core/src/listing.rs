@@ -55,6 +55,11 @@ pub fn fighting(g: &Game) -> bool {
     g.combat.is_some() && g.phase == Phase::Combat
 }
 
+/// The line a hang holds the cursor on (`?BREAK IN n`), until the next Step, Run or edit.
+pub fn broke(g: &Game) -> Option<u32> {
+    g.exec.broke.filter(|_| fighting(g))
+}
+
 /// The listing, as the game stands: the program's lines, then any stray text. Read straight
 /// from the program, once a frame.
 pub fn rows(g: &Game) -> Vec<Row> {

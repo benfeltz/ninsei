@@ -559,6 +559,9 @@ fn palette_fit(width: f32, gap: f32) -> (f32, bool) {
     (alone.clamp(look::CHIP_MIN, look::CHIP_W), true)
 }
 
+/// The least room between a hang and the budgets on the Script card's title line.
+const BESIDE_GAP: f32 = 12.0;
+
 /// The Script card: a line with the budgets, the program's blocks (scrolling when they
 /// run past the card), the palette row (the blocks to add, and moving or clearing the selected
 /// one), then Step, Run and Pause on a row of their own. Edits and presses become actions;
@@ -569,17 +572,49 @@ fn script_card(p: &mut Panes, ui: &mut Ui) {
     let look = card_look(p, ui);
     let ink = look.ink;
     let mut acts: Vec<Action> = Vec::new();
-    // The budgets line, at the right: the pane's tab already names the card.
+    // The budgets line, at the right: the pane's tab already names the card. A hang goes at
+    // its left while the ▶ is held, or on a row of its own above when the two don't fit.
     let line_h = ui.fonts_mut(|f| f.row_height(&look.font)).ceil() + 4.0;
-    let (title, _) =
-        ui.allocate_exact_size(vec2(ui.available_width().floor(), line_h), Sense::hover());
+    let full = ui.available_width().floor();
+    let budget = card.budget_words();
+    let broke = card.broke_words();
+    let text_w = |ui: &Ui, t: &str| {
+        ui.fonts_mut(|f| {
+            f.layout_no_wrap(t.to_string(), look.font.clone(), ink)
+                .size()
+                .x
+        })
+    };
+    let beside = broke
+        .as_deref()
+        .is_none_or(|b| text_w(ui, b) + text_w(ui, &budget) + 2.0 + BESIDE_GAP <= full);
+    if let Some(broke) = broke.as_ref().filter(|_| !beside) {
+        let (row, _) = ui.allocate_exact_size(vec2(full, line_h), Sense::hover());
+        ui.painter().text(
+            pos2(row.left() + 1.0, row.center().y).round(),
+            Align2::LEFT_CENTER,
+            broke,
+            look.font.clone(),
+            ink,
+        );
+    }
+    let (title, _) = ui.allocate_exact_size(vec2(full, line_h), Sense::hover());
     ui.painter().text(
         pos2(title.right() - 1.0, title.center().y).round(),
         Align2::RIGHT_CENTER,
-        card.budget_words(),
+        budget,
         look.font.clone(),
         ink,
     );
+    if let Some(broke) = broke.filter(|_| beside) {
+        ui.painter().text(
+            pos2(title.left() + 1.0, title.center().y).round(),
+            Align2::LEFT_CENTER,
+            broke,
+            look.font.clone(),
+            ink,
+        );
+    }
     let mut sel = selected(ui, g);
     let gap = ui.spacing().item_spacing.x;
     let (chip_w, wrap) = palette_fit(ui.available_width().floor(), gap);
@@ -1641,17 +1676,19 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn step_runs_a_pass_and_the_message_box_says_so() {
+    fn step_runs_a_line_and_the_message_box_says_so() {
         let mut g = fight("10 RUN icepick\n20 IF INTEG > 99\n30 GOTO 10");
         let mut h = crate::uitest::Harness::new(1280.0, 800.0);
         script(&mut h, &g, PANE, vec![]);
         let turn = g.combat.as_ref().unwrap().turn;
-        let before = g.log.len();
         let out = click_on(&mut h, &g, "Step");
         assert_eq!(apply(&mut g, out), [Action::Step]);
-        if g.phase == Phase::Combat {
-            assert_eq!(g.combat.as_ref().unwrap().turn, turn + 1);
-        }
+        assert_eq!(g.exec.pc, Some(20), "the ▶ moves to the next line");
+        assert_eq!(g.combat.as_ref().unwrap().turn, turn, "the turn goes on");
+        let before = g.log.len();
+        script(&mut h, &g, PANE, vec![]);
+        let out = click_on(&mut h, &g, "Step");
+        assert_eq!(apply(&mut g, out), [Action::Step]);
         let said: Vec<&str> = g.log[before..].iter().map(|l| l.text.as_str()).collect();
         assert!(
             said.contains(&"20 IF INTEG > 99: no. skipping the next line."),
@@ -1741,5 +1778,55 @@ pub(crate) mod tests {
                 assert_eq!(r.min, r.min.round(), "{name} on whole pixels");
             }
         }
+    }
+
+    #[test]
+    fn on_a_narrow_card_the_hang_takes_a_row_of_its_own() {
+        let mut g = fight("10 GOTO 20\n20 GOTO 10");
+        for _ in 0..3 {
+            g.apply(Action::Step);
+        }
+        for w in [340.0, 240.0, 200.0] {
+            let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+            script(&mut h, &g, (w, 520.0), vec![]);
+            script(&mut h, &g, (w, 520.0), vec![]);
+            let painted = h.painted_text();
+            let broke = painted.iter().find(|(t, _)| t == "?BREAK IN 10");
+            let budgets = painted.iter().find(|(t, _)| t.ends_with("left"));
+            let (Some(broke), Some(budgets)) = (broke, budgets) else {
+                panic!("{w}: {painted:?}");
+            };
+            assert!(
+                !broke.1.intersects(budgets.1),
+                "{w}: they overlap: {broke:?} {budgets:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn a_hang_is_said_on_the_cards_title_line_with_the_line_held() {
+        let mut g = fight("10 GOTO 20\n20 GOTO 10");
+        for _ in 0..3 {
+            g.apply(Action::Step);
+        }
+        assert_eq!(g.exec.broke, Some(10));
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        script(&mut h, &g, PANE, vec![]);
+        script(&mut h, &g, PANE, vec![]);
+        let painted: Vec<(String, egui::Rect)> = h.painted_text();
+        let broke = painted.iter().find(|(t, _)| t == "?BREAK IN 10");
+        let budgets = painted.iter().find(|(t, _)| t.ends_with("left"));
+        let (Some(broke), Some(budgets)) = (broke, budgets) else {
+            panic!("{painted:?}");
+        };
+        assert!(
+            (broke.1.center().y - budgets.1.center().y).abs() < 1.0
+                && broke.1.right() < budgets.1.left(),
+            "beside the budgets, clear of them: {broke:?} {budgets:?}"
+        );
+        assert!(painted.iter().any(|(t, _)| t == "▶"));
+        g.apply(Action::Step);
+        script(&mut h, &g, PANE, vec![]);
+        assert!(!h.painted_text().iter().any(|(t, _)| t.contains("BREAK")));
     }
 }

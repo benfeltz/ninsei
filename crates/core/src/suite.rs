@@ -47,11 +47,13 @@ pub fn module_mark(g: crate::listing::Gutter) -> &'static str {
 }
 
 /// The Module window's bottom edge, the suite's words: what's left this turn in an incident,
-/// the deck's limits outside one.
+/// the deck's limits outside one; a hang after them while it holds the cursor. A narrow
+/// window cuts the note from its end, so the budgets are the last thing to go.
 pub fn module_note(g: &Game) -> String {
     let cpu = g.combat.as_ref().map_or(g.deck.cpu_max, |c| c.cpu);
+    let broke = crate::listing::broke(g).map_or(String::new(), |n| format!("  ?BREAK IN {n}"));
     format!(
-        "CPU {cpu}/{}  RAM {}/{}",
+        "CPU {cpu}/{}  RAM {}/{}{broke}",
         g.deck.cpu_max,
         g.ifs_left(),
         g.deck.ram_max
@@ -59,8 +61,8 @@ pub fn module_note(g: &Game) -> String {
 }
 
 /// The Watches strip under the Module window, in order: TURN, CPU, IFS, INTEG, TRACE, NEXT,
-/// ICE and LAST (the last step of the pass, as the activity log said it). Blank outside an
-/// incident: nothing is being watched.
+/// ICE and LAST (the last step of the pass, as the activity log said it; a hang only while it
+/// holds the cursor). Blank outside an incident: nothing is being watched.
 pub fn watches(g: &Game) -> Vec<(&'static str, String)> {
     const NAMES: [&str; 8] = [
         "TURN", "CPU", "IFS", "INTEG", "TRACE", "NEXT", "ICE", "LAST",
@@ -68,10 +70,15 @@ pub fn watches(g: &Game) -> Vec<(&'static str, String)> {
     let Some(c) = g.combat.as_ref().filter(|_| crate::listing::fighting(g)) else {
         return NAMES.iter().map(|n| (*n, String::new())).collect();
     };
+    // A hang is the last step only while it holds the cursor: an edit or the turn's end
+    // takes it away here as from the edge.
+    let held = crate::listing::broke(g).is_some();
     let last = g
         .exec
         .trace
-        .last()
+        .iter()
+        .rev()
+        .find(|s| held || s.what != crate::game::StepWhat::Break)
         .map_or(String::new(), |s| g.step_text(s));
     let values = [
         c.turn.to_string(),

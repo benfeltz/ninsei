@@ -26,9 +26,10 @@ pub const HELP: &[&str] = &[
     "jack <node>     move to a linked node       (j)",
     "prog            list the deck's program      (list)",
     "prog <n> <line> type line n in; prog <n> deletes it",
-    "step            run one pass of the program  (s)",
-    "play            keep running passes          (cont)",
-    "pause           take the turn back",
+    "step            run one line of the program  (s)",
+    "finish          run the rest of the turn     (fin)",
+    "play            keep running, line by line   (cont)",
+    "pause           stop where it is",
     "hex <slot>      open a program in the hex editor",
     "opt <slot>      spend a fragment: +budget",
     "newrun [seed]   start a new run",
@@ -40,8 +41,8 @@ pub const HELP: &[&str] = &[
 
 /// Every verb the run terminal knows, for Tab completion.
 pub const VERBS: &[&str] = &[
-    "run", "end", "jack", "prog", "list", "step", "play", "pause", "hex", "opt", "newrun", "theme",
-    "crt", "sound", "clear", "help",
+    "run", "end", "jack", "prog", "list", "step", "finish", "play", "pause", "hex", "opt",
+    "newrun", "theme", "crt", "sound", "clear", "help",
 ];
 
 /// Verbs whose argument is an HDD slot.
@@ -156,6 +157,7 @@ pub fn parse_command(line: &str) -> Result<Command, String> {
         "end" | "e" | "pass" => Command::Game(Action::EndTurn),
         "jack" | "j" | "cd" | "ssh" => Command::Game(Action::Move(num("node")?)),
         "step" | "s" => Command::Game(Action::Step),
+        "finish" | "fin" => Command::Game(Action::Finish),
         "play" | "cont" => Command::Game(Action::Play),
         "pause" => Command::Game(Action::Pause),
         "newrun" | "reboot" => match arg {
