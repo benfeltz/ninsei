@@ -9,7 +9,7 @@
 use egui::{
     Align2, Color32, FontFamily, FontId, Painter, Pos2, Rect, Sense, Stroke, Ui, pos2, vec2,
 };
-use ninsei_core::fight::{self, Match, Outcome};
+use ninsei_core::fight::{self, Match, NextMove, Outcome};
 use ninsei_core::netview::{self, MapNode, Mesh};
 use ninsei_core::{Action, Game, Phase};
 
@@ -523,11 +523,10 @@ fn hud(painter: &Painter, rect: Rect, p: &Palette, g: &Game, preview: Option<fig
     // Next moves, top right.
     let rx = rect.right() - 210.0;
     painter.text(pos2(rx, y), Align2::LEFT_CENTER, "NEXT", mono(12.0), p.dim);
-    let now_line = match g.ice_next() {
-        _ if c.stunned => "(lagged)".to_string(),
-        Some(next) if fight::threatens(next) => format!("▲ {}", next.describe()),
-        Some(next) => next.describe(),
-        None => "-".to_string(),
+    let now_line = match g.next_move() {
+        Some(NextMove::Act(i)) if fight::threatens(i) => format!("▲ {}", i.describe()),
+        Some(m) => m.text("(lagged)"),
+        None => String::new(),
     };
     painter.text(
         pos2(rx + 42.0, y),

@@ -812,11 +812,9 @@ impl Panes<'_> {
                     1 => "MODERATE",
                     _ => "CRITICAL",
                 };
-                let next = if c.stunned {
-                    "(deferred)".to_string()
-                } else {
-                    g.ice_next().map_or_else(String::new, |i| i.describe())
-                };
+                let next = g
+                    .next_move()
+                    .map_or_else(String::new, |m| m.text(ninsei_core::suite::LAGGED));
                 form(
                     ui,
                     &p,

@@ -353,3 +353,35 @@ fn next_is_what_the_ice_does() {
     }
     assert!(turns > 100);
 }
+
+#[test]
+fn next_says_the_same_on_every_screen() {
+    use fight::NextMove;
+    let data = with_row(
+        r"10 IF SELF STR > 400\n20 STOP\n30 ATTACK 1",
+        1,
+        1,
+        "Attack",
+    )
+    .unwrap();
+    let mut g = fight_on(data.clone(), "probe", "");
+    // Strong, its program stops before it acts: nothing this turn.
+    assert_eq!(g.next_move(), Some(NextMove::Idle));
+    let watch = |g: &Game| {
+        suite::watches(g)
+            .into_iter()
+            .find(|(k, _)| *k == "NEXT")
+            .unwrap()
+            .1
+    };
+    assert_eq!(watch(&g), NextMove::IDLE);
+    g.combat.as_mut().unwrap().strength = 10;
+    assert_eq!(g.next_move(), Some(NextMove::Act(data::Intent::Attack(1))));
+    assert_eq!(watch(&g), "ATTACK 1");
+    g.combat.as_mut().unwrap().stunned = true;
+    assert_eq!(g.next_move(), Some(NextMove::Lagged));
+    assert_eq!(watch(&g), suite::LAGGED);
+    assert_eq!(NextMove::Lagged.text("(lagged)"), "(lagged)");
+    g.combat = None;
+    assert_eq!(g.next_move(), None);
+}

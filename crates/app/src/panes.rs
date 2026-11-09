@@ -500,12 +500,9 @@ impl Panes<'_> {
                     format!("{}/{}", c.strength, c.strength_max),
                     false,
                 );
-                // A lagged ICE has no next move: its program's dry run says what it'll do.
-                let next = if c.stunned {
-                    "(lagged, skips)".to_string()
-                } else {
-                    g.ice_next().map_or_else(String::new, |i| i.describe())
-                };
+                let next = g
+                    .next_move()
+                    .map_or_else(String::new, |m| m.text("(lagged, skips)"));
                 ui.label(RichText::new(format!("NEXT  {next}")).color(p.bright));
                 ui.label(
                     RichText::new(format!(

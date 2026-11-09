@@ -556,9 +556,8 @@ impl Panes<'_> {
                         } else {
                             format!("+{k}  ")
                         };
-                        let what = match (k, c.stunned) {
-                            (0, true) => "(lagged)".to_string(),
-                            (0, false) => g.ice_next().map_or("-".into(), |i| i.describe()),
+                        let what = match k {
+                            0 => g.next_move().map_or(String::new(), |m| m.text("(lagged)")),
                             _ => "????".to_string(),
                         };
                         let line = format!("{mark} {when}{what}");

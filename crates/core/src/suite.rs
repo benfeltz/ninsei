@@ -7,6 +7,9 @@ use crate::data::Effect;
 use crate::game::{Contract, ContractStatus, Game, LogKind, Phase, Slot};
 use crate::history::TurnRow;
 
+/// What the Hosaka calls a lagged ICE's next action.
+pub const LAGGED: &str = "(deferred)";
+
 /// Spreadsheet column letters: 0 is `A`, 25 is `Z`, 26 is `AA`.
 pub fn col_name(mut i: usize) -> String {
     let mut out = Vec::new();
@@ -86,7 +89,7 @@ pub fn watches(g: &Game) -> Vec<(&'static str, String)> {
         format!("{} / {}", c.ifs, g.deck.ram_max),
         format!("{} / {}", g.deck.integrity, g.deck.integrity_max),
         format!("{} %", g.deck.trace),
-        g.ice_next().map_or(String::new(), |i| i.describe()),
+        g.next_move().map_or(String::new(), |m| m.text(LAGGED)),
         g.data.ice[c.ice].name.to_uppercase(),
         last,
     ];

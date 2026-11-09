@@ -87,6 +87,42 @@ impl Game {
     }
 }
 
+/// What the ICE's NEXT shows, the same on every screen: its next move, lagged, or nothing this
+/// turn (its program would stop, stall or run out of RAM before it acts).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NextMove {
+    Act(Intent),
+    Lagged,
+    Idle,
+}
+
+impl NextMove {
+    /// What an idle ICE's NEXT reads.
+    pub const IDLE: &'static str = "-";
+
+    /// As a screen prints it: the move, or `-`; `lagged` is the deck's own words for a lag
+    /// (the Sense/Net's "(lagged, skips)", the Hosaka's "(deferred)").
+    pub fn text(self, lagged: &str) -> String {
+        match self {
+            NextMove::Act(i) => i.describe(),
+            NextMove::Lagged => lagged.to_string(),
+            NextMove::Idle => NextMove::IDLE.to_string(),
+        }
+    }
+}
+
+impl Game {
+    /// The ICE's NEXT, if fighting: `Game::ice_next`, or why there's no move.
+    pub fn next_move(&self) -> Option<NextMove> {
+        let c = self.combat.as_ref()?;
+        Some(if c.stunned {
+            NextMove::Lagged
+        } else {
+            self.ice_next().map_or(NextMove::Idle, NextMove::Act)
+        })
+    }
+}
+
 /// One line of the deck's program, as every chrome shows it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct LineView {
