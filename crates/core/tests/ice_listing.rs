@@ -64,10 +64,22 @@ fn what_it_saw_comes_home_and_back_into_the_next_run() {
     }
     assert_eq!(g.phase, Phase::Flatlined);
     s.record(&g, &[], &d.rig).unwrap();
-    let seen = s.ice_seen.iter().find(|x| x.id == "enigma").unwrap().clone();
-    assert!(seen.lines.contains(&10) && seen.lines.contains(&30), "{seen:?}");
+    let seen = s
+        .ice_seen
+        .iter()
+        .find(|x| x.id == "enigma")
+        .unwrap()
+        .clone();
+    assert!(
+        seen.lines.contains(&10) && seen.lines.contains(&30),
+        "{seen:?}"
+    );
     let kit = s.kit(&d);
-    assert!(kit.ice_known.iter().any(|(id, l)| id == "enigma" && *l == seen.lines));
+    assert!(
+        kit.ice_known
+            .iter()
+            .any(|(id, l)| id == "enigma" && *l == seen.lines)
+    );
     let g = fight_from(&mut s, "enigma");
     assert_eq!(g.ice_seen_lines(ix(&g, "enigma")), seen.lines.as_slice());
 }
@@ -83,8 +95,95 @@ fn a_save_from_before_lines_loads() {
         hi: 12,
         lines: vec![10],
     });
-    let old = s.to_text().replace("lines: [\n                10,\n            ],", "");
-    assert!(!old.contains("lines: ["), "the field is gone from the text: {old}");
+    let old = s
+        .to_text()
+        .replace("lines: [\n                10,\n            ],", "");
+    assert!(
+        !old.contains("lines: ["),
+        "the field is gone from the text: {old}"
+    );
     let back = Save::load(&old).expect("loads");
     assert_eq!(back.ice_seen[0].lines, Vec::<u32>::new());
+}
+
+#[test]
+fn an_ice_never_seen_decompiles_to_question_marks() {
+    let d = data();
+    let enigma = d.ice.iter().find(|i| i.id == "enigma").unwrap();
+    let rows = ice_listing::decompile(&enigma.program, &enigma.verbs, &[]);
+    assert_eq!(rows.len(), 4);
+    assert!(rows.iter().all(|r| r.shown() == ice_listing::UNSEEN));
+    let rows = ice_listing::decompile(&enigma.program, &enigma.verbs, &[10, 30]);
+    let shown: Vec<&str> = rows.iter().map(|r| r.shown()).collect();
+    assert_eq!(shown, ["IF TARGET SHIELD > 0", "????", "ATTACK 4", "????"]);
+    assert_eq!(ice_listing::known(&rows), (2, 4));
+}
+
+#[test]
+fn the_fight_marks_the_ice_cursor_and_next_and_fills_in_as_it_runs() {
+    let mut s = fresh();
+    let mut g = fight_from(&mut s, "enigma");
+    let rows = ice_listing::rows(&g);
+    assert!(rows.iter().all(|r| r.text.is_none()), "nothing seen yet");
+    let mark = |g: &Game, f: fn(&ice_listing::IceRow) -> bool| {
+        ice_listing::rows(g).iter().find(|r| f(r)).map(|r| r.no)
+    };
+    assert_eq!(mark(&g, |r| r.cursor), Some(10));
+    // NEXT is ATTACK 4 on line 30: marked before the deck has seen it.
+    assert_eq!(mark(&g, |r| r.next), Some(30));
+    let fw = g.slot_named("firewall").unwrap();
+    g.apply(Action::Run(fw));
+    assert_eq!(
+        mark(&g, |r| r.next),
+        Some(20),
+        "the shield moved NEXT to the TRACE"
+    );
+    g.apply(Action::EndTurn);
+    let rows = ice_listing::rows(&g);
+    let shown: Vec<&str> = rows.iter().map(|r| r.shown()).collect();
+    assert_eq!(shown, ["IF TARGET SHIELD > 0", "TRACE 10", "????", "????"]);
+    assert_eq!(
+        mark(&g, |r| r.cursor),
+        Some(30),
+        "it carries on after its TRACE"
+    );
+    // Lagged: no NEXT line.
+    g.combat.as_mut().unwrap().stunned = true;
+    assert_eq!(mark(&g, |r| r.next), None);
+    // Outside a fight there's nothing to show.
+    g.combat = None;
+    g.phase = Phase::Exploring;
+    assert!(ice_listing::rows(&g).is_empty());
+}
+
+#[test]
+fn the_ice_db_prints_what_you_have_seen() {
+    let d = data();
+    let mut s = fresh();
+    let mut g = fight_from(&mut s, "enigma");
+    g.apply(Action::EndTurn);
+    g.phase = Phase::JackedOut;
+    s.record(&g, &[], &d.rig).unwrap();
+    let e = icedb::entries(&s, &d)
+        .into_iter()
+        .find(|e| e.def.id == "enigma")
+        .unwrap();
+    let page = e.lines(&s, &d);
+    assert!(
+        page.iter()
+            .any(|l| l.contains("decompiled, 2 of 4 lines seen")),
+        "{page:#?}"
+    );
+    assert!(
+        page.contains(&"   10 IF TARGET SHIELD > 0".to_string()),
+        "{page:#?}"
+    );
+    assert!(page.contains(&"   20 ????".to_string()), "{page:#?}");
+    assert!(!page.iter().any(|l| l.starts_with("moves")), "{page:#?}");
+    // An unmet ICE has no listing.
+    let unmet = icedb::entries(&s, &d)
+        .into_iter()
+        .find(|e| e.def.id == "hydra")
+        .unwrap();
+    assert!(unmet.listing().is_empty());
 }

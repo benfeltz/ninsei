@@ -46,6 +46,21 @@ pub fn matching(save: &Save, data: &Data, class: IceClass) -> Vec<String> {
 }
 
 impl Entry<'_> {
+    /// Its program, decompiled from the lines you've seen it run: a heading saying how much
+    /// is known, then each line numbered, the unseen ones `????`. Empty until you've met it.
+    pub fn listing(&self) -> Vec<String> {
+        let Some(s) = self.seen else {
+            return Vec::new();
+        };
+        let rows = crate::ice_listing::decompile(&self.def.program, &self.def.verbs, &s.lines);
+        let (seen, all) = crate::ice_listing::known(&rows);
+        let mut out = vec![format!(
+            "listing        decompiled, {seen} of {all} lines seen"
+        )];
+        out.extend(rows.iter().map(|r| format!("  {:>3} {}", r.no, r.shown())));
+        out
+    }
+
     /// The name to list it under: `????` until you've met it.
     pub fn name(&self) -> &str {
         if self.seen.is_some() {
@@ -75,7 +90,6 @@ impl Entry<'_> {
         } else {
             format!("{}-{}", s.lo, s.hi)
         };
-        let moves: Vec<&str> = d.verbs.iter().map(|v| v.word()).collect();
         let mut out = vec![
             format!("{}  [{}]  {kind}", d.name, d.class.label()),
             String::new(),
@@ -83,8 +97,8 @@ impl Entry<'_> {
             format!("met            {}", s.met),
             format!("broken         {}", s.broken),
             String::new(),
-            format!("moves          {}", moves.join(", ")),
         ];
+        out.extend(self.listing());
         if d.yields.is_some() {
             out.push("  gives up when it's losing".into());
         }

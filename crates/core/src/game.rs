@@ -756,6 +756,11 @@ impl Game {
     /// first. Its turn (`end_turn`) runs the same program the same way, so this is what it does
     /// if nothing changes.
     pub fn ice_next(&self) -> Option<Intent> {
+        self.ice_next_at().map(|(_, a)| a)
+    }
+
+    /// [`Game::ice_next`] with the line of the ICE's program the move is on.
+    pub fn ice_next_at(&self) -> Option<(u32, Intent)> {
         let c = self.combat.as_ref()?;
         if c.stunned {
             return None;
@@ -789,7 +794,7 @@ impl Game {
                 }
                 Stmt::Goto(to) if p.line(*to).is_some() => pc = Some(*to),
                 Stmt::Stop => return None,
-                Stmt::Act(a) => return Some(*a),
+                Stmt::Act(a) => return Some((no, *a)),
                 _ => {}
             }
         }
