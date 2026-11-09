@@ -11,6 +11,11 @@ fn the_tunes_load_and_validate() {
         assert!(d.signs(&t.by), "{} by {}", t.id, t.by);
         assert!(t.tune.loop_secs(0) <= MAX_LOOP_SECS, "{}", t.id);
         assert!(t.tune.loop_secs(0) <= t.secs as f32, "{}", t.id);
+        assert_eq!(
+            t.loop_steps,
+            t.tune.loop_steps(),
+            "worked out when it loads"
+        );
     }
     assert!(d.tune("ninsei-nights").is_some());
     assert!(d.tune("nope").is_none());

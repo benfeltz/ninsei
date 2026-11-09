@@ -7,6 +7,7 @@
 use egui::{Align2, Color32, FontId, Id, Painter, Rect, Response, Sense, Stroke, StrokeKind, Ui};
 use egui::{pos2, vec2};
 
+use super::List;
 use super::scrollbar::{self, Scroll};
 
 /// Sizes, in one place (the spec sheet's).
@@ -29,6 +30,9 @@ pub mod size {
     pub const GADGET_PAD: [f32; 2] = [18.0, 10.0];
     /// The proportional gadget's width, and its knob's shortest.
     pub const PROP_W: f32 = 16.0;
+    /// A horizontal proportional gadget's height and its knob's width.
+    pub const HPROP_H: f32 = 14.0;
+    pub const HPROP_KNOB: f32 = 24.0;
     pub const KNOB_MIN: f32 = 12.0;
     /// The screen bar's name, in from the left; what's on its right, in from the right edge.
     pub const SCREEN_TEXT_IN: f32 = 8.0;
@@ -438,6 +442,137 @@ fn prop_paint(p: &Painter, r: Rect, s: &Scroll, look: &Look) {
     }
 }
 
+/// A horizontal proportional gadget's knob at `value` (0-1) in `r`.
+fn hknob(r: Rect, value: f32) -> Rect {
+    let travel = (r.width() - size::HPROP_KNOB).max(0.0);
+    let x = (r.left() + travel * value.clamp(0.0, 1.0)).round();
+    Rect::from_min_size(pos2(x, r.top()), vec2(size::HPROP_KNOB, r.height()))
+}
+
+/// A horizontal proportional gadget used to set a value, in `r` ([`size::HPROP_H`] tall): the
+/// container in the gadgets' face with a dark edge along its top, and the bevelled knob at
+/// `value` (0-1). A click puts the knob under the pointer; a drag carries it and lets go of it
+/// where it's released. Returns the new value when it was set: on a click or a release, never
+/// while the knob is still held.
+pub fn hprop(ui: &Ui, r: Rect, id: Id, value: f32, look: &Look) -> Option<f32> {
+    let r = Rect::from_min_size(r.min.round(), r.size().round());
+    let t = ui.interact(r, id, Sense::click_and_drag());
+    let under = t.interact_pointer_pos().map(|p| {
+        let travel = (r.width() - size::HPROP_KNOB).max(1.0);
+        ((p.x - r.left() - size::HPROP_KNOB / 2.0) / travel).clamp(0.0, 1.0)
+    });
+    let grab = id.with("held");
+    let held = t.dragged().then_some(under).flatten();
+    if let Some(v) = held {
+        ui.data_mut(|d| d.insert_temp(grab, v));
+    }
+    let to = if t.drag_stopped() {
+        ui.data_mut(|d| d.remove_temp::<f32>(grab)).or(under)
+    } else if t.clicked() {
+        under
+    } else {
+        None
+    };
+    let to = to.filter(|v| *v != value);
+    let p = ui.painter();
+    p.rect_filled(r, 0.0, look.fill);
+    p.rect_filled(
+        Rect::from_min_size(r.min, vec2(r.width(), 1.0)),
+        0.0,
+        look.shadow,
+    );
+    let k = hknob(r, held.or(to).unwrap_or(value)).shrink2(vec2(1.0, 2.0));
+    p.rect_filled(k, 0.0, look.ink);
+    bevel(p, k, true, look);
+    to
+}
+
+/// A list `size` big: `n` rows `row_h` tall in a recessed box, the `sel`ected one drawn by
+/// `cell` as on (it returns the row's name, for the accessibility tree), and the proportional
+/// gadget down its right side once the rows run past the box, scrolling a whole row at a time.
+/// Only whole rows are drawn. A click on a row picks it; returns the row picked.
+#[allow(clippy::too_many_arguments)]
+pub fn list_box(
+    ui: &mut Ui,
+    size: egui::Vec2,
+    id: Id,
+    n: usize,
+    row_h: f32,
+    sel: usize,
+    look: &Look,
+    mut cell: impl FnMut(&Painter, Rect, usize, bool) -> String,
+) -> Option<usize> {
+    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+    let rect = Rect::from_min_size(rect.min.round(), rect.size().round());
+    let inner = rect.shrink(size::BEVEL);
+    let rows = ((inner.height() / row_h).floor() as usize).max(1);
+    let key = id.with("list");
+    let mut list: List = ui.data(|d| d.get_temp(key)).unwrap_or_default();
+    let follow = (ui.data(|d| d.get_temp::<usize>(key.with("sel"))) != Some(sel)).then_some(sel);
+    list.view(n, follow, rows);
+    let s = Scroll {
+        offset: list.top as f32 * row_h,
+        view: rows as f32 * row_h,
+        content: n as f32 * row_h,
+        line: row_h,
+    };
+    let bar = Rect::from_min_max(pos2(inner.right() - size::PROP_W, inner.top()), inner.max);
+    let p = ui.painter_at(rect);
+    p.rect_filled(rect, 0.0, look.backdrop);
+    let cells_w = if s.active() {
+        if let Some(o) = prop_input(ui, bar, id.with("bar"), &s) {
+            list.top = (o / row_h).round() as usize;
+        }
+        prop_paint(
+            &p,
+            bar,
+            &Scroll {
+                offset: list.top as f32 * row_h,
+                ..s
+            },
+            look,
+        );
+        inner.width() - size::PROP_W
+    } else {
+        inner.width()
+    };
+    // Every row's click first, so the frame a row is picked paints (and reports) one cursor.
+    let shown: Vec<(usize, Rect, Response)> = list
+        .view(n, None, rows)
+        .map(|i| {
+            let r = Rect::from_min_size(
+                inner.min + vec2(0.0, list.row(i) as f32 * row_h),
+                vec2(cells_w, row_h),
+            );
+            (i, r, ui.interact(r, id.with(i), Sense::click()))
+        })
+        .collect();
+    let picked = shown
+        .iter()
+        .find(|(_, _, hit)| hit.clicked())
+        .map(|(i, _, _)| *i);
+    let at = picked.unwrap_or(sel);
+    for (i, r, hit) in shown {
+        let name = cell(&p, r, i, i == at);
+        hit.widget_info(|| {
+            egui::WidgetInfo::selected(egui::WidgetType::SelectableLabel, true, i == at, &name)
+        });
+    }
+    // The wheel over the rows scrolls them too, for the next frame.
+    if s.active()
+        && let Some(wheel) = scrollbar::take_wheel(ui, inner.with_max_x(bar.left()), id)
+    {
+        list.wheel(wheel / row_h);
+        ui.ctx().request_repaint();
+    }
+    bevel(&p, rect, false, look);
+    ui.data_mut(|d| {
+        d.insert_temp(key, list);
+        d.insert_temp(key.with("sel"), picked.unwrap_or(sel));
+    });
+    picked
+}
+
 /// `body` in a view that scrolls, filling `ui` (a window's [`window_scrolled`]), with the
 /// proportional gadget flush on the right while there's more than shows.
 pub fn scrolled(ui: &mut Ui, id: Id, look: &Look, body: impl FnOnce(&mut Ui)) {
@@ -654,5 +789,160 @@ mod tests {
             Some(&look().ink),
             "the knob, in the text colour"
         );
+    }
+
+    fn hp(h: &mut crate::uitest::Harness, value: f32, events: Vec<egui::Event>) -> Option<f32> {
+        let mut out = None;
+        h.frame(events, |ui| {
+            let r = Rect::from_min_size(pos2(10.0, 10.0), vec2(224.0, 14.0));
+            out = hprop(ui, r, Id::new("hp"), value, &look());
+        });
+        out
+    }
+
+    #[test]
+    fn a_proportional_slider_sets_a_value_on_a_click_and_on_release() {
+        use egui::{Event, PointerButton};
+        let mut h = crate::uitest::Harness::new(400.0, 200.0);
+        assert_eq!(hp(&mut h, 0.25, Vec::new()), None);
+        // The knob is 24 wide, so it travels 200: its centre at 10 + 12 + 100 is the middle.
+        let mid = egui::Pos2::new(122.0, 17.0);
+        let got = hp(&mut h, 0.25, crate::uitest::click(mid)).unwrap();
+        assert!((got - 0.5).abs() < 0.01, "{got}");
+        // Held, nothing is set; let go, it is.
+        let press = |pos, pressed| Event::PointerButton {
+            pos,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let a = egui::Pos2::new(40.0, 17.0);
+        hp(&mut h, 0.0, vec![Event::PointerMoved(a)]);
+        hp(&mut h, 0.0, vec![press(a, true)]);
+        for x in [60.0, 100.0, 172.0, 172.0] {
+            let got = hp(
+                &mut h,
+                0.0,
+                vec![Event::PointerMoved(egui::Pos2::new(x, 17.0))],
+            );
+            assert_eq!(got, None, "held at {x}");
+        }
+        let got = hp(
+            &mut h,
+            0.0,
+            vec![press(egui::Pos2::new(172.0, 17.0), false)],
+        )
+        .unwrap();
+        assert!((got - 0.75).abs() < 0.01, "{got}");
+    }
+
+    /// One frame of a 300 x `h` list of `n` rows 20 tall; the row picked and the rows drawn.
+    fn list(
+        hn: &mut crate::uitest::Harness,
+        n: usize,
+        h: f32,
+        sel: usize,
+        events: Vec<egui::Event>,
+    ) -> (Option<usize>, Vec<usize>) {
+        let mut picked = None;
+        let mut drawn = Vec::new();
+        hn.frame(events, |ui| {
+            let mut child = ui.new_child(
+                egui::UiBuilder::new()
+                    .max_rect(Rect::from_min_size(pos2(10.0, 10.0), vec2(300.0, h))),
+            );
+            picked = list_box(
+                &mut child,
+                vec2(300.0, h),
+                Id::new("l"),
+                n,
+                20.0,
+                sel,
+                &look(),
+                |_, _, i, _| {
+                    drawn.push(i);
+                    format!("row {i}")
+                },
+            );
+        });
+        (picked, drawn)
+    }
+
+    #[test]
+    fn a_list_draws_whole_rows_and_a_click_picks_one() {
+        let mut h = crate::uitest::Harness::new(400.0, 400.0);
+        // 100 tall, 2px bevel: four whole rows of 20.
+        let (_, drawn) = list(&mut h, 10, 100.0, 0, Vec::new());
+        assert_eq!(drawn, [0, 1, 2, 3]);
+        let at = h.find("row 2").unwrap().center();
+        let (picked, _) = list(&mut h, 10, 100.0, 0, crate::uitest::click(at));
+        assert_eq!(picked, Some(2));
+        // Picking past the bottom brings the row into view.
+        let (_, drawn) = list(&mut h, 10, 100.0, 7, Vec::new());
+        assert!(drawn.contains(&7), "{drawn:?}");
+        // A list that fits has no gadget: its rows run the box's whole width.
+        let (_, drawn) = list(&mut h, 3, 100.0, 0, Vec::new());
+        assert_eq!(drawn, [0, 1, 2]);
+        let row = h.find("row 0").unwrap();
+        assert_eq!(row.width(), 300.0 - 2.0 * size::BEVEL);
+    }
+
+    #[test]
+    fn the_frame_a_row_is_clicked_shows_one_cursor() {
+        let mut h = crate::uitest::Harness::new(400.0, 400.0);
+        let mut on: Vec<usize> = Vec::new();
+        let frame = |h: &mut crate::uitest::Harness, ev: Vec<egui::Event>, on: &mut Vec<usize>| {
+            on.clear();
+            h.frame(ev, |ui| {
+                let mut child = ui.new_child(
+                    egui::UiBuilder::new()
+                        .max_rect(Rect::from_min_size(pos2(10.0, 10.0), vec2(300.0, 100.0))),
+                );
+                list_box(
+                    &mut child,
+                    vec2(300.0, 100.0),
+                    Id::new("l"),
+                    4,
+                    20.0,
+                    1,
+                    &look(),
+                    |_, _, i, lit| {
+                        if lit {
+                            on.push(i);
+                        }
+                        format!("row {i}")
+                    },
+                );
+            });
+        };
+        frame(&mut h, Vec::new(), &mut on);
+        assert_eq!(on, [1]);
+        let at = h.find("row 3").unwrap().center();
+        frame(&mut h, crate::uitest::click(at), &mut on);
+        assert_eq!(on, [3], "only the clicked row is lit");
+    }
+
+    #[test]
+    fn the_wheel_over_the_rows_scrolls_the_list() {
+        let mut h = crate::uitest::Harness::new(400.0, 400.0);
+        let rows =
+            |h: &mut crate::uitest::Harness, ev: Vec<egui::Event>| list(h, 20, 100.0, 0, ev).1;
+        assert_eq!(rows(&mut h, Vec::new()), [0, 1, 2, 3]);
+        let over = h.find("row 1").unwrap().center();
+        let wheel = vec![
+            egui::Event::PointerMoved(over),
+            egui::Event::MouseWheel {
+                unit: egui::MouseWheelUnit::Point,
+                delta: vec2(0.0, -40.0),
+                modifiers: egui::Modifiers::NONE,
+                phase: egui::TouchPhase::Move,
+            },
+        ];
+        rows(&mut h, wheel);
+        for _ in 0..3 {
+            rows(&mut h, Vec::new());
+        }
+        let after = rows(&mut h, Vec::new());
+        assert_ne!(after.first(), Some(&0), "scrolled: {after:?}");
     }
 }

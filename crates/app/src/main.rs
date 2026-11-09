@@ -2007,6 +2007,59 @@ mod tests {
     }
 
     #[test]
+    fn acceptance_137_3_trax_on_the_hosaka_is_protracker_and_every_desktop_has_its_own_face() {
+        use crate::uitest::{Harness, click, key};
+        let mut h = Harness::new(1280.0, 800.0);
+        let cc = eframe::CreationContext::_new_kittest(h.ctx.clone());
+        let mut app = App::new(&cc, Data::builtin().unwrap(), Some(7));
+        app.save.intros = false;
+        app.save.guide_seen = true;
+        app.save.decks.push("hosaka".into());
+        app.save.deck = "hosaka".into();
+        app.save.firmware = app.save.deck_def(&app.data).firmware[0].id.clone();
+        app.save.learn_tool("player");
+        app.load_layout();
+        assert_eq!(
+            app.save.firmware_def(&app.data).desktop,
+            ninsei_core::hardware::Desktop::Workbench
+        );
+        let frame = |h: &mut Harness, app: &mut App, ev: Vec<egui::Event>| {
+            let pal = app.pal;
+            h.frame(ev, |ui| app.hub_ui(ui.ctx(), &pal));
+        };
+        app.home.open(Tool::Player);
+        for _ in 0..3 {
+            frame(&mut h, &mut app, Vec::new());
+        }
+        // Protracker's screen: its gadgets and boxes, and no plain listing.
+        for label in ["PLAY", "STOP", "PREV", "NEXT", "REPEAT", "SHUFFLE"] {
+            assert!(h.find(label).is_some(), "{label}: {:?}", h.texts());
+        }
+        assert!(h.find("Play/Pause").is_none());
+        let painted = |h: &Harness, s: &str| h.painted_text().iter().any(|(t, _)| t.starts_with(s));
+        for s in ["POS", "PATTERN", "LENGTH", "TIME", "SONGNAME:", "STATUS:"] {
+            assert!(painted(&h, s), "{s}");
+        }
+        // PLAY plays; STOP goes back to the top.
+        let play = h.find("PLAY").unwrap().center();
+        frame(&mut h, &mut app, click(play));
+        frame(&mut h, &mut app, Vec::new());
+        assert_eq!(app.home.player.play, ninsei_core::player::Play::Playing);
+        app.home.player.at = 20.0;
+        let stop = h.find("STOP").unwrap().center();
+        frame(&mut h, &mut app, click(stop));
+        frame(&mut h, &mut app, Vec::new());
+        assert_eq!(
+            (app.home.player.play, app.home.player.at),
+            (ninsei_core::player::Play::Stopped, 0.0)
+        );
+        // Its keys, with its window in front.
+        frame(&mut h, &mut app, key(egui::Key::Space));
+        frame(&mut h, &mut app, Vec::new());
+        assert_eq!(app.home.player.play, ninsei_core::player::Play::Playing);
+    }
+
+    #[test]
     fn a_game_open_on_one_desktop_survives_a_switch_of_firmware_and_back() {
         use crate::uitest::Harness;
         use ninsei_core::hub::GameCopy;

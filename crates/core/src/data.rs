@@ -556,6 +556,9 @@ pub struct TuneFile {
     /// How long it plays in a playlist before the next one, in seconds: one loop or more.
     pub secs: u32,
     pub tune: crate::intro::TuneDef,
+    /// Steps one pass of the loop lasts (`TuneDef::loop_steps`), worked out once when it loads.
+    #[serde(skip)]
+    pub loop_steps: usize,
 }
 
 /// The longest a tune's title may be, so a playlist row never cuts one.
@@ -963,6 +966,7 @@ impl Data {
                     ron::from_str::<TuneFile>(t.tune)
                         .map(|mut d| {
                             d.id = t.id.to_string();
+                            d.loop_steps = d.tune.loop_steps();
                             d
                         })
                         .map_err(|e| format!("music/{}.ron: {e}", t.id))

@@ -413,3 +413,54 @@ pub const KEYS: [(&str, &str); 6] = [
     ("s", "shuffle"),
     ("⏎", "pick"),
 ];
+
+/// Protracker's number boxes, as a module player's screen shows them.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Readout {
+    /// The current tune's place in the playlist, from 1 (0 with none).
+    pub pos: usize,
+    /// How many tunes the playlist holds.
+    pub length: usize,
+    /// Which pass of the tune's loop is playing, from 0.
+    pub pattern: usize,
+    /// The step within that pass, and how many steps a pass has.
+    pub row: usize,
+    pub rows: usize,
+    /// Seconds into the tune.
+    pub time: u32,
+}
+
+/// What a module player's number boxes say now. `rate`: the speaker's sample rate, so a step
+/// is the whole number of samples the speaker renders it in and the rows keep time with what's
+/// heard (0: the exact step, with nothing playing to keep time with).
+pub fn readout(save: &Save, data: &Data, t: &Transport, rate: u32) -> Readout {
+    // No playlist built: this runs every frame the screen is up.
+    let mut owned = save.tunes.iter().filter(|id| data.tune(id).is_some());
+    let cur = save.player.current.as_deref();
+    let pos = cur.and_then(|c| owned.clone().position(|id| id == c));
+    let length = owned.by_ref().count();
+    let (Some(cur), Some(tune)) = (pos, cur.and_then(|c| data.tune(c))) else {
+        return Readout {
+            length,
+            ..Readout::default()
+        };
+    };
+    let rows = tune.loop_steps.max(1);
+    let exact = tune.tune.step_secs();
+    let step = if rate > 0 {
+        (exact * rate as f32).max(1.0).floor() / rate as f32
+    } else {
+        exact
+    }
+    .max(f32::EPSILON);
+    let at = t.at.max(0.0);
+    let steps = (at / step) as usize;
+    Readout {
+        pos: cur + 1,
+        length,
+        pattern: steps / rows,
+        row: steps % rows,
+        rows,
+        time: at as u32,
+    }
+}
