@@ -205,3 +205,29 @@ fn the_ono_shows_a_window_of_the_listing_from_the_ice_cursor() {
     // Never more rows than the program has.
     assert_eq!(btop_fight::ice_window(&g, 9).len(), 4);
 }
+
+#[test]
+fn the_hosaka_lists_the_observed_procedure() {
+    let mut s = fresh();
+    let mut g = fight_from(&mut s, "enigma");
+    assert_eq!(
+        suite::procedure_title(&g),
+        "OBSERVED PROCEDURE (0 OF 4 STEPS)"
+    );
+    g.apply(Action::EndTurn);
+    let rows = suite::procedure(&g);
+    let shown: Vec<(&str, &str, bool, bool)> = rows
+        .iter()
+        .map(|r| (r.step.as_str(), r.statement.as_str(), r.seen, r.next))
+        .collect();
+    assert_eq!(
+        shown,
+        [
+            ("   10", "IF TARGET SHIELD > 0", true, false),
+            ("   20", "????", false, false),
+            ("   30", "ATTACK 4", true, false),
+            (">  40", "????", false, true),
+        ]
+    );
+    assert_eq!(suite::PROCEDURE_COLUMNS, ["STEP", "STATEMENT"]);
+}

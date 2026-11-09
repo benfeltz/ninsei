@@ -34,8 +34,6 @@ pub mod size {
     pub const CHART_SHARE: f32 = 0.3;
     pub const CHART_MIN: f32 = 56.0;
     pub const CHART_MAX: f32 = 150.0;
-    /// Upcoming turns the incident report's agenda lists.
-    pub const AGENDA_ROWS: usize = 5;
     /// Widest a column chart's group of columns gets, so a short fight isn't one wall.
     pub const COL_SLOT_MAX: f32 = 56.0;
     /// Narrowest a form shows its notes column at.
@@ -863,24 +861,28 @@ impl Panes<'_> {
                     |i| format!("T{i}"),
                     true,
                 );
-                heading(ui, &p, "AGENDA");
-                egui::Grid::new("suite-agenda")
+                heading(ui, &p, &ninsei_core::suite::procedure_title(g));
+                egui::Grid::new("suite-procedure")
                     .num_columns(2)
                     .spacing([16.0, 2.0])
                     .show(ui, |ui| {
-                        ui.label(t("TURN", p.dim));
-                        ui.label(t("PLANNED ACTION", p.dim));
+                        let [step, statement] = ninsei_core::suite::PROCEDURE_COLUMNS;
+                        ui.label(t(step, p.dim));
+                        ui.label(t(statement, p.dim));
                         ui.end_row();
-                        for k in 0..size::AGENDA_ROWS {
-                            // Only the next action is planned: past it, the ICE's program
-                            // reads the fight as it will be then.
-                            let turn = format!("{:>4}", c.turn as usize + k);
-                            if k == 0 {
-                                ui.label(t(turn, p.bg).background_color(p.fg));
-                                ui.label(t(next.clone(), p.bg).background_color(p.fg));
-                            } else {
-                                ui.label(t(turn, p.dim));
-                                ui.label(t("TBD", p.dim));
+                        // The step NEXT is on is highlighted, as the agenda's current row was.
+                        for r in ninsei_core::suite::procedure(g) {
+                            let (fg, bg) = match (r.next, r.seen) {
+                                (true, _) => (p.bg, Some(p.fg)),
+                                (false, true) => (p.fg, None),
+                                (false, false) => (p.dim, None),
+                            };
+                            for cell in [r.step, r.statement] {
+                                let text = t(cell, fg);
+                                ui.label(match bg {
+                                    Some(bg) => text.background_color(bg),
+                                    None => text,
+                                });
                             }
                             ui.end_row();
                         }
