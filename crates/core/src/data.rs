@@ -85,6 +85,15 @@ pub struct IceDef {
     pub tier: u32,
     pub strength: u32,
     pub intents: Vec<Intent>,
+    /// Its behaviour, in the game's BASIC with its own vocabulary (`verbs`): run at the end of
+    /// every turn of a fight from where it left off.
+    pub program: String,
+    /// Actions a turn: each verb spends one, and at 0 its turn is over.
+    pub cpu: u32,
+    /// IFs a turn: each spends one, and with none left its turn is over.
+    pub ram: u32,
+    /// The verbs its program may use; any other word is a bad line.
+    pub verbs: Vec<crate::basic::Verb>,
     /// Whether it gives up when it's losing.
     #[serde(default)]
     pub yields: Option<YieldDef>,
@@ -1035,6 +1044,8 @@ impl Data {
             if ice.intents.is_empty() {
                 return Err(format!("ICE `{}` has no intents", ice.id));
             }
+            self.validate_ice_program(ice)
+                .map_err(|e| format!("ICE `{}`: {e}", ice.id))?;
             if ice.tier > 2 {
                 return Err(format!(
                     "ICE `{}` has tier {} (0, 1 or 2)",
@@ -1504,6 +1515,45 @@ impl Data {
     /// Every engine has a game, every game's field fits its engine and a screen, its tick is
     /// sane, its crack is a crack and
     /// its splash a splash, and its publisher advertises in CPU Shopper.
+    /// An ICE's program must parse in its own vocabulary, every GOTO must land, every
+    /// `TARGET RAN` must name a program that exists, and it must have budgets to run with.
+    fn validate_ice_program(&self, ice: &IceDef) -> Result<(), String> {
+        use crate::basic::{Cond, Stmt, Vocab};
+        if ice.cpu == 0 || ice.ram == 0 {
+            return Err(format!(
+                "cpu {} and ram {} must both be at least 1",
+                ice.cpu, ice.ram
+            ));
+        }
+        if ice.verbs.is_empty() {
+            return Err("has no verbs".into());
+        }
+        let p = crate::basic::parse_with(&ice.program, Vocab::Ice(&ice.verbs));
+        if let Some(s) = p.stray.first() {
+            return Err(format!("program line `{s}` has no line number"));
+        }
+        if !p.lines.iter().any(|l| l.stmt.action().is_some()) {
+            return Err("program never acts".into());
+        }
+        for l in &p.lines {
+            if let Some(why) = p.fault(l.no) {
+                return Err(format!("program line {} `{}`: {why}", l.no, l.text));
+            }
+            if let Stmt::If(Cond::TargetRan(name)) = &l.stmt
+                && !self
+                    .warez
+                    .iter()
+                    .any(|w| crate::basic::names(name, &w.name, &w.id))
+            {
+                return Err(format!(
+                    "program line {} reads `{name}`, which no program is called",
+                    l.no
+                ));
+            }
+        }
+        Ok(())
+    }
+
     fn validate_games(&self) -> Result<(), String> {
         for (i, g) in self.games.iter().enumerate() {
             let err = |m: String| Err(format!("game `{}`: {m}", g.id));
