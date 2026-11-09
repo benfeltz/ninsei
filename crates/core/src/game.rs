@@ -1305,6 +1305,8 @@ impl Game {
                 c.strength_max = c.strength_max.max(c.strength);
                 StepWhat::Fortified(n)
             }
+            // What these do to the deck's program comes in steps 2 and 4 (141.3.3).
+            Intent::Spoof(_) | Intent::Segfault => StepWhat::Lagged,
         }
     }
 

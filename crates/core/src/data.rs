@@ -64,6 +64,10 @@ pub enum Intent {
     Attack(u32),
     Trace(u32),
     Fortify(u32),
+    /// Hides its NEXT from the deck for n turns.
+    Spoof(u32),
+    /// Garbles a line of the deck's program.
+    Segfault,
 }
 
 impl Intent {
@@ -72,6 +76,8 @@ impl Intent {
             Intent::Attack(n) => format!("ATTACK {n}"),
             Intent::Trace(n) => format!("TRACE +{n}"),
             Intent::Fortify(n) => format!("FORTIFY +{n}"),
+            Intent::Spoof(n) => format!("SPOOF {n}"),
+            Intent::Segfault => "SEGFAULT".to_string(),
         }
     }
 }

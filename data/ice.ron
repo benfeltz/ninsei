@@ -6,6 +6,8 @@
 //          Attack   `ATTACK n`  hits the deck for n, less its shield
 //          Trace    `TRACE n`   raises the trace by n
 //          Fortify  `FORTIFY n` adds n to its strength
+//          Spoof    `SPOOF n`   hides its NEXT from the deck for n turns (a sniffer clears it)
+//          Segfault `SEGFAULT`  garbles the deck's line that last ran a program (no number)
 //        n is 0 to 999; a verb not on the list is a bad line, which `Data::validate` refuses.
 // program: line-numbered: its verbs, `IF <condition>` (false skips the next line), `GOTO n`,
 //          `STOP` (ends its turn) and `REM`. Its conditions read the deck it's fighting:

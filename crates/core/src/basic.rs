@@ -43,6 +43,10 @@ pub enum Verb {
     Trace,
     /// `FORTIFY n`: adds n to the ICE's strength.
     Fortify,
+    /// `SPOOF n`: hides its NEXT from the deck for n turns.
+    Spoof,
+    /// `SEGFAULT`: garbles a line of the deck's program.
+    Segfault,
 }
 
 impl Verb {
@@ -52,7 +56,14 @@ impl Verb {
             Verb::Attack => Intent::Attack(n),
             Verb::Trace => Intent::Trace(n),
             Verb::Fortify => Intent::Fortify(n),
+            Verb::Spoof => Intent::Spoof(n),
+            Verb::Segfault => Intent::Segfault,
         }
+    }
+
+    /// Whether a program writes a number after it (`SEGFAULT` takes none).
+    pub fn takes_number(self) -> bool {
+        self != Verb::Segfault
     }
 
     /// The word a program writes it as.
@@ -61,6 +72,8 @@ impl Verb {
             Verb::Attack => "ATTACK",
             Verb::Trace => "TRACE",
             Verb::Fortify => "FORTIFY",
+            Verb::Spoof => "SPOOF",
+            Verb::Segfault => "SEGFAULT",
         }
     }
 }
@@ -427,6 +440,10 @@ pub fn parse_stmt_with(text: &str, vocab: Vocab) -> Stmt {
         .map_or_else(bad, Stmt::If),
         word => match vocab {
             Vocab::Ice(verbs) => match verbs.iter().find(|v| v.word() == word) {
+                Some(v) if !v.takes_number() => match rest {
+                    [] => Stmt::Act(v.with(0)),
+                    _ => bad("takes nothing"),
+                },
                 Some(v) => match rest {
                     [n] => match n.parse::<u32>() {
                         Ok(n) if n <= MAX_ARG => Stmt::Act(v.with(n)),
