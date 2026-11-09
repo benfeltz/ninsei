@@ -3,7 +3,7 @@
 //! on, and the ICE DB prints it from everything the save has seen. Decided here, once; each
 //! deck's words are its own module's (`btop_fight`, `suite`, `stack_fight`).
 
-use crate::basic::{self, Verb, Vocab};
+use crate::basic::{self, Program, Verb, Vocab};
 use crate::game::Game;
 use crate::listing::fighting;
 
@@ -31,29 +31,34 @@ impl IceRow {
 
 /// An ICE's program decompiled from the lines in `known` (sorted): every line numbered, the
 /// known ones in clear. No marks.
-pub fn decompile(program: &str, verbs: &[Verb], known: &[u32]) -> Vec<IceRow> {
-    basic::parse_with(program, Vocab::Ice(verbs))
+pub fn decompile(program: &Program, known: &[u32]) -> Vec<IceRow> {
+    program
         .lines
-        .into_iter()
+        .iter()
         .map(|l| IceRow {
             no: l.no,
-            text: known.binary_search(&l.no).is_ok().then_some(l.text),
+            text: known.binary_search(&l.no).is_ok().then(|| l.text.clone()),
             cursor: false,
             next: false,
         })
         .collect()
 }
 
-/// The ICE in front, as the deck knows it, with its cursor and NEXT's line marked. Empty
-/// outside a fight.
+/// An ICE's program from its data, decompiled from `known`: what the ICE DB prints.
+pub fn decompile_def(program: &str, verbs: &[Verb], known: &[u32]) -> Vec<IceRow> {
+    decompile(&basic::parse_with(program, Vocab::Ice(verbs)), known)
+}
+
+/// The ICE in front, as the deck knows it, with its cursor and NEXT's line marked: the
+/// fight's own parse of its program. Empty outside a fight. Build it once a frame and hand it
+/// to each deck's words.
 pub fn rows(g: &Game) -> Vec<IceRow> {
     let Some(c) = g.combat.as_ref().filter(|_| fighting(g)) else {
         return Vec::new();
     };
-    let def = &g.data.ice[c.ice];
     let cursor = c.ice_prog.rest(c.ice_exec.pc.or(c.ice_prog.first()));
     let next = g.ice_next_at().map(|(no, _)| no);
-    let mut rows = decompile(&def.program, &def.verbs, g.ice_seen_lines(c.ice));
+    let mut rows = decompile(&c.ice_prog, g.ice_seen_lines(c.ice));
     for r in &mut rows {
         r.cursor = Some(r.no) == cursor;
         r.next = Some(r.no) == next;

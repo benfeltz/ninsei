@@ -52,7 +52,7 @@ impl Entry<'_> {
         let Some(s) = self.seen else {
             return Vec::new();
         };
-        let rows = crate::ice_listing::decompile(&self.def.program, &self.def.verbs, &s.lines);
+        let rows = crate::ice_listing::decompile_def(&self.def.program, &self.def.verbs, &s.lines);
         let (seen, all) = crate::ice_listing::known(&rows);
         let mut out = vec![format!(
             "listing        decompiled, {seen} of {all} lines seen"

@@ -544,8 +544,9 @@ impl Panes<'_> {
                     // NEXT, then the ICE's program from where it carries on, as seen.
                     let next = g.next_move().map_or(String::new(), |m| m.text("(lagged)"));
                     cols[0].label(text(format!("NEXT {next}"), p.bright));
-                    cols[0].label(text(ninsei_core::btop_fight::ice_heading(g), p.dim));
-                    for r in ninsei_core::btop_fight::ice_window(g, anim::INTENTS_AHEAD) {
+                    let rows = ninsei_core::ice_listing::rows(g);
+                    cols[0].label(text(ninsei_core::btop_fight::ice_heading(&rows), p.dim));
+                    for r in ninsei_core::btop_fight::ice_window(&rows, anim::INTENTS_AHEAD) {
                         let col = match (r.next, r.text.is_some()) {
                             (true, _) => p.bright,
                             (false, true) => p.fg,

@@ -379,8 +379,8 @@ impl Watch {
 pub const PROCEDURE_COLUMNS: [&str; 2] = ["STEP", "STATEMENT"];
 
 /// The heading over it: the procedure as observed, and how much of it.
-pub fn procedure_title(g: &Game) -> String {
-    let (seen, all) = crate::ice_listing::known(&crate::ice_listing::rows(g));
+pub fn procedure_title(rows: &[crate::ice_listing::IceRow]) -> String {
+    let (seen, all) = crate::ice_listing::known(rows);
     format!("OBSERVED PROCEDURE ({seen} OF {all} STEPS)")
 }
 
@@ -396,10 +396,9 @@ pub struct ProcedureRow {
     pub next: bool,
 }
 
-/// The ICE's program, every step, as the deck has observed it.
-pub fn procedure(g: &Game) -> Vec<ProcedureRow> {
-    crate::ice_listing::rows(g)
-        .into_iter()
+/// The ICE's program (`ice_listing::rows`), every step, as the deck has observed it.
+pub fn procedure(rows: &[crate::ice_listing::IceRow]) -> Vec<ProcedureRow> {
+    rows.iter()
         .map(|r| ProcedureRow {
             step: format!("{}{:>4}", if r.cursor { ">" } else { " " }, r.no),
             statement: r.shown().to_string(),

@@ -544,7 +544,8 @@ fn hud(painter: &Painter, rect: Rect, p: &Palette, g: &Game, preview: Option<fig
         .x
         .max(1.0);
     let room = ((rect.right() - 8.0 - (rx + 42.0)) / cw).floor().max(0.0) as usize;
-    for (k, r) in btop_fight::ice_window(g, 3).iter().enumerate() {
+    let rows = ninsei_core::ice_listing::rows(g);
+    for (k, r) in btop_fight::ice_window(&rows, 3).iter().enumerate() {
         let col = match (r.next, r.text.is_some()) {
             (true, _) => p.bright,
             (false, true) => p.fg,

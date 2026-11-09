@@ -832,7 +832,7 @@ impl Panes<'_> {
                             "bring it to zero",
                             false,
                         ),
-                        ("NEXT ACTION ", next.clone(), "", true),
+                        ("NEXT ACTION ", next, "", true),
                         ("SEVERITY    ", severity.to_string(), "", ice.tier >= 2),
                         (
                             "TURN / CPU  ",
@@ -861,7 +861,8 @@ impl Panes<'_> {
                     |i| format!("T{i}"),
                     true,
                 );
-                heading(ui, &p, &ninsei_core::suite::procedure_title(g));
+                let rows = ninsei_core::ice_listing::rows(g);
+                heading(ui, &p, &ninsei_core::suite::procedure_title(&rows));
                 egui::Grid::new("suite-procedure")
                     .num_columns(2)
                     .spacing([16.0, 2.0])
@@ -871,7 +872,7 @@ impl Panes<'_> {
                         ui.label(t(statement, p.dim));
                         ui.end_row();
                         // The step NEXT is on is highlighted, as the agenda's current row was.
-                        for r in ninsei_core::suite::procedure(g) {
+                        for r in ninsei_core::suite::procedure(&rows) {
                             let (fg, bg) = match (r.next, r.seen) {
                                 (true, _) => (p.bg, Some(p.fg)),
                                 (false, true) => (p.fg, None),

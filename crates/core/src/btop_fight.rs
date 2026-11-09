@@ -62,10 +62,9 @@ pub fn title(_g: &Game) -> &'static str {
     TITLE
 }
 
-/// The ICE's listing as the fight screens show it: up to `n` rows from the line it carries on
-/// from, wrapping to the top as its program does.
-pub fn ice_window(g: &Game, n: usize) -> Vec<IceRow> {
-    let rows = crate::ice_listing::rows(g);
+/// The ICE's listing (`ice_listing::rows`) as the fight screens show it: up to `n` rows from
+/// the line it carries on from, wrapping to the top as its program does.
+pub fn ice_window(rows: &[IceRow], n: usize) -> Vec<IceRow> {
     let at = rows.iter().position(|r| r.cursor).unwrap_or(0);
     rows.iter()
         .cycle()
@@ -82,7 +81,7 @@ pub fn ice_line(r: &IceRow) -> String {
 }
 
 /// The heading over the ICE's listing: how much of it the deck has seen.
-pub fn ice_heading(g: &Game) -> String {
-    let (seen, all) = crate::ice_listing::known(&crate::ice_listing::rows(g));
+pub fn ice_heading(rows: &[IceRow]) -> String {
+    let (seen, all) = crate::ice_listing::known(rows);
     format!("PROG {seen}/{all}")
 }

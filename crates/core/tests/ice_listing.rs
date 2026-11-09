@@ -75,7 +75,10 @@ fn what_it_saw_comes_home_and_back_into_the_next_run() {
         "{seen:?}"
     );
     // The bestiary fills in either way, but only the ICE DB brings it into a fight.
-    assert!(s.kit(&d).ice_known.is_empty(), "no ICE DB, no knowledge in the fight");
+    assert!(
+        s.kit(&d).ice_known.is_empty(),
+        "no ICE DB, no knowledge in the fight"
+    );
     s.tools.push("icedb".into());
     let kit = s.kit(&d);
     assert!(
@@ -113,10 +116,10 @@ fn a_save_from_before_lines_loads() {
 fn an_ice_never_seen_decompiles_to_question_marks() {
     let d = data();
     let enigma = d.ice.iter().find(|i| i.id == "enigma").unwrap();
-    let rows = ice_listing::decompile(&enigma.program, &enigma.verbs, &[]);
+    let rows = ice_listing::decompile_def(&enigma.program, &enigma.verbs, &[]);
     assert_eq!(rows.len(), 4);
     assert!(rows.iter().all(|r| r.shown() == ice_listing::UNSEEN));
-    let rows = ice_listing::decompile(&enigma.program, &enigma.verbs, &[10, 30]);
+    let rows = ice_listing::decompile_def(&enigma.program, &enigma.verbs, &[10, 30]);
     let shown: Vec<&str> = rows.iter().map(|r| r.shown()).collect();
     assert_eq!(shown, ["IF TARGET SHIELD > 0", "????", "ATTACK 4", "????"]);
     assert_eq!(ice_listing::known(&rows), (2, 4));
@@ -197,16 +200,17 @@ fn the_ono_shows_a_window_of_the_listing_from_the_ice_cursor() {
     let mut g = fight_from(&mut s, "enigma");
     g.apply(Action::EndTurn);
     // Enigma carries on from 40 after its first turn's ATTACK at 30.
-    let w = btop_fight::ice_window(&g, 3);
+    let rows = ice_listing::rows(&g);
+    let w = btop_fight::ice_window(&rows, 3);
     let lines: Vec<String> = w.iter().map(btop_fight::ice_line).collect();
     assert_eq!(
         lines,
         ["▶  40 ????", "·  10 if target shield > 0", "·  20 ????"],
         "from the cursor, wrapping to the top"
     );
-    assert_eq!(btop_fight::ice_heading(&g), "PROG 2/4");
+    assert_eq!(btop_fight::ice_heading(&rows), "PROG 2/4");
     // Never more rows than the program has.
-    assert_eq!(btop_fight::ice_window(&g, 9).len(), 4);
+    assert_eq!(btop_fight::ice_window(&rows, 9).len(), 4);
 }
 
 #[test]
@@ -214,11 +218,11 @@ fn the_hosaka_lists_the_observed_procedure() {
     let mut s = fresh();
     let mut g = fight_from(&mut s, "enigma");
     assert_eq!(
-        suite::procedure_title(&g),
+        suite::procedure_title(&ice_listing::rows(&g)),
         "OBSERVED PROCEDURE (0 OF 4 STEPS)"
     );
     g.apply(Action::EndTurn);
-    let rows = suite::procedure(&g);
+    let rows = suite::procedure(&ice_listing::rows(&g));
     let shown: Vec<(&str, &str, bool, bool)> = rows
         .iter()
         .map(|r| (r.step.as_str(), r.statement.as_str(), r.seen, r.next))
