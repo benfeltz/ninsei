@@ -159,3 +159,70 @@ fn the_sniffer_clears_a_spoof_and_is_on_dead_sector() {
             .any(|l| l.text.contains("sniffs out the spoof"))
     );
 }
+
+#[test]
+fn segfault_garbles_the_line_that_last_ran_and_a_retype_fixes_it() {
+    use ninsei_core::*;
+    let data = with_row(
+        r"10 IF TARGET RAN icepick\n20 SEGFAULT\n30 ATTACK 1",
+        "Segfault, Attack",
+    );
+    let prog = "10 RUN icepick\n20 RUN icepick\n30 GOTO 10";
+    let mut g = fight_on(data.clone(), prog);
+    let (integ, trace) = (g.deck.integrity, g.deck.trace);
+    g.apply(Action::Finish);
+    // The pass ran icepick three times; the last RUN was line 10 or 20, whichever came last.
+    let last = g
+        .exec
+        .trace
+        .iter()
+        .rev()
+        .find(|s| matches!(s.what, game::StepWhat::Ran { .. }))
+        .map(|s| s.line)
+        .unwrap();
+    let garbled = g.program.line(last).unwrap().clone();
+    assert!(
+        garbled.text.chars().all(|c| !c.is_ascii_alphanumeric()),
+        "{garbled:?}"
+    );
+    assert_eq!(
+        g.program.fault(last).as_deref(),
+        Some(format!("?SYNTAX ERROR IN {last}").as_str())
+    );
+    assert!(
+        g.log
+            .iter()
+            .any(|l| l.text == format!("?SYNTAX ERROR IN {last}"))
+    );
+    // No meter moved on its account (a turn adds its trace; the ICE did no damage).
+    assert_eq!(g.deck.integrity, integ);
+    assert!(g.deck.trace <= trace + 2);
+    // The next pass skips it with the fault.
+    g.apply(Action::Finish);
+    assert!(g.exec.trace.iter().any(|s| s.line == last
+        && matches!(&s.what, game::StepWhat::Skipped(w) if w.contains("SYNTAX ERROR"))));
+    // Retyping fixes it.
+    g.apply(listing::retype(&g, last, "RUN icepick").unwrap());
+    assert_eq!(g.program.fault(last), None);
+    // Same seed, same garble.
+    let again = {
+        let mut h = fight_on(data, prog);
+        h.apply(Action::Finish);
+        h.program.line(last).unwrap().text.clone()
+    };
+    assert_eq!(again, garbled.text);
+}
+
+#[test]
+fn a_garbled_program_goes_home_until_retyped() {
+    use ninsei_core::*;
+    let d = with_row(r"10 SEGFAULT\n20 ATTACK 1", "Segfault, Attack");
+    let mut g = fight_on(d.clone(), "10 RUN icepick");
+    g.program.garble(10, "#$%&@!?*");
+    g.phase = Phase::JackedOut;
+    let mut s = hub::Save::default();
+    s.ensure_key(1);
+    s.record(&g, &[], &d.rig).unwrap();
+    let p = basic::parse(&s.program_text(&d));
+    assert!(p.fault(10).is_some(), "still bad at home: {p:?}");
+}

@@ -328,6 +328,16 @@ impl Program {
         }
     }
 
+    /// Puts garbage in line `no`'s place (an ICE's SEGFAULT): kept as typed, and bad, so it's
+    /// skipped, until the line is retyped.
+    pub fn garble(&mut self, no: u32, text: &str) {
+        self.put(Line {
+            no,
+            stmt: Stmt::Bad(format!("?SYNTAX ERROR IN {no}")),
+            text: text.to_string(),
+        });
+    }
+
     pub fn remove(&mut self, no: u32) {
         self.lines.retain(|l| l.no != no);
     }

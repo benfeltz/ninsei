@@ -250,6 +250,8 @@ impl Game {
             StepWhat::Spoofed(n) => {
                 format!("{no} {text}: its next moves are hidden for {n} turns.")
             }
+            StepWhat::Segfaulted(Some(hit)) => format!("{no} {text}: garbles your line {hit}."),
+            StepWhat::Segfaulted(None) => format!("{no} {text}: finds nothing to garble."),
         };
         match ice {
             Some(c) => format!("{} {said}", self.data.ice[c.ice].name),

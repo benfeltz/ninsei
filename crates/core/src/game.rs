@@ -7,6 +7,9 @@ use crate::network::{NetParams, Network, NodeKind};
 use crate::rng::Rng;
 use crate::tuning::*;
 
+/// What a SEGFAULT scrambles a line into: nothing a BASIC keyword starts with.
+const SEGFAULT_GLYPHS: [char; 10] = ['#', '$', '%', '&', '@', '!', '?', '*', '~', '^'];
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Deck {
     pub cpu_max: u32,
@@ -553,6 +556,8 @@ pub enum StepWhat {
     Fortified(u32),
     /// The ICE's `SPOOF n`: its NEXT is hidden for n turns.
     Spoofed(u32),
+    /// The ICE's `SEGFAULT`: the deck's line it garbled (none if the deck had no program).
+    Segfaulted(Option<u32>),
     /// An ICE's verb while it's lagged: it does nothing.
     Lagged,
 }
@@ -1267,6 +1272,32 @@ impl Game {
         Ok(())
     }
 
+    /// The ICE's `SEGFAULT`: garbles the deck's line that last ran a program this turn (or its
+    /// first line that does something), its text scrambled from the run's RNG so the same seed
+    /// garbles the same way. The line is bad until it's retyped; no meter moves.
+    fn segfault(&mut self) -> StepWhat {
+        let ran = self.exec.trace.iter().rev().find_map(|s| match s.what {
+            StepWhat::Ran { .. } => Some(s.line),
+            _ => None,
+        });
+        let hit = ran
+            .filter(|&no| self.program.line(no).is_some())
+            .or_else(|| self.program.rest(self.program.first()));
+        let Some(no) = hit else {
+            return StepWhat::Segfaulted(None);
+        };
+        let len = self
+            .program
+            .line(no)
+            .map_or(4, |l| l.text.chars().count().max(4));
+        let text: String = (0..len)
+            .map(|_| SEGFAULT_GLYPHS[self.rng.below(SEGFAULT_GLYPHS.len())])
+            .collect();
+        self.program.garble(no, &text);
+        self.say(LogKind::Bad, format!("?SYNTAX ERROR IN {no}"));
+        StepWhat::Segfaulted(Some(no))
+    }
+
     /// Notes that the deck saw the current ICE run line `no` (`Game::ice_lines`).
     fn saw_ice_line(&mut self, no: u32) {
         let Some(ice) = self.combat.as_ref().map(|c| c.ice) else {
@@ -1323,8 +1354,7 @@ impl Game {
                 c.spoofed = c.spoofed.max(n);
                 StepWhat::Spoofed(n)
             }
-            // What this does to the deck's program comes in step 4 (141.3.3).
-            Intent::Segfault => StepWhat::Lagged,
+            Intent::Segfault => self.segfault(),
         }
     }
 
@@ -1450,7 +1480,8 @@ impl Game {
                 StepWhat::Hit { .. }
                 | StepWhat::Traced(_)
                 | StepWhat::Fortified(_)
-                | StepWhat::Spoofed(_) => LogKind::Bad,
+                | StepWhat::Spoofed(_)
+                | StepWhat::Segfaulted(_) => LogKind::Bad,
                 _ => LogKind::Program,
             };
             self.say(kind, text);
