@@ -842,25 +842,8 @@ impl Panes<'_> {
                         ),
                     ],
                 );
-                heading(ui, &p, "STRENGTH BY TURN");
-                let mut vals: Vec<f32> = vec![c.strength_max as f32];
-                vals.extend(
-                    rules::strength_by_turn(c.strength_max, &g.history.turns)
-                        .into_iter()
-                        .map(|v| v as f32),
-                );
-                if vals.last() != Some(&(c.strength as f32)) {
-                    vals.push(c.strength as f32);
-                }
-                column_chart(
-                    ui,
-                    &p,
-                    ch,
-                    &[("STRENGTH", &vals, true)],
-                    c.strength_max as f32,
-                    |i| format!("T{i}"),
-                    true,
-                );
+                // What the ICE runs comes straight after the form, before the chart, so a
+                // fight's report needs no scrolling for it.
                 let rows = ninsei_core::ice_listing::rows(g);
                 heading(ui, &p, &ninsei_core::suite::procedure_title(&rows));
                 egui::Grid::new("suite-procedure")
@@ -888,6 +871,25 @@ impl Panes<'_> {
                             ui.end_row();
                         }
                     });
+                heading(ui, &p, "STRENGTH BY TURN");
+                let mut vals: Vec<f32> = vec![c.strength_max as f32];
+                vals.extend(
+                    rules::strength_by_turn(c.strength_max, &g.history.turns)
+                        .into_iter()
+                        .map(|v| v as f32),
+                );
+                if vals.last() != Some(&(c.strength as f32)) {
+                    vals.push(c.strength as f32);
+                }
+                column_chart(
+                    ui,
+                    &p,
+                    ch,
+                    &[("STRENGTH", &vals, true)],
+                    c.strength_max as f32,
+                    |i| format!("T{i}"),
+                    true,
+                );
             });
         });
         for a in acts {
@@ -2378,6 +2380,55 @@ mod module_tests {
             out.extend(panes.out);
         });
         out
+    }
+
+    #[test]
+    fn the_incident_report_lists_the_procedure_before_its_chart() {
+        let g = fight("");
+        let mut h = Harness::new(1280.0, 900.0);
+        for _ in 0..2 {
+            let (mut term, mut focus, mut hex, mut keep) =
+                (ninsei_term::LineEditor::default(), false, None, Vec::new());
+            let mut suite = State::default();
+            h.frame(vec![], |ui| {
+                let mut panes = Panes {
+                    game: &g,
+                    pal: pal(&g),
+                    map: ninsei_core::netview::MapView::Draft,
+                    deck: String::new(),
+                    chrome: ninsei_core::hardware::Chrome::Suite,
+                    corrupt: (0.0, 0),
+                    term: &mut term,
+                    focus_input: &mut focus,
+                    bbs_open: false,
+                    hex: &mut hex,
+                    keep: &mut keep,
+                    keep_room: 0,
+                    suite: &mut suite,
+                    hear: &Vec::new,
+                    scope_rate: 0,
+                    out: Vec::new(),
+                };
+                let mut w = ui.new_child(UiBuilder::new().max_rect(pane_rect((520.0, 700.0))));
+                Suite.target(&mut panes, &mut w);
+            });
+        }
+        let rows = ninsei_core::ice_listing::rows(&g);
+        let title = ninsei_core::suite::procedure_title(&rows);
+        let procedure = h.find(&title).unwrap_or_else(|| panic!("{:?}", h.texts()));
+        let chart = h.find("STRENGTH BY TURN").expect("the chart's heading");
+        assert!(
+            procedure.top() < chart.top(),
+            "{procedure:?} above {chart:?}"
+        );
+        for r in ninsei_core::suite::procedure(&rows) {
+            assert!(
+                h.find(&r.statement).is_some(),
+                "{:?} in {:?}",
+                r.statement,
+                h.texts()
+            );
+        }
     }
 
     fn frame(h: &mut Harness, g: &Game, ev: Vec<egui::Event>) -> Vec<Request> {
