@@ -68,6 +68,14 @@ pub fn alive(ui: &Ui, samples: &[f32]) {
     }
 }
 
+/// [`alive`] for a face drawn later in the frame: asks `ctx` for the next frame while any of
+/// `samples` is sounding.
+pub fn alive_ctx(ctx: &egui::Context, samples: &[f32]) {
+    if samples.iter().any(|s| *s != 0.0) {
+        ctx.request_repaint_after(std::time::Duration::from_millis(FRAME_MS));
+    }
+}
+
 /// `n` spectrum bars of `samples` as a meter shows them: jumping up at once and falling slowly
 /// (`scope::ballistics`), remembered under `id` between frames. While a bar is still falling
 /// it asks for the next frame; once everything is still, it stops asking.

@@ -146,6 +146,8 @@ pub enum WbOut {
     Tiling(ninsei_core::desktop::Tiling),
     /// Order anything from CPU Shopper (RIG).
     Order(ninsei_core::shopper::Item),
+    /// The music player was asked to do something (`ninsei_core::player::apply`).
+    Player(ninsei_core::player::Act),
     Crt,
     /// Modem sounds on/off.
     Sound,
@@ -278,6 +280,14 @@ pub struct Home {
     intro_playing: std::collections::HashMap<&'static str, f64>,
     /// For the app's speaker: an intro whose tune should start (its id), or stop.
     pub(crate) tune: Option<TuneCue>,
+    /// The music player's place: playing or not, and how far into the tune (the session's;
+    /// the save keeps the tune and repeat and shuffle).
+    pub(crate) player: ninsei_core::player::Transport,
+    /// When the player last moved on (the frames' time), so it keeps time between frames.
+    pub(crate) player_clock: Option<f64>,
+    /// The player's cursor and list window, and what the speaker is playing for its spectrum.
+    pub(crate) player_ui: crate::player_view::PlayerUi,
+    pub(crate) heard: crate::player_view::Heard,
     /// Where the Welcome to the Net stack is open.
     pub(crate) guide_at: ninsei_core::cards::Place,
     /// System's open panel, and its Disk panel's pick.
@@ -356,6 +366,10 @@ impl Home {
             intro_drawn: Default::default(),
             intro_playing: Default::default(),
             tune: None,
+            player: Default::default(),
+            player_clock: None,
+            player_ui: Default::default(),
+            heard: Default::default(),
             guide_at: ninsei_core::cards::Place::Home,
             system: crate::system::SystemUi::default(),
             desk_keys: true,
@@ -773,7 +787,8 @@ impl Home {
     #[cfg(test)]
     /// The text-mode tools: the ones laid out in cells, which the fit test draws at every size
     /// the tiler gives.
-    pub const TEXT_TOOLS: [Tool; 3] = [Tool::NightComm, Tool::TigerTeam, Tool::System];
+    pub const TEXT_TOOLS: [Tool; 4] =
+        [Tool::NightComm, Tool::TigerTeam, Tool::System, Tool::Player];
 
     /// What each tool's face on `desktop` needs to be drawn at all: the one place a tool
     /// says so. Faces that scroll (the GUI ones) need nothing: a small window scrolls them.
@@ -790,6 +805,8 @@ impl Home {
             }
             // AnarchyOS's System is text mode, in its own grid.
             (Tool::System, Desktop::Tiling) => Some(crate::system_tui::NEED),
+            // So is AnarchyOS's TRAX: a playlist of three rows, the spectrum and the status.
+            (Tool::Player, Desktop::Tiling) => Some(fit::Need::cells(&[crate::player_view::NEED])),
             _ => None,
         }
     }
@@ -971,6 +988,18 @@ impl Home {
             Tool::Qwk => self.qwk_reader(child, data, save),
             Tool::IceDb => hubtools::icedb(child, data, save, &mut self.icedb_sel),
             Tool::Guide => hubtools::guide(child, data, &mut self.guide_at),
+            Tool::Player if self.intro_gate(child, data, save, "player", out) => return,
+            Tool::Player => crate::player_view::show(
+                child,
+                save.firmware_def(data).desktop,
+                data,
+                save,
+                &self.player,
+                &mut self.player_ui,
+                &self.heard,
+                keys,
+                out,
+            ),
             Tool::Shell => {}
             Tool::Game(_, copy) => self.play(child, data, save, tool, copy, keys, out),
         }

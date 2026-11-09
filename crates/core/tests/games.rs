@@ -296,7 +296,9 @@ fn every_game_is_sold_boxed_now_it_plays() {
     assert!(d.games.iter().all(|g| g.shop.is_some()));
     let cat = Save::default().catalog(&d);
     assert_eq!(
-        cat.iter().filter(|l| l.section == Section::Games).count(),
+        cat.iter()
+            .filter(|l| l.section == Section::Games && matches!(l.item, Item::Game(_)))
+            .count(),
         d.games.len()
     );
     let pages = shopper::layout(&d.shopper, &cat);

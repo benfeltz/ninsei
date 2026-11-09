@@ -81,6 +81,7 @@ fn entries(fuzzy: bool, save: &ninsei_core::hub::Save, data: &ninsei_core::Data)
         tool(Tool::IceDb, "ICE DB"),
         tool(Tool::NightComm, "NiGHTCOMM"),
         tool(Tool::TigerTeam, "Tiger Team Pro"),
+        tool(Tool::Player, "TRAX"),
         tool(Tool::Shell, "Shell"),
         tool(Tool::System, "System"),
     ];

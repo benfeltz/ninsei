@@ -60,6 +60,10 @@ fn title(tool: Tool, data: &ninsei_core::Data) -> String {
         Tool::NightComm => "NiGHTCOMM 3.1".into(),
         Tool::TigerTeam => "Tiger Team Pro 3.0".into(),
         Tool::Guide => "Welcome to the Net".into(),
+        // Its name and version, as tools.ron has them.
+        Tool::Player => data
+            .tool("player")
+            .map_or_else(|| tool.name(data), |t| format!("{} {}", t.name, t.version)),
         // A game by the copy's label, with its version, as its own title screen says it.
         Tool::Game(..) => match tool.game_def(data) {
             Some((g, _)) => format!("{} {}", tool.name(data), g.version),
@@ -146,6 +150,7 @@ impl Workbench {
                     Tool::IceDb => (pos2(220.0, 60.0), vec2(700.0, 470.0)),
                     Tool::NightComm => (pos2(150.0, 50.0), vec2(880.0, 500.0)),
                     Tool::TigerTeam => (pos2(140.0, 44.0), vec2(900.0, 540.0)),
+                    Tool::Player => (pos2(240.0, 70.0), vec2(560.0, 400.0)),
                     Tool::Guide => (pos2(200.0, 30.0), book_window()),
                     // Sized when it's first drawn (`home::size_game_window`).
                     Tool::Game(_, copy) => {
@@ -1080,5 +1085,13 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn traxs_title_is_its_name_and_version_from_the_data() {
+        let mut data = ninsei_core::Data::builtin().unwrap();
+        let t = data.tools.iter_mut().find(|t| t.id == "player").unwrap();
+        t.version = "9.9".into();
+        assert_eq!(title(Tool::Player, &data), "TRAX 9.9");
     }
 }

@@ -1,0 +1,21 @@
+// A tune on a music disk (the format is in ninsei-nights.ron).
+// THE 2400 CLUB: two tracks and a tempo that rushes. It came on the shop's dubbed disk.
+(
+    title: "DiAL-UP RAG (fiNAL!!)",
+    by: "THE 2400 CLUB",
+    secs: 64,
+    tune: (bpm: 188, tracks: [
+        (wave: Square, vol: 0.12, pattern: "
+            C5 . E5 . G5 . E5 . C6 . G5 . E5 . G5 .
+            F5 . A5 . C6 . A5 . F5 . . . A5 . . .
+            G5 . B5 . D6 . B5 . G5 . F5 . E5 . D5 .
+            C5 . E5 . G5 . C6 . - . . . C5 . . .
+        "),
+        (wave: Triangle, vol: 0.32, pattern: "
+            C3 . G2 . C3 . G2 . C3 . G2 . E3 . G2 .
+            F2 . C3 . F2 . C3 . F2 . C3 . A2 . C3 .
+            G2 . D3 . G2 . D3 . G2 . D3 . B2 . D3 .
+            C3 . G2 . C3 . G2 . C3 . . . C3 . . .
+        "),
+    ]),
+)

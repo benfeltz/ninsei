@@ -422,6 +422,8 @@ fn worth(g: &Game, d: &Drop, known: &[String]) -> i64 {
         Drop::Tool(id) if !g.has_tool(id) => 500,
         // A game is never progression: the bots never buy one.
         Drop::Game(_) => 0,
+        // Nor is a tune.
+        Drop::Tune(_) => 0,
         Drop::Hint(id) if !known.contains(id) && !g.hints.contains(id) => g
             .data
             .exchanges
@@ -441,6 +443,7 @@ fn kind(d: &Drop) -> &'static str {
         Drop::Fragment(_) => "fragment",
         Drop::Tool(_) => "tool",
         Drop::Game(_) => "game",
+        Drop::Tune(_) => "tune",
         Drop::Credits(..) | Drop::Text(_) | Drop::Nothing => "other",
     }
 }

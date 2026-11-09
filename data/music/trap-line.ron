@@ -1,0 +1,24 @@
+// A tune on a music disk (the format is in ninsei-nights.ron).
+// d1rge, for DEAD SECTOR: bass-heavy and in no hurry, like RAZORWIRE's cracks.
+(
+    title: "trap line",
+    by: "d1rge",
+    secs: 120,
+    tune: (bpm: 96, tracks: [
+        (wave: Saw, vol: 0.16, pattern: "
+            D2 - - D2 . . D2 . F2 - - . E2 - C2 .
+            D2 - - D2 . . D2 . A1 - - . C2 - - .
+        "),
+        (wave: Square, vol: 0.06, pattern: "
+            . . . . . . . . A4 - - - G4 - F4 -
+            E4 - - - - - - - . . . . . . . .
+            . . . . . . . . A4 - - - C5 - Bb4 -
+            A4 - - - - - - - - - - - . . . .
+        "),
+        (wave: Triangle, vol: 0.2, pattern: "
+            D4 . . . . . . . . . . . . . . .
+            . . . . . . . . C4 . . . . . . .
+        "),
+        (wave: Noise, vol: 0.09, pattern: "x . . . . . . . x . . x . . . ."),
+    ]),
+)

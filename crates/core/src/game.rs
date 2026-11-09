@@ -115,6 +115,8 @@ pub struct Kit {
     /// Games you have a cracked copy of (ids in `hub/games.ron`): a board won't sell you one
     /// twice. A boxed copy doesn't count: the crack is still for sale.
     pub games: Vec<String>,
+    /// Tunes you own (ids in `data/music/`): a board won't sell you one twice.
+    pub tunes: Vec<String>,
     /// Textfiles already on your disk, as (board id, text id).
     pub texts: Vec<(String, String)>,
     /// For each of `programs`, the stash id it came from (`None` for a free program). The run
@@ -146,6 +148,7 @@ impl Default for Kit {
             trust: Vec::new(),
             tools: Vec::new(),
             games: Vec::new(),
+            tunes: Vec::new(),
             texts: Vec::new(),
             origins: Vec::new(),
             free: Vec::new(),
@@ -417,6 +420,9 @@ pub struct Game {
     /// Games you own, the kit's plus any downloaded this run (cracked copies). They come home
     /// even on a flatline.
     pub games: Vec<String>,
+    /// Tunes you own, the kit's plus any downloaded this run. They come home even on a
+    /// flatline.
+    pub tunes: Vec<String>,
     /// Textfiles on your disk, as (board id, text id): the kit's plus any downloaded this run.
     /// They come home even on a flatline, for the QWK reader.
     pub texts: Vec<(String, String)>,
@@ -584,6 +590,7 @@ impl Game {
             sold_out: 0,
             tools: kit.tools.clone(),
             games: kit.games.clone(),
+            tunes: kit.tunes.clone(),
             texts: kit.texts.clone(),
             from_stash: Vec::new(),
             program: crate::basic::parse(&kit.program),
@@ -1968,9 +1975,13 @@ impl Game {
         if matches!(def.item, Drop::Warez(_)) && self.hdd.len() as u32 >= self.deck.hdd_max {
             return Some("hdd full. free a slot before downloading warez.".into());
         }
-        if let Some(why) =
-            tool_blocker(&self.data.tools, &self.data.crack_labels(), &def.item, self)
-        {
+        if let Some(why) = tool_blocker(
+            &self.data.tools,
+            &self.data.crack_labels(),
+            &self.data.tune_titles(),
+            &def.item,
+            self,
+        ) {
             return Some(why);
         }
         None
@@ -1984,6 +1995,11 @@ impl Game {
     /// Whether you have a cracked copy of a game (an id in `hub/games.ron`).
     pub fn has_crack(&self, id: &str) -> bool {
         self.games.iter().any(|g| g == id)
+    }
+
+    /// Whether you own a tune (an id in `data/music/`).
+    pub fn has_tune(&self, id: &str) -> bool {
+        self.tunes.iter().any(|t| t == id)
     }
 
     /// Whether a textfile on this run's board is already on your disk.
@@ -2199,6 +2215,13 @@ impl Game {
                 }
                 self.say(LogKind::Loot, format!("+ game: {name}"));
             }
+            Drop::Tune(id) => {
+                let title = self.data.tune(&id).map_or(id.clone(), |t| t.title.clone());
+                if !self.has_tune(&id) {
+                    self.tunes.push(id);
+                }
+                self.say(LogKind::Loot, format!("+ music disk: {title}"));
+            }
             Drop::Text(id) => {
                 if !self.has_text(&id) {
                     let board = self.bbs().id.clone();
@@ -2216,6 +2239,7 @@ impl Game {
 pub fn tool_blocker(
     tools: &[crate::data::ToolDef],
     cracks: &[(String, String)],
+    tunes: &[(String, String)],
     item: &Drop,
     line: &dyn crate::bbs::Line,
 ) -> Option<String> {
@@ -2226,6 +2250,7 @@ pub fn tool_blocker(
         _ if !line.owns(item) => return None,
         Drop::Tool(id) => tools.iter().find(|t| t.id == *id).map(|t| &t.name),
         Drop::Game(id) => cracks.iter().find(|(g, _)| g == id).map(|(_, l)| l),
+        Drop::Tune(id) => tunes.iter().find(|(t, _)| t == id).map(|(_, l)| l),
         _ => None,
     };
     Some(format!("you already have {}.", name.map_or("that", |n| n)))

@@ -1,7 +1,7 @@
 //! Finds every BBS under `data/bbs/<id>/` (a `board.ron` and a `splash.txt`) and every sound
-//! pack under `data/sounds/<id>.ron`, intro under `data/intros/<id>.ron` and picture under
-//! `data/art/<id>.txt`, and compiles them in, so a new board is a new folder and a new sound
-//! pack, intro or picture a new file.
+//! pack under `data/sounds/<id>.ron`, intro under `data/intros/<id>.ron`, picture under
+//! `data/art/<id>.txt` and tune under `data/music/<id>.ron`, and compiles them in, so a new
+//! board is a new folder and a new sound pack, intro, picture or tune a new file.
 
 use std::fmt::Write;
 use std::path::Path;
@@ -44,6 +44,7 @@ fn main() {
     ron_dir("sounds", "sounds.rs", "PackSrc", "sounds", "ron");
     ron_dir("intros", "intros.rs", "IntroSrc", "intro", "ron");
     ron_dir("art", "art.rs", "ArtSrc", "art", "txt");
+    ron_dir("music", "music.rs", "TuneSrc", "tune", "ron");
 }
 
 /// Every `data/<dir>/<id>.ron` as `Ty { id, field: include_str!(..) }`, in file order.

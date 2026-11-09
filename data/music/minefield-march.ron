@@ -1,0 +1,22 @@
+// A tune on a music disk (the format is in ninsei-nights.ron).
+// Paper Tiger Software's march for Minefield 1.1, off its Jukebox compilation.
+(
+    title: "Minefield March",
+    by: "Paper Tiger Software",
+    secs: 64,
+    tune: (bpm: 120, tracks: [
+        (wave: Sine, vol: 0.22, pattern: "
+            G4 - G4 . C5 - - . E5 - D5 . C5 - G4 .
+            A4 - A4 . D5 - - . F5 - E5 . D5 - - .
+            B4 - B4 . D5 - - . G5 - F5 . E5 - D5 .
+            C5 - E5 . G5 - E5 . C5 - - - - . . .
+        "),
+        (wave: Triangle, vol: 0.28, pattern: "
+            C3 . G2 . C3 . G2 . C3 . G2 . C3 . G2 .
+            D3 . A2 . D3 . A2 . D3 . A2 . D3 . A2 .
+            G2 . D3 . G2 . D3 . G2 . D3 . G2 . B2 .
+            C3 . G2 . C3 . E3 . C3 . . . C3 . . .
+        "),
+        (wave: Noise, vol: 0.05, pattern: "x . . . x . x . x . . . x . x x"),
+    ]),
+)

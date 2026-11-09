@@ -318,6 +318,121 @@ pub fn scroll_bar(ui: &Ui, p: &Painter, r: Rect, id: Id, s: Scroll, look: &Look)
     to
 }
 
+/// A scroll bar's arrow in its box, outlined, pointing left (`dir` -1) or right (1).
+fn harrow(p: &Painter, b: Rect, dir: f32, line: Stroke) {
+    let c = b.center();
+    let (tip, base) = (c.x + dir * 4.0, c.x - dir * 3.0);
+    let pts = vec![
+        pos2(tip, c.y),
+        pos2(base, c.y + 5.0),
+        pos2(base, c.y - 5.0),
+        pos2(tip, c.y),
+    ];
+    p.add(egui::Shape::line(pts, line));
+}
+
+/// How far a slider's arrow moves it.
+pub const SLIDER_STEP: f32 = 0.1;
+
+/// A horizontal slider's parts in `r`: the left arrow's box, the right one's, the track
+/// between them, and the thumb at `value` (0-1) on it.
+fn slider_parts(r: Rect, value: f32) -> (Rect, Rect, Rect, Rect) {
+    let w = size::SCROLL_W;
+    let left = Rect::from_min_size(r.min, vec2(w, r.height()));
+    let right = Rect::from_min_max(pos2(r.right() - w, r.top()), r.max);
+    let track = Rect::from_min_max(left.right_top(), right.left_bottom());
+    let travel = (track.width() - w).max(0.0);
+    let x = (track.left() + travel * value.clamp(0.0, 1.0)).round();
+    let thumb = Rect::from_min_size(pos2(x, track.top()), vec2(w, track.height()));
+    (left, right, track, thumb)
+}
+
+/// A horizontal scroll bar used as a slider, in `r` ([`size::SCROLL_W`] tall): outlined arrow
+/// boxes at either end, the 50% gray track, and the thumb at `value` (0-1). An arrow steps it
+/// [`SLIDER_STEP`]; a click on the track puts the thumb under the pointer, and a drag carries
+/// the thumb with it and lets go of it where it's released. Returns the new value when it was
+/// set: on a click or a release, never while the thumb is still held.
+pub fn hslider(ui: &Ui, r: Rect, id: Id, value: f32, look: &Look) -> Option<f32> {
+    let r = snap(r);
+    let (left, right, track, _) = slider_parts(r, value);
+    let mut to = None;
+    if ui.interact(left, id.with("left"), Sense::click()).clicked() {
+        to = Some(value - SLIDER_STEP);
+    }
+    if ui
+        .interact(right, id.with("right"), Sense::click())
+        .clicked()
+    {
+        to = Some(value + SLIDER_STEP);
+    }
+    let t = ui.interact(track, id.with("track"), Sense::click_and_drag());
+    let under = t.interact_pointer_pos().map(|p| {
+        let travel = (track.width() - size::SCROLL_W).max(1.0);
+        ((p.x - track.left() - size::SCROLL_W / 2.0) / travel).clamp(0.0, 1.0)
+    });
+    // While held, the thumb follows the pointer and nothing is set yet.
+    let grab = id.with("held");
+    let held = t.dragged().then_some(under).flatten();
+    if let Some(v) = held {
+        ui.data_mut(|d| d.insert_temp(grab, v));
+    }
+    if t.drag_stopped() {
+        let last = ui.data_mut(|d| d.remove_temp::<f32>(grab));
+        to = last.or(under).or(to);
+    } else if t.clicked() {
+        to = under.or(to);
+    }
+    let to = to.map(|v| v.clamp(0.0, 1.0)).filter(|v| *v != value);
+    let (left, right, track, thumb) = slider_parts(r, held.or(to).unwrap_or(value));
+    // Disabled, egui paints the Ui at half strength: a dimmed control, as the Mac's was.
+    let (ink, paper) = (look.ink, look.paper);
+    let p = ui.painter();
+    p.rect_filled(r, 0.0, paper);
+    if let Some(g) = look.gray {
+        patterns::fill(p, g, track, ink, paper);
+    }
+    let line = Stroke::new(1.0, ink);
+    p.rect_stroke(r, 0.0, line, StrokeKind::Inside);
+    for (b, dir) in [(left, -1.0), (right, 1.0)] {
+        p.rect_stroke(b, 0.0, line, StrokeKind::Inside);
+        harrow(p, b, dir, line);
+    }
+    p.rect_filled(thumb, 0.0, paper);
+    p.rect_stroke(thumb, 0.0, line, StrokeKind::Inside);
+    to
+}
+
+/// A thermometer in `r`: an ink frame, the level up to `value` (0-1) filled with the 50% gray
+/// (solid ink without it), left to right. A click sets it from where it lands; returns that.
+pub fn thermometer(ui: &Ui, r: Rect, id: Id, value: f32, look: &Look) -> Option<f32> {
+    let r = snap(r);
+    // The level runs across the inside, where the fill is drawn: a click there lands on it.
+    let inner = r.shrink(2.0);
+    let hit = ui.interact(r, id, Sense::click());
+    let to = hit
+        .clicked()
+        .then(|| hit.interact_pointer_pos())
+        .flatten()
+        .map(|p| ((p.x - inner.left()) / inner.width().max(1.0)).clamp(0.0, 1.0));
+    let shown = to.unwrap_or(value).clamp(0.0, 1.0);
+    let p = ui.painter();
+    p.rect_filled(r, 0.0, look.paper);
+    let fill = Rect::from_min_size(
+        inner.min,
+        vec2((inner.width() * shown).round(), inner.height()),
+    );
+    if fill.width() > 0.0 {
+        match look.gray {
+            Some(g) => patterns::fill(p, g, fill, look.ink, look.paper),
+            None => {
+                p.rect_filled(fill, 0.0, look.ink);
+            }
+        }
+    }
+    p.rect_stroke(r, 0.0, Stroke::new(1.0, look.ink), StrokeKind::Inside);
+    to
+}
+
 /// `body` in a view that scrolls, filling `ui` (a window's [`window_scrolled`]): the view is in
 /// from the top and bottom, and from the right by the scroll bar's room. The bar sits flush on
 /// the right edge, only while there's more than shows (a tool that fits has no dead control
@@ -849,6 +964,102 @@ mod tests {
     use super::*;
     use crate::uitest::{Harness, click, key};
     use egui::Pos2;
+
+    /// One frame of a slider 216 x 16 at (10, 10) set to `value`, with these events.
+    fn slider(h: &mut Harness, value: f32, events: Vec<egui::Event>) -> Option<f32> {
+        let mut out = None;
+        h.frame(events, |ui| {
+            let r = Rect::from_min_size(pos2(10.0, 10.0), vec2(216.0, 16.0));
+            out = hslider(ui, r, Id::new("s"), value, &look());
+        });
+        out
+    }
+
+    #[test]
+    fn a_slider_steps_with_its_arrows_and_jumps_where_the_track_is_clicked() {
+        let mut h = Harness::new(400.0, 200.0);
+        assert_eq!(slider(&mut h, 0.5, Vec::new()), None);
+        let right = Pos2::new(10.0 + 216.0 - 8.0, 18.0);
+        let got = slider(&mut h, 0.5, click(right)).unwrap();
+        assert!((got - 0.6).abs() < 1e-4, "{got}");
+        let left = Pos2::new(18.0, 18.0);
+        assert_eq!(slider(&mut h, 0.05, click(left)), Some(0.0), "clamped");
+        assert_eq!(slider(&mut h, 0.0, click(left)), None, "already there");
+        // The track runs 26..210, the thumb 16 wide, so it travels 168: the middle of its
+        // travel, under the thumb's centre, is 0.5.
+        let mid = Pos2::new(26.0 + 8.0 + 84.0, 18.0);
+        let got = slider(&mut h, 0.0, click(mid)).unwrap();
+        assert!((got - 0.5).abs() < 0.01, "{got}");
+    }
+
+    #[test]
+    fn a_held_slider_sets_nothing_until_it_is_let_go() {
+        use egui::{Event, PointerButton};
+        let mut h = Harness::new(400.0, 200.0);
+        let press = |pos, pressed| Event::PointerButton {
+            pos,
+            button: PointerButton::Primary,
+            pressed,
+            modifiers: egui::Modifiers::NONE,
+        };
+        let a = Pos2::new(60.0, 18.0);
+        let b = Pos2::new(150.0, 18.0);
+        slider(&mut h, 0.0, vec![Event::PointerMoved(a)]);
+        slider(&mut h, 0.0, vec![press(a, true)]);
+        for x in [80.0, 120.0, 150.0, 150.0, 150.0] {
+            let got = slider(&mut h, 0.0, vec![Event::PointerMoved(Pos2::new(x, 18.0))]);
+            assert_eq!(got, None, "held at {x}: nothing set yet");
+        }
+        let got = slider(&mut h, 0.0, vec![press(b, false)]).expect("set on release");
+        assert!((got - (150.0 - 26.0 - 8.0) / 168.0).abs() < 0.01, "{got}");
+    }
+
+    #[test]
+    fn a_thermometer_fills_to_its_level_and_a_click_sets_it() {
+        let mut h = Harness::new(400.0, 200.0);
+        let r = Rect::from_min_size(pos2(10.0, 10.0), vec2(104.0, 12.0));
+        let mut got = None;
+        h.frame(Vec::new(), |ui| {
+            got = thermometer(ui, r, Id::new("t"), 0.25, &look())
+        });
+        assert_eq!(got, None);
+        let filled: Vec<Rect> = h
+            .rects()
+            .into_iter()
+            .filter(|(_, fill, _)| *fill == Color32::WHITE)
+            .map(|(r, _, _)| r)
+            .collect();
+        assert_eq!(filled.len(), 1, "{filled:?}");
+        assert_eq!(filled[0].width(), 25.0, "a quarter of the inside");
+        h.frame(click(Pos2::new(10.0 + 78.0, 16.0)), |ui| {
+            got = thermometer(ui, r, Id::new("t"), 0.25, &look())
+        });
+        assert!((got.unwrap() - (78.0 - 2.0) / 100.0).abs() < 1e-4);
+        // The inside's last pixel is full; the inside runs 12..112.
+        h.frame(click(Pos2::new(10.0 + 101.5, 16.0)), |ui| {
+            got = thermometer(ui, r, Id::new("t"), 0.25, &look())
+        });
+        assert_eq!((got.unwrap() * 100.0).round(), 100.0, "the full level");
+    }
+
+    #[test]
+    fn a_disabled_slider_and_thermometer_are_drawn_at_half_strength() {
+        let mut h = Harness::new(400.0, 200.0);
+        h.frame(Vec::new(), |ui| {
+            ui.disable();
+            let r = Rect::from_min_size(pos2(10.0, 10.0), vec2(216.0, 16.0));
+            hslider(ui, r, Id::new("s"), 0.5, &look());
+            let t = Rect::from_min_size(pos2(10.0, 40.0), vec2(104.0, 12.0));
+            thermometer(ui, t, Id::new("t"), 0.5, &look());
+        });
+        let outlines: Vec<Color32> = h.rects().into_iter().map(|(_, _, s)| s).collect();
+        // egui paints a disabled Ui faded, as it does the buttons and the check boxes.
+        assert!(!outlines.is_empty());
+        assert!(
+            !outlines.contains(&Color32::WHITE),
+            "nothing at full strength"
+        );
+    }
 
     fn look() -> Look<'static> {
         Look {

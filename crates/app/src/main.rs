@@ -24,6 +24,7 @@ mod nightcomm_view;
 mod pager;
 mod panes;
 mod patterns;
+mod player_view;
 mod settings;
 mod shopper;
 mod sound;
@@ -574,6 +575,58 @@ impl App {
         if self.save.sound { "on" } else { "off" }
     }
 
+    /// The desktop player: core moves it on while it's at home and nothing else has the music
+    /// channel (a cracktro's tune), by the real time since the last frame, since the audio
+    /// keeps playing between frames; then says what the speaker should play. While it plays,
+    /// frames keep coming a few times a second so the tune ends on time and the player's
+    /// clock moves.
+    fn play_desktop_music(&mut self, ctx: &egui::Context) {
+        use ninsei_core::player;
+        let now = ctx.input(|i| i.time);
+        // However long since the last frame: no frames come while the window is hidden, and
+        // the music has gone on.
+        let dt = self.home.player_clock.map_or(0.0, |t| (now - t).max(0.0)) as f32;
+        self.home.player_clock = Some(now);
+        // The clock runs only while the music can be heard: not under a cracktro, and not
+        // while a new tune renders.
+        let live = player::at_home(self.screen)
+            && !self.speaker.intro_on()
+            && !self.speaker.desk_rendering();
+        if player::tick(&mut self.save, &self.data, &mut self.home.player, dt, live) {
+            self.save_dirty = true;
+        }
+        let want = player::wanted(&self.save, &self.data, self.screen, &self.home.player);
+        // The player's spectrum hears the speaker as the vis pane does, and only while the
+        // player is on screen.
+        let pass = ctx.cumulative_pass_nr();
+        if self.home.player_ui.drawn.is_some_and(|d| d + 2 >= pass) {
+            self.home.heard.samples = self.speaker.listen(vispane::WINDOW);
+            self.home.heard.rate = self.speaker.rate().unwrap_or(0);
+            vispane::alive_ctx(ctx, &self.home.heard.samples);
+        } else {
+            self.home.heard.samples.clear();
+        }
+        if self.speaker.desktop(want.as_ref()) {
+            ctx.request_repaint();
+        } else if want.is_some() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(250));
+        }
+    }
+
+    /// A player's act, carried out by core on the save and the player's place; a new level
+    /// goes straight to the speaker. The speaker hears it on the next frame, asked for now,
+    /// and the time before this act isn't counted against the music it starts.
+    fn player_act(&mut self, ctx: &egui::Context, act: ninsei_core::player::Act) {
+        ctx.request_repaint();
+        self.home.player_clock = None;
+        let (player, volume) = (self.save.player.clone(), self.save.volume);
+        ninsei_core::player::apply(&mut self.save, &self.data, &mut self.home.player, act);
+        if self.save.volume != volume {
+            self.speaker.set_volume(self.save.volume_gain());
+        }
+        self.save_dirty |= self.save.player != player || self.save.volume != volume;
+    }
+
     /// Starts the handshake sound when a dial begins, and cuts it when a BBS line drops.
     fn sync_sound(&mut self) {
         if let Some(id) = self.home.dial_started.take()
@@ -802,7 +855,8 @@ impl App {
             | WbOut::Monitor(_)
             | WbOut::Deck(_)
             | WbOut::Firmware(_)
-            | WbOut::Order(_) => {
+            | WbOut::Order(_)
+            | WbOut::Player(_) => {
                 return;
             }
         };
@@ -1274,6 +1328,7 @@ impl eframe::App for App {
             }
             None => self.speaker.stop_music(),
         }
+        self.play_desktop_music(&ctx);
 
         let live = self.screen == Screen::Run && !self.crashed;
         if live
@@ -1557,6 +1612,7 @@ impl App {
                     self.home.say(format!("sound {state}"));
                 }
                 WbOut::At(from, line) => self.modem(from, &line),
+                WbOut::Player(act) => self.player_act(&ctx, act),
                 other => self.home_action(other),
             }
         }
@@ -1760,9 +1816,15 @@ impl App {
 }
 
 /// The Shell's line for what came home off a run's boards: the tools by name, then the games
-/// by their crack's label (`Unpacked: HexEd, BLOX [PHS]`).
+/// by their crack's label, then the tunes by title (`Unpacked: HexEd, BLOX [PHS], CHROMA`).
 fn unpacked(r: &ninsei_core::hub::RunReport) -> Option<String> {
-    let all: Vec<&str> = r.tools.iter().chain(&r.games).map(String::as_str).collect();
+    let all: Vec<&str> = r
+        .tools
+        .iter()
+        .chain(&r.games)
+        .chain(&r.tunes)
+        .map(String::as_str)
+        .collect();
     (!all.is_empty()).then(|| format!("Unpacked: {}", all.join(", ")))
 }
 
@@ -1860,6 +1922,91 @@ mod tests {
     }
 
     #[test]
+    fn a_play_in_trax_starts_the_tune_from_its_top_on_the_next_frame() {
+        use crate::uitest::{Harness, key};
+        let mut h = Harness::new(1280.0, 800.0);
+        let cc = eframe::CreationContext::_new_kittest(h.ctx.clone());
+        let mut app = App::new(&cc, Data::builtin().unwrap(), Some(7));
+        app.save.decks.push("onosendai".into());
+        app.save.deck = "onosendai".into();
+        app.save.firmware = app.save.deck_def(&app.data).firmware[0].id.clone();
+        app.save.tiling_help_seen = true;
+        app.save.intros = false;
+        app.save.learn_tool("player");
+        app.load_layout();
+        app.home.open(Tool::Player);
+        let frame = |h: &mut Harness, app: &mut App, ev: Vec<egui::Event>| {
+            let pal = app.pal;
+            h.frame(ev, |ui| app.hub_ui(ui.ctx(), &pal));
+        };
+        for _ in 0..3 {
+            frame(&mut h, &mut app, Vec::new());
+        }
+        app.home.player_clock = Some(0.0);
+        frame(&mut h, &mut app, key(egui::Key::Space));
+        assert_eq!(app.home.player.play, ninsei_core::player::Play::Playing);
+        assert_eq!(
+            app.home.player_clock, None,
+            "the gap before the act isn't the tune's"
+        );
+        assert_eq!(app.home.player.at, 0.0);
+    }
+
+    #[test]
+    fn acceptance_137_2_trax_on_the_sense_net_is_a_desk_accessory_that_plays() {
+        use crate::uitest::{Harness, click, key};
+        let mut h = Harness::new(1280.0, 800.0);
+        let cc = eframe::CreationContext::_new_kittest(h.ctx.clone());
+        let mut app = App::new(&cc, Data::builtin().unwrap(), Some(7));
+        app.save.intros = false;
+        app.save.guide_seen = true;
+        app.save.learn_tool("player");
+        assert_eq!(
+            app.save.firmware_def(&app.data).desktop,
+            ninsei_core::hardware::Desktop::Liza
+        );
+        let frame = |h: &mut Harness, app: &mut App, ev: Vec<egui::Event>| {
+            let pal = app.pal;
+            h.frame(ev, |ui| app.hub_ui(ui.ctx(), &pal));
+        };
+        // Past the boot card, then TRAX's window.
+        for _ in 0..3 {
+            frame(&mut h, &mut app, Vec::new());
+        }
+        let screen = egui::pos2(900.0, 700.0);
+        frame(&mut h, &mut app, click(screen));
+        app.home.open(Tool::Player);
+        for _ in 0..3 {
+            frame(&mut h, &mut app, Vec::new());
+        }
+        // The desk accessory: its transport, its modes, and the kit's tunes in its list.
+        for label in ["◀◀", "▶", "■", "▶▶", "Repeat", "Shuffle"] {
+            assert!(h.find(label).is_some(), "{label}: {:?}", h.texts());
+        }
+        assert!(h.find("Play/Pause").is_none(), "not the plain listing");
+        // ▶ plays the cursor's tune, and reads ‖ after.
+        let play = h.find("▶").unwrap().center();
+        frame(&mut h, &mut app, click(play));
+        frame(&mut h, &mut app, Vec::new());
+        assert_eq!(app.home.player.play, ninsei_core::player::Play::Playing);
+        assert!(app.save.player.current.is_some());
+        assert!(h.find("‖").is_some(), "{:?}", h.texts());
+        // Repeat is a check box that sticks to the save.
+        let repeat = h.find("Repeat").unwrap().center();
+        frame(&mut h, &mut app, click(repeat));
+        frame(&mut h, &mut app, Vec::new());
+        assert!(app.save.player.repeat);
+        // Its keys: n moves to the next tune.
+        let was = app.save.player.current.clone();
+        frame(&mut h, &mut app, key(egui::Key::N));
+        frame(&mut h, &mut app, Vec::new());
+        assert_ne!(
+            app.save.player.current, was,
+            "the window in front has the keys"
+        );
+    }
+
+    #[test]
     fn a_game_open_on_one_desktop_survives_a_switch_of_firmware_and_back() {
         use crate::uitest::Harness;
         use ninsei_core::hub::GameCopy;
@@ -1908,12 +2055,18 @@ mod tests {
             boards: Vec::new(),
             tools: Vec::new(),
             games: Vec::new(),
+            tunes: Vec::new(),
         };
         assert_eq!(unpacked(&r), None);
         r.games = vec!["BLOX [PHS]".into()];
         assert_eq!(unpacked(&r).as_deref(), Some("Unpacked: BLOX [PHS]"));
         r.tools = vec!["HexEd".into()];
         assert_eq!(unpacked(&r).as_deref(), Some("Unpacked: HexEd, BLOX [PHS]"));
+        r.tunes = vec!["CHROMA".into()];
+        assert_eq!(
+            unpacked(&r).as_deref(),
+            Some("Unpacked: HexEd, BLOX [PHS], CHROMA")
+        );
     }
 
     mod sound_pop_out {
