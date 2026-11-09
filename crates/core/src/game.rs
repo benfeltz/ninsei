@@ -773,7 +773,8 @@ impl Game {
     /// [`Game::ice_next`] with the line of the ICE's program the move is on.
     pub fn ice_next_at(&self) -> Option<(u32, Intent)> {
         let c = self.combat.as_ref()?;
-        if c.stunned {
+        // Lagged, or spoofed: the deck can't see what it'll do.
+        if c.stunned || c.spoofed > 0 {
             return None;
         }
         let p = &c.ice_prog;
@@ -1390,10 +1391,7 @@ impl Game {
             }
             Cond::IceClass(k) => c.is_some_and(|c| self.data.ice[c.ice].class == *k),
             // Spoofed or lagged, NEXT names no move: the IF is false (and still spent its GB).
-            Cond::Next(m) => matches!(
-                self.next_move(),
-                Some(crate::fight::NextMove::Act(i)) if m.is(i)
-            ),
+            Cond::Next(m) => self.ice_next().is_some_and(|i| m.is(i)),
             Cond::Have(name) => self.slot_named(name).is_some(),
             Cond::Target(t, op, n) => {
                 let v = match t {

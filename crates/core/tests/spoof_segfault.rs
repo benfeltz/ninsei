@@ -106,7 +106,11 @@ fn spoof_hides_next_for_its_turns_on_every_screen_and_to_if_next() {
             .unwrap()
             .1;
         assert_eq!(watch, "???");
-        assert!(!ice_listing::rows(&g).iter().any(|r| r.next));
+        assert!(
+            !ice_listing::rows(&g).iter().any(|r| r.next || r.cursor),
+            "no mark gives it away"
+        );
+        assert_eq!(g.ice_next(), None, "the dry run sees nothing either");
         // The pass evaluates the IF (spending its GB), finds it false and runs off the end,
         // which ends the turn.
         g.apply(Action::Finish);

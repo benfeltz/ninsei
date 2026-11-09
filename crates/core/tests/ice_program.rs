@@ -333,7 +333,11 @@ fn next_is_what_the_ice_does() {
                     g.apply(Action::Run(s));
                 }
                 let said = g.ice_next();
-                let stunned = g.combat.as_ref().unwrap().stunned;
+                // Lagged or spoofed, the deck sees no move coming.
+                let hidden = g
+                    .combat
+                    .as_ref()
+                    .is_some_and(|c| c.stunned || c.spoofed > 0);
                 g.apply(Action::EndTurn);
                 let Some(c) = g.combat.as_ref() else { break };
                 let first = c.ice_exec.trace.iter().find(|s| {
@@ -345,7 +349,7 @@ fn next_is_what_the_ice_does() {
                     basic::Stmt::Act(a) => Some(a),
                     _ => None,
                 });
-                if stunned {
+                if hidden {
                     assert_eq!(said, None);
                 } else {
                     assert_eq!(said, did, "{id} turn {t}");
