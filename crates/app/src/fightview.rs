@@ -522,7 +522,7 @@ fn hud(painter: &Painter, rect: Rect, p: &Palette, g: &Game, preview: Option<fig
         );
     }
     // Next moves, top right.
-    let rx = rect.right() - 210.0;
+    let rx = rect.right() - 250.0;
     painter.text(pos2(rx, y), Align2::LEFT_CENTER, "NEXT", mono(12.0), p.dim);
     let now_line = match g.next_move() {
         Some(NextMove::Act(i)) if fight::threatens(i) => format!("▲ {}", i.describe()),
@@ -536,7 +536,14 @@ fn hud(painter: &Painter, rect: Rect, p: &Palette, g: &Game, preview: Option<fig
         mono(14.0),
         p.bright,
     );
-    // Under it, the ICE's program from where it carries on, as the deck has seen it.
+    // Under it, the ICE's program from where it carries on, as the deck has seen it, cut
+    // with `…` to the panel's edge rather than clipped there.
+    let cw = painter
+        .layout_no_wrap("0".into(), mono(11.0), p.fg)
+        .size()
+        .x
+        .max(1.0);
+    let room = ((rect.right() - 8.0 - (rx + 42.0)) / cw).floor().max(0.0) as usize;
     for (k, r) in btop_fight::ice_window(g, 3).iter().enumerate() {
         let col = match (r.next, r.text.is_some()) {
             (true, _) => p.bright,
@@ -546,7 +553,7 @@ fn hud(painter: &Painter, rect: Rect, p: &Palette, g: &Game, preview: Option<fig
         painter.text(
             pos2(rx + 42.0, y + 20.0 + k as f32 * 16.0),
             Align2::LEFT_CENTER,
-            btop_fight::ice_line(r),
+            crate::kit::cells::cut(&btop_fight::ice_line(r), room),
             mono(11.0),
             col,
         );
