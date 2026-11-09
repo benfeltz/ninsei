@@ -259,3 +259,28 @@ fn a_turn_played_on_the_hotbar_segfaults_the_first_line_and_the_log_reads_in_ord
         .unwrap();
     assert!(ice < err, "{said:?}");
 }
+
+#[test]
+fn segfault_keeps_its_target_through_a_hang_and_never_hits_a_dead_line_twice() {
+    use ninsei_core::*;
+    let data = with_row(r"10 SEGFAULT\n20 SEGFAULT\n30 ATTACK 1", "Segfault, Attack");
+    // The pass runs firewall at 10, then hangs at 40/50.
+    let mut g = fight_on(
+        data,
+        "10 RUN firewall\n20 REM\n40 GOTO 50\n50 GOTO 40\n60 RUN patch",
+    );
+    g.apply(Action::Finish);
+    assert_eq!(g.exec.broke, Some(40), "{:?}", g.exec.trace);
+    g.apply(Action::EndTurn);
+    assert!(
+        g.program.fault(10).is_some(),
+        "the line that ran, despite the hang"
+    );
+    // Next turn on the hotbar: it hits the first working line that isn't garbled yet.
+    g.apply(Action::EndTurn);
+    assert!(
+        g.program.fault(40).is_some(),
+        "not line 10 again: {}",
+        g.program.text()
+    );
+}

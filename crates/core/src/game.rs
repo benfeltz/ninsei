@@ -87,6 +87,8 @@ pub struct Combat {
     /// Deck turns its NEXT stays hidden for (its `SPOOF n`), counted down as each of its turns
     /// starts. A sniffer clears it.
     pub spoofed: u32,
+    /// The line of the deck's program that last ran a program this turn: what a SEGFAULT hits.
+    pub ran_line: Option<u32>,
     /// CPU left this turn.
     pub cpu: u32,
     pub shield: u32,
@@ -1086,6 +1088,7 @@ impl Game {
             ice_ifs: def.ram,
             ran: Vec::new(),
             spoofed: 0,
+            ran_line: None,
             cpu: self.deck.cpu_max,
             shield: 0,
             stunned: false,
@@ -1256,6 +1259,7 @@ impl Game {
         c.ifs = self.deck.ram_max;
         c.turn += 1;
         c.ran.clear();
+        c.ran_line = None;
         self.end_pass();
         self.exec.pc = self.top(Side::Deck);
         if let ExecState::Stopped(_) = self.exec.state {
@@ -1274,23 +1278,24 @@ impl Game {
     }
 
     /// The ICE's `SEGFAULT`: garbles the deck's line that last ran a program this turn (or its
-    /// first line that does something), its text scrambled from the run's RNG so the same seed
-    /// garbles the same way. The line is bad until it's retyped; no meter moves.
+    /// first line that does something and isn't garbled), its text scrambled from the run's RNG
+    /// so the same seed garbles the same way. The line is bad until it's retyped; no meter moves.
     fn segfault(&mut self) -> StepWhat {
-        // This turn's pass, if the program ran one (a turn played on the hotbar has none).
+        // The line its pass last ran a program from (kept on the fight, so a hang or a Play
+        // that restarts the pass doesn't lose it), or the first line that does something and
+        // isn't garbled already.
         let ran = self
-            .exec
-            .trace
-            .iter()
-            .rev()
-            .filter(|_| self.exec.open)
-            .find_map(|s| match s.what {
-                StepWhat::Ran { .. } => Some(s.line),
-                _ => None,
-            });
-        let hit = ran
-            .filter(|&no| self.program.line(no).is_some())
-            .or_else(|| self.program.rest(self.program.first()));
+            .combat
+            .as_ref()
+            .and_then(|c| c.ran_line)
+            .filter(|&no| self.program.line(no).is_some());
+        let hit = ran.or_else(|| {
+            self.program
+                .lines
+                .iter()
+                .find(|l| !matches!(l.stmt, Stmt::Rem | Stmt::Bad(_)))
+                .map(|l| l.no)
+        });
         let Some(no) = hit else {
             return StepWhat::Segfaulted(None);
         };
@@ -1610,6 +1615,9 @@ impl Game {
                             self.exec.visited.clear();
                             let uid = self.hdd[slot].uid;
                             self.apply(Action::Run(slot));
+                            if let Some(c) = self.combat.as_mut() {
+                                c.ran_line = Some(no);
+                            }
                             // The RUN broke this ICE and the next one rezzed, its fight starting
                             // with a fresh `Exec`: the pass carries on into it, from its first
                             // line. A fight that's over closed the pass (`end_pass`).
