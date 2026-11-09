@@ -18,32 +18,93 @@
 //         strength or less, each hit has a `chance`% chance it gives up and says `line`.
 //         Giving up counts as a win.
 [
+    // A barrier that digs in once you've spent your cycles.
     (id: "icewall",    name: "Ice Wall",   class: Barrier,  tier: 1, strength: 14,
         cpu: 1, ram: 1, verbs: [Fortify, Attack],
-        program: "10 FORTIFY 3\n20 ATTACK 3\n30 GOTO 10"),
+        program: "
+            10 IF TARGET CPU < 1
+            20 FORTIFY 4
+            30 ATTACK 4"),
+    // A barrier that rebuilds itself when it's been hurt.
     (id: "bulwark",    name: "Bulwark",    class: Barrier,  tier: 1, strength: 18,
         cpu: 1, ram: 1, verbs: [Fortify, Attack],
-        program: "10 FORTIFY 4\n20 ATTACK 4\n30 ATTACK 3\n40 GOTO 10"),
+        program: "
+            10 IF SELF STR < 12
+            20 FORTIFY 5
+            30 ATTACK 4
+            40 ATTACK 3"),
+    // A code gate that runs the clock when you hide behind a firewall.
     (id: "enigma",     name: "Enigma",     class: CodeGate, tier: 1, strength: 12,
         cpu: 1, ram: 1, verbs: [Trace, Attack],
-        program: "10 TRACE 6\n20 ATTACK 3\n30 GOTO 10"),
+        program: "
+            10 IF TARGET SHIELD > 0
+            20 TRACE 10
+            30 ATTACK 4
+            40 TRACE 4"),
+    // A code gate that bills you for every firewall and every patch.
     (id: "tollbooth",  name: "Tollbooth",  class: CodeGate, tier: 1, strength: 15,
-        cpu: 1, ram: 1, verbs: [Trace, Fortify, Attack],
-        program: "10 TRACE 8\n20 FORTIFY 2\n30 ATTACK 4\n40 GOTO 10"),
+        cpu: 1, ram: 2, verbs: [Trace, Attack],
+        program: "
+            10 IF TARGET SHIELD > 0
+            20 TRACE 8
+            30 IF TARGET RAN patch
+            40 TRACE 6
+            50 ATTACK 4
+            60 TRACE 3"),
+    // A sentry that goes for the kill when your integrity dips.
     (id: "rototurret", name: "Rototurret", class: Sentry,   tier: 1, strength: 11,
         cpu: 1, ram: 1, verbs: [Attack],
-        program: "10 ATTACK 5\n20 ATTACK 4\n30 GOTO 10"),
+        program: "
+            10 IF TARGET INTEG < 6
+            20 ATTACK 7
+            30 ATTACK 5
+            40 ATTACK 4"),
+    // A sentry that hits hard the turn you patch; otherwise it marks you, then hits.
     (id: "hunter",     name: "Hunter",     class: Sentry,   tier: 1, strength: 13,
         cpu: 1, ram: 1, verbs: [Trace, Attack],
-        program: "10 TRACE 4\n20 ATTACK 6\n30 GOTO 10"),
-    (id: "archer",     name: "Archer",     class: Sentry,   tier: 2, strength: 22,
-        cpu: 1, ram: 1, verbs: [Attack, Trace],
-        program: "10 ATTACK 7\n20 TRACE 6\n30 ATTACK 5\n40 GOTO 10"),
-    (id: "hydra",      name: "Hydra",      class: CodeGate, tier: 2, strength: 26,
-        cpu: 1, ram: 1, verbs: [Trace, Attack, Fortify],
-        program: "10 TRACE 10\n20 ATTACK 6\n30 FORTIFY 4\n40 GOTO 10"),
+        program: "
+            10 IF TARGET RAN patch
+            20 ATTACK 8
+            30 TRACE 4
+            40 ATTACK 5"),
+    // Black ICE. A sentry that waits out a firewall on the clock and shoots the moment it's down,
+    // harder the weaker you are. It sits deep, where every layer adds to its strength.
+    (id: "archer",     name: "Archer",     class: Sentry,   tier: 2, strength: 11,
+        cpu: 1, ram: 2, verbs: [Attack, Trace],
+        program: "
+            10 IF TARGET SHIELD > 0
+            20 GOTO 80
+            30 IF TARGET INTEG < 8
+            40 GOTO 70
+            50 ATTACK 4
+            55 TRACE 3
+            60 GOTO 10
+            70 ATTACK 6
+            75 GOTO 10
+            80 TRACE 4
+            90 GOTO 10"),
+    // Black ICE. A code gate that traces you whenever you shield or patch, rewriting itself
+    // as it does; otherwise it hits. It sits deep, where every layer adds to its strength.
+    (id: "hydra",      name: "Hydra",      class: CodeGate, tier: 2, strength: 11,
+        cpu: 1, ram: 2, verbs: [Trace, Attack, Fortify],
+        program: "
+            10 IF TARGET SHIELD > 0
+            20 GOTO 70
+            30 IF TARGET RAN patch
+            40 GOTO 70
+            50 ATTACK 4
+            60 GOTO 10
+            70 TRACE 5
+            80 FORTIFY 2
+            90 GOTO 10"),
+    // A rival on the line, not the map: it hits, traces, and gives up when it's losing.
     (id: "rival",      name: "kr4ken",     class: CodeGate, tier: 0, strength: 20,
         cpu: 1, ram: 1, verbs: [Attack, Trace, Fortify],
-        program: "10 ATTACK 4\n20 TRACE 5\n30 FORTIFY 3\n40 ATTACK 5\n50 GOTO 10",
+        program: "
+            10 IF TARGET SHIELD > 0
+            20 TRACE 5
+            30 ATTACK 4
+            40 FORTIFY 3
+            50 ATTACK 5",
         yields: Some((below: 50, chance: 40, line: "ok ok, you win. take it and get off my line."))),
 ]

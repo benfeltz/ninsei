@@ -191,8 +191,9 @@ fn a_pass_is_a_turn() {
     g.apply(Action::Finish);
     // A backward GOTO keeps the pass going while cycles remain: three cycles, three RUNs.
     assert_eq!(ran(&g), 3, "{:?}", g.exec.trace);
-    // Three icepicks for 3 each, then Bulwark fortifies 4: the ICE acted once.
-    assert_eq!(500 - combat(&g).strength, 9 - 4);
+    // Three icepicks for 3 each; then Bulwark, far from hurt, hits instead of fortifying.
+    assert_eq!(500 - combat(&g).strength, 9);
+    assert_eq!(g.deck.integrity, g.deck.integrity_max - 4);
     assert_eq!(g.exec.trace.last().unwrap().what, StepWhat::OutOfCpu);
     // Then the ICE acted once: the turn is over and the budgets are back.
     assert_eq!(combat(&g).turn, 2);
@@ -325,7 +326,7 @@ fn next_reads_the_intent() {
     assert!(!g.test(&Cond::Next(Move::Fortify)));
     let mut g = fight(
         "icewall",
-        "10 IF NEXT ATTACK\n20 RUN firewall\n30 IF NEXT FORTIFY\n40 STOP",
+        "10 IF NEXT FORTIFY\n20 RUN firewall\n30 IF NEXT ATTACK\n40 STOP",
     );
     g.apply(Action::Finish);
     assert_eq!(
@@ -510,7 +511,9 @@ fn finish_from_the_shell_says_the_pass_as_it_happens() {
     let over = said
         .iter()
         .position(|l| l == "out of cycles. the turn is over.");
-    let ice = said.iter().position(|l| l.contains("fortifies"));
+    let ice = said
+        .iter()
+        .position(|l| l.contains("Bulwark 30 ATTACK 4: hits for 4."));
     assert!(over.is_some() && over < ice, "{said:?}");
     assert_eq!(combat(&g).turn, 2);
     // A STOP is said once, and carrying on says only what's new.

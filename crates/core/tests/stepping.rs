@@ -127,6 +127,8 @@ fn on_every_deck_finish_is_the_rest_of_the_turn() {
 fn on_every_deck_run_idles_safe_through_a_quiet_turn_and_carries_on() {
     for deck in DECKS {
         let mut g = fight_on(deck);
+        // A quiet turn: Bulwark's program on its FORTIFY, so NEXT isn't an attack.
+        g.combat.as_mut().unwrap().ice_exec.pc = Some(20);
         g.apply(Action::Play);
         while turn(&g) == 1 {
             assert_eq!(g.exec.state, ExecState::Running, "{deck}: no hang stops it");

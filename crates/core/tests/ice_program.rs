@@ -125,10 +125,21 @@ fn ice_did(g: &Game) -> Vec<StepWhat> {
         .collect()
 }
 
+/// The intent cycle as a program: FORTIFY 3, ATTACK 3, round again.
+fn cycler() -> Data {
+    with_row(
+        r"10 FORTIFY 3\n20 ATTACK 3\n30 GOTO 10",
+        1,
+        1,
+        "Fortify, Attack",
+    )
+    .unwrap()
+}
+
 #[test]
 fn a_two_line_ice_cycles_as_its_intents_did() {
-    // Ice Wall: FORTIFY 3, ATTACK 3, round again.
-    let mut g = fight_on(Data::builtin().unwrap(), "icewall", "");
+    // What Ice Wall's `intents: [Fortify(3), Attack(3)]` became.
+    let mut g = fight_on(cycler(), "probe", "");
     let mut seen = Vec::new();
     for _ in 0..5 {
         seen.push(g.ice_next());
@@ -148,7 +159,7 @@ fn a_two_line_ice_cycles_as_its_intents_did() {
     );
     let said: Vec<&str> = g.log.iter().map(|l| l.text.as_str()).collect();
     assert!(
-        said.contains(&"Ice Wall 20 ATTACK 3: hits for 3."),
+        said.contains(&"Probe 20 ATTACK 3: hits for 3."),
         "its steps are in the log: {said:?}"
     );
 }
@@ -223,7 +234,7 @@ fn the_dry_run_changes_nothing() {
 
 #[test]
 fn a_lagged_ice_has_no_next_and_loses_its_move() {
-    let mut g = fight_on(Data::builtin().unwrap(), "icewall", "");
+    let mut g = fight_on(cycler(), "probe", "");
     g.combat.as_mut().unwrap().stunned = true;
     assert_eq!(g.ice_next(), None);
     let strength = g.combat.as_ref().unwrap().strength;
