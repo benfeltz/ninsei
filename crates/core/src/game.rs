@@ -1276,10 +1276,17 @@ impl Game {
     /// first line that does something), its text scrambled from the run's RNG so the same seed
     /// garbles the same way. The line is bad until it's retyped; no meter moves.
     fn segfault(&mut self) -> StepWhat {
-        let ran = self.exec.trace.iter().rev().find_map(|s| match s.what {
-            StepWhat::Ran { .. } => Some(s.line),
-            _ => None,
-        });
+        // This turn's pass, if the program ran one (a turn played on the hotbar has none).
+        let ran = self
+            .exec
+            .trace
+            .iter()
+            .rev()
+            .filter(|_| self.exec.open)
+            .find_map(|s| match s.what {
+                StepWhat::Ran { .. } => Some(s.line),
+                _ => None,
+            });
         let hit = ran
             .filter(|&no| self.program.line(no).is_some())
             .or_else(|| self.program.rest(self.program.first()));
@@ -1294,7 +1301,6 @@ impl Game {
             .map(|_| SEGFAULT_GLYPHS[self.rng.below(SEGFAULT_GLYPHS.len())])
             .collect();
         self.program.garble(no, &text);
-        self.say(LogKind::Bad, format!("?SYNTAX ERROR IN {no}"));
         StepWhat::Segfaulted(Some(no))
     }
 
@@ -1630,7 +1636,15 @@ impl Game {
                     }
                     self.ex_mut(side).visited.clear();
                     let what = self.act(a);
+                    let garbled = match what {
+                        StepWhat::Segfaulted(Some(hit)) => Some(hit),
+                        _ => None,
+                    };
                     self.trace_step(side, no, what);
+                    // The deck's interpreter has its say after the ICE's step.
+                    if let Some(hit) = garbled {
+                        self.say(LogKind::Bad, format!("?SYNTAX ERROR IN {hit}"));
+                    }
                 }
                 // The other side's words: its parser never lets them in.
                 Stmt::Run(_) | Stmt::Act(_) => {

@@ -226,3 +226,32 @@ fn a_garbled_program_goes_home_until_retyped() {
     let p = basic::parse(&s.program_text(&d));
     assert!(p.fault(10).is_some(), "still bad at home: {p:?}");
 }
+
+#[test]
+fn a_turn_played_on_the_hotbar_segfaults_the_first_line_and_the_log_reads_in_order() {
+    use ninsei_core::*;
+    // It hits on its first turn and garbles on its second.
+    let data = with_row(r"10 ATTACK 1\n20 SEGFAULT", "Segfault, Attack");
+    let mut g = fight_on(data, "10 REM mine\n20 RUN icepick\n30 RUN icepick");
+    // Last turn's pass ran line 30; this turn is played by hand.
+    g.apply(Action::Finish);
+    let pick = g.slot_named("icepick").unwrap();
+    g.apply(Action::Run(pick));
+    let before = g.log.len();
+    g.apply(Action::EndTurn);
+    assert!(
+        g.program.fault(20).is_some(),
+        "the first line that does something"
+    );
+    assert!(g.program.fault(30).is_none(), "not last turn's line");
+    let said: Vec<&str> = g.log[before..].iter().map(|l| l.text.as_str()).collect();
+    let ice = said
+        .iter()
+        .position(|t| t.contains("SEGFAULT: garbles your line 20"))
+        .unwrap();
+    let err = said
+        .iter()
+        .position(|t| *t == "?SYNTAX ERROR IN 20")
+        .unwrap();
+    assert!(ice < err, "{said:?}");
+}
