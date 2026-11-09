@@ -487,7 +487,7 @@ fn hud(painter: &Painter, rect: Rect, p: &Palette, g: &Game, preview: Option<fig
         c.strength as f32 / max,
         ghost,
     );
-    painter.text(
+    let str_rect = painter.text(
         pos2(x + 40.0 + cells as f32 * 8.0, y + 42.0),
         Align2::LEFT_CENTER,
         format!("{}/{}", c.strength, c.strength_max),
@@ -521,8 +521,22 @@ fn hud(painter: &Painter, rect: Rect, p: &Palette, g: &Game, preview: Option<fig
             p.bright,
         );
     }
-    // Next moves, top right.
-    let rx = rect.right() - 250.0;
+    // Next moves, top right, never over the strength readout on a narrow pane.
+    let rx = next_column(rect, str_rect.right());
+    // Glyphs cut to the panel's edge with `…` rather than clipped there: a row fits as many
+    // cells as the widest glyph it uses allows.
+    let room = |size: f32| {
+        let cw = ["0", "▶", "·", "▲"]
+            .iter()
+            .map(|g| {
+                painter
+                    .layout_no_wrap(g.to_string(), mono(size), p.fg)
+                    .size()
+                    .x
+            })
+            .fold(1.0_f32, f32::max);
+        ((rect.right() - 8.0 - (rx + 42.0)) / cw).floor().max(0.0) as usize
+    };
     painter.text(pos2(rx, y), Align2::LEFT_CENTER, "NEXT", mono(12.0), p.dim);
     let now_line = match g.next_move() {
         Some(NextMove::Act(i)) if fight::threatens(i) => format!("▲ {}", i.describe()),
@@ -532,18 +546,12 @@ fn hud(painter: &Painter, rect: Rect, p: &Palette, g: &Game, preview: Option<fig
     painter.text(
         pos2(rx + 42.0, y),
         Align2::LEFT_CENTER,
-        now_line,
+        crate::kit::cells::cut(&now_line, room(14.0)),
         mono(14.0),
         p.bright,
     );
-    // Under it, the ICE's program from where it carries on, as the deck has seen it, cut
-    // with `…` to the panel's edge rather than clipped there.
-    let cw = painter
-        .layout_no_wrap("0".into(), mono(11.0), p.fg)
-        .size()
-        .x
-        .max(1.0);
-    let room = ((rect.right() - 8.0 - (rx + 42.0)) / cw).floor().max(0.0) as usize;
+    // Under it, the ICE's program from where it carries on, as the deck has seen it, clear of
+    // the preview line under the strength readout.
     let rows = ninsei_core::ice_listing::rows(g);
     for (k, r) in btop_fight::ice_window(&rows, 3).iter().enumerate() {
         let col = match (r.next, r.text.is_some()) {
@@ -552,13 +560,20 @@ fn hud(painter: &Painter, rect: Rect, p: &Palette, g: &Game, preview: Option<fig
             (false, false) => alpha(p.dim, 0.8),
         };
         painter.text(
-            pos2(rx + 42.0, y + 20.0 + k as f32 * 16.0),
+            pos2(rx + 42.0, y + 18.0 + k as f32 * 14.0),
             Align2::LEFT_CENTER,
-            crate::kit::cells::cut(&btop_fight::ice_line(r), room),
+            crate::kit::cells::cut(&btop_fight::ice_line(r), room(11.0)),
             mono(11.0),
             col,
         );
     }
+}
+
+/// Where the NEXT column starts (its label; the moves and listing sit 42px right of it): 250px
+/// in from the panel's right edge, or clear of the strength readout ending at `str_right` on a
+/// narrow panel.
+fn next_column(rect: Rect, str_right: f32) -> f32 {
+    (rect.right() - 250.0).max(str_right + 16.0 - 42.0)
 }
 
 /// The tiles' rects: the HDD's programs (slot, rect), then END TURN.
@@ -759,4 +774,29 @@ fn hotbar(ui: &mut Ui, panes: &mut Panes, rect: Rect, hovered: Option<usize>) ->
         panes.act(Action::EndTurn);
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn the_next_column_never_lands_on_the_strength_readout() {
+        // Wide: 250px in from the right edge.
+        let wide = Rect::from_min_size(pos2(0.0, 0.0), vec2(900.0, 500.0));
+        assert_eq!(next_column(wide, 290.0), 650.0);
+        // Narrow: the moves start 16px clear of the readout.
+        let narrow = Rect::from_min_size(pos2(0.0, 0.0), vec2(480.0, 500.0));
+        let rx = next_column(narrow, 290.0);
+        assert!(rx + 42.0 >= 290.0 + 16.0, "{rx}");
+    }
+
+    #[test]
+    fn a_listing_line_too_long_for_the_column_ends_in_an_ellipsis() {
+        let line = "▶  10 if target shield > 0";
+        let cut = crate::kit::cells::cut(line, 12);
+        assert_eq!(cut.chars().count(), 12);
+        assert!(cut.ends_with('…'));
+        assert_eq!(crate::kit::cells::cut(line, 40), line);
+    }
 }
