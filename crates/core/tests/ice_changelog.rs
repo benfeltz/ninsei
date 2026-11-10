@@ -276,3 +276,26 @@ fn a_moved_block_is_marked_whole() {
         marks(&rows)
     );
 }
+
+#[test]
+fn a_listing_says_which_version_its_marks_are_against() {
+    // 1.0.0 met, 1.0.1 never (it came and went between runs), 1.1.0 met: 1.1.0's marks are
+    // against 1.0.0, and the page says so beside the minor its row says it was.
+    let d = data();
+    let mut s = met_twice(&[]);
+    let e = &mut s.ice_seen[0];
+    e.version = Version::default().bumped(Bump::Minor);
+    e.bump = Some(Bump::Minor);
+    let p = page(&s, &d);
+    assert!(
+        p.iter()
+            .any(|l| l == "listing        1.1.0, decompiled, 0 of 4 lines seen, against 1.0.0"),
+        "{p:#?}"
+    );
+    // The first version met is against nothing.
+    assert!(
+        p.iter()
+            .any(|l| l == "1.0.0, decompiled, 2 of 4 lines seen"),
+        "{p:#?}"
+    );
+}

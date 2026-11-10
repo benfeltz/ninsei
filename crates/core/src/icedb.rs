@@ -119,8 +119,8 @@ impl<'a> Entry<'a> {
     }
 
     /// Version `k` of `vs` (newest first) decompiled from what you saw it run, each seen line
-    /// marked against the version before it (`ice_listing::changes`), under a heading saying
-    /// how much of it is known.
+    /// marked against the version met before it (`ice_listing::changes`), under a heading saying
+    /// how much of it is known and which version the marks are against.
     fn known_listing(&self, vs: &[Known<'_>], k: usize, heading: &str) -> Vec<PageLine> {
         let v = &vs[k];
         let prev = vs.get(k + 1).map(|p| (p.program, p.lines));
@@ -130,8 +130,13 @@ impl<'a> Entry<'a> {
             .filter(|r| r.mark != crate::ice_listing::Mark::Removed)
             .collect();
         let seen = mine.iter().filter(|r| r.text.is_some()).count();
+        // The marks are against the version met before, which needn't be the one it was made
+        // from (one may have come and gone between runs): say which.
+        let against = vs
+            .get(k + 1)
+            .map_or(String::new(), |p| format!(", against {}", p.version));
         let mut out = vec![PageLine::plain(format!(
-            "{heading}{}, decompiled, {seen} of {} lines seen",
+            "{heading}{}, decompiled, {seen} of {} lines seen{against}",
             v.version,
             mine.len()
         ))];
