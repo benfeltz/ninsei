@@ -52,7 +52,7 @@ fn each_ice_turn_books_what_it_saw_of_the_deck() {
     let mut g = fight(&mut s, &d, "enigma", "10 RUN firewall\n20 RUN patch");
     turn(&mut g);
     turn(&mut g);
-    let m = g.history.met.last().unwrap();
+    let m = g.bouts.last().unwrap();
     assert_eq!(m.tells.len(), 2);
     let t = &m.tells[0];
     assert!(t.shield > 0, "{t:?}");
@@ -104,7 +104,7 @@ fn a_tell_reads_the_ice_s_conditions_as_the_fight_does() {
                 assert_eq!(tell.holds(c), g.test(c), "{c:?} on {tell:?}");
             }
             g.apply(Action::EndTurn);
-            assert_eq!(g.history.met.last().unwrap().tells.last(), Some(&tell));
+            assert_eq!(g.bouts.last().unwrap().tells.last(), Some(&tell));
         }
     }
 }
@@ -130,6 +130,67 @@ fn the_ice_that_ended_the_run_is_named() {
     // A run still going names nobody.
     let g = s.jack_in(&d, 4);
     assert_eq!(g.killed_by(), None);
+}
+
+#[test]
+fn an_encounter_fight_that_ends_the_run_names_its_fighter() {
+    // The rival fights on a contact node, with no ICE of its own on the map.
+    let d = data();
+    let mut g = Game::new(d.clone(), 1);
+    let to = g.net.nodes[g.at].links[0];
+    g.net.nodes[to].kind = NodeKind::Contact;
+    g.net.nodes[to].cleared = false;
+    g.net.nodes[to].ice = None;
+    g.apply(Action::Move(to));
+    let ev = g.data.events.iter().position(|e| e.id == "rival").unwrap();
+    g.encounter.as_mut().unwrap().event = ev;
+    let c = g.data.events[ev]
+        .choices
+        .iter()
+        .position(|c| matches!(c.effect, ChoiceEffect::Fight { .. }))
+        .unwrap();
+    g.apply(Action::Choose {
+        choice: c,
+        slot: None,
+    });
+    assert_eq!(g.phase, Phase::Combat);
+    let rival = g.data.ice.iter().position(|i| i.id == "rival").unwrap();
+    g.deck.integrity = 1;
+    while g.phase == Phase::Combat {
+        g.apply(Action::EndTurn);
+    }
+    assert_eq!(g.phase, Phase::Flatlined);
+    assert_eq!(g.killed_by(), Some(rival));
+    assert_eq!(
+        g.bouts.last().map(|b| (b.ice, b.broken)),
+        Some((rival, false))
+    );
+}
+
+#[test]
+fn a_trace_on_the_hop_is_no_ice_s_kill() {
+    // Beat Rototurret, then hop onto another with the trace about to run out: the hop's trace
+    // ends the run before the second fight begins.
+    let d = data();
+    let mut s = deck(&d);
+    let mut g = fight(&mut s, &d, "rototurret", "");
+    finish(&mut g, true);
+    g.deck.trace = tuning::TRACE_MAX - 1;
+    let target = g.net.nodes[g.at].links[0];
+    let ix = g
+        .data
+        .ice
+        .iter()
+        .position(|i| i.id == "rototurret")
+        .unwrap();
+    g.net.nodes[target].kind = NodeKind::Ice;
+    g.net.nodes[target].ice = Some(ix);
+    g.net.nodes[target].cleared = false;
+    g.apply(Action::Move(target));
+    assert_eq!(g.phase, Phase::Flatlined);
+    assert_eq!(g.killed_by(), None);
+    assert_eq!(g.bouts.len(), 1);
+    assert!(g.bouts[0].broken);
 }
 
 #[test]

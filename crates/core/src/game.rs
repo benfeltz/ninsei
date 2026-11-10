@@ -63,6 +63,16 @@ pub struct Slot {
     pub spec: Spec,
 }
 
+/// One fight, booked by the rules as it goes: which ICE, whether it fell, and the deck as the
+/// ICE's conditions read it at the start of each of its turns.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Bout {
+    /// Index into `Data::ice`.
+    pub ice: usize,
+    pub broken: bool,
+    pub tells: Vec<crate::ice_version::Tell>,
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Combat {
     pub node: usize,
@@ -445,6 +455,11 @@ pub struct Game {
     /// `Data::ice`, version, its program parsed once). Every ICE of a kind runs the same
     /// version all run.
     pub ice_versions: Vec<(usize, Version, Program)>,
+    /// Every fight this run, in order, as the rules saw it: what its ICE's sysops read in their
+    /// logs. `Save::record` writes the next versions from it.
+    pub bouts: Vec<Bout>,
+    /// The ICE whose fight ended the run in a flatline (an index into `Data::ice`).
+    pub killer: Option<usize>,
     /// What the run has been doing, for the graphs. Watches the rules, never changes them.
     pub history: crate::history::History,
     /// Sound cues waiting to be played. The app drains them each frame.
@@ -667,6 +682,8 @@ impl Game {
             starters_read: false,
             ice_lines,
             ice_versions,
+            bouts: Vec::new(),
+            killer: None,
             history: crate::history::History::default(),
             cues: Vec::new(),
             site: kit.site.clone(),
@@ -1116,6 +1133,11 @@ impl Game {
             Some((_, _, p)) => p.clone(),
             None => crate::basic::parse_with(&def.program, Vocab::Ice(&def.verbs)),
         };
+        self.bouts.push(Bout {
+            ice,
+            broken: false,
+            tells: Vec::new(),
+        });
         self.combat = Some(Combat {
             node,
             ice,
@@ -1240,6 +1262,9 @@ impl Game {
 
     fn win_combat(&mut self) {
         let Some(c) = self.combat.take() else { return };
+        if let Some(b) = self.bouts.last_mut() {
+            b.broken = true;
+        }
         self.end_pass();
         self.phase = Phase::Exploring;
         self.net.nodes[c.node].cleared = true;
@@ -1280,10 +1305,10 @@ impl Game {
         c.marked = None;
         c.ice_cpu = def.cpu;
         c.ice_ifs = def.ram;
-        // What the ICE sees as its turn begins goes in its sysop's logs. History only.
+        // What the ICE sees as its turn begins goes in its sysop's logs.
         let tell = self.tell();
-        if let Some(m) = self.history.met.last_mut() {
-            m.tells.push(tell);
+        if let Some(b) = self.bouts.last_mut() {
+            b.tells.push(tell);
         }
         let Some(c) = self.combat.as_mut() else {
             return Err("no fight in progress.".into());
@@ -1319,7 +1344,7 @@ impl Game {
         self.deck.trace += mods.trace(TRACE_PER_COMBAT_TURN);
         if self.deck.integrity == 0 {
             self.phase = Phase::Flatlined;
-            self.combat = None;
+            self.killer = self.combat.take().map(|c| c.ice);
             self.end_pass();
             self.say(LogKind::Bad, "!! deck integrity zero. FLATLINE.");
             return Ok(());
@@ -1504,17 +1529,10 @@ impl Game {
     }
 
     /// The ICE whose fight ended the run in a flatline (an index into `Data::ice`): its
-    /// integrity or its trace ran out with ICE in front. `None` for an exit, or a trace out of
-    /// a fight.
+    /// integrity or its trace ran out with that ICE in front. `None` for an exit, or a flatline
+    /// out of a fight (a trace on a hop, an encounter's damage).
     pub fn killed_by(&self) -> Option<usize> {
-        if self.phase != Phase::Flatlined {
-            return None;
-        }
-        let node = &self.net.nodes[self.at];
-        self.combat
-            .as_ref()
-            .map(|c| c.ice)
-            .or(node.ice.filter(|_| !node.cleared))
+        self.killer.filter(|_| self.phase == Phase::Flatlined)
     }
 
     /// Replaces the deck's program. Stopped partway through a turn, it carries on from the
@@ -2347,7 +2365,8 @@ impl Game {
         if self.deck.trace >= TRACE_MAX {
             self.deck.trace = TRACE_MAX;
             self.phase = Phase::Flatlined;
-            self.combat = None;
+            // Traced out in a fight: that ICE kept you there.
+            self.killer = self.combat.take().map(|c| c.ice);
             self.end_pass();
             self.say(LogKind::Bad, "!! trace complete. they found you. FLATLINE.");
             return true;

@@ -54,17 +54,13 @@ pub struct History {
     pending: u32,
 }
 
-/// A fight met on a run: which ICE, its strength when the fight began, whether it fell, and
-/// what it saw of the deck at each of its turns (what its sysop reads in the logs).
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// A fight met on a run: which ICE, its strength when the fight began, and whether it fell.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Met {
     /// Index into `Data::ice`.
     pub ice: usize,
     pub strength: u32,
     pub broken: bool,
-    /// The deck as the ICE's conditions read it as each of its turns began
-    /// (`Game::end_turn` books them).
-    pub tells: Vec<crate::ice_version::Tell>,
 }
 
 /// A hit on the deck.
@@ -159,7 +155,6 @@ impl History {
                         ice: c.ice,
                         strength,
                         broken: false,
-                        tells: Vec::new(),
                     });
                 }
                 self.ice = vec![strength];

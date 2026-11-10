@@ -2393,21 +2393,20 @@ impl Save {
     fn climb_ladders(&mut self, game: &Game, played: &str, killer: Option<usize>) {
         use crate::ice_version::{seed, written_against};
         let data = &game.data;
-        let mut kinds: Vec<usize> = game.history.met.iter().map(|m| m.ice).collect();
+        let mut kinds: Vec<usize> = game.bouts.iter().map(|b| b.ice).collect();
         kinds.sort_unstable();
         kinds.dedup();
         for ice in kinds {
             let Some(row) = data.ice.get(ice) else {
                 continue;
             };
-            let won: Vec<&crate::history::Met> = game
-                .history
-                .met
+            let won: Vec<&crate::game::Bout> = game
+                .bouts
                 .iter()
-                .filter(|m| m.ice == ice && m.broken)
+                .filter(|b| b.ice == ice && b.broken)
                 .collect();
             let tells: Vec<crate::ice_version::Tell> =
-                won.iter().flat_map(|m| m.tells.iter().cloned()).collect();
+                won.iter().flat_map(|b| b.tells.iter().cloned()).collect();
             let rung = match self.ice_ladder.iter().position(|r| r.id == row.id) {
                 Some(i) => &mut self.ice_ladder[i],
                 None => {
@@ -2595,7 +2594,7 @@ impl Save {
             self.add_starters(&game.data);
         }
         let killer = game.killed_by();
-        for (k, m) in game.history.met.iter().enumerate() {
+        for m in &game.history.met {
             let Some(def) = game.data.ice.get(m.ice) else {
                 continue;
             };
@@ -2625,9 +2624,17 @@ impl Save {
             s.broken += u32::from(m.broken);
             s.lo = s.lo.min(m.strength);
             s.hi = s.hi.max(m.strength);
-            s.won += u32::from(m.broken);
-            // The last fight is the one that ended a flatlined run.
-            s.lost += u32::from(killer == Some(m.ice) && k + 1 == game.history.met.len());
+        }
+        // Wins and losses on the version that ran, as the rules booked the fights: the last one
+        // is the one that ended a flatlined run.
+        for (k, b) in game.bouts.iter().enumerate() {
+            let Some(def) = game.data.ice.get(b.ice) else {
+                continue;
+            };
+            if let Some(s) = self.ice_seen.iter_mut().find(|s| s.id == def.id) {
+                s.won += u32::from(b.broken);
+                s.lost += u32::from(killer == Some(b.ice) && k + 1 == game.bouts.len());
+            }
         }
         // What the deck saw each ICE run comes home with its entry, as the fights do.
         for (ice, lines) in &game.ice_lines {
