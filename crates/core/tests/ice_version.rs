@@ -214,3 +214,72 @@ fn a_row_may_not_attack_the_program_past_its_tier() {
         "{err}"
     );
 }
+
+#[test]
+fn versions_count_and_print_as_semver() {
+    use ice_version::{Bump, Version};
+    let v = Version::default();
+    assert_eq!(v.to_string(), "1.0.0");
+    let p = v.bumped(Bump::Patch);
+    assert_eq!(p.to_string(), "1.0.1");
+    let m = p.bumped(Bump::Minor);
+    assert_eq!(m.to_string(), "1.1.0");
+    assert_eq!(
+        m.bumped(Bump::Patch).bumped(Bump::Major).to_string(),
+        "2.0.0"
+    );
+    assert!(m > p && p > v);
+    assert_eq!(Bump::Major.smaller(), Some(Bump::Minor));
+    assert_eq!(Bump::Patch.smaller(), None);
+}
+
+#[test]
+fn straight_line_ice_round_trip_through_blocks() {
+    let d = Data::builtin().unwrap();
+    let mut straight = 0;
+    for ice in &d.ice {
+        let vocab = basic::Vocab::Ice(&ice.verbs);
+        let p = basic::parse_with(&ice.program, vocab);
+        let Some(blocks) = ice_version::blocks(&p) else {
+            // Only the ICE that jump aren't in block form.
+            assert!(
+                p.lines
+                    .iter()
+                    .any(|l| matches!(l.stmt, basic::Stmt::Goto(_))),
+                "{}",
+                ice.id
+            );
+            continue;
+        };
+        straight += 1;
+        let again = basic::parse_with(&ice_version::render(&blocks), vocab);
+        let stmts = |p: &basic::Program| p.lines.iter().map(|l| l.stmt.clone()).collect::<Vec<_>>();
+        assert_eq!(stmts(&again), stmts(&p), "{}", ice.id);
+        assert_eq!(ice_version::blocks(&again), Some(blocks), "{}", ice.id);
+    }
+    assert_eq!(straight, 7);
+    for id in ["archer", "hydra"] {
+        let ice = d.ice.iter().find(|i| i.id == id).unwrap();
+        let p = basic::parse_with(&ice.program, basic::Vocab::Ice(&ice.verbs));
+        assert_eq!(ice_version::blocks(&p), None, "{id}");
+    }
+}
+
+#[test]
+fn what_is_not_in_block_form() {
+    let verbs = [basic::Verb::Attack];
+    let vocab = basic::Vocab::Ice(&verbs);
+    for text in [
+        "10 ATTACK 2\n20 IF TURN > 1",
+        "10 IF TURN > 1\n20 IF TURN > 2\n30 ATTACK 2",
+        "10 ATTACK 2\n20 STOP",
+        "10 REM x\n20 ATTACK 2",
+        "10 ATTACK 2\n20 GOTO 10",
+    ] {
+        assert_eq!(
+            ice_version::blocks(&basic::parse_with(text, vocab)),
+            None,
+            "{text}"
+        );
+    }
+}
