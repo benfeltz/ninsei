@@ -1254,6 +1254,18 @@ impl IceRung {
     }
 }
 
+/// The first item of `v` that `found` picks, or `make()` pushed onto the end when there's none.
+fn find_or_push<T>(v: &mut Vec<T>, found: impl Fn(&T) -> bool, make: impl FnOnce() -> T) -> &mut T {
+    let i = match v.iter().position(found) {
+        Some(i) => i,
+        None => {
+            v.push(make());
+            v.len() - 1
+        }
+    };
+    &mut v[i]
+}
+
 /// Whether two deck programs are the same play: the same lines, each with the same text, or
 /// garbled in one of them (a SEGFAULT's garbage comes home with the save until it's retyped, and
 /// a player who retypes it hasn't changed their play).
@@ -2435,16 +2447,14 @@ impl Save {
                 .collect();
             let tells: Vec<Vec<crate::ice_version::Tell>> =
                 won.iter().map(|b| b.tells.clone()).collect();
-            let rung = match self.ice_ladder.iter().position(|r| r.id == row.id) {
-                Some(i) => &mut self.ice_ladder[i],
-                None => {
-                    self.ice_ladder.push(IceRung {
-                        id: row.id.clone(),
-                        ..IceRung::default()
-                    });
-                    self.ice_ladder.last_mut().expect("just pushed")
-                }
-            };
+            let rung = find_or_push(
+                &mut self.ice_ladder,
+                |r| r.id == row.id,
+                || IceRung {
+                    id: row.id.clone(),
+                    ..IceRung::default()
+                },
+            );
             let Some(bump) = rung.climb(played, won.len() as u32, killer == Some(ice), &tells)
             else {
                 continue;
@@ -2630,26 +2640,19 @@ impl Save {
                 continue;
             };
             let (version, bump, program) = self.met_version(game, m.ice);
-            let s = match self.ice_seen.iter().position(|s| s.id == def.id) {
-                Some(i) => &mut self.ice_seen[i],
-                None => {
-                    self.ice_seen.push(IceSeen {
-                        id: def.id.clone(),
-                        met: 0,
-                        broken: 0,
-                        lo: m.strength,
-                        hi: m.strength,
-                        lines: Vec::new(),
-                        version,
-                        bump,
-                        program: program.clone(),
-                        won: 0,
-                        lost: 0,
-                        past: Vec::new(),
-                    });
-                    self.ice_seen.last_mut().expect("just pushed")
-                }
-            };
+            let s = find_or_push(
+                &mut self.ice_seen,
+                |s| s.id == def.id,
+                || IceSeen {
+                    id: def.id.clone(),
+                    lo: m.strength,
+                    hi: m.strength,
+                    version,
+                    bump,
+                    program: program.clone(),
+                    ..IceSeen::default()
+                },
+            );
             s.meet(version, bump, &program);
             s.met += 1;
             s.broken += u32::from(m.broken);
