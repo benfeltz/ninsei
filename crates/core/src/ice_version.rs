@@ -26,7 +26,7 @@ const TRIES: usize = 32;
 /// The deck as an ICE's conditions read it: what its sysop sees in the logs of a turn. A fight
 /// reads its ICE's conditions through [`Tell::holds`], and the next version is written against
 /// the tells booked in the fights a kind lost, so the two can't disagree.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 pub struct Tell {
     /// `TARGET INTEG`.
     pub integ: u32,
@@ -109,6 +109,90 @@ pub fn against(fired: &[(String, u32)], turns: u32) -> Vec<(String, u32)> {
         })
         .filter(|(_, w)| *w > 0)
         .collect()
+}
+
+/// What `program`, on ICE `row`'s machine, would have done to the deck on each booked turn
+/// `tells`, summed: one pass from the top with its cpu and ram, each move weighed by the
+/// `tuning::HARM_*` numbers (a hit counts past the shield, which the first hit uses up). How
+/// the sysops judge a rewrite against the logs.
+pub fn harm(row: &IceDef, program: &str, tells: &[Tell]) -> u64 {
+    use crate::data::Intent;
+    use crate::tuning::{HARM_FORTIFY, HARM_HIT, HARM_SEGFAULT, HARM_SPOOF, HARM_TRACE};
+    let p = parse_with(program, Vocab::Ice(&row.verbs));
+    let mut total = 0;
+    for t in tells {
+        let (mut cpu, mut ram, mut shield) = (row.cpu, row.ram, t.shield);
+        let mut lines = p.lines.iter();
+        while let Some(l) = lines.next() {
+            match &l.stmt {
+                Stmt::If(c) => {
+                    if ram == 0 {
+                        break;
+                    }
+                    ram -= 1;
+                    if !t.holds(c) {
+                        lines.next();
+                    }
+                }
+                Stmt::Act(a) => {
+                    total += match *a {
+                        Intent::Attack(n) => {
+                            let past = n.saturating_sub(shield);
+                            shield = shield.saturating_sub(n);
+                            u64::from(past) * HARM_HIT
+                        }
+                        Intent::Trace(n) => u64::from(n) * HARM_TRACE,
+                        Intent::Fortify(n) => u64::from(n) * HARM_FORTIFY,
+                        Intent::Spoof(_) => HARM_SPOOF,
+                        Intent::Segfault if !t.ran.is_empty() => HARM_SEGFAULT,
+                        Intent::Segfault => 0,
+                    };
+                    cpu -= 1;
+                    if cpu == 0 {
+                        break;
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+    total
+}
+
+/// The next version as the sysops write it against the logs `tells` of the play that beat this
+/// one: [`crate::tuning::PATCH_DRAFTS`] drafts from [`next_version`] (biased by [`against`] the
+/// reads the play walked into), and the one whose [`harm`] on those turns is greatest. If every
+/// draft would have hurt that play less than `program` does, nothing ships (`bump: None`). No
+/// logs, and the first draft ships.
+pub fn written_against(
+    data: &Data,
+    row: &IceDef,
+    program: &str,
+    bump: Bump,
+    tells: &[Tell],
+    seed: u64,
+) -> Next {
+    let bias = against(&fired(data, row.class, tells), tells.len() as u32);
+    let now = harm(row, program, tells);
+    let mut rng = Rng::new(seed);
+    let mut best: Option<(u64, Next)> = None;
+    for _ in 0..crate::tuning::PATCH_DRAFTS {
+        let draft = next_version(data, row, program, bump, &bias, rng.next_u64());
+        if draft.bump.is_none() {
+            continue;
+        }
+        let h = harm(row, &draft.program, tells);
+        if best.as_ref().is_none_or(|(b, _)| h > *b) {
+            best = Some((h, draft));
+        }
+    }
+    match best {
+        Some((h, draft)) if h > now || tells.is_empty() => draft,
+        _ => Next {
+            bump: None,
+            program: program.to_string(),
+        },
+    }
 }
 
 /// A kind's version, `major.minor.patch`.

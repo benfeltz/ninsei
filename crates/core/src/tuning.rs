@@ -187,4 +187,17 @@ pub const BIAS_WEIGHT: u32 = 6;
 /// The ladder: fights a kind's version in force must lose before its sysops ship a patch, then a
 /// minor (if the same program beat the patch), then a major (and majors while it keeps winning).
 /// A kind that kills the deck, or a deck that changes its program, sends it back to the patch.
-pub const LADDER_WINS: [u32; 3] = [3, 3, 3];
+pub const LADDER_WINS: [u32; 3] = [5, 4, 4];
+/// The sysops try this many rewrites and ship the one that would have hurt the logged play most
+/// (none, if every one would have hurt it less than the version in force).
+pub const PATCH_DRAFTS: usize = 16;
+/// How much of the play that beat a version its sysops keep in the logs: the last this many
+/// ICE turns.
+pub const TELLS_KEPT: usize = 48;
+/// What each move does to a deck, as the sysops weigh a rewrite: per point of a hit past the
+/// shield, per point of trace, per point of strength fortified, and a spoof or a segfault.
+pub const HARM_HIT: u64 = 3;
+pub const HARM_TRACE: u64 = 3;
+pub const HARM_FORTIFY: u64 = 1;
+pub const HARM_SPOOF: u64 = 10;
+pub const HARM_SEGFAULT: u64 = 6;

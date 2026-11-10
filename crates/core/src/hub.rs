@@ -1190,25 +1190,23 @@ pub struct IceRung {
     pub rung: usize,
     /// The deck's program that won last, as the run started.
     pub program: Option<String>,
-    /// What the logs say about the play that won (`ice_version::fired`), and over how many
-    /// booked turns: the next version is written against it.
-    pub fired: Vec<(String, u32)>,
-    pub turns: u32,
+    /// The logs of the play that won since the last bump: the ICE turns of the fights it lost,
+    /// the last `tuning::TELLS_KEPT` of them. The next version is written against them.
+    pub tells: Vec<crate::ice_version::Tell>,
 }
 
 impl IceRung {
     /// A run's result for this kind: `wins` fights lost to the deck running `program`, and
-    /// whether the kind ended the run (`killed`), with what the logs of those wins said
-    /// (`fired` over `turns`). Returns the bump its sysops ship now, if any, and the bias it is
-    /// written with: everything the logs said since the last one (`ice_version::against`).
+    /// whether the kind ended the run (`killed`), with the logs of those wins (`tells`).
+    /// Returns the bump its sysops ship now, if any, and the logs it is written against:
+    /// everything kept since the last one.
     pub fn climb(
         &mut self,
         program: &str,
         wins: u32,
         killed: bool,
-        fired: &[(String, u32)],
-        turns: u32,
-    ) -> Option<(crate::ice_version::Bump, Vec<(String, u32)>)> {
+        tells: &[crate::ice_version::Tell],
+    ) -> Option<(crate::ice_version::Bump, Vec<crate::ice_version::Tell>)> {
         use crate::ice_version::Bump;
         // It stopped you: the last patch worked. An ICE that kills you doesn't evolve.
         if killed {
@@ -1227,23 +1225,19 @@ impl IceRung {
         }
         self.program = Some(program.to_string());
         self.wins += wins;
-        for (r, n) in fired {
-            match self.fired.iter_mut().find(|(x, _)| x == r) {
-                Some((_, m)) => *m += n,
-                None => self.fired.push((r.clone(), *n)),
-            }
-        }
-        self.turns += turns;
+        self.tells.extend(tells.iter().cloned());
+        let over = self.tells.len().saturating_sub(crate::tuning::TELLS_KEPT);
+        self.tells.drain(..over);
         let rung = self.rung.min(crate::tuning::LADDER_WINS.len() - 1);
         if self.wins < crate::tuning::LADDER_WINS[rung] {
             return None;
         }
-        let bias = crate::ice_version::against(&self.fired, self.turns);
         self.wins = 0;
-        self.fired.clear();
-        self.turns = 0;
         self.rung = (rung + 1).min(crate::tuning::LADDER_WINS.len() - 1);
-        Some(([Bump::Patch, Bump::Minor, Bump::Major][rung], bias))
+        Some((
+            [Bump::Patch, Bump::Minor, Bump::Major][rung],
+            std::mem::take(&mut self.tells),
+        ))
     }
 }
 
@@ -2397,7 +2391,7 @@ impl Save {
     /// earned: in force from the next jack-in, never in this run. `played` is the deck's program
     /// as the run started; `killer` the kind that ended it, which doesn't evolve.
     fn climb_ladders(&mut self, game: &Game, played: &str, killer: Option<usize>) {
-        use crate::ice_version::{fired, next_version, seed};
+        use crate::ice_version::{seed, written_against};
         let data = &game.data;
         let mut kinds: Vec<usize> = game.history.met.iter().map(|m| m.ice).collect();
         kinds.sort_unstable();
@@ -2424,24 +2418,20 @@ impl Save {
                     self.ice_ladder.last_mut().expect("just pushed")
                 }
             };
-            let Some((bump, bias)) = rung.climb(
-                played,
-                won.len() as u32,
-                killer == Some(ice),
-                &fired(data, row.class, &tells),
-                tells.len() as u32,
-            ) else {
+            let Some((bump, logs)) =
+                rung.climb(played, won.len() as u32, killer == Some(ice), &tells)
+            else {
                 continue;
             };
             let Some((version, program)) = self.ice_program(&row.id, data) else {
                 continue;
             };
-            let next = next_version(
+            let next = written_against(
                 data,
                 row,
                 program,
                 bump,
-                &bias,
+                &logs,
                 seed(self.key, &row.id, version),
             );
             let Some(made) = next.bump else { continue };

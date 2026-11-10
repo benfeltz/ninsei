@@ -305,7 +305,10 @@ fn a_save_from_before_versions_per_seen_line_loads() {
 }
 
 /// One run from `save` with the deck's program `program`: each of `fights` in turn on the next
-/// node, won or lost, then (if it's still going) a loss to Hunter to end it. Booked.
+/// node, won or lost, then (if it's still going) a loss to Hunter to end it. Booked. A fight
+/// won falls in the deck's first pass, before its ICE has a turn to log, so the sysops have no
+/// logs to judge a draft by and ship the first: these tests are about the ladder, not the
+/// drafts.
 fn run(save: &mut Save, d: &Data, program: &str, fights: &[(&str, bool)]) -> Game {
     save.program = Some(program.to_string());
     let mut g = save.jack_in(d, 9);
@@ -320,7 +323,6 @@ fn run(save: &mut Save, d: &Data, program: &str, fights: &[(&str, bool)]) -> Gam
         let c = g.combat.as_mut().unwrap();
         (c.strength, c.strength_max) = (500, 500);
         g.apply(Action::Program(program.into()));
-        turn(&mut g);
         finish(&mut g, win);
         if !win {
             break;
@@ -343,20 +345,37 @@ fn the_same_play_climbs_the_ladder_patch_minor_major() {
     let d = data();
     let mut s = deck(&d);
     let [p, m, j] = tuning::LADDER_WINS;
+    let rung = |s: &Save| {
+        s.ice_ladder
+            .iter()
+            .find(|r| r.id == "enigma")
+            .map_or(0, |r| r.rung)
+    };
     let mut shipped = Vec::new();
+    let mut rungs = Vec::new();
     for _ in 0..p + m + j + j {
         run(&mut s, &d, PLAY, &[("enigma", true)]);
-        shipped.push(version(&s, &d, "enigma"));
+        shipped.push(s.ice_program("enigma", &d).unwrap().0);
+        rungs.push(rung(&s));
     }
-    let at = |n: u32| shipped[n as usize - 1].clone();
-    assert_eq!(at(p - 1), "1.0.0", "{shipped:?}");
-    assert_eq!(at(p), "1.0.1", "{shipped:?}");
-    assert_eq!(at(p + m), "1.1.0", "{shipped:?}");
-    assert_eq!(at(p + m + j), "2.0.0", "{shipped:?}");
-    // And majors while the same play keeps winning.
-    assert_eq!(at(p + m + j + j), "3.0.0", "{shipped:?}");
-    let v = s.ice_versions.iter().find(|v| v.id == "enigma").unwrap();
-    assert_eq!(v.bump, Some(ice_version::Bump::Major));
+    let at = |n: u32| (shipped[n as usize - 1], rungs[n as usize - 1]);
+    let v = |t: &str| t.to_string();
+    // Nothing until the patch's wins are in, then a patch.
+    assert_eq!(at(p - 1).0.to_string(), v("1.0.0"), "{shipped:?}");
+    assert_eq!(at(p).0.to_string(), v("1.0.1"), "{shipped:?}");
+    // The same play beat it: the next is a minor, then majors while it keeps winning. (A size
+    // that can't be written falls back to a smaller one: a version always ships newer.)
+    assert_eq!(at(p).1, 1);
+    assert!(
+        at(p + m).0 > at(p).0 && at(p + m).0.patch == 0,
+        "{shipped:?}"
+    );
+    assert_eq!(at(p + m).1, 2);
+    assert!(at(p + m + j).0 > at(p + m).0, "{shipped:?}");
+    assert!(at(p + m + j + j).0 > at(p + m + j).0, "{shipped:?}");
+    assert_eq!(at(p + m + j + j).1, 2);
+    // Between rungs, nothing ships.
+    assert_eq!(at(p + m - 1).0, at(p).0);
 }
 
 #[test]
@@ -444,30 +463,83 @@ fn the_same_save_ships_the_same_versions() {
     assert_ne!(a, play(6));
 }
 
+/// A tell of a deck with this shield up, having run this program.
+fn tell(shield: u32, ran: &str) -> ice_version::Tell {
+    ice_version::Tell {
+        integ: 20,
+        shield,
+        cpu: 1,
+        ran: vec![(ran.to_string(), ran.to_ascii_lowercase())],
+        strength: 9,
+        turn: 2,
+    }
+}
+
 #[test]
 fn a_bump_is_written_against_every_win_since_the_last() {
     use ice_version::Bump;
     let mut r = hub::IceRung::default();
     let [p, ..] = tuning::LADDER_WINS;
-    let shield = vec![("TARGET SHIELD > n".to_string(), 2)];
-    let patch = vec![("TARGET RAN patch".to_string(), 2)];
     for i in 0..p - 1 {
-        let f = if i == 0 { &shield } else { &patch };
-        assert_eq!(r.climb(PLAY, 1, false, f, 2), None);
+        assert_eq!(r.climb(PLAY, 1, false, &[tell(i, "Firewall")]), None);
     }
-    let (bump, bias) = r.climb(PLAY, 1, false, &patch, 2).unwrap();
+    let (bump, logs) = r.climb(PLAY, 1, false, &[tell(9, "Patch")]).unwrap();
     assert_eq!(bump, Bump::Patch);
-    // Every turn it lost on, the shield's share and the patch's both counted.
-    let turns = 2 * p;
-    let w = |n: u32| tuning::BIAS_WEIGHT * n / turns;
-    assert!(
-        bias.contains(&("TARGET SHIELD > n".to_string(), w(2))),
-        "{bias:?}"
+    // Every turn it lost on since the last bump, oldest first.
+    assert_eq!(logs.len() as u32, p);
+    assert_eq!(logs[0], tell(0, "Firewall"));
+    assert_eq!(logs.last(), Some(&tell(9, "Patch")));
+    assert_eq!((r.wins, r.rung), (0, 1));
+    assert!(r.tells.is_empty());
+    // The logs keep the last TELLS_KEPT turns.
+    let many: Vec<_> = (0..tuning::TELLS_KEPT as u32 + 5)
+        .map(|i| tell(i, "Patch"))
+        .collect();
+    r.climb(PLAY, 1, false, &many);
+    assert_eq!(r.tells.len(), tuning::TELLS_KEPT);
+    assert_eq!(r.tells[0], tell(5, "Patch"));
+}
+
+#[test]
+fn the_sysops_ship_the_draft_that_would_have_hurt_the_play_most() {
+    use ice_version::{Bump, harm, next_version, written_against};
+    let d = data();
+    let roto = d.ice.iter().find(|i| i.id == "rototurret").unwrap();
+    // A deck that always shields: hits into the firewall do nothing.
+    let logs: Vec<_> = (0..10).map(|_| tell(10, "Firewall")).collect();
+    assert_eq!(harm(roto, "10 ATTACK 5", &logs), 0);
+    // The shield takes the first 10 of a hit of 12.
+    assert_eq!(harm(roto, "10 ATTACK 12", &logs), 10 * 2 * tuning::HARM_HIT);
+    // A trace has no shield to hit.
+    let hunter = d.ice.iter().find(|i| i.id == "hunter").unwrap();
+    assert_eq!(
+        harm(hunter, "10 TRACE 4", &logs),
+        10 * 4 * tuning::HARM_TRACE
     );
-    assert!(
-        bias.contains(&("TARGET RAN patch".to_string(), w(2 * (p - 1)))),
-        "{bias:?}"
+    for seed in 0..40 {
+        for bump in [Bump::Patch, Bump::Minor, Bump::Major] {
+            let next = written_against(&d, hunter, &hunter.program, bump, &logs, seed);
+            // What ships never hurt the logged play less than what it replaces.
+            if next.bump.is_some() {
+                assert!(
+                    harm(hunter, &next.program, &logs) > harm(hunter, &hunter.program, &logs),
+                    "{bump:?} {seed}:\n{}",
+                    next.program
+                );
+                d.check_ice_program(hunter, &next.program).unwrap();
+            } else {
+                assert_eq!(next.program, hunter.program);
+            }
+        }
+    }
+    // With no logs, the first draft ships.
+    let plain = written_against(&d, hunter, &hunter.program, Bump::Patch, &[], 3);
+    assert_eq!(plain.bump, Some(Bump::Patch));
+    assert_eq!(
+        plain,
+        next_version(&d, hunter, &hunter.program, Bump::Patch, &[], {
+            let mut r = Rng::new(3);
+            r.next_u64()
+        })
     );
-    assert_eq!((r.wins, r.turns, r.rung), (0, 0, 1));
-    assert!(r.fired.is_empty());
 }

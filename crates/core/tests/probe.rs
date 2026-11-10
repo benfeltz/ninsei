@@ -17,8 +17,9 @@ fn the_probe_finishes_and_reports() {
     let data = Data::builtin().unwrap();
     let mut p = Probe::new(&data, small());
     let (_, total) = p.progress();
-    // Three programs' spot checks; the careers twice, with CAREFUL then SAFE_PICK.
-    assert_eq!(total, 6 * 3 * 3 + 2 * 2 * 12);
+    // Three programs' spot checks; the careers twice, with CAREFUL then SAFE_PICK; and
+    // SAFE_PICK's spot checks again, against the versions its careers shipped.
+    assert_eq!(total, 6 * 3 * 3 + 2 * 2 * 12 + 6 * 3);
     let mut last = 0;
     while !p.step(5) {
         let (done, _) = p.progress();
@@ -303,4 +304,74 @@ fn every_fight_a_run_has_is_counted_with_its_turns() {
         encounter_fights += log.fought - log.fights;
     }
     assert!(encounter_fights > 0, "some fights came from encounters");
+}
+
+#[test]
+fn the_careers_face_evolving_ice_and_the_report_says_what_shipped() {
+    let data = Data::builtin().unwrap();
+    let cfg = Config {
+        spot_runs: 6,
+        careers: 2,
+        career_runs: 40,
+        seed: 7,
+    };
+    let mut p = Probe::new(&data, cfg);
+    while !p.step(50) {}
+    let s = p.stats();
+    let shipped: u32 = s.shipped.iter().map(|(_, n)| n.iter().sum::<u32>()).sum();
+    let pick: u32 = s
+        .pick_shipped
+        .iter()
+        .map(|(_, n)| n.iter().sum::<u32>())
+        .sum();
+    assert!(shipped > 0 && pick > 0, "{s:?}");
+    // Every careful run is counted by how many kinds were patched when it dialed.
+    let runs: u32 = s.by_patched.iter().map(|(r, _)| r).sum();
+    assert_eq!(runs, 2 * 40);
+    assert_eq!(s.versus.iter().map(|t| t.runs).sum::<u32>(), 6 * 3);
+    let lines = p.report();
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("ICE versions (spot runs stay on 1.0.0)"))
+    );
+    let targets: Vec<&String> = lines.iter().filter(|l| l.contains("target:")).collect();
+    assert_eq!(targets.len(), 3, "{lines:#?}");
+    assert!(
+        targets
+            .iter()
+            .all(|l| l.ends_with(" met") || l.ends_with(" unmet")),
+        "{targets:#?}"
+    );
+    assert!(lines.iter().all(|l| l.chars().count() <= 70), "{lines:#?}");
+}
+
+#[test]
+fn the_careful_bot_rotates_its_programs_and_they_are_real_programs() {
+    for program in probe::ROTATION {
+        let p = basic::parse(program);
+        assert!(p.stray.is_empty());
+        assert!(p.lines.iter().all(|l| p.fault(l.no).is_none()), "{program}");
+    }
+    assert_eq!(probe::ROTATION[0], probe::CAREFUL);
+    let mut all = probe::ROTATION.to_vec();
+    all.dedup();
+    assert_eq!(all.len(), probe::ROTATION.len());
+}
+
+#[test]
+fn spot_runs_dial_on_one_point_oh() {
+    // A spot run starts from a fresh save: no kind is patched, whatever the careers shipped.
+    let data = Data::builtin().unwrap();
+    let mut p = Probe::new(&data, small());
+    while !p.step(50) {}
+    let s = p.stats();
+    let spot: u32 = s.spot.iter().flatten().map(|t| t.runs).sum();
+    let mut q = Probe::new(&data, small());
+    q.step(spot);
+    assert_eq!(
+        q.stats().spot,
+        s.spot,
+        "the careers come after, and change nothing before"
+    );
 }
