@@ -8,7 +8,7 @@ use egui::{
 };
 use ninsei_core::binary::{self, Bin, Field, LEN};
 use ninsei_core::hexedit::{HexBuffer, ROW};
-use ninsei_core::{Action, Command, Effect, Game, tuning};
+use ninsei_core::{Action, Command, Game, tuning};
 
 use crate::kit::Cells;
 use crate::panes::Request;
@@ -430,14 +430,7 @@ fn inspector(ui: &mut Ui, key: u64, h: &mut HexBuffer, p: &Palette) {
 
     // Budget: what the effect costs against what cpu/opt allow.
     let power = u32::from(b[binary::OFF_POWER]);
-    let effect = match b[binary::OFF_OPCODE] {
-        1 => Some(Effect::Break { power, vs: None }),
-        2 => Some(Effect::Shield(power)),
-        3 => Some(Effect::Repair(power)),
-        4 => Some(Effect::Scrub(power)),
-        5 => Some(Effect::Stun),
-        _ => None,
-    };
+    let effect = binary::effect_of(b[binary::OFF_OPCODE], power, None);
     let budget = binary::budget(u32::from(b[binary::OFF_CPU]), u32::from(b[binary::OFF_OPT]));
     if let Some(e) = effect {
         let cost = binary::cost(e);
@@ -496,7 +489,7 @@ fn picker(ui: &mut Ui, game: &Game, p: &Palette, out: &mut Vec<Request>) {
     }
     ui.add_space(8.0);
     for l in [
-        "00-02 magic 57 5A 01      03 opcode  01 BRK 02 SHD 03 REP 04 SCR 05 STN",
+        "00-02 magic 57 5A 01   03 opcode 01 BRK 02 SHD 03 REP 04 SCR 05 STN 06 SNF",
         "04 power   05 vs class   06 cpu cost   07 ram cost",
         "08 opt level, 09-0A its signature (fragments re-sign it)",
         "10-1E name   1F checksum = sum of 00-1E mod 256",

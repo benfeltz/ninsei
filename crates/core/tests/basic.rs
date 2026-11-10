@@ -1,6 +1,7 @@
 //! The deck's BASIC: parsing and printing programs, and running them in a fight.
 
 use ninsei_core::basic::{self, Cond, Move, Op, Stmt, Var};
+use ninsei_core::data::Intent;
 
 const SAMPLE: &str = "10 RUN icepick\n20 IF INTEG < 10\n30 RUN patch\n40 GOTO 10";
 
@@ -191,8 +192,9 @@ fn a_pass_is_a_turn() {
     g.apply(Action::Finish);
     // A backward GOTO keeps the pass going while cycles remain: three cycles, three RUNs.
     assert_eq!(ran(&g), 3, "{:?}", g.exec.trace);
-    // Three icepicks for 3 each, then Bulwark fortifies 4: the ICE acted once.
-    assert_eq!(500 - combat(&g).strength, 9 - 4);
+    // Three icepicks for 3 each; then Bulwark, far from hurt, hits instead of fortifying.
+    assert_eq!(500 - combat(&g).strength, 9);
+    assert_eq!(g.deck.integrity, g.deck.integrity_max - 4);
     assert_eq!(g.exec.trace.last().unwrap().what, StepWhat::OutOfCpu);
     // Then the ICE acted once: the turn is over and the budgets are back.
     assert_eq!(combat(&g).turn, 2);
@@ -325,7 +327,7 @@ fn next_reads_the_intent() {
     assert!(!g.test(&Cond::Next(Move::Fortify)));
     let mut g = fight(
         "icewall",
-        "10 IF NEXT ATTACK\n20 RUN firewall\n30 IF NEXT FORTIFY\n40 STOP",
+        "10 IF NEXT FORTIFY\n20 RUN firewall\n30 IF NEXT ATTACK\n40 STOP",
     );
     g.apply(Action::Finish);
     assert_eq!(
@@ -510,7 +512,9 @@ fn finish_from_the_shell_says_the_pass_as_it_happens() {
     let over = said
         .iter()
         .position(|l| l == "out of cycles. the turn is over.");
-    let ice = said.iter().position(|l| l.contains("fortifies"));
+    let ice = said
+        .iter()
+        .position(|l| l.contains("Bulwark 30 ATTACK 4: hits for 4."));
     assert!(over.is_some() && over < ice, "{said:?}");
     assert_eq!(combat(&g).turn, 2);
     // A STOP is said once, and carrying on says only what's new.
@@ -547,4 +551,81 @@ fn finish_from_the_shell_says_the_pass_as_it_happens() {
     type_in(&mut g, "pause");
     assert_eq!(g.exec.state, ExecState::Paused);
     assert!(command::VERBS.contains(&"prog") && command::VERBS.contains(&"step"));
+}
+
+// ---- the ICE's vocabulary ------------------------------------------------------------
+
+const ICE_VERBS: [basic::Verb; 3] = [
+    basic::Verb::Attack,
+    basic::Verb::Trace,
+    basic::Verb::Fortify,
+];
+
+#[test]
+fn an_ice_program_parses_and_prints_back() {
+    use basic::{Target, Vocab};
+    let text = "10 IF TARGET SHIELD > 0\n20 TRACE 4\n30 IF TARGET INTEG < 7\n40 ATTACK 5\n\
+                50 IF TARGET CPU = 0\n60 FORTIFY 2\n70 IF TARGET RAN patch\n80 IF SELF STR < 10\n\
+                90 IF TURN > 3\n100 STOP\n110 REM idle\n120 GOTO 10";
+    let p = basic::parse_with(text, Vocab::Ice(&ICE_VERBS));
+    let stmts: Vec<&Stmt> = p.lines.iter().map(|l| &l.stmt).collect();
+    assert_eq!(
+        stmts,
+        [
+            &Stmt::If(Cond::Target(Target::Shield, Op::Gt, 0)),
+            &Stmt::Act(Intent::Trace(4)),
+            &Stmt::If(Cond::Target(Target::Integ, Op::Lt, 7)),
+            &Stmt::Act(Intent::Attack(5)),
+            &Stmt::If(Cond::Target(Target::Cpu, Op::Eq, 0)),
+            &Stmt::Act(Intent::Fortify(2)),
+            &Stmt::If(Cond::TargetRan("patch".into())),
+            &Stmt::If(Cond::SelfStr(Op::Lt, 10)),
+            &Stmt::If(Cond::Cmp(Var::Turn, Op::Gt, 3)),
+            &Stmt::Stop,
+            &Stmt::Rem,
+            &Stmt::Goto(10),
+        ]
+    );
+    assert_eq!(p.text(), text);
+    assert!(p.lines.iter().all(|l| p.fault(l.no).is_none()), "{p:?}");
+}
+
+#[test]
+fn the_deck_cannot_say_what_an_ice_says() {
+    let p = basic::parse("10 ATTACK 3\n20 IF TARGET SHIELD > 0\n30 IF SELF STR < 4");
+    for no in [10, 20, 30] {
+        assert!(p.fault(no).is_some(), "line {no} is the ICE's: {p:?}");
+    }
+}
+
+#[test]
+fn an_ice_cannot_say_what_the_deck_says() {
+    let p = basic::parse_with(
+        "10 RUN icepick\n20 IF INTEG < 7\n30 IF NEXT ATTACK\n40 IF HAVE patch",
+        basic::Vocab::Ice(&ICE_VERBS),
+    );
+    for no in [10, 20, 30, 40] {
+        assert!(p.fault(no).is_some(), "line {no} is the deck's: {p:?}");
+    }
+}
+
+#[test]
+fn an_ice_only_has_its_own_verbs() {
+    let verbs = [basic::Verb::Attack];
+    let p = basic::parse_with(
+        "10 ATTACK 3\n20 TRACE 4\n30 ATTACK",
+        basic::Vocab::Ice(&verbs),
+    );
+    assert_eq!(
+        p.line(10).map(|l| &l.stmt),
+        Some(&Stmt::Act(Intent::Attack(3)))
+    );
+    assert!(p.fault(20).is_some(), "TRACE isn't on its row");
+    assert!(p.fault(30).is_some(), "a verb takes a number");
+    let big = basic::parse_with("10 ATTACK 999\n20 ATTACK 1000", basic::Vocab::Ice(&verbs));
+    assert_eq!(
+        big.line(10).map(|l| &l.stmt),
+        Some(&Stmt::Act(Intent::Attack(basic::MAX_ARG)))
+    );
+    assert!(big.fault(20).is_some(), "past MAX_ARG: {big:?}");
 }

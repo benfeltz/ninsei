@@ -13,4 +13,5 @@
     (id: "patch",    name: "Patch",     kind: Utility, cpu: 1, effect: Repair(3),                           blurb: "Restores deck integrity."),
     (id: "scrubber", name: "Scrubber",  kind: Utility, cpu: 1, effect: Scrub(6),                            blurb: "Wipes your trail. Lowers trace."),
     (id: "lagspike", name: "LagSpike",  kind: Utility, cpu: 2, effect: Stun,                                blurb: "ICE skips its next action."),
+    (id: "sniffer",  name: "Sniffer",   kind: Utility, cpu: 1, effect: Sniff,                               blurb: "Sees through an ICE's spoof."),
 ]

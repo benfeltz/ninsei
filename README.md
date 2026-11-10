@@ -123,7 +123,7 @@ Every dial is a fresh layout with the same personality. Tiers, traits and compan
 
 ### Tools you download
 
-A fresh deck has no wardialer and no hex editor. They're on **THE NEON GUTTER** (`555-0199`, in your phonebook from the start): **WAREZ TOOLS** always stocks `WARDIAL.ZIP`, `HEXED.ZIP`, `QWKREAD.ZIP` and `ICEDB.ZIP`, free, and they're yours for good once downloaded, in a run or from home, even if you flatline. Until then they just aren't there: no icon, no menu item, no WarDial tab, and `wardial`, `hex` and `opt` are unknown commands. The Gutter's **G-FILES** are textfiles you read on the board (a wardialing primer, ranges, heat and the telco); **[D]ownload** one to keep it on your disk. The **QWK reader** reads them at home, with the bulletins of every board you know, one packet per board, as BBS text. The **ICE DB** is a bestiary: every ICE you've fought, with the strengths you met it at, its intent cycle, how often you broke it, and which of your programs break its class at x2. ICE you haven't met is `????`. It fills in from every run, owned or not.
+A fresh deck has no wardialer and no hex editor. They're on **THE NEON GUTTER** (`555-0199`, in your phonebook from the start): **WAREZ TOOLS** always stocks `WARDIAL.ZIP`, `HEXED.ZIP`, `QWKREAD.ZIP` and `ICEDB.ZIP`, free, and they're yours for good once downloaded, in a run or from home, even if you flatline. Until then they just aren't there: no icon, no menu item, no WarDial tab, and `wardial`, `hex` and `opt` are unknown commands. The Gutter's **G-FILES** are textfiles you read on the board (a wardialing primer, ranges, heat and the telco); **[D]ownload** one to keep it on your disk. The **QWK reader** reads them at home, with the bulletins of every board you know, one packet per board, as BBS text. The **ICE DB** is a bestiary: every ICE you've fought, with the strengths you met it at, its program decompiled from the lines you've watched it run (the rest `????`), how often you broke it, and which of your programs break its class at x2. ICE you haven't met is `????`. It fills in from every run, owned or not.
 
 Every tool from a board opens with its crew's **cracktro**, every time: an ANSI intro with the board's ad and greetz scrolling along the bottom, over a chiptune synthesized from a tiny tracker pattern in the intro's file, five seconds, skipped by any key or click (System → About This Deck → Cracktros turns them off). Intros are data, one file per intro in [`data/intros/`](data/intros/); a tool names its own with `intro` in `data/hub/tools.ron`.
 
@@ -185,7 +185,7 @@ On the **Sense/Net** the run screen is a HyperCard stack, in the theme's two col
 ![a fight on the stack, paper white](docs/shots/stack-fight-paperwhite.png)
 ![a fight on the stack, synthwave](docs/shots/stack-fight-synthwave.png)
 
-On the **Ono-Sendai** the panes are dressed btop-style: boxed with their titles cut into the border, gradient meters with sparklines of their recent history, a trace-per-hop graph, a process table for your warez (a program's row lights up and its activity graph spikes when it runs), and in a fight a draining strength meter, a strength graph, the ICE's next moves as a waterfall falling toward *now*, and a damage waterfall of the last turns. The terminal stamps each line with its hop and turn. Graphs are painted at braille resolution (2x4 dots a character). Prefer the plain panes? Switch the deck's firmware to **Cyberspace 6.2** in System.
+On the **Ono-Sendai** the panes are dressed btop-style: boxed with their titles cut into the border, gradient meters with sparklines of their recent history, a trace-per-hop graph, a process table for your warez (a program's row lights up and its activity graph spikes when it runs), and in a fight a draining strength meter, a strength graph, the ICE's NEXT and its program as you've seen it run, and a damage waterfall of the last turns. The terminal stamps each line with its hop and turn. Graphs are painted at braille resolution (2x4 dots a character). Prefer the plain panes? Switch the deck's firmware to **Cyberspace 6.2** in System.
 
 **Fights on the Ono-Sendai happen in cyberspace.** When ICE rezzes, the network map dives into its node and the node's wireframe becomes the ICE:
 
@@ -266,7 +266,7 @@ Both are drawn in the theme's colours. The **Synthwave** theme gives the magenta
 
 ## Combat
 
-Turn-based. Each turn you get your deck's CPU to spend running the warez on your HDD; then the ICE does what its intent says (attack, trace or fortify) and your shields drop. Class breakers (decoder vs code gate, garrote vs sentry, crowbar vs barrier) hit their class for double and everything else for half. Stunned ICE adapts: it can't be stunned again the turn after.
+Turn-based. Each turn you get your deck's CPU to spend running the warez on your HDD; then the ICE runs its own program and does what its NEXT says (attack, trace or fortify), and your shields drop. NEXT can change while you play, because an ICE reads your shield, your integrity and what you ran. Class breakers (decoder vs code gate, garrote vs sentry, crowbar vs barrier) hit their class for double and everything else for half. Stunned ICE adapts: it can't be stunned again the turn after.
 
 Your deck also holds a **program**, in a line-numbered BASIC (`RUN <program>`, `IF <condition>`, `GOTO <line>`, `STOP`), kept between runs and editable mid-fight; a new deck ships with Sense/Net's `SAFE`, which only defends (patch when low, firewall before an attack) and hands you the turn when there's nothing to defend against. One pass through it is one turn: each `RUN` spends a cycle, each `IF` a GB of RAM, and the pass ends when the program does, at a `STOP`, or when either runs out. From the terminal, `prog` lists it, `prog <n> <line>` types a line in, `step` plays a pass and `play` keeps going until a `STOP`; the hotbar still works whenever the program has handed you the turn.
 
@@ -389,7 +389,7 @@ Splash art and bulletins use pipe codes (below), up to 78x24. `Data::validate` c
 Everything is data in [`data/`](data), compiled into the binary:
 
 - `warez.ron`: programs (CPU cost, effect)
-- `ice.ron`: ICE (class, strength, intent cycle; tier 2 is black ICE)
+- `ice.ron`: ICE (class, strength, and the program it fights with: its verbs, cycles and RAM; tier 2 is black ICE)
 - `loot.ron`: weighted loot tables for ICE, black ICE and vaults (credits, warez, upgrades, fragments)
 - `events.ron`: MSG-node encounters
 - `contracts.ron`: contract clients and briefs, and the ways clients turn on you

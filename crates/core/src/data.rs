@@ -29,11 +29,16 @@ pub enum WarezKind {
 
 #[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Effect {
-    Break { power: u32, vs: Option<IceClass> },
+    Break {
+        power: u32,
+        vs: Option<IceClass>,
+    },
     Shield(u32),
     Repair(u32),
     Scrub(u32),
     Stun,
+    /// Clears an ICE's SPOOF: its NEXT shows again.
+    Sniff,
 }
 
 impl Effect {
@@ -45,6 +50,7 @@ impl Effect {
             Effect::Repair(n) => format!("repair {n}"),
             Effect::Scrub(n) => format!("trace -{n}"),
             Effect::Stun => "stun ICE 1 turn".to_string(),
+            Effect::Sniff => "clear a spoof".to_string(),
         }
     }
 }
@@ -64,6 +70,10 @@ pub enum Intent {
     Attack(u32),
     Trace(u32),
     Fortify(u32),
+    /// Hides its NEXT from the deck for n turns.
+    Spoof(u32),
+    /// Garbles a line of the deck's program.
+    Segfault,
 }
 
 impl Intent {
@@ -72,6 +82,8 @@ impl Intent {
             Intent::Attack(n) => format!("ATTACK {n}"),
             Intent::Trace(n) => format!("TRACE +{n}"),
             Intent::Fortify(n) => format!("FORTIFY +{n}"),
+            Intent::Spoof(n) => format!("SPOOF {n}"),
+            Intent::Segfault => "SEGFAULT".to_string(),
         }
     }
 }
@@ -84,7 +96,15 @@ pub struct IceDef {
     /// 1 = ICE, 2 = black ICE, 0 = never placed on the map (met only through encounters).
     pub tier: u32,
     pub strength: u32,
-    pub intents: Vec<Intent>,
+    /// Its behaviour, in the game's BASIC with its own vocabulary (`verbs`): run at the end of
+    /// every turn of a fight from where it left off.
+    pub program: String,
+    /// Actions a turn: each verb spends one, and at 0 its turn is over.
+    pub cpu: u32,
+    /// IFs a turn: each spends one, and with none left its turn is over.
+    pub ram: u32,
+    /// The verbs its program may use; any other word is a bad line.
+    pub verbs: Vec<crate::basic::Verb>,
     /// Whether it gives up when it's losing.
     #[serde(default)]
     pub yields: Option<YieldDef>,
@@ -1036,9 +1056,8 @@ impl Data {
             }
         }
         for ice in &self.ice {
-            if ice.intents.is_empty() {
-                return Err(format!("ICE `{}` has no intents", ice.id));
-            }
+            self.validate_ice_program(ice)
+                .map_err(|e| format!("ICE `{}`: {e}", ice.id))?;
             if ice.tier > 2 {
                 return Err(format!(
                     "ICE `{}` has tier {} (0, 1 or 2)",
@@ -1503,6 +1522,46 @@ impl Data {
     /// The tune called `id` (a file in `data/music/`).
     pub fn tune(&self, id: &str) -> Option<&TuneFile> {
         self.tunes.iter().find(|t| t.id == id)
+    }
+
+    /// An ICE's program must parse in its own vocabulary, every GOTO must land, every
+    /// `TARGET RAN` must name a program that exists, a verb must be reachable from the top, and
+    /// it must have budgets to run with.
+    fn validate_ice_program(&self, ice: &IceDef) -> Result<(), String> {
+        use crate::basic::{Cond, Stmt, Vocab};
+        if ice.cpu == 0 || ice.ram == 0 {
+            return Err(format!(
+                "cpu {} and ram {} must both be at least 1",
+                ice.cpu, ice.ram
+            ));
+        }
+        if ice.verbs.is_empty() {
+            return Err("has no verbs".into());
+        }
+        let p = crate::basic::parse_with(&ice.program, Vocab::Ice(&ice.verbs));
+        if let Some(s) = p.stray.first() {
+            return Err(format!("program line `{s}` has no line number"));
+        }
+        if !p.can_act() {
+            return Err("program never acts: no verb can be reached from the top".into());
+        }
+        for l in &p.lines {
+            if let Some(why) = p.fault(l.no) {
+                return Err(format!("program line {} `{}`: {why}", l.no, l.text));
+            }
+            if let Stmt::If(Cond::TargetRan(name)) = &l.stmt
+                && !self
+                    .warez
+                    .iter()
+                    .any(|w| crate::basic::names(name, &w.name, &w.id))
+            {
+                return Err(format!(
+                    "program line {} reads `{name}`, which no program is called",
+                    l.no
+                ));
+            }
+        }
+        Ok(())
     }
 
     /// Every engine has a game, every game's field fits its engine and a screen, its tick is

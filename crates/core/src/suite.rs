@@ -7,6 +7,9 @@ use crate::data::Effect;
 use crate::game::{Contract, ContractStatus, Game, LogKind, Phase, Slot};
 use crate::history::TurnRow;
 
+/// What the Hosaka calls a lagged ICE's next action.
+pub const LAGGED: &str = "(deferred)";
+
 /// Spreadsheet column letters: 0 is `A`, 25 is `Z`, 26 is `AA`.
 pub fn col_name(mut i: usize) -> String {
     let mut out = Vec::new();
@@ -86,7 +89,7 @@ pub fn watches(g: &Game) -> Vec<(&'static str, String)> {
         format!("{} / {}", c.ifs, g.deck.ram_max),
         format!("{} / {}", g.deck.integrity, g.deck.integrity_max),
         format!("{} %", g.deck.trace),
-        g.intent().map_or(String::new(), |i| i.describe()),
+        g.next_move().map_or(String::new(), |m| m.text(LAGGED)),
         g.data.ice[c.ice].name.to_uppercase(),
         last,
     ];
@@ -191,6 +194,7 @@ pub fn formula(spec: &Spec) -> String {
         Effect::Repair(n) => format!("=REPAIR({n})"),
         Effect::Scrub(n) => format!("=SCRUB(TRACE, {n})"),
         Effect::Stun => "=STUN(ICE, 1)".to_string(),
+        Effect::Sniff => "=SNIFF(ICE)".to_string(),
     }
 }
 
@@ -370,4 +374,37 @@ impl Watch {
         self.paid = paid;
         out
     }
+}
+
+/// The incident report's table of the ICE's procedure: step, statement.
+pub const PROCEDURE_COLUMNS: [&str; 2] = ["STEP", "STATEMENT"];
+
+/// The heading over it: the procedure as observed, and how much of it.
+pub fn procedure_title(rows: &[crate::ice_listing::IceRow]) -> String {
+    let (seen, all) = crate::ice_listing::known(rows);
+    format!("OBSERVED PROCEDURE ({seen} OF {all} STEPS)")
+}
+
+/// A row of the ICE's procedure as the incident report lists it.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ProcedureRow {
+    /// The step number, right-aligned in four cells, `>` on the step it resumes at.
+    pub step: String,
+    /// The statement, or `????` until observed.
+    pub statement: String,
+    pub seen: bool,
+    /// The step NEXT ACTION is on.
+    pub next: bool,
+}
+
+/// The ICE's program (`ice_listing::rows`), every step, as the deck has observed it.
+pub fn procedure(rows: &[crate::ice_listing::IceRow]) -> Vec<ProcedureRow> {
+    rows.iter()
+        .map(|r| ProcedureRow {
+            step: format!("{}{:>4}", if r.cursor { ">" } else { " " }, r.no),
+            statement: r.shown().to_string(),
+            seen: r.text.is_some(),
+            next: r.next,
+        })
+        .collect()
 }

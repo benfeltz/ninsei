@@ -79,8 +79,8 @@ pub struct Hit {
 pub struct Snap {
     hops: u32,
     integrity: u32,
-    /// (node, ICE strength, shield, CPU left) while fighting.
-    fight: Option<(usize, u32, u32, u32)>,
+    /// (node, ICE strength, shield, CPU left, which ICE, turn) while fighting.
+    fight: Option<(usize, u32, u32, u32, usize, u32)>,
 }
 
 impl Snap {
@@ -91,7 +91,7 @@ impl Snap {
             fight: g
                 .combat
                 .as_ref()
-                .map(|c| (c.node, c.strength, c.shield, c.cpu)),
+                .map(|c| (c.node, c.strength, c.shield, c.cpu, c.ice, c.turn)),
         }
     }
 }
@@ -122,7 +122,11 @@ impl History {
         let now = g
             .combat
             .as_ref()
-            .map(|c| (c.node, c.strength, c.shield, c.cpu));
+            .map(|c| (c.node, c.strength, c.shield, c.cpu, c.ice, c.turn));
+        // Another fight in front than before: a new ICE, or the same node's turn counter back
+        // at the start (a client's setup rezzes on the node that just fell, in one action).
+        let replaced = matches!((was.fight, now), (Some(a), Some(b))
+            if a.0 != b.0 || a.4 != b.4 || b.5 < a.5);
         let lost = was.integrity.saturating_sub(g.deck.integrity);
         let soaked = match (was.fight, now) {
             (Some(a), Some(b)) => a.2.saturating_sub(b.2),
@@ -135,9 +139,17 @@ impl History {
                 soaked: lost == 0,
             });
         }
+        if replaced {
+            // The fight before fell in this action; the new one starts below.
+            if let Some(m) = self.met.last_mut() {
+                m.broken = true;
+            }
+        }
         match (was.fight, now) {
             // A new fight: fresh graphs.
-            (None, Some((_, strength, ..))) => {
+            (None, Some((_, strength, ..))) | (Some(_), Some((_, strength, ..)))
+                if replaced || was.fight.is_none() =>
+            {
                 if let Some(c) = &g.combat {
                     self.met.push(Met {
                         ice: c.ice,

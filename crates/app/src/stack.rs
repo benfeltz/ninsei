@@ -1504,6 +1504,31 @@ pub(crate) mod tests {
     }
 
     #[test]
+    fn the_ice_card_lists_the_ice_program_as_the_deck_has_seen_it() {
+        let mut g = fight("");
+        let id = g.data.ice[g.combat.as_ref().unwrap().ice].id.clone();
+        let rows = ninsei_core::ice_listing::rows(&g);
+        assert!(!rows.is_empty(), "{id} has a program");
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        ice_card(&mut h, &g, (600.0, 500.0), vec![]);
+        ice_card(&mut h, &g, (600.0, 500.0), vec![]);
+        let heading = ninsei_core::ice_listing::heading(&rows);
+        assert!(heading.starts_with("its program: 0 of"), "{heading}");
+        assert!(h.find(&heading).is_some(), "{:?}", h.texts());
+        let first = ninsei_core::ice_listing::card_line(&rows[0]);
+        assert!(first.starts_with('▶') && first.ends_with("????"), "{first}");
+        assert!(h.find(&first).is_some(), "{:?}", h.texts());
+        // A turn later the deck has seen it run its first line: in clear on the card.
+        g.apply(Action::EndTurn);
+        let rows = ninsei_core::ice_listing::rows(&g);
+        let seen = rows.iter().find(|r| r.text.is_some()).expect("a line seen");
+        ice_card(&mut h, &g, (600.0, 500.0), vec![]);
+        ice_card(&mut h, &g, (600.0, 500.0), vec![]);
+        let line = ninsei_core::ice_listing::card_line(seen);
+        assert!(h.find(line.trim()).is_some(), "{line:?} in {:?}", h.texts());
+    }
+
+    #[test]
     fn outside_a_fight_the_script_is_there_and_wont_play() {
         let d = Data::builtin().unwrap();
         let mut g = Game::new(d, 3);

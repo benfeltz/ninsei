@@ -500,12 +500,9 @@ impl Panes<'_> {
                     format!("{}/{}", c.strength, c.strength_max),
                     false,
                 );
-                let intent = g.intent().map_or_else(String::new, |i| i.describe());
-                let next = if c.stunned {
-                    format!("{intent} (lagged, skips)")
-                } else {
-                    intent
-                };
+                let next = g
+                    .next_move()
+                    .map_or_else(String::new, |m| m.text("(lagged, skips)"));
                 ui.label(RichText::new(format!("NEXT  {next}")).color(p.bright));
                 ui.label(
                     RichText::new(format!(
@@ -548,6 +545,29 @@ impl Panes<'_> {
             .clicked()
         {
             self.act(Action::EndTurn);
+        }
+        self.ice_listing(ui);
+    }
+
+    /// The ICE's program as the deck has seen it run (`ice_listing`): ▶ on the line it carries
+    /// on from, NEXT's line in inverse, the lines it hasn't watched run `????`.
+    fn ice_listing(&mut self, ui: &mut Ui) {
+        let p = self.pal;
+        let rows = ninsei_core::ice_listing::rows(self.game);
+        if rows.is_empty() {
+            return;
+        }
+        ui.add_space(6.0);
+        ui.separator();
+        ui.label(RichText::new(ninsei_core::ice_listing::heading(&rows)).color(p.dim));
+        for r in &rows {
+            let text = RichText::new(ninsei_core::ice_listing::card_line(r)).monospace();
+            let text = match (r.next, r.text.is_some()) {
+                (true, _) => text.color(p.bg).background_color(p.fg),
+                (false, true) => text.color(p.fg),
+                (false, false) => text.color(p.dim),
+            };
+            ui.label(text);
         }
     }
 

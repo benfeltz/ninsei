@@ -312,12 +312,14 @@ fn ice_bas_is_one_program_before_during_and_after_a_fight() {
     assert!(btop_fight::keys(&g, None).cont);
     // A line deleted mid-fight changes what the next pass runs: the STOP goes, Play carries on.
     g.apply(btop_fight::delete(&g, first).unwrap());
-    let before = g.combat.as_ref().unwrap().strength;
+    // (Counted in the log: the ICE may fortify back what was broken.)
+    let breaks = |g: &Game| g.log.iter().filter(|l| l.text.contains(" breaks ")).count();
+    let before = breaks(&g);
     g.apply(Action::Play);
     g.apply(Action::Finish);
     g.apply(Action::Pause);
-    let after = g.combat.as_ref().map_or(0, |c| c.strength);
-    assert!(after < before, "the program attacked: {before} -> {after}");
+    let after = breaks(&g);
+    assert!(after > before, "the program attacked: {before} -> {after}");
     // And the deck keeps it.
     let kept = g.program.text();
     g.phase = Phase::JackedOut;

@@ -69,6 +69,7 @@
             (file: "FW-LITE.ZIP",  item: Warez("firewall"), price: 55,  desc: "Firewall, stripped down"),
             (file: "SCRB-666.ARJ", item: Warez("scrubber"), price: 110, desc: "Scrubber. Wipes logs, mostly"),
             (file: "LAGSPK2.ZIP",  item: Warez("lagspike"), price: 180, desc: "LagSpike 2. Freezes the box"),
+            (file: "SNIF-RW.ZIP",  item: Warez("sniffer"),  price: 140, desc: "RAZORWIRE sniffer. Sees spoofs"),
             (file: "PATCHY.ZIP",   item: Warez("patch"),    price: 45,  desc: "Patch. Duct tape for decks"),
         ]),
         (name: "HOT HARDWARE", stock: 2, files: [

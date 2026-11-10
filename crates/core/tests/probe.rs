@@ -17,7 +17,8 @@ fn the_probe_finishes_and_reports() {
     let data = Data::builtin().unwrap();
     let mut p = Probe::new(&data, small());
     let (_, total) = p.progress();
-    assert_eq!(total, 6 * 3 * 2 + 2 * 12);
+    // Three programs' spot checks; the careers twice, with CAREFUL then SAFE_PICK.
+    assert_eq!(total, 6 * 3 * 3 + 2 * 2 * 12);
     let mut last = 0;
     while !p.step(5) {
         let (done, _) = p.progress();
@@ -27,8 +28,9 @@ fn the_probe_finishes_and_reports() {
     assert!(p.done());
     let s = p.stats();
     let spot: u32 = s.spot.iter().flatten().map(|t| t.runs).sum();
-    assert_eq!(spot, 36);
+    assert_eq!(spot, 54);
     assert_eq!(s.career.iter().map(|t| t.runs).sum::<u32>(), 24);
+    assert_eq!(s.career_pick.iter().map(|t| t.runs).sum::<u32>(), 24);
     assert_eq!(s.first_exit.len(), 2);
     let lines = p.report();
     assert!(lines.iter().any(|l| l.contains("careers")));
@@ -53,7 +55,7 @@ fn same_seed_same_report() {
 fn bots_always_finish_their_runs() {
     let data = Data::builtin().unwrap();
     for seed in 0..20 {
-        for bot in [Bot::Dumb, Bot::Smart] {
+        for bot in Bot::ALL {
             let (g, _) = probe::play(Game::new(data.clone(), seed), bot);
             assert!(
                 matches!(g.phase, Phase::JackedOut | Phase::Flatlined),
@@ -179,8 +181,8 @@ fn the_dumb_bot_is_two_lines() {
     assert_eq!(Bot::Smart.program(), probe::CAREFUL);
     assert_ne!(probe::CAREFUL, data.starts.program(""));
     assert_eq!(ninsei_core::hub::program_fault(probe::CAREFUL, &data), None);
-    // Both play fights through the interpreter: what's left in the run is their program.
-    for bot in [Bot::Dumb, Bot::Smart] {
+    // All three play fights through the interpreter: what's left in the run is their program.
+    for bot in Bot::ALL {
         let (g, log) = probe::play(Game::new(data.clone(), 3), bot);
         assert_eq!(g.program, ninsei_core::basic::parse(bot.program()));
         if log.fights > 0 {
@@ -248,4 +250,57 @@ fn deck_lines_fit_the_shell_whatever_the_decks_are_called() {
             assert!(lines.iter().any(|l| l.trim_start().starts_with("deck ")));
         }
     }
+}
+
+#[test]
+fn safe_pick_is_the_starters_safe_with_a_breaker_typed_in() {
+    let data = Data::builtin().unwrap();
+    let safe = data.starts.program("");
+    let typed = ninsei_core::basic::parse(&format!("{safe}\n55 RUN icepick"));
+    assert_eq!(ninsei_core::basic::parse(probe::SAFE_PICK), typed);
+    assert_eq!(Bot::SafePick.program(), probe::SAFE_PICK);
+}
+
+#[test]
+fn the_report_names_all_three_programs_with_turns_per_fight() {
+    let data = Data::builtin().unwrap();
+    let mut p = Probe::new(&data, small());
+    while !p.step(50) {}
+    let lines = p.report();
+    for bot in Bot::ALL {
+        let rows = lines
+            .iter()
+            .filter(|l| l.trim_start().starts_with(bot.label()))
+            .count();
+        // A row per tier, and one for what ICE did to its program.
+        assert_eq!(rows, 4, "{} at each tier: {lines:#?}", bot.label());
+    }
+    assert!(lines.iter().any(|l| l.contains("turns/fight")));
+    assert!(lines.iter().any(|l| l.contains("fighting with SAFE_PICK")));
+    assert!(lines.iter().any(|l| l.contains("SPOOF  SEGFAULT")));
+    let s = p.stats();
+    assert!(
+        s.spot
+            .iter()
+            .flatten()
+            .any(|t| t.fights > 0 && t.turns >= t.fights)
+    );
+}
+
+#[test]
+fn every_fight_a_run_has_is_counted_with_its_turns() {
+    let data = Data::builtin().unwrap();
+    let mut encounter_fights = 0;
+    for seed in 0..60 {
+        let (g, log) = probe::play(Game::new(data.clone(), seed), Bot::Smart);
+        // Every fight the run met, the map's and the encounters' alike.
+        assert_eq!(log.fought as usize, g.history.met.len(), "seed {seed}");
+        assert!(log.fought >= log.fights, "seed {seed}");
+        assert!(
+            log.turns >= log.fought,
+            "a fight takes a turn at least: seed {seed}"
+        );
+        encounter_fights += log.fought - log.fights;
+    }
+    assert!(encounter_fights > 0, "some fights came from encounters");
 }

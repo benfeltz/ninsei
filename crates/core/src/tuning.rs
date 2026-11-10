@@ -89,6 +89,8 @@ pub const BUDGET_PER_CPU: u32 = 4;
 pub const BUDGET_PER_OPT: u32 = 2;
 /// Flat budget cost of a stun.
 pub const COST_STUN: u32 = 7;
+/// Budget points a sniffer costs (it clears an ICE's SPOOF).
+pub const COST_SNIFF: u32 = 3;
 pub const MAX_POWER: u32 = 40;
 pub const MAX_CPU: u32 = 9;
 pub const MAX_OPT: u32 = 5;

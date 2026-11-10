@@ -202,10 +202,13 @@ pub fn icedb(ui: &mut Ui, data: &Data, save: &Save, sel: &mut Option<usize>) {
         ui.separator();
         ui.vertical(|ui| match sel.and_then(|i| all.get(i)) {
             Some(e) => {
-                for (n, l) in e.lines(save, data).iter().enumerate() {
-                    let t = RichText::new(l).monospace();
+                for (n, l) in e.page(save, data).iter().enumerate() {
+                    let t = RichText::new(&l.text).monospace();
+                    // The decompiled listing's unseen lines recede, as an unmet entry does.
                     ui.label(if n == 0 {
                         t.strong().color(accent())
+                    } else if l.muted {
+                        t.color(muted())
                     } else {
                         t.color(ink())
                     });

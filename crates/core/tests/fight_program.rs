@@ -49,6 +49,8 @@ fn ran(g: &Game) -> usize {
 fn a_fresh_deck_fights_with_safe_and_a_pass_is_one_turn() {
     let mut s = fresh();
     let mut g = fight_from(&mut s, "bulwark");
+    // Bulwark's program on its FORTIFY: a quiet turn.
+    g.combat.as_mut().unwrap().ice_exec.pc = Some(20);
     assert!(
         g.program.text().contains("SAFE"),
         "the kit's program is loaded"
@@ -239,9 +241,9 @@ fn ran_names(g: &Game) -> Vec<String> {
 fn safe_patches_when_low_and_raises_the_firewall_before_an_attack() {
     let mut s = fresh();
     let mut g = fight_from(&mut s, "bulwark");
-    // Bulwark's second move is an attack: put it next, and the deck low.
-    g.combat.as_mut().unwrap().intent_ix = 1;
-    assert!(matches!(g.intent(), Some(Intent::Attack(_))));
+    // Bulwark's line 30 is an attack: put its program there, and the deck low.
+    g.combat.as_mut().unwrap().ice_exec.pc = Some(30);
+    assert!(matches!(g.ice_next(), Some(Intent::Attack(_))));
     g.deck.integrity = 5;
     g.apply(Action::Finish);
     let ran = ran_names(&g);
@@ -256,8 +258,10 @@ fn safe_patches_when_low_and_raises_the_firewall_before_an_attack() {
 fn run_with_safe_idles_through_a_quiet_turn_and_carries_on() {
     let mut s = fresh();
     let mut g = fight_from(&mut s, "bulwark");
-    // Fortify next, the deck whole: nothing to defend against.
-    assert!(matches!(g.intent(), Some(Intent::Fortify(_))));
+    // Fortify next (Bulwark's program on its FORTIFY), the deck whole: nothing to defend
+    // against.
+    g.combat.as_mut().unwrap().ice_exec.pc = Some(20);
+    assert!(matches!(g.ice_next(), Some(Intent::Fortify(_))));
     g.apply(Action::Play);
     // The driver's beats: a Step each while it runs.
     while g.combat.as_ref().unwrap().turn == 1 {
@@ -282,7 +286,7 @@ fn run_with_safe_idles_through_a_quiet_turn_and_carries_on() {
 fn turn_of_safe_and_icepick() -> (Game, Vec<(u32, String)>) {
     let mut s = fresh();
     let mut g = fight_from(&mut s, "bulwark");
-    g.combat.as_mut().unwrap().intent_ix = 1;
+    g.combat.as_mut().unwrap().ice_exec.pc = Some(30);
     g.deck.integrity = 5;
     g.apply(Action::Program(format!(
         "{}\n55 RUN icepick",

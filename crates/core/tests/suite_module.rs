@@ -55,7 +55,7 @@ fn the_watches_read_the_incident_and_are_blank_outside_one() {
     assert_eq!(w["TURN"], c.turn.to_string());
     assert_eq!(w["CPU"], format!("{} / {}", c.cpu, g.deck.cpu_max));
     assert_eq!(w["IFS"], format!("{} / {}", c.ifs, g.deck.ram_max));
-    assert_eq!(w["NEXT"], g.intent().unwrap().describe());
+    assert_eq!(w["NEXT"], g.ice_next().unwrap().describe());
     assert_eq!(w["ICE"], g.data.ice[c.ice].name.to_uppercase());
     let last = g.exec.trace.last().unwrap();
     assert_eq!(
@@ -217,11 +217,13 @@ fn proc_7_is_one_program_before_during_and_after_an_incident() {
     g.apply(Action::Finish);
     assert!(matches!(g.exec.state, ExecState::Stopped(_)));
     assert!(suite::fkey_live(&g, FKey::Run, None));
-    let before = g.combat.as_ref().unwrap().strength;
+    // (Counted in the log: the ICE may fortify back what was broken.)
+    let breaks = |g: &Game| g.log.iter().filter(|l| l.text.contains(" breaks ")).count();
+    let before = breaks(&g);
     g.apply(Action::Play);
     g.apply(Action::Finish);
     g.apply(Action::Pause);
-    assert!(g.combat.as_ref().map_or(0, |c| c.strength) < before);
+    assert!(breaks(&g) > before);
     assert!(
         g.log[logged..]
             .iter()

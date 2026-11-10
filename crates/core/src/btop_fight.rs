@@ -7,6 +7,7 @@
 //! btop's words for it. The terminal is the prompt: the trace prints there.
 
 use crate::game::Game;
+use crate::ice_listing::IceRow;
 pub use crate::listing::{
     Gutter, Keys, Row, delete, editing_text, home, keys, moved, open_after, retype, rows,
 };
@@ -59,4 +60,28 @@ pub fn note(g: &Game) -> String {
 /// The tile's title.
 pub fn title(_g: &Game) -> &'static str {
     TITLE
+}
+
+/// The ICE's listing (`ice_listing::rows`) as the fight screens show it: up to `n` rows from
+/// the line it carries on from, wrapping to the top as its program does.
+pub fn ice_window(rows: &[IceRow], n: usize) -> Vec<IceRow> {
+    let at = rows.iter().position(|r| r.cursor).unwrap_or(0);
+    rows.iter()
+        .cycle()
+        .skip(at)
+        .take(n.min(rows.len()))
+        .cloned()
+        .collect()
+}
+
+/// A row of the ICE's listing in btop's lowercase: `▶` on the line it carries on from.
+pub fn ice_line(r: &IceRow) -> String {
+    let mark = if r.cursor { "▶" } else { "·" };
+    format!("{mark} {:>3} {}", r.no, r.shown().to_lowercase())
+}
+
+/// The heading over the ICE's listing: how much of it the deck has seen.
+pub fn ice_heading(rows: &[IceRow]) -> String {
+    let (seen, all) = crate::ice_listing::known(rows);
+    format!("PROG {seen}/{all}")
 }

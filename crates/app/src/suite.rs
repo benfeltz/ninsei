@@ -34,8 +34,6 @@ pub mod size {
     pub const CHART_SHARE: f32 = 0.3;
     pub const CHART_MIN: f32 = 56.0;
     pub const CHART_MAX: f32 = 150.0;
-    /// Upcoming turns the incident report's agenda lists.
-    pub const AGENDA_ROWS: usize = 5;
     /// Widest a column chart's group of columns gets, so a short fight isn't one wall.
     pub const COL_SLOT_MAX: f32 = 56.0;
     /// Narrowest a form shows its notes column at.
@@ -812,12 +810,9 @@ impl Panes<'_> {
                     1 => "MODERATE",
                     _ => "CRITICAL",
                 };
-                let intent = g.intent().map_or_else(String::new, |i| i.describe());
-                let next = if c.stunned {
-                    format!("{intent} (deferred)")
-                } else {
-                    intent
-                };
+                let next = g
+                    .next_move()
+                    .map_or_else(String::new, |m| m.text(ninsei_core::suite::LAGGED));
                 form(
                     ui,
                     &p,
@@ -847,6 +842,35 @@ impl Panes<'_> {
                         ),
                     ],
                 );
+                // What the ICE runs comes straight after the form, before the chart, so a
+                // fight's report needs no scrolling for it.
+                let rows = ninsei_core::ice_listing::rows(g);
+                heading(ui, &p, &ninsei_core::suite::procedure_title(&rows));
+                egui::Grid::new("suite-procedure")
+                    .num_columns(2)
+                    .spacing([16.0, 2.0])
+                    .show(ui, |ui| {
+                        let [step, statement] = ninsei_core::suite::PROCEDURE_COLUMNS;
+                        ui.label(t(step, p.dim));
+                        ui.label(t(statement, p.dim));
+                        ui.end_row();
+                        // The step NEXT is on is highlighted, as the agenda's current row was.
+                        for r in ninsei_core::suite::procedure(&rows) {
+                            let (fg, bg) = match (r.next, r.seen) {
+                                (true, _) => (p.bg, Some(p.fg)),
+                                (false, true) => (p.fg, None),
+                                (false, false) => (p.dim, None),
+                            };
+                            for cell in [r.step, r.statement] {
+                                let text = t(cell, fg);
+                                ui.label(match bg {
+                                    Some(bg) => text.background_color(bg),
+                                    None => text,
+                                });
+                            }
+                            ui.end_row();
+                        }
+                    });
                 heading(ui, &p, "STRENGTH BY TURN");
                 let mut vals: Vec<f32> = vec![c.strength_max as f32];
                 vals.extend(
@@ -866,28 +890,6 @@ impl Panes<'_> {
                     |i| format!("T{i}"),
                     true,
                 );
-                heading(ui, &p, "AGENDA");
-                let n = ice.intents.len().max(1);
-                egui::Grid::new("suite-agenda")
-                    .num_columns(2)
-                    .spacing([16.0, 2.0])
-                    .show(ui, |ui| {
-                        ui.label(t("TURN", p.dim));
-                        ui.label(t("PLANNED ACTION", p.dim));
-                        ui.end_row();
-                        for k in 0..size::AGENDA_ROWS {
-                            let intent = &ice.intents[(c.intent_ix + k) % n];
-                            let turn = format!("{:>4}", c.turn as usize + k);
-                            if k == 0 {
-                                ui.label(t(turn, p.bg).background_color(p.fg));
-                                ui.label(t(intent.describe(), p.bg).background_color(p.fg));
-                            } else {
-                                ui.label(t(turn, p.dim));
-                                ui.label(t(intent.describe(), p.fg));
-                            }
-                            ui.end_row();
-                        }
-                    });
             });
         });
         for a in acts {
@@ -2378,6 +2380,55 @@ mod module_tests {
             out.extend(panes.out);
         });
         out
+    }
+
+    #[test]
+    fn the_incident_report_lists_the_procedure_before_its_chart() {
+        let g = fight("");
+        let mut h = Harness::new(1280.0, 900.0);
+        for _ in 0..2 {
+            let (mut term, mut focus, mut hex, mut keep) =
+                (ninsei_term::LineEditor::default(), false, None, Vec::new());
+            let mut suite = State::default();
+            h.frame(vec![], |ui| {
+                let mut panes = Panes {
+                    game: &g,
+                    pal: pal(&g),
+                    map: ninsei_core::netview::MapView::Draft,
+                    deck: String::new(),
+                    chrome: ninsei_core::hardware::Chrome::Suite,
+                    corrupt: (0.0, 0),
+                    term: &mut term,
+                    focus_input: &mut focus,
+                    bbs_open: false,
+                    hex: &mut hex,
+                    keep: &mut keep,
+                    keep_room: 0,
+                    suite: &mut suite,
+                    hear: &Vec::new,
+                    scope_rate: 0,
+                    out: Vec::new(),
+                };
+                let mut w = ui.new_child(UiBuilder::new().max_rect(pane_rect((520.0, 700.0))));
+                Suite.target(&mut panes, &mut w);
+            });
+        }
+        let rows = ninsei_core::ice_listing::rows(&g);
+        let title = ninsei_core::suite::procedure_title(&rows);
+        let procedure = h.find(&title).unwrap_or_else(|| panic!("{:?}", h.texts()));
+        let chart = h.find("STRENGTH BY TURN").expect("the chart's heading");
+        assert!(
+            procedure.top() < chart.top(),
+            "{procedure:?} above {chart:?}"
+        );
+        for r in ninsei_core::suite::procedure(&rows) {
+            assert!(
+                h.find(&r.statement).is_some(),
+                "{:?} in {:?}",
+                r.statement,
+                h.texts()
+            );
+        }
     }
 
     fn frame(h: &mut Harness, g: &Game, ev: Vec<egui::Event>) -> Vec<Request> {

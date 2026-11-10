@@ -3,7 +3,7 @@
 //! and which edges break first. Pure; the app's `fightview.rs` draws it.
 
 use crate::data::{Effect, Intent};
-use crate::game::{ExecState, Game, Step, StepWhat};
+use crate::game::{ExecState, Game, Side, Step, StepWhat};
 
 /// How a breaker matches the ICE's class.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -28,6 +28,8 @@ pub enum Outcome {
     Repair(u32),
     Scrub(u32),
     Stun,
+    /// Clears the ICE's SPOOF.
+    Sniff,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -64,6 +66,9 @@ impl Game {
         if w.effect == Effect::Stun && c.stun_immune {
             return Err("the ICE has adapted to lag. a stun won't land this turn.".into());
         }
+        if w.effect == Effect::Sniff && c.spoofed == 0 {
+            return Err("nothing to sniff: its NEXT is in the clear.".into());
+        }
         let outcome = match w.effect {
             Effect::Break { power, vs } => {
                 let class = self.data.ice[c.ice].class;
@@ -79,10 +84,54 @@ impl Game {
             Effect::Repair(n) => Outcome::Repair(n),
             Effect::Scrub(n) => Outcome::Scrub(n),
             Effect::Stun => Outcome::Stun,
+            Effect::Sniff => Outcome::Sniff,
         };
         Ok(Preview {
             cpu: w.cpu,
             outcome,
+        })
+    }
+}
+
+/// What the ICE's NEXT shows, the same on every screen: its next move, lagged, or nothing this
+/// turn (its program would stop, stall or run out of RAM before it acts).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum NextMove {
+    Act(Intent),
+    /// Its `SPOOF` hides it.
+    Spoofed,
+    Lagged,
+    Idle,
+}
+
+impl NextMove {
+    /// What an idle ICE's NEXT reads.
+    pub const IDLE: &'static str = "-";
+    /// What a spoofed NEXT reads, on every deck.
+    pub const SPOOFED: &'static str = "???";
+
+    /// As a screen prints it: the move, or `-`; `lagged` is the deck's own words for a lag
+    /// (the Sense/Net's "(lagged, skips)", the Hosaka's "(deferred)").
+    pub fn text(self, lagged: &str) -> String {
+        match self {
+            NextMove::Act(i) => i.describe(),
+            NextMove::Lagged => lagged.to_string(),
+            NextMove::Idle => NextMove::IDLE.to_string(),
+            NextMove::Spoofed => NextMove::SPOOFED.to_string(),
+        }
+    }
+}
+
+impl Game {
+    /// The ICE's NEXT, if fighting: `Game::ice_next`, or why there's no move.
+    pub fn next_move(&self) -> Option<NextMove> {
+        let c = self.combat.as_ref()?;
+        Some(if c.spoofed > 0 {
+            NextMove::Spoofed
+        } else if c.stunned {
+            NextMove::Lagged
+        } else {
+            self.ice_next().map_or(NextMove::Idle, NextMove::Act)
         })
     }
 }
@@ -151,11 +200,19 @@ impl Game {
         }
     }
 
-    /// A step of a pass as the deck's OS says it: one sentence per line executed.
+    /// A step of the deck's pass as the deck's OS says it: one sentence per line executed.
     pub fn step_text(&self, s: &Step) -> String {
-        let text = self.program.line(s.line).map_or("", |l| l.text.as_str());
+        self.step_text_of(Side::Deck, s)
+    }
+
+    /// A step of a side's pass as the deck's OS says it: one sentence per line executed. The
+    /// ICE's steps are named for the ICE, since the OS is watching it run.
+    pub fn step_text_of(&self, side: Side, s: &Step) -> String {
+        let ice = self.combat.as_ref().filter(|_| side == Side::Ice);
+        let prog = ice.map_or(&self.program, |c| &c.ice_prog);
+        let text = prog.line(s.line).map_or("", |l| l.text.as_str());
         let no = s.line;
-        match &s.what {
+        let said = match &s.what {
             StepWhat::Ran { uid, outcome } => {
                 let name = self
                     .hdd
@@ -168,6 +225,7 @@ impl Game {
                     Outcome::Repair(n) => format!("restores {n} integrity"),
                     Outcome::Scrub(n) => format!("scrubs {n} trace"),
                     Outcome::Stun => "lags the ICE".to_string(),
+                    Outcome::Sniff => "clears the spoof".to_string(),
                 };
                 format!("{no} {text}: {name} {did}.")
             }
@@ -175,11 +233,29 @@ impl Game {
             StepWhat::If(true) => format!("{no} {text}: yes."),
             StepWhat::If(false) => format!("{no} {text}: no. skipping the next line."),
             StepWhat::Goto(to) => format!("{no} GOTO {to}."),
+            StepWhat::Stop if ice.is_some() => format!("{no} STOP. its turn is over."),
             StepWhat::Stop => format!("BREAK IN {no}"),
+            StepWhat::Break if ice.is_some() => format!("stalls in {no}. it does nothing."),
             StepWhat::Break => format!("?BREAK IN {no}"),
             StepWhat::OutOfCpu => "out of cycles. the turn is over.".to_string(),
             StepWhat::OutOfRam => format!("{no} {text}: no memory left for it. the turn is over."),
             StepWhat::End => "end of program. the turn is over.".to_string(),
+            StepWhat::Hit { dmg, blocked: 0 } => format!("{no} {text}: hits for {dmg}."),
+            StepWhat::Hit { dmg, blocked } => {
+                format!("{no} {text}: hits for {dmg} ({blocked} blocked).")
+            }
+            StepWhat::Traced(n) => format!("{no} {text}: traces +{n}."),
+            StepWhat::Fortified(n) => format!("{no} {text}: fortifies +{n}."),
+            StepWhat::Lagged => format!("{no} {text}: lagged. it does nothing."),
+            StepWhat::Spoofed(n) => {
+                format!("{no} {text}: its next moves are hidden for {n} turns.")
+            }
+            StepWhat::Segfaulted(Some(hit)) => format!("{no} {text}: garbles your line {hit}."),
+            StepWhat::Segfaulted(None) => format!("{no} {text}: finds nothing to garble."),
+        };
+        match ice {
+            Some(c) => format!("{} {said}", self.data.ice[c.ice].name),
+            None => said,
         }
     }
 }

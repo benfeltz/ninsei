@@ -25,7 +25,7 @@ pub mod anim {
     pub const SPARK_POINTS: usize = 24;
     /// Rows of the damage waterfall shown.
     pub const WATERFALL_ROWS: usize = 6;
-    /// Upcoming ICE intents shown in the intent waterfall.
+    /// Rows of the ICE's listing under NEXT in target.ice.
     pub const INTENTS_AHEAD: usize = 4;
     /// Actions a program's row stays lit after it runs.
     pub const RUN_GLOW_TICKS: u32 = 2;
@@ -541,26 +541,18 @@ impl Panes<'_> {
                 graph(ui, &p, "strength", &g.history.ice, c.strength_max, 2, &[]);
                 ui.add_space(4.0);
                 ui.columns(2, |cols| {
-                    // Intent waterfall: what's coming falls toward now, at the bottom.
-                    cols[0].label(text("INTENT", p.dim));
-                    let n = ice.intents.len().max(1);
-                    for k in (0..anim::INTENTS_AHEAD).rev() {
-                        let intent = &ice.intents[(c.intent_ix + k) % n];
-                        let (mark, col) = match k {
-                            0 => ("▶", p.bright),
-                            1 => ("·", p.fg),
-                            _ => ("·", p.dim.gamma_multiply(1.0 - k as f32 * 0.18)),
+                    // NEXT, then the ICE's program from where it carries on, as seen.
+                    let next = g.next_move().map_or(String::new(), |m| m.text("(lagged)"));
+                    cols[0].label(text(format!("NEXT {next}"), p.bright));
+                    let rows = ninsei_core::ice_listing::rows(g);
+                    cols[0].label(text(ninsei_core::btop_fight::ice_heading(&rows), p.dim));
+                    for r in ninsei_core::btop_fight::ice_window(&rows, anim::INTENTS_AHEAD) {
+                        let col = match (r.next, r.text.is_some()) {
+                            (true, _) => p.bright,
+                            (false, true) => p.fg,
+                            (false, false) => p.dim,
                         };
-                        let when = if k == 0 {
-                            "now ".to_string()
-                        } else {
-                            format!("+{k}  ")
-                        };
-                        let mut line = format!("{mark} {when}{}", intent.describe());
-                        if k == 0 && c.stunned {
-                            line.push_str(" (lagged)");
-                        }
-                        cols[0].label(text(line, col));
+                        cols[0].label(text(ninsei_core::btop_fight::ice_line(&r), col));
                     }
                     // Damage waterfall: newest turn on top, older ones fade out below.
                     cols[1].label(text("TURN  dealt  taken  soak", p.dim));

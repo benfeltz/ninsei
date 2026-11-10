@@ -79,7 +79,7 @@ impl Program {
         match self.spec.effect {
             Effect::Break { power, .. } => Some(power),
             Effect::Shield(n) | Effect::Repair(n) | Effect::Scrub(n) => Some(n),
-            Effect::Stun => None,
+            Effect::Stun | Effect::Sniff => None,
         }
     }
 }

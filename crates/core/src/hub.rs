@@ -1109,6 +1109,9 @@ pub struct IceSeen {
     /// The weakest and strongest you've met it at.
     pub lo: u32,
     pub hi: u32,
+    /// The lines of its program you've seen it run, sorted: what the ICE DB decompiles.
+    #[serde(default)]
+    pub lines: Vec<u32>,
 }
 
 /// A textfile on your disk: which board it came from and its id in that board's `texts`.
@@ -2199,6 +2202,13 @@ impl Save {
                 .iter()
                 .map(|k| (k.board.clone(), k.id.clone()))
                 .collect(),
+            // What earlier runs saw is the ICE DB's: without it the deck starts each fight blind.
+            ice_known: self
+                .ice_seen
+                .iter()
+                .filter(|s| self.has_tool("icedb") && !s.lines.is_empty())
+                .map(|s| (s.id.clone(), s.lines.clone()))
+                .collect(),
             origins,
         }
     }
@@ -2317,7 +2327,21 @@ impl Save {
                     broken: u32::from(m.broken),
                     lo: m.strength,
                     hi: m.strength,
+                    lines: Vec::new(),
                 }),
+            }
+        }
+        // What the deck saw each ICE run comes home with its entry, as the fights do.
+        for (ice, lines) in &game.ice_lines {
+            let Some(def) = game.data.ice.get(*ice) else {
+                continue;
+            };
+            if let Some(s) = self.ice_seen.iter_mut().find(|s| s.id == def.id) {
+                // A save's own list may not be tidy (hand-edited, or older): tidy it first.
+                s.lines = crate::ice_listing::tidy(std::mem::take(&mut s.lines));
+                for &no in lines {
+                    crate::ice_listing::note_line(&mut s.lines, no);
+                }
             }
         }
         let mut boards = Vec::new();
