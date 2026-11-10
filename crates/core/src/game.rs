@@ -63,14 +63,103 @@ pub struct Slot {
     pub spec: Spec,
 }
 
-/// One fight, booked by the rules as it goes: which ICE, whether it fell, and the deck as the
-/// ICE's conditions read it at the start of each of its turns.
+/// One fight, booked by the rules as it goes: which ICE, how it opened, whether it fell, and
+/// the deck as the ICE's conditions read it at the start of each of its turns.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Bout {
     /// Index into `Data::ice`.
     pub ice: usize,
+    pub start: Start,
     pub broken: bool,
     pub tells: Vec<crate::ice_version::Tell>,
+}
+
+/// How a fight opened: the deck's integrity and trace, and the ICE's strength. What the sysops'
+/// simulator stages a duel from.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Start {
+    pub integrity: u32,
+    pub trace: u32,
+    pub strength: u32,
+}
+
+/// How a duel ended ([`duel`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Duel {
+    /// The deck broke the ICE.
+    pub broken: bool,
+    pub integrity_lost: u32,
+    pub trace_gained: u32,
+    /// Turns it lasted, the last one included.
+    pub turns: u32,
+    /// The deck as the ICE's conditions read it at the start of each of its turns.
+    pub tells: Vec<crate::ice_version::Tell>,
+}
+
+/// Turns a duel may run before it's called off. A real fight always ends, since trace climbs
+/// every turn; this is a backstop, never a rule of the fight.
+const DUEL_TURNS: u32 = 200;
+
+/// One fight staged in the real game, as the sysops' simulator stages it: deck `kit` (its
+/// numbers, its programs and its script, `Kit::program`) against ICE `ice` (an index into
+/// `Data::ice`) running `program`, opened at `start`. It's a [`Game`] of its own, seeded from
+/// `seed`: it never touches a run's RNG, history, cues or log. The script plays every turn as a
+/// bot with no hands does: it plays, and when it hands the turn over (a STOP, a hang) the turn
+/// ends.
+pub fn duel(
+    data: &std::sync::Arc<Data>,
+    ice: usize,
+    program: &str,
+    kit: &Kit,
+    start: Start,
+    seed: u64,
+) -> Duel {
+    let mut g = Game::start(std::sync::Arc::clone(data), seed, kit);
+    // A deck with nothing on its HDD, not the classic four a bare kit is given.
+    if kit.programs.is_empty() {
+        g.hdd.clear();
+    }
+    let verbs = &data.ice[ice].verbs;
+    g.ice_versions = vec![(
+        ice,
+        Version::default(),
+        crate::basic::parse_with(program, Vocab::Ice(verbs)),
+        None,
+    )];
+    g.deck.integrity = start.integrity.clamp(1, g.deck.integrity_max);
+    g.deck.trace = start.trace;
+    g.start_combat(g.at, ice);
+    if let Some(c) = g.combat.as_mut() {
+        c.strength = start.strength.max(1);
+        c.strength_max = c.strength;
+    }
+    let (integrity, trace) = (g.deck.integrity, g.deck.trace);
+    let mut turns = 1;
+    for _ in 0..DUEL_TURNS * 2 {
+        if g.phase != Phase::Combat || turns > DUEL_TURNS {
+            break;
+        }
+        // Play sets it running and runs a line; the rest of the turn is Finish's.
+        let carry_on = g.exec.state == ExecState::Running || {
+            g.apply(Action::Play);
+            g.pass_open()
+        };
+        if carry_on {
+            g.apply(Action::Finish);
+        }
+        if g.phase == Phase::Combat && g.exec.state != ExecState::Running {
+            g.apply(Action::EndTurn);
+        }
+        turns = g.combat.as_ref().map_or(turns, |c| c.turn);
+    }
+    let bout = g.bouts.pop();
+    Duel {
+        broken: bout.as_ref().is_some_and(|b| b.broken),
+        integrity_lost: integrity.saturating_sub(g.deck.integrity),
+        trace_gained: g.deck.trace.saturating_sub(trace),
+        turns,
+        tells: bout.map(|b| b.tells).unwrap_or_default(),
+    }
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -414,7 +503,8 @@ impl Reading {
 
 #[derive(Clone, Debug)]
 pub struct Game {
-    pub data: Data,
+    /// The game's content, shared: a duel the sysops stage (`duel`) reads the same copy.
+    pub data: std::sync::Arc<Data>,
     pub seed: u64,
     pub rng: Rng,
     pub deck: Deck,
@@ -611,7 +701,7 @@ impl StepWhat {
 
 impl Game {
     /// A run with the starter deck, the classic four programs (breakers too), and every tool.
-    pub fn new(data: Data, seed: u64) -> Self {
+    pub fn new(data: impl Into<std::sync::Arc<Data>>, seed: u64) -> Self {
         let kit = Kit {
             tools: crate::data::TOOLS.iter().map(|t| t.to_string()).collect(),
             free: CLASSIC_WAREZ.iter().map(|t| t.to_string()).collect(),
@@ -621,7 +711,8 @@ impl Game {
     }
 
     /// A run with a kit from home: the deck's numbers and the chosen loadout.
-    pub fn start(data: Data, seed: u64, kit: &Kit) -> Self {
+    pub fn start(data: impl Into<std::sync::Arc<Data>>, seed: u64, kit: &Kit) -> Self {
+        let data: std::sync::Arc<Data> = data.into();
         let mut rng = Rng::new(seed);
         let net = Network::generate_with(&mut rng, &data, &kit.net);
         let board = if kit.board < data.boards.len() {
@@ -783,6 +874,22 @@ impl Game {
                 format!("contract from home: {}", self.contract_line(&k)),
             );
             self.contracts.push(k);
+        }
+    }
+
+    /// The deck as it stands, as a [`Kit`]: its numbers, the programs on its HDD and its
+    /// script. What the sysops log of a deck that beat their ICE, to stage duels against.
+    pub fn deck_kit(&self) -> Kit {
+        Kit {
+            ram: self.deck.ram_max,
+            cpu: self.deck.cpu_max,
+            hdd: self.deck.hdd_max,
+            integrity: self.deck.integrity_max,
+            caps: self.deck.caps,
+            programs: self.hdd.iter().map(|s| (s.warez, s.bin)).collect(),
+            program: self.program.text(),
+            mods: self.mods,
+            ..Kit::default()
         }
     }
 
@@ -1157,6 +1264,11 @@ impl Game {
         };
         self.bouts.push(Bout {
             ice,
+            start: Start {
+                integrity: self.deck.integrity,
+                trace: self.deck.trace,
+                strength,
+            },
             broken: false,
             tells: Vec::new(),
         });
