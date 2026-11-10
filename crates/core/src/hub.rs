@@ -1197,18 +1197,18 @@ pub struct IceRung {
 }
 
 impl IceRung {
-    /// A run's result for this kind: `wins` fights lost to the deck running `program`, and
-    /// whether the kind ended the run (`killed`), with the logs of those wins (`tells`, a fight
-    /// each).
-    /// Returns the bump its sysops ship now, if any, and the logs it is written against:
-    /// everything kept since the last one.
+    /// Books a run's result for this kind: `wins` fights lost to the deck running `program`,
+    /// with their logs (`tells`, a fight each), and whether the kind ended the run (`killed`).
+    /// Returns the bump that's due, if any: its sysops write it against [`IceRung::tells`], and
+    /// [`IceRung::shipped`] moves the ladder on once a version ships. Until one does, the wins
+    /// and the logs stay, and the same bump is tried again after the next win.
     pub fn climb(
         &mut self,
         program: &str,
         wins: u32,
         killed: bool,
         tells: &[Vec<crate::ice_version::Tell>],
-    ) -> Option<(crate::ice_version::Bump, Vec<Vec<crate::ice_version::Tell>>)> {
+    ) -> Option<crate::ice_version::Bump> {
         use crate::ice_version::Bump;
         // It stopped you: the last patch worked. An ICE that kills you doesn't evolve.
         if killed {
@@ -1235,15 +1235,16 @@ impl IceRung {
             self.tells.remove(0);
         }
         let rung = self.rung.min(crate::tuning::LADDER_WINS.len() - 1);
-        if self.wins < crate::tuning::LADDER_WINS[rung] {
-            return None;
-        }
+        (self.wins >= crate::tuning::LADDER_WINS[rung])
+            .then_some([Bump::Patch, Bump::Minor, Bump::Major][rung])
+    }
+
+    /// A version shipped: the wins and the logs were spent on it, and the next bump is one
+    /// size up (majors stay majors).
+    pub fn shipped(&mut self) {
         self.wins = 0;
-        self.rung = (rung + 1).min(crate::tuning::LADDER_WINS.len() - 1);
-        Some((
-            [Bump::Patch, Bump::Minor, Bump::Major][rung],
-            std::mem::take(&mut self.tells),
-        ))
+        self.tells.clear();
+        self.rung = (self.rung + 1).min(crate::tuning::LADDER_WINS.len() - 1);
     }
 }
 
@@ -2423,11 +2424,11 @@ impl Save {
                     self.ice_ladder.last_mut().expect("just pushed")
                 }
             };
-            let Some((bump, logs)) =
-                rung.climb(played, won.len() as u32, killer == Some(ice), &tells)
+            let Some(bump) = rung.climb(played, won.len() as u32, killer == Some(ice), &tells)
             else {
                 continue;
             };
+            let logs = rung.tells.clone();
             let Some((version, program)) = self.ice_program(&row.id, data) else {
                 continue;
             };
@@ -2440,6 +2441,9 @@ impl Save {
                 seed(self.key, &row.id, version),
             );
             let Some(made) = next.bump else { continue };
+            if let Some(r) = self.ice_ladder.iter_mut().find(|r| r.id == row.id) {
+                r.shipped();
+            }
             self.ice_versions.retain(|v| v.id != row.id);
             self.ice_versions.push(IceVer {
                 id: row.id.clone(),

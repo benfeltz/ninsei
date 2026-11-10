@@ -544,12 +544,21 @@ fn a_bump_is_written_against_every_win_since_the_last() {
     for i in 0..p - 1 {
         assert_eq!(r.climb(PLAY, 1, false, &[vec![tell(i, "Firewall")]]), None);
     }
-    let (bump, logs) = r.climb(PLAY, 1, false, &[vec![tell(9, "Patch")]]).unwrap();
-    assert_eq!(bump, Bump::Patch);
-    // Every fight it lost since the last bump, oldest first.
-    assert_eq!(logs.len() as u32, p);
-    assert_eq!(logs[0], vec![tell(0, "Firewall")]);
-    assert_eq!(logs.last(), Some(&vec![tell(9, "Patch")]));
+    assert_eq!(
+        r.climb(PLAY, 1, false, &[vec![tell(9, "Patch")]]),
+        Some(Bump::Patch)
+    );
+    // Every fight it lost since the last bump, oldest first, is what it's written against.
+    assert_eq!(r.tells.len() as u32, p);
+    assert_eq!(r.tells[0], vec![tell(0, "Firewall")]);
+    assert_eq!(r.tells.last(), Some(&vec![tell(9, "Patch")]));
+    // Nothing moves on until a version ships: the same bump is due after the next win.
+    assert_eq!((r.wins, r.rung), (p, 0));
+    assert_eq!(
+        r.climb(PLAY, 1, false, &[vec![tell(1, "Patch")]]),
+        Some(Bump::Patch)
+    );
+    r.shipped();
     assert_eq!((r.wins, r.rung), (0, 1));
     assert!(r.tells.is_empty());
     // The logs keep the latest fights that fit in TELLS_KEPT turns.
@@ -563,6 +572,33 @@ fn a_bump_is_written_against_every_win_since_the_last() {
         &[vec![tell(0, "Firewall"); 4], long.clone()],
     );
     assert_eq!(r.tells, vec![long]);
+}
+
+#[test]
+fn a_bump_that_ships_nothing_leaves_the_ladder_where_it_was() {
+    // Logs a draft can't beat: Rototurret already hits for its range's most on every turn of
+    // a deck that never shields, so no rewrite of its single line hurts more.
+    let d = data();
+    let mut s = deck(&d);
+    s.ice_versions.push(hub::IceVer {
+        id: "rototurret".into(),
+        version: ice_version::Version::default().bumped(ice_version::Bump::Patch),
+        program: "10 ATTACK 8".into(),
+        bump: Some(ice_version::Bump::Patch),
+    });
+    let [p, ..] = tuning::LADDER_WINS;
+    s.ice_ladder.push(hub::IceRung {
+        id: "rototurret".into(),
+        wins: p - 1,
+        program: Some(PLAY.into()),
+        tells: vec![vec![tell(0, "Icepick"); 6]],
+        ..Default::default()
+    });
+    run(&mut s, &d, PLAY, &[("rototurret", true)]);
+    assert_eq!(version(&s, &d, "rototurret"), "1.0.1");
+    let r = s.ice_ladder.iter().find(|r| r.id == "rototurret").unwrap();
+    assert_eq!((r.wins, r.rung), (p, 0));
+    assert!(!r.tells.is_empty());
 }
 
 #[test]
