@@ -34,9 +34,10 @@ fn spoof_and_segfault_are_an_ices_words() {
 fn with_row(program: &str, verbs: &str) -> Data {
     let ice = include_str!("../../../data/ice.ron");
     let end = ice.rfind(']').unwrap();
+    let ranges = open_ranges(verbs);
     let row = format!(
         "    (id: \"probe\", name: \"Probe\", class: Sentry, tier: 1, strength: 10, \
-         cpu: 1, ram: 2, verbs: [{verbs}], program: \"{program}\"),\n"
+         cpu: 1, ram: 2, verbs: [{verbs}], hdd: 40, ranges: [{ranges}], program: \"{program}\"),\n"
     );
     let ice = format!("{}{row}{}", &ice[..end], &ice[end..]);
     Data::parse(ninsei_core::Sources {
@@ -370,4 +371,15 @@ fn segfault_hits_the_line_that_ran_what_its_target_ran_named() {
     g.apply(Action::EndTurn);
     assert!(g.program.fault(30).is_some(), "{}", g.program.text());
     assert!(g.program.fault(20).is_none());
+}
+
+/// A range of 0 to 999 for each verb in `verbs` (as a row writes them) that takes a number.
+fn open_ranges(verbs: &str) -> String {
+    verbs
+        .split(',')
+        .map(str::trim)
+        .filter(|v| !v.is_empty() && *v != "Segfault")
+        .map(|v| format!("({v}, 0, 999)"))
+        .collect::<Vec<_>>()
+        .join(", ")
 }

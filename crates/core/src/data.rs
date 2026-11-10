@@ -105,9 +105,37 @@ pub struct IceDef {
     pub ram: u32,
     /// The verbs its program may use; any other word is a bad line.
     pub verbs: Vec<crate::basic::Verb>,
+    /// The most lines its program may hold (REMs don't count): its HDD. Every version of its
+    /// program fits it.
+    pub hdd: u32,
+    /// The numbers a verb's line may carry, as (verb, lowest, highest): one for every verb on
+    /// `verbs` that takes a number. Every version of its program keeps inside them.
+    pub ranges: Vec<(crate::basic::Verb, u32, u32)>,
     /// Whether it gives up when it's losing.
     #[serde(default)]
     pub yields: Option<YieldDef>,
+}
+
+impl IceDef {
+    /// The numbers `verb`'s line may carry, (lowest, highest), if its row gives a range.
+    pub fn range(&self, verb: crate::basic::Verb) -> Option<(u32, u32)> {
+        self.ranges
+            .iter()
+            .find(|(v, _, _)| *v == verb)
+            .map(|&(_, lo, hi)| (lo, hi))
+    }
+}
+
+/// The verb an ICE's move is written with, and its number (`None` for one that takes none).
+pub fn verb_of(intent: Intent) -> (crate::basic::Verb, Option<u32>) {
+    use crate::basic::Verb;
+    match intent {
+        Intent::Attack(n) => (Verb::Attack, Some(n)),
+        Intent::Trace(n) => (Verb::Trace, Some(n)),
+        Intent::Fortify(n) => (Verb::Fortify, Some(n)),
+        Intent::Spoof(n) => (Verb::Spoof, Some(n)),
+        Intent::Segfault => (Verb::Segfault, None),
+    }
 }
 
 /// A fighter that can give up: once a hit drops it to `below`% of its strength or less,
@@ -1524,11 +1552,10 @@ impl Data {
         self.tunes.iter().find(|t| t.id == id)
     }
 
-    /// An ICE's program must parse in its own vocabulary, every GOTO must land, every
-    /// `TARGET RAN` must name a program that exists, a verb must be reachable from the top, and
-    /// it must have budgets to run with.
+    /// An ICE's row must have budgets to run with, verbs, an HDD, a range for every verb that
+    /// takes a number (and none for a verb it doesn't have or that takes none), and a program
+    /// that passes [`Data::check_ice_program`].
     fn validate_ice_program(&self, ice: &IceDef) -> Result<(), String> {
-        use crate::basic::{Cond, Stmt, Vocab};
         if ice.cpu == 0 || ice.ram == 0 {
             return Err(format!(
                 "cpu {} and ram {} must both be at least 1",
@@ -1538,12 +1565,60 @@ impl Data {
         if ice.verbs.is_empty() {
             return Err("has no verbs".into());
         }
-        let p = crate::basic::parse_with(&ice.program, Vocab::Ice(&ice.verbs));
+        if ice.hdd == 0 {
+            return Err("hdd must be at least 1".into());
+        }
+        for (i, &(v, lo, hi)) in ice.ranges.iter().enumerate() {
+            let word = v.word();
+            if !ice.verbs.contains(&v) {
+                return Err(format!("a range for {word}, which isn't on its verbs"));
+            }
+            if !v.takes_number() {
+                return Err(format!("a range for {word}, which takes no number"));
+            }
+            if ice.ranges[..i].iter().any(|(o, _, _)| *o == v) {
+                return Err(format!("two ranges for {word}"));
+            }
+            if lo > hi || hi > crate::basic::MAX_ARG {
+                return Err(format!(
+                    "{word}'s range {lo}..{hi} (lowest first, at most {})",
+                    crate::basic::MAX_ARG
+                ));
+            }
+        }
+        if let Some(v) = ice
+            .verbs
+            .iter()
+            .find(|v| v.takes_number() && ice.range(**v).is_none())
+        {
+            return Err(format!("{} has no range", v.word()));
+        }
+        self.check_ice_program(ice, &ice.program)
+    }
+
+    /// Whether `program` may run on ICE `ice`'s machine: it parses in the ICE's vocabulary,
+    /// every GOTO lands, every `TARGET RAN` names a program that exists, a verb can be reached
+    /// from the top, it fits the HDD (REMs don't count) and every verb's number is inside its
+    /// range. The row's own program and every version the generator draws pass this one check.
+    pub fn check_ice_program(&self, ice: &IceDef, program: &str) -> Result<(), String> {
+        use crate::basic::{Cond, Stmt, Vocab};
+        let p = crate::basic::parse_with(program, Vocab::Ice(&ice.verbs));
         if let Some(s) = p.stray.first() {
             return Err(format!("program line `{s}` has no line number"));
         }
         if !p.can_act() {
             return Err("program never acts: no verb can be reached from the top".into());
+        }
+        let lines = p
+            .lines
+            .iter()
+            .filter(|l| !matches!(l.stmt, Stmt::Rem))
+            .count();
+        if lines > ice.hdd as usize {
+            return Err(format!(
+                "program has {lines} lines, more than its hdd {}",
+                ice.hdd
+            ));
         }
         for l in &p.lines {
             if let Some(why) = p.fault(l.no) {
@@ -1558,6 +1633,18 @@ impl Data {
                 return Err(format!(
                     "program line {} reads `{name}`, which no program is called",
                     l.no
+                ));
+            }
+            if let Stmt::Act(intent) = l.stmt
+                && let (v, Some(n)) = verb_of(intent)
+                && let Some((lo, hi)) = ice.range(v)
+                && !(lo..=hi).contains(&n)
+            {
+                return Err(format!(
+                    "program line {} `{}`: {} takes {lo} to {hi}",
+                    l.no,
+                    l.text,
+                    v.word()
                 ));
             }
         }
