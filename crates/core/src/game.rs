@@ -75,6 +75,9 @@ pub struct Bout {
     pub bump: Option<crate::ice_version::Bump>,
     pub program: String,
     pub start: Start,
+    /// The deck's script as the fight opened: what the sysops study if the deck wins, not
+    /// what the fight's SEGFAULTs left of it.
+    pub script: String,
     pub broken: bool,
     pub tells: Vec<crate::ice_version::Tell>,
 }
@@ -1369,6 +1372,7 @@ impl Game {
                 trace: self.deck.trace,
                 strength,
             },
+            script: self.program.text(),
             broken: false,
             tells: Vec::new(),
         });
@@ -1528,19 +1532,20 @@ impl Game {
     }
 
     /// The deck beat ICE `ice` running `version`: if that's still its kind's version in force,
-    /// its sysops study the deck as it stands, from how the fight opened.
+    /// its sysops study the deck as it stands, with its script and how the fight opened.
     fn wake_study(&mut self, ice: usize, version: Version) {
         if !self.watched {
             return;
         }
-        let Some(start) = self.bouts.last().map(|b| b.start) else {
+        let Some((start, script)) = self.bouts.last().map(|b| (b.start, b.script.clone())) else {
             return;
         };
         if self.ice_version(ice) != version {
             return;
         }
         let id = self.data.ice[ice].id.clone();
-        let deck = crate::ice_study::DeckLog::of(&self.deck_kit(), &self.data);
+        let mut deck = crate::ice_study::DeckLog::of(&self.deck_kit(), &self.data);
+        deck.script = script;
         let i = match self.ice_study.iter().position(|s| s.id == id) {
             Some(i) => i,
             None => {

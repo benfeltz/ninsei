@@ -642,3 +642,19 @@ fn a_fight_the_sysops_stage_wakes_nobody() {
     assert!(g.bouts.last().unwrap().broken);
     assert!(g.ice_study.is_empty());
 }
+
+#[test]
+fn the_sysops_study_the_script_as_the_fight_opened_not_what_it_garbled() {
+    let mut g = Game::new(data(), 2);
+    g.apply(Action::Program(SAFE_PICK.into()));
+    rez(&mut g, "rototurret");
+    // A SEGFAULT during the fight: the line stays bad until it's retyped.
+    g.program.garble(50, "#$%&@!?*");
+    let c = g.combat.as_mut().unwrap();
+    (c.strength, c.strength_max) = (1, 1);
+    play_out(&mut g);
+    assert!(g.bouts.last().unwrap().broken);
+    assert_ne!(g.program.text(), SAFE_PICK);
+    let s = g.ice_study.iter().find(|s| s.id == "rototurret").unwrap();
+    assert_eq!(s.deck.script, SAFE_PICK);
+}
