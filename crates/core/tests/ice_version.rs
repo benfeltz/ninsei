@@ -173,6 +173,16 @@ fn a_bad_grammar_is_rejected() {
             "weight: 0, responses: [(Fortify, 3), (Attack, 1)]),",
             "weight 0",
         ),
+        (
+            "(read: \"TURN > n\",          n: Some((2, 6)),  weight: 1, responses: [(Attack, 2), (Fortify, 1)]),",
+            "(read: \"TARGET RAN ICEPICK.EXE\", n: None, weight: 1, responses: [(Fortify, 1)]),",
+            "is `TARGET RAN icepick` again",
+        ),
+        (
+            "(read: \"TURN > n\",          n: Some((2, 6)),  weight: 1, responses: [(Attack, 2), (Fortify, 1)]),",
+            "(read: \"TARGET CPU < n\", n: Some((1, 1)),  weight: 1, responses: [(Attack, 2), (Fortify, 1)]),",
+            "is `TARGET CPU < n` again",
+        ),
         ("(tier: 1, most: 0),", "", "no tier 1"),
         (
             "(tier: 1, most: 0),",

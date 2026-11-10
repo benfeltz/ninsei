@@ -1679,8 +1679,15 @@ impl Data {
             if reads.len() < 2 {
                 return Err(format!("{} has fewer than two reads", class.label()));
             }
-            for r in reads {
+            for (i, r) in reads.iter().enumerate() {
                 let err = |m: String| Err(format!("{} read `{}`: {m}", class.label(), r.read));
+                // Twice, at any number or however it names a program, is one read.
+                let key = self.read_key(&r.with(0));
+                if key.is_some()
+                    && let Some(o) = reads[..i].iter().find(|o| self.read_key(&o.with(0)) == key)
+                {
+                    return err(format!("is `{}` again", o.read));
+                }
                 if r.weight == 0 {
                     return err("weight 0".into());
                 }
