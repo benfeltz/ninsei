@@ -374,9 +374,47 @@ pub struct BbsDef {
     /// Whether it posts contracts. A corporate customer line doesn't.
     #[serde(default = "yes")]
     pub jobs: bool,
+    /// The news of new ICE versions it hears, as a bulletin after its own (none: it doesn't).
+    #[serde(default)]
+    pub ice_news: Option<IceNewsDef>,
     /// Pipe-coded splash art, from the board's `splash.txt`.
     #[serde(skip)]
     pub splash: String,
+}
+
+/// What a board says about new ICE versions, in its own voice: a bulletin listing the latest
+/// versions shipped of the ICE tiers it hears about, newest first. A rumour says a kind changed
+/// and how big the change was, never what it now does.
+#[derive(Deserialize, Clone, Debug)]
+pub struct IceNewsDef {
+    pub title: String,
+    /// The ICE tiers (`ice.ron`'s `tier`) the board hears about.
+    pub tiers: Vec<u32>,
+    /// The most versions it lists.
+    pub count: usize,
+    /// Its body when there's nothing to tell.
+    pub none: Vec<String>,
+    /// A line per version, by how big a change it was: `{ice}` is the kind's name and
+    /// `{version}` the new version.
+    pub patch: String,
+    pub minor: String,
+    pub major: String,
+}
+
+/// The words an ICE news line may fill in.
+pub const NEWS_SLOTS: [&str; 2] = ["{ice}", "{version}"];
+
+impl IceNewsDef {
+    /// The line for a version made by `bump`, filled in for `ice` at `version`.
+    pub fn line(&self, bump: crate::ice_version::Bump, ice: &str, version: &str) -> String {
+        use crate::ice_version::Bump;
+        let t = match bump {
+            Bump::Patch => &self.patch,
+            Bump::Minor => &self.minor,
+            Bump::Major => &self.major,
+        };
+        t.replace("{ice}", ice).replace("{version}", version)
+    }
 }
 
 /// A textfile on a board: a title and pipe-coded lines, read on a BBS screen.
@@ -1176,6 +1214,10 @@ impl Data {
         }
         self.validate_ice_grammar()
             .map_err(|e| format!("ice_grammar.ron: {e}"))?;
+        for b in &self.boards {
+            self.validate_ice_news(b)
+                .map_err(|e| format!("bbs/{}/board.ron ice_news: {e}", b.id))?;
+        }
         for ice in &self.ice {
             self.validate_ice_program(ice)
                 .map_err(|e| format!("ICE `{}`: {e}", ice.id))?;
@@ -1643,6 +1685,69 @@ impl Data {
     /// The tune called `id` (a file in `data/music/`).
     pub fn tune(&self, id: &str) -> Option<&TuneFile> {
         self.tunes.iter().find(|t| t.id == id)
+    }
+
+    /// A board's ICE news: tiers some ICE has, a count of 1 to 9, only the known words to fill,
+    /// every line within the terminal with the longest name and a long version, and room on the
+    /// bulletins menu (at most 8 of its own, so the news is the 9th at most).
+    fn validate_ice_news(&self, b: &BbsDef) -> Result<(), String> {
+        let Some(n) = &b.ice_news else {
+            return Ok(());
+        };
+        if b.bulletins.len() > 8 {
+            return Err(format!(
+                "{} bulletins leave no room for the news",
+                b.bulletins.len()
+            ));
+        }
+        if !(1..=9).contains(&n.count) {
+            return Err(format!("count {} (1-9)", n.count));
+        }
+        if n.tiers.is_empty() {
+            return Err("hears no tiers".into());
+        }
+        if let Some(t) = n
+            .tiers
+            .iter()
+            .find(|t| !self.ice.iter().any(|i| i.tier == **t))
+        {
+            return Err(format!("no ICE of tier {t}"));
+        }
+        if n.none.is_empty() {
+            return Err("nothing to say when there's no news".into());
+        }
+        let longest = self
+            .ice
+            .iter()
+            .map(|i| i.name.as_str())
+            .max_by_key(|n| n.chars().count())
+            .unwrap_or("");
+        for bump in [
+            crate::ice_version::Bump::Patch,
+            crate::ice_version::Bump::Minor,
+            crate::ice_version::Bump::Major,
+        ] {
+            let filled = n.line(bump, longest, "99.99.99");
+            if filled.contains('{') || filled.contains('}') {
+                return Err(format!(
+                    "`{filled}` has a word it can't fill ({NEWS_SLOTS:?})"
+                ));
+            }
+        }
+        // A bulletin's lines are indented three cells in a 78-cell screen.
+        for line in n.none.iter().cloned().chain(
+            [
+                crate::ice_version::Bump::Patch,
+                crate::ice_version::Bump::Minor,
+                crate::ice_version::Bump::Major,
+            ]
+            .map(|bump| n.line(bump, longest, "99.99.99")),
+        ) {
+            if crate::ansi::visible_len(&line) > crate::bbs::COLS - 3 {
+                return Err(format!("`{line}` is wider than the terminal"));
+            }
+        }
+        Ok(())
     }
 
     /// The grammar: every tier on the map listed once in `fair`, every class an ICE has given

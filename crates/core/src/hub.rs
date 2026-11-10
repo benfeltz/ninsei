@@ -2401,6 +2401,7 @@ impl Save {
                 .into_iter()
                 .map(|v| (v.id.clone(), v.version, v.program.clone()))
                 .collect(),
+            shipped: self.shipped(data),
             origins,
         }
     }
@@ -2516,6 +2517,22 @@ impl Save {
     fn in_force(v: &IceVer, row: &crate::data::IceDef, data: &Data) -> bool {
         v.version > crate::ice_version::Version::FIRST
             && data.check_ice_program(row, &v.program).is_ok()
+    }
+
+    /// The versions in force as the boards heard of them, in the order they shipped (the order
+    /// `ice_versions` keeps): (ICE id, version, how it was made).
+    pub fn shipped(
+        &self,
+        data: &Data,
+    ) -> Vec<(
+        String,
+        crate::ice_version::Version,
+        crate::ice_version::Bump,
+    )> {
+        self.patches(data)
+            .into_iter()
+            .filter_map(|v| Some((v.id.clone(), v.version, v.bump?)))
+            .collect()
     }
 
     /// The saved versions in force, the first for each kind ([`Save::ice_program`]'s), each

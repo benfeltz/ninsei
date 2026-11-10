@@ -36,11 +36,17 @@ pub struct HomeCall {
     cracks: Vec<(String, String)>,
     /// Each tune's id and its title, for "you already have".
     tune_titles: Vec<(String, String)>,
+    /// The board's news of new ICE versions, as it stands today.
+    news: Option<crate::data::BulletinDef>,
 }
 
 impl Line for HomeCall {
     fn board(&self) -> &BbsDef {
         &self.def
+    }
+
+    fn news(&self) -> Option<crate::data::BulletinDef> {
+        self.news.clone()
     }
 
     fn stock(&self) -> &[Vec<StockFile>] {
@@ -211,6 +217,16 @@ impl Save {
             tool_defs: data.tools.clone(),
             cracks: data.crack_labels(),
             tune_titles: data.tune_titles(),
+            news: {
+                let shipped: Vec<_> = self
+                    .shipped(data)
+                    .into_iter()
+                    .filter_map(|(id, v, b)| {
+                        Some((data.ice.iter().position(|i| i.id == id)?, v, b))
+                    })
+                    .collect();
+                crate::bbs::news_bulletin(&data.boards[board], data, &shipped)
+            },
         }
     }
 

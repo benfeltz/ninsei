@@ -158,6 +158,13 @@ pub struct Kit {
     /// The ICE kinds whose version in force isn't 1.0.0 (from the save's `ice_versions`): (ICE
     /// id, version, program). A fight against one runs this program in place of its row's.
     pub ice_programs: Vec<(String, crate::ice_version::Version, String)>,
+    /// Those versions as the boards heard of them, in the order they shipped: (ICE id,
+    /// version, how it was made). What a board's ICE news reads.
+    pub shipped: Vec<(
+        String,
+        crate::ice_version::Version,
+        crate::ice_version::Bump,
+    )>,
     /// For each of `programs`, the stash id it came from (`None` for a free program). The run
     /// remembers them so the loadout comes home in its place.
     pub origins: Vec<Option<u32>>,
@@ -191,6 +198,7 @@ impl Default for Kit {
             texts: Vec::new(),
             ice_known: Vec::new(),
             ice_programs: Vec::new(),
+            shipped: Vec::new(),
             origins: Vec::new(),
             free: Vec::new(),
         }
@@ -455,6 +463,9 @@ pub struct Game {
     /// `Data::ice`, version, its program parsed once). Every ICE of a kind runs the same
     /// version all run.
     pub ice_versions: Vec<(usize, Version, Program)>,
+    /// The versions in force as the boards heard of them, in the order they shipped: (index into
+    /// `Data::ice`, version, how it was made), from `Kit::shipped`. What a board's news reads.
+    pub shipped: Vec<(usize, Version, crate::ice_version::Bump)>,
     /// Every fight this run, in order, as the rules saw it: what its ICE's sysops read in their
     /// logs. `Save::record` writes the next versions from it.
     pub bouts: Vec<Bout>,
@@ -641,6 +652,11 @@ impl Game {
                 Some((ice, crate::ice_listing::tidy(lines.clone())))
             })
             .collect();
+        let shipped = kit
+            .shipped
+            .iter()
+            .filter_map(|(id, v, b)| Some((data.ice.iter().position(|i| &i.id == id)?, *v, *b)))
+            .collect();
         let ice_versions = kit
             .ice_programs
             .iter()
@@ -684,6 +700,7 @@ impl Game {
             ice_versions,
             bouts: Vec::new(),
             killer: None,
+            shipped,
             history: crate::history::History::default(),
             cues: Vec::new(),
             site: kit.site.clone(),

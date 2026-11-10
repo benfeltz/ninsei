@@ -52,6 +52,21 @@
             "|07WED  soy loaf",
         ]),
     ],
+    // The Office of Information Security's notices about the perimeter software it deploys:
+    // product names and release kinds, in policy voice. It never calls it ICE.
+    ice_news: Some((
+        title: "PERIMETER UPDATES",
+        tiers: [1, 2],
+        count: 6,
+        none: [
+            "|07All perimeter software is current. No action is required.",
+            "",
+            "|08-- Office of Information Security",
+        ],
+        patch: "|07Maintenance release |15{ice} {version}|07 has been deployed to all sites.",
+        minor: "|07Feature release |15{ice} {version}|07 has been deployed. No action required.",
+        major: "|07Major release |15{ice} {version}|07 deployed following a security review.",
+    )),
     users: [
         (handle: "HELPDESK",   location: "Bldg 4",      doing: "Resetting passwords"),
         (handle: "J.TANAKA",   location: "Accounts",    doing: "Reading Memos"),
