@@ -43,27 +43,56 @@ pub struct Tell {
     pub turn: u32,
 }
 
-impl Tell {
-    /// Whether an ICE's condition is true of this deck. A condition no ICE can write (the
-    /// deck's own words) is false.
-    pub fn holds(&self, cond: &Cond) -> bool {
-        match cond {
-            Cond::Target(t, op, n) => op.test(
-                match t {
-                    Target::Integ => self.integ,
-                    Target::Shield => self.shield,
-                    Target::Cpu => self.cpu,
-                },
-                *n,
-            ),
-            Cond::TargetRan(name) => self
-                .ran
-                .iter()
-                .any(|(n, id)| crate::basic::names(name, n, id)),
-            Cond::SelfStr(op, n) => op.test(self.strength, *n),
-            Cond::Cmp(Var::Turn, op, n) => op.test(self.turn, *n),
-            _ => false,
+/// What an ICE's conditions read: a fight as it stands, or a turn in the logs ([`Tell`]).
+pub trait Reads {
+    /// `TARGET INTEG`, `TARGET SHIELD`, `TARGET CPU`.
+    fn target(&self, t: Target) -> u32;
+    /// `TARGET RAN <name>`.
+    fn ran(&self, name: &str) -> bool;
+    /// `SELF STR`.
+    fn strength(&self) -> u32;
+    /// `TURN`.
+    fn turn(&self) -> u32;
+}
+
+/// Whether an ICE's condition is true of what `r` reads: the one place an ICE's conditions are
+/// decided, in a fight and in the logs. A condition no ICE can write (the deck's own words) is
+/// false.
+pub fn holds(cond: &Cond, r: &impl Reads) -> bool {
+    match cond {
+        Cond::Target(t, op, n) => op.test(r.target(*t), *n),
+        Cond::TargetRan(name) => r.ran(name),
+        Cond::SelfStr(op, n) => op.test(r.strength(), *n),
+        Cond::Cmp(Var::Turn, op, n) => op.test(r.turn(), *n),
+        _ => false,
+    }
+}
+
+impl Reads for Tell {
+    fn target(&self, t: Target) -> u32 {
+        match t {
+            Target::Integ => self.integ,
+            Target::Shield => self.shield,
+            Target::Cpu => self.cpu,
         }
+    }
+    fn ran(&self, name: &str) -> bool {
+        self.ran
+            .iter()
+            .any(|(n, id)| crate::basic::names(name, n, id))
+    }
+    fn strength(&self) -> u32 {
+        self.strength
+    }
+    fn turn(&self) -> u32 {
+        self.turn
+    }
+}
+
+impl Tell {
+    /// Whether an ICE's condition was true on this turn ([`holds`]).
+    pub fn holds(&self, cond: &Cond) -> bool {
+        holds(cond, self)
     }
 }
 

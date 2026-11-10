@@ -1505,11 +1505,14 @@ impl Game {
             Cond::Next(m) => self.ice_next().is_some_and(|i| m.is(i)),
             Cond::Have(name) => self.slot_named(name).is_some(),
             // An ICE's: read as its sysop will read the logs.
-            Cond::Target(..) | Cond::TargetRan(_) | Cond::SelfStr(..) => self.tell().holds(cond),
+            Cond::Target(..) | Cond::TargetRan(_) | Cond::SelfStr(..) => {
+                crate::ice_version::holds(cond, self)
+            }
         }
     }
 
-    /// The deck as the ICE's conditions read it right now ([`crate::ice_version::Tell`]).
+    /// The deck as the ICE's conditions read it right now, kept for the logs
+    /// ([`crate::ice_version::Tell`]); a fight reads it in place ([`crate::ice_version::Reads`]).
     pub fn tell(&self) -> crate::ice_version::Tell {
         let c = self.combat.as_ref();
         crate::ice_version::Tell {
@@ -2716,4 +2719,30 @@ pub fn roll_stock(def: &crate::data::BbsDef, rng: &mut Rng) -> Vec<Vec<StockFile
                 .collect()
         })
         .collect()
+}
+
+/// A fight as its ICE's conditions read it, in place: what [`Game::tell`] copies for the logs.
+impl crate::ice_version::Reads for Game {
+    fn target(&self, t: crate::basic::Target) -> u32 {
+        let c = self.combat.as_ref();
+        match t {
+            crate::basic::Target::Integ => self.deck.integrity,
+            crate::basic::Target::Shield => c.map_or(0, |c| c.shield),
+            crate::basic::Target::Cpu => c.map_or(0, |c| c.cpu),
+        }
+    }
+    fn ran(&self, name: &str) -> bool {
+        self.combat.as_ref().is_some_and(|c| {
+            self.hdd.iter().any(|s| {
+                c.ran.contains(&s.uid)
+                    && crate::basic::names(name, &s.spec.name, &self.data.warez[s.warez].id)
+            })
+        })
+    }
+    fn strength(&self) -> u32 {
+        self.combat.as_ref().map_or(0, |c| c.strength)
+    }
+    fn turn(&self) -> u32 {
+        self.combat.as_ref().map_or(0, |c| c.turn)
+    }
 }
