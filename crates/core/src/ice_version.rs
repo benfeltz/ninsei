@@ -301,6 +301,15 @@ pub enum Bump {
 }
 
 impl Bump {
+    /// The word a changelog prints it as.
+    pub fn word(self) -> &'static str {
+        match self {
+            Bump::Patch => "patch",
+            Bump::Minor => "minor",
+            Bump::Major => "major",
+        }
+    }
+
     /// The next smaller change, if any: what the generator falls back to when no change of this
     /// kind fits.
     pub fn smaller(self) -> Option<Bump> {

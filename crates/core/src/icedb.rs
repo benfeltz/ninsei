@@ -60,6 +60,16 @@ pub fn matching(save: &Save, data: &Data, class: IceClass) -> Vec<String> {
     out
 }
 
+/// A version you met, as the ICE DB keeps it.
+struct Known<'a> {
+    version: crate::ice_version::Version,
+    bump: Option<crate::ice_version::Bump>,
+    program: &'a str,
+    lines: &'a [u32],
+    won: u32,
+    lost: u32,
+}
+
 /// A line of an entry's page, and whether the window mutes it (a listing line not yet seen
 /// run).
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -74,23 +84,100 @@ impl PageLine {
     }
 }
 
-impl Entry<'_> {
-    /// Its program, decompiled from the lines you've seen it run: a heading saying how much
-    /// is known, then each line numbered, the unseen ones `????`. Empty until you've met it.
-    /// Each line comes with whether it's muted: a line not yet seen run.
-    pub fn listing(&self) -> Vec<PageLine> {
+impl<'a> Entry<'a> {
+    /// Every version of it you've met, as you knew each, newest first: the last one met, then
+    /// `IceSeen::past`. Empty until you've met it, or if the save no longer holds the last one's
+    /// program.
+    fn versions(&self) -> Vec<Known<'_>> {
         let (Some(s), Some(program)) = (self.seen, self.program) else {
             return Vec::new();
         };
-        let rows = crate::ice_listing::decompile_def(program, &self.def.verbs, &s.lines);
-        let (seen, all) = crate::ice_listing::known(&rows);
+        let row = |p: &'a str| {
+            if p.is_empty() {
+                self.def.program.as_str()
+            } else {
+                p
+            }
+        };
+        let mut out = vec![Known {
+            version: s.version,
+            bump: s.bump,
+            program,
+            lines: &s.lines,
+            won: s.won,
+            lost: s.lost,
+        }];
+        out.extend(s.past.iter().rev().map(|p| Known {
+            version: p.version,
+            bump: p.bump,
+            program: row(&p.program),
+            lines: &p.lines,
+            won: p.won,
+            lost: p.lost,
+        }));
+        out
+    }
+
+    /// Version `k` of `vs` (newest first) decompiled from what you saw it run, each seen line
+    /// marked against the version before it (`ice_listing::changes`), under a heading saying
+    /// how much of it is known.
+    fn known_listing(&self, vs: &[Known<'_>], k: usize, heading: &str) -> Vec<PageLine> {
+        let v = &vs[k];
+        let prev = vs.get(k + 1).map(|p| (p.program, p.lines));
+        let rows = crate::ice_listing::changes(&self.def.verbs, prev, (v.program, v.lines));
+        let mine: Vec<_> = rows
+            .iter()
+            .filter(|r| r.mark != crate::ice_listing::Mark::Removed)
+            .collect();
+        let seen = mine.iter().filter(|r| r.text.is_some()).count();
         let mut out = vec![PageLine::plain(format!(
-            "listing        decompiled, {seen} of {all} lines seen"
+            "{heading}{}, decompiled, {seen} of {} lines seen",
+            v.version,
+            mine.len()
         ))];
         out.extend(rows.iter().map(|r| PageLine {
-            text: format!("  {:>3} {}", r.no, r.shown()),
+            text: format!(" {}{:>3} {}", r.mark.glyph(), r.no, r.shown()),
             muted: r.text.is_none(),
         }));
+        out
+    }
+
+    /// Its program as you last met it, decompiled from the lines you've seen it run and marked
+    /// against the version before: a heading saying how much is known, then each line numbered,
+    /// the unseen ones `????` (and muted). Empty until you've met it.
+    pub fn listing(&self) -> Vec<PageLine> {
+        let vs = self.versions();
+        if vs.is_empty() {
+            return Vec::new();
+        }
+        self.known_listing(&vs, 0, "listing        ")
+    }
+
+    /// The changelog under the listing: a row per version met (its number, how it was made,
+    /// the fights it won and lost), newest first, then each older version's listing as you
+    /// knew it, marked against the one before it. Empty until a second version is met.
+    pub fn changelog(&self) -> Vec<PageLine> {
+        let vs = self.versions();
+        if vs.len() < 2 {
+            return Vec::new();
+        }
+        let mut out = vec![
+            PageLine::plain(String::new()),
+            PageLine::plain("versions       bump     won  lost".into()),
+        ];
+        out.extend(vs.iter().map(|v| {
+            PageLine::plain(format!(
+                "  {:<12} {:<6} {:>5} {:>5}",
+                v.version.to_string(),
+                v.bump.map_or("-", |b| b.word()),
+                v.won,
+                v.lost
+            ))
+        }));
+        for k in 1..vs.len() {
+            out.push(PageLine::plain(String::new()));
+            out.extend(self.known_listing(&vs, k, ""));
+        }
         out
     }
 
@@ -127,7 +214,7 @@ impl Entry<'_> {
             format!("{}-{}", s.lo, s.hi)
         };
         let mut out = vec![
-            format!("{}  [{}]  {kind}", d.name, d.class.label()),
+            format!("{} {}  [{}]  {kind}", d.name, s.version, d.class.label()),
             String::new(),
             format!("strength seen  {range}"),
             format!("met            {}", s.met),
@@ -151,6 +238,7 @@ impl Entry<'_> {
         } else {
             format!("x2 vs {}: {}", d.class.label(), m.join(", "))
         }));
+        out.extend(self.changelog());
         out
     }
 }
