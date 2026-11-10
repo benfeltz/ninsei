@@ -1,6 +1,7 @@
 //! ICE that patch themselves (141.9): the ICE's machine on its row, the class grammar, versions
 //! and the generator that writes the next one, and the versions a save carries into a fight.
 
+use ninsei_core::hub::Save;
 use ninsei_core::*;
 
 /// The builtin data with `ice.ron` edited by `edit` (a find and its replacement, which must be
@@ -476,4 +477,136 @@ fn a_bias_draws_its_read_more() {
     let plain = count(&[]);
     let biased = count(&[("TARGET RAN icepick".to_string(), 40)]);
     assert!(biased > plain * 2, "{plain} -> {biased}");
+}
+
+/// A fight against ICE `id` from a run started with `kit`, strong enough to last.
+fn fight_with(data: Data, kit: &Kit, id: &str) -> Game {
+    let mut g = Game::start(data, 7, kit);
+    let target = g.net.nodes[g.at].links[0];
+    let ice = g.data.ice.iter().position(|i| i.id == id).unwrap();
+    g.net.nodes[target].kind = NodeKind::Ice;
+    g.net.nodes[target].ice = Some(ice);
+    g.net.nodes[target].cleared = false;
+    g.apply(Action::Move(target));
+    assert_eq!(g.phase, Phase::Combat);
+    let c = g.combat.as_mut().unwrap();
+    c.strength = 500;
+    c.strength_max = 500;
+    g
+}
+
+/// A save whose Rototurret the sysops have patched to `program` at 1.0.1.
+fn patched(program: &str) -> Save {
+    use ice_version::{Bump, Version};
+    Save {
+        key: 99,
+        ice_versions: vec![hub::IceVer {
+            id: "rototurret".into(),
+            version: Version::default().bumped(Bump::Patch),
+            program: program.into(),
+        }],
+        ..Save::default()
+    }
+}
+
+#[test]
+fn a_version_in_the_save_is_what_the_fight_runs() {
+    use fight::NextMove;
+    use ice_version::Version;
+    let d = Data::builtin().unwrap();
+    let save = patched("10 ATTACK 3\n20 ATTACK 8");
+    let (v, program) = save.ice_program("rototurret", &d).unwrap();
+    assert_eq!(v.to_string(), "1.0.1");
+    assert_eq!(program, "10 ATTACK 3\n20 ATTACK 8");
+    let kit = save.kit(&d);
+    assert_eq!(
+        kit.ice_programs,
+        vec![("rototurret".to_string(), v, program.to_string())]
+    );
+    let mut g = fight_with(d.clone(), &kit, "rototurret");
+    let c = g.combat.as_ref().unwrap();
+    assert_eq!(c.ice_version, v);
+    assert_eq!(c.ice_prog.text(), "10 ATTACK 3\n20 ATTACK 8");
+    assert_eq!(g.next_move(), Some(NextMove::Act(Intent::Attack(3))));
+    g.apply(Action::EndTurn);
+    assert_eq!(g.next_move(), Some(NextMove::Act(Intent::Attack(8))));
+    // Every other kind runs its row's, at 1.0.0.
+    let g = fight_with(d.clone(), &kit, "hunter");
+    let c = g.combat.as_ref().unwrap();
+    assert_eq!(c.ice_version, Version::default());
+    let hunter = d.ice.iter().find(|i| i.id == "hunter").unwrap();
+    let row = basic::parse_with(&hunter.program, basic::Vocab::Ice(&hunter.verbs));
+    assert_eq!(c.ice_prog, row);
+}
+
+#[test]
+fn a_bare_kit_runs_the_rows_program() {
+    let d = Data::builtin().unwrap();
+    assert!(Save::default().kit(&d).ice_programs.is_empty());
+    let g = fight_with(d.clone(), &Kit::default(), "rototurret");
+    let c = g.combat.as_ref().unwrap();
+    assert_eq!(c.ice_version.to_string(), "1.0.0");
+    let row = d.ice.iter().find(|i| i.id == "rototurret").unwrap();
+    assert_eq!(
+        c.ice_prog,
+        basic::parse_with(&row.program, basic::Vocab::Ice(&row.verbs))
+    );
+}
+
+#[test]
+fn a_saved_program_that_no_longer_fits_falls_back_to_the_rows() {
+    let d = Data::builtin().unwrap();
+    let row = d.ice.iter().find(|i| i.id == "rototurret").unwrap();
+    // Past ATTACK's range, a verb it doesn't have, longer than its HDD, and nonsense.
+    for bad in [
+        "10 ATTACK 99",
+        "10 TRACE 3",
+        "10 ATTACK 3\n20 ATTACK 3\n30 ATTACK 3\n40 ATTACK 3\n50 ATTACK 3\n60 ATTACK 3\n70 ATTACK 3",
+        "garbage",
+    ] {
+        let save = patched(bad);
+        let (v, program) = save.ice_program("rototurret", &d).unwrap();
+        assert_eq!(v.to_string(), "1.0.0", "{bad}");
+        assert_eq!(program, row.program, "{bad}");
+        assert!(save.kit(&d).ice_programs.is_empty(), "{bad}");
+    }
+    assert_eq!(Save::default().ice_program("nobody", &d), None);
+}
+
+#[test]
+fn a_save_from_before_versions_loads() {
+    let text = Save::default().to_text();
+    let old: String = text
+        .lines()
+        .filter(|l| !l.trim_start().starts_with("ice_versions"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert_ne!(old, text);
+    let s = Save::load(&old).unwrap();
+    assert!(s.ice_versions.is_empty());
+    // And a save with a version round-trips.
+    let p = patched("10 ATTACK 3\n20 ATTACK 8");
+    assert_eq!(Save::load(&p.to_text()), Ok(p));
+}
+
+#[test]
+fn the_same_save_gives_the_same_versions() {
+    use ice_version::{Bump, next_version, seed};
+    let d = Data::builtin().unwrap();
+    let save = patched("10 ATTACK 3\n20 ATTACK 8");
+    assert_eq!(save.kit(&d), save.kit(&d));
+    let row = d.ice.iter().find(|i| i.id == "rototurret").unwrap();
+    let (v, program) = save.ice_program("rototurret", &d).unwrap();
+    let draw = |key| next_version(&d, row, program, Bump::Minor, &[], seed(key, &row.id, v));
+    assert_eq!(draw(save.key), draw(save.key));
+    // And a run with versions in force plays the same for the same seed.
+    let kit = save.kit(&d);
+    let mut a = fight_with(d.clone(), &kit, "rototurret");
+    let mut b = fight_with(d.clone(), &kit, "rototurret");
+    for _ in 0..3 {
+        a.apply(Action::EndTurn);
+        b.apply(Action::EndTurn);
+    }
+    assert_eq!(a.deck, b.deck);
+    assert_eq!(a.combat, b.combat);
 }

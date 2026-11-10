@@ -1065,6 +1065,11 @@ pub struct Save {
     /// database, and never changes play.
     #[serde(default)]
     pub ice_seen: Vec<IceSeen>,
+    /// The ICE kinds the sysops have patched: each one's version in force and its program,
+    /// what every net runs from the next jack-in. A kind not here runs 1.0.0, its row in
+    /// `ice.ron`.
+    #[serde(default)]
+    pub ice_versions: Vec<IceVer>,
     /// Programs open with their cracktros (`data/intros/`). On unless switched off in System.
     #[serde(default = "default_intros")]
     pub intros: bool,
@@ -1112,6 +1117,15 @@ pub struct IceSeen {
     /// The lines of its program you've seen it run, sorted: what the ICE DB decompiles.
     #[serde(default)]
     pub lines: Vec<u32>,
+}
+
+/// A kind's version in force and the program it runs.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct IceVer {
+    /// By id in `data/ice.ron`.
+    pub id: String,
+    pub version: crate::ice_version::Version,
+    pub program: String,
 }
 
 /// A textfile on your disk: which board it came from and its id in that board's `texts`.
@@ -1223,6 +1237,7 @@ impl Default for Save {
             game_rounds: Default::default(),
             texts: Vec::new(),
             ice_seen: Vec::new(),
+            ice_versions: Vec::new(),
             intros: default_intros(),
             guide_seen: false,
             starters_given: false,
@@ -2209,8 +2224,39 @@ impl Save {
                 .filter(|s| self.has_tool("icedb") && !s.lines.is_empty())
                 .map(|s| (s.id.clone(), s.lines.clone()))
                 .collect(),
+            // The sysops' patches: every net runs a patched kind's version.
+            ice_programs: self
+                .ice_versions
+                .iter()
+                .filter_map(|v| {
+                    let (version, program) = self.ice_program(&v.id, data)?;
+                    (version == v.version).then(|| (v.id.clone(), version, program.to_string()))
+                })
+                .collect(),
             origins,
         }
+    }
+
+    /// The version of ICE kind `id` in force and its program: the save's, or 1.0.0 and the
+    /// row's own when the sysops haven't patched it. A saved program that no longer passes the
+    /// row's check (the row changed under it) falls back to the row's: saves load, never crash.
+    /// `None` for an id that isn't in `ice.ron`.
+    pub fn ice_program<'a>(
+        &'a self,
+        id: &str,
+        data: &'a Data,
+    ) -> Option<(crate::ice_version::Version, &'a str)> {
+        let row = data.ice.iter().find(|i| i.id == id)?;
+        Some(
+            match self
+                .ice_versions
+                .iter()
+                .find(|v| v.id == id && data.check_ice_program(row, &v.program).is_ok())
+            {
+                Some(v) => (v.version, v.program.as_str()),
+                None => (crate::ice_version::Version::default(), row.program.as_str()),
+            },
+        )
     }
 
     /// The deck's program: as the last run left it, or the one its kit shipped.
