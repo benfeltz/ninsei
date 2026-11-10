@@ -17,6 +17,11 @@
 //      Its turn ends when either runs out, at the end of the program (it starts at the top
 //      next turn), or when it goes round without spending either: it stalls.
 // hdd: the most lines its program may hold (REMs don't count).
+// The class sets the machine's shape and the tier its size: a sentry leans CPU (a short
+// program, few reads), a code gate RAM (it reads you closely), a barrier HDD (a long program on
+// a slow machine). Every tier-1 ICE has cpu 1: the starter deck can't take two hits a turn.
+// Every program is in block form (each IF guards one verb, no GOTO or STOP), so every kind can
+// be patched.
 // ranges: [(Verb, lo, hi)] the numbers each verb's line may carry, one range for every verb on
 //         `verbs` that takes a number (Segfault takes none). cpu, ram, hdd and the ranges are
 //         the ICE's machine: every version of its program (1.0.0 is the one here; the sysops
@@ -29,7 +34,7 @@
     // A barrier that digs in once you've spent your cycles.
     (id: "icewall",    name: "Ice Wall",   class: Barrier,  tier: 1, strength: 14,
         cpu: 1, ram: 1, verbs: [Fortify, Attack],
-        hdd: 5, ranges: [(Fortify, 3, 5), (Attack, 3, 5)],
+        hdd: 10, ranges: [(Fortify, 3, 5), (Attack, 3, 5)],
         program: "
             10 IF TARGET CPU < 1
             20 FORTIFY 4
@@ -37,7 +42,7 @@
     // A barrier that rebuilds itself when it's been hurt.
     (id: "bulwark",    name: "Bulwark",    class: Barrier,  tier: 1, strength: 18,
         cpu: 1, ram: 1, verbs: [Fortify, Attack],
-        hdd: 6, ranges: [(Fortify, 4, 6), (Attack, 2, 5)],
+        hdd: 10, ranges: [(Fortify, 4, 6), (Attack, 2, 5)],
         program: "
             10 IF SELF STR < 12
             20 FORTIFY 5
@@ -45,8 +50,8 @@
             40 ATTACK 3"),
     // A code gate that runs the clock when you hide behind a firewall.
     (id: "enigma",     name: "Enigma",     class: CodeGate, tier: 1, strength: 12,
-        cpu: 1, ram: 1, verbs: [Trace, Attack],
-        hdd: 6, ranges: [(Trace, 3, 11), (Attack, 3, 5)],
+        cpu: 1, ram: 2, verbs: [Trace, Attack],
+        hdd: 8, ranges: [(Trace, 3, 11), (Attack, 3, 5)],
         program: "
             10 IF TARGET SHIELD > 0
             20 TRACE 10
@@ -81,39 +86,33 @@
             20 ATTACK 8
             30 TRACE 4
             40 ATTACK 5"),
-    // Black ICE. A sentry that hides what it'll do next from a deck behind a firewall, then runs
-    // the clock, and shoots the moment the firewall's down, harder the weaker you are. It sits deep, where every layer adds to its strength.
+    // Black ICE. A sentry on a fast machine: it hides what it'll do next from a deck behind a
+    // firewall, shoots twice a turn, harder the weaker you are, and runs the clock. It sits
+    // deep, where every layer adds to its strength.
     (id: "archer",     name: "Archer",     class: Sentry,   tier: 2, strength: 11,
-        cpu: 1, ram: 2, verbs: [Attack, Trace, Spoof],
-        hdd: 14, ranges: [(Attack, 3, 7), (Trace, 2, 5), (Spoof, 1, 3)],
+        cpu: 2, ram: 2, verbs: [Attack, Trace, Spoof],
+        hdd: 10, ranges: [(Attack, 3, 7), (Trace, 2, 5), (Spoof, 1, 3)],
         program: "
             10 IF TARGET SHIELD > 0
-            20 GOTO 80
+            20 SPOOF 2
             30 IF TARGET INTEG < 8
-            40 GOTO 70
+            40 ATTACK 6
             50 ATTACK 4
-            55 TRACE 3
-            60 GOTO 10
-            70 ATTACK 6
-            75 GOTO 10
-            80 SPOOF 2
-            85 TRACE 4
-            90 GOTO 10"),
-    // Black ICE. A code gate that garbles the line that raised your firewall, traces you
-    // whenever you're shielded, rewriting itself as it does, and otherwise hits. It sits deep, where every layer adds to its strength.
+            60 TRACE 3"),
+    // Black ICE. A code gate that garbles the line that raised your firewall, traces you while
+    // you're shielded, rebuilds itself when it's hurt, and otherwise hits. It sits deep, where
+    // every layer adds to its strength.
     (id: "hydra",      name: "Hydra",      class: CodeGate, tier: 2, strength: 11,
-        cpu: 1, ram: 2, verbs: [Trace, Attack, Fortify, Segfault],
-        hdd: 11, ranges: [(Trace, 4, 6), (Attack, 3, 5), (Fortify, 1, 3)],
+        cpu: 1, ram: 3, verbs: [Trace, Attack, Fortify, Segfault],
+        hdd: 10, ranges: [(Trace, 4, 6), (Attack, 3, 5), (Fortify, 1, 3)],
         program: "
             10 IF TARGET RAN firewall
             20 SEGFAULT
             30 IF TARGET SHIELD > 0
-            40 GOTO 70
-            50 ATTACK 4
-            60 GOTO 10
-            70 TRACE 5
-            80 FORTIFY 2
-            90 GOTO 10"),
+            40 TRACE 5
+            50 IF SELF STR < 8
+            60 FORTIFY 2
+            70 ATTACK 4"),
     // A rival on the line, not the map: it hides its moves from a firewall, garbles a patcher's
     // program, hits, and gives up when it's losing.
     (id: "rival",      name: "kr4ken",     class: CodeGate, tier: 0, strength: 20,
