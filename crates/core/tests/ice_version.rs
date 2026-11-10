@@ -124,7 +124,7 @@ fn grammar_edited(find: &str, replace: &str) -> Result<Data, String> {
 #[test]
 fn the_shipped_grammar_loads() {
     let d = Data::builtin().unwrap();
-    for class in [IceClass::Barrier, IceClass::CodeGate, IceClass::Sentry] {
+    for class in IceClass::ALL {
         assert!(d.ice_grammar.reads(class).len() >= 2, "{class:?}");
     }
     assert!(!d.ice_grammar.program_attacks.is_empty());

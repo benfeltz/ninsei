@@ -11,6 +11,9 @@ pub enum IceClass {
 }
 
 impl IceClass {
+    /// Every class.
+    pub const ALL: [IceClass; 3] = [IceClass::Barrier, IceClass::CodeGate, IceClass::Sentry];
+
     pub fn label(self) -> &'static str {
         match self {
             IceClass::Barrier => "BARRIER",
@@ -1667,7 +1670,7 @@ impl Data {
                 return Err(format!("{} is listed twice", c.class.label()));
             }
         }
-        for class in [IceClass::Barrier, IceClass::CodeGate, IceClass::Sentry] {
+        for class in IceClass::ALL {
             let rows: Vec<&IceDef> = self.ice.iter().filter(|i| i.class == class).collect();
             if rows.is_empty() {
                 continue;
