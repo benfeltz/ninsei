@@ -715,6 +715,12 @@ impl App {
     fn sysops_tick(&mut self, now: f64) -> Option<f64> {
         use ninsei_core::ice_study::{busy, owed};
         let in_run = self.booked.is_none() && self.screen != Screen::Hub;
+        // A run that's over and not yet home (the keep picker, the crash screen) can't spend
+        // the time, and its studies aren't the save's yet: the clock isn't read, so the time
+        // goes to the save's once it's booked.
+        if in_run && matches!(self.game.phase, Phase::JackedOut | Phase::Flatlined) {
+            return None;
+        }
         let studies = if in_run {
             &self.game.ice_study
         } else {
@@ -2254,6 +2260,23 @@ mod tests {
                 "more owed: next frame"
             );
             assert_eq!(tried(&app), 2 * sysops::DRAFTS_PER_FRAME);
+        }
+
+        #[test]
+        fn time_at_the_exit_is_the_save_s_once_the_run_is_booked() {
+            let mut app = app();
+            app.save.ice_study = vec![enigma_study(&app.data)];
+            let entry = app.save.phonebook[0].id;
+            app.dial(entry, Some(7));
+            app.screen = Screen::Run;
+            app.sysops_tick(0.0);
+            app.game.phase = Phase::JackedOut;
+            // Sitting on the keep picker: nothing the run can spend, nothing lost.
+            assert_eq!(app.sysops_tick(DRAFT * 1.5), None);
+            assert_eq!(app.game.ice_study[0].tried, 0);
+            app.book();
+            app.sysops_tick(DRAFT * 1.5);
+            assert_eq!(app.save.ice_study[0].tried, 1, "the exit's time, at home");
         }
 
         #[test]
