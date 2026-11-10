@@ -147,11 +147,13 @@ impl MarkedRow {
 
 /// A version's listing as the ICE DB keeps it: `now` (its program and the lines seen run, sorted)
 /// decompiled, each seen line marked against `prev` (the version before, as it was known), or
-/// unmarked when there's none. Lines are matched by statement, in order (the longest run they
-/// share), so a moved block is `~` and the lines around it aren't; a statement the version
-/// before didn't have is `+`. The version before's lines that are gone follow as `-`, only once
-/// every line of `now` has been seen, with their text only if they were seen there. Nothing is
-/// ever shown that wasn't seen.
+/// unmarked when there's none. Only what was seen is compared: a seen line is matched against
+/// the lines seen in the version before, by statement, in order (the longest run they share),
+/// so a moved block is `~` and the lines around it aren't (the unseen lines of either take no
+/// part); it's `+` only when the version before
+/// was seen whole and didn't have it (otherwise it may have been one of the unseen lines, and
+/// there's no mark). The version before's seen lines that are gone follow as `-`, once every line
+/// of `now` has been seen. Nothing is ever shown, or implied, that wasn't seen.
 pub fn changes(
     verbs: &[Verb],
     prev: Option<(&str, &[u32])>,
@@ -171,14 +173,27 @@ pub fn changes(
             .collect();
     };
     let q = basic::parse_with(before, Vocab::Ice(verbs));
-    let (a, b): (Vec<&basic::Stmt>, Vec<&basic::Stmt>) = (
-        q.lines.iter().map(|l| &l.stmt).collect(),
-        p.lines.iter().map(|l| &l.stmt).collect(),
-    );
-    let numbers = |prog: &Program| prog.lines.iter().map(|l| l.no).collect::<Vec<_>>();
-    let (kept_a, kept_b) = common(&a, &b, &numbers(&q), &numbers(&p));
-    // The version before's lines the common run leaves over: each can account for one line of
-    // `now` (it moved), and what's still left was removed.
+    // The version before as it was known: only its lines seen run.
+    let was: Vec<&basic::Line> = q.lines.iter().filter(|l| seen(known, l.no)).collect();
+    let whole = was.len() == q.lines.len();
+    // And this one as seen so far: its unseen lines take no part either.
+    let is: Vec<&basic::Line> = p.lines.iter().filter(|l| seen(now.1, l.no)).collect();
+    let a: Vec<&basic::Stmt> = was.iter().map(|l| &l.stmt).collect();
+    let b: Vec<&basic::Stmt> = is.iter().map(|l| &l.stmt).collect();
+    let na: Vec<u32> = was.iter().map(|l| l.no).collect();
+    let nb: Vec<u32> = is.iter().map(|l| l.no).collect();
+    let (kept_a, kept_seen) = common(&a, &b, &na, &nb);
+    // Back onto every line of `now`: an unseen line is never kept, moved or new.
+    let mut kept_b = vec![false; p.lines.len()];
+    let mut k = 0;
+    for (i, l) in p.lines.iter().enumerate() {
+        if seen(now.1, l.no) {
+            kept_b[i] = kept_seen[k];
+            k += 1;
+        }
+    }
+    // The known lines the common run leaves over: each can account for one line of `now` (it
+    // moved), and what's still left was removed.
     let mut spare: Vec<bool> = kept_a.iter().map(|k| !k).collect();
     let mut rows: Vec<MarkedRow> = p
         .lines
@@ -186,7 +201,8 @@ pub fn changes(
         .enumerate()
         .map(|(i, l)| {
             let is_seen = seen(now.1, l.no);
-            let moved = !kept_b[i]
+            let moved = is_seen
+                && !kept_b[i]
                 && match (0..a.len()).find(|&j| spare[j] && *a[j] == l.stmt) {
                     Some(j) => {
                         spare[j] = false;
@@ -197,7 +213,8 @@ pub fn changes(
             let mark = match () {
                 _ if !is_seen || kept_b[i] => Mark::None,
                 _ if moved => Mark::Moved,
-                _ => Mark::New,
+                _ if whole => Mark::New,
+                _ => Mark::None,
             };
             MarkedRow {
                 no: l.no,
@@ -206,16 +223,14 @@ pub fn changes(
             }
         })
         .collect();
-    let all_seen = p.lines.iter().all(|l| seen(now.1, l.no));
-    if all_seen {
+    if p.lines.iter().all(|l| seen(now.1, l.no)) {
         rows.extend(
-            q.lines
-                .iter()
+            was.iter()
                 .enumerate()
                 .filter(|(j, _)| spare[*j])
                 .map(|(_, l)| MarkedRow {
                     no: l.no,
-                    text: seen(known, l.no).then(|| l.text.clone()),
+                    text: Some(l.text.clone()),
                     mark: Mark::Removed,
                 }),
         );

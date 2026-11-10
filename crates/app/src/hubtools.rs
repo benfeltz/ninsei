@@ -999,7 +999,7 @@ mod icedb_tests {
         save.ice_seen.push(IceSeen {
             id: "enigma".into(),
             met: 3,
-            lines: vec![10],
+            lines: vec![10, 20, 30, 40],
             version: Version::default().bumped(Bump::Patch),
             bump: Some(Bump::Patch),
             program: "10 ATTACK 4\n20 IF TARGET SHIELD > 0\n30 TRACE 10\n40 TRACE 4".into(),
@@ -1008,7 +1008,7 @@ mod icedb_tests {
                 version: Version::default(),
                 bump: None,
                 program: String::new(),
-                lines: vec![10, 30],
+                lines: vec![10, 20, 30, 40],
                 won: 2,
                 lost: 0,
             }],
@@ -1023,10 +1023,10 @@ mod icedb_tests {
         let texts = h.texts();
         for want in [
             "Enigma 1.0.1  [CODE GATE]  ICE",
-            "listing        1.0.1, decompiled, 1 of 4 lines seen",
+            "listing        1.0.1, decompiled, 4 of 4 lines seen",
             " ~ 10 ATTACK 4",
             "versions       bump     won  lost",
-            "1.0.0, decompiled, 2 of 4 lines seen",
+            "1.0.0, decompiled, 4 of 4 lines seen",
         ] {
             assert!(
                 texts.iter().any(|t| t.contains(want)),

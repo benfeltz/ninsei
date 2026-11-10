@@ -72,9 +72,18 @@ fn nothing_is_marked_or_shown_that_was_not_seen() {
         marks(&rows),
         [" 10 ATTACK 4", " 20 ????", " 30 ????", "+40 TRACE 5"]
     );
-    // All of it seen, but the removed line was never seen in the version before: it's ????.
+    // All of it seen, but the removed line was never seen in the version before: nothing is
+    // said about it, and the new line can't be called new (it may have been the unseen one).
     let rows = changes(v, Some((V101, &[10, 20])), (V102, &all));
-    assert_eq!(marks(&rows).last().unwrap(), "-40 ????");
+    assert_eq!(
+        marks(&rows),
+        [
+            " 10 ATTACK 4",
+            " 20 IF TARGET SHIELD > 0",
+            " 30 TRACE 10",
+            " 40 TRACE 5"
+        ]
+    );
     // The first version met has no marks.
     let rows = changes(v, None, (V100, &all));
     assert!(rows.iter().all(|r| r.mark == Mark::None));
@@ -162,8 +171,9 @@ fn a_new_version_is_met_unknown_and_the_old_one_kept_as_it_was() {
 fn the_new_versions_changes_show_as_they_are_seen() {
     let d = data();
     let p = page(&met_twice(&[10]), &d);
-    // Its moved line, once seen, is marked; the rest stay ????.
-    assert!(p.iter().any(|l| l == " ~ 10 ATTACK 4"), "{p:#?}");
+    // Its first line seen; but of 1.0.0 only lines 10 and 30 were, and ATTACK 4 was among
+    // them: what's known doesn't say it moved, so it isn't marked. The rest stay ????.
+    assert!(p.iter().any(|l| l == "   10 ATTACK 4"), "{p:#?}");
     assert!(p.iter().any(|l| l == "   20 ????"), "{p:#?}");
     let muted: Vec<String> = icedb::entries(&met_twice(&[10]), &d)
         .into_iter()
@@ -216,5 +226,27 @@ fn a_changed_number_is_new_even_when_the_same_line_is_elsewhere() {
             " 40 TRACE 11",
             "-30 TRACE 10"
         ]
+    );
+}
+
+#[test]
+fn nothing_about_an_unseen_version_before_leaks_into_the_marks() {
+    // 1.0.0 met and broken before it ran anything; 1.0.1's line 10 seen. Nothing of 1.0.0 was
+    // seen, so nothing can be said about how 1.0.1 differs from it.
+    let d = data();
+    let v = &enigma(&d).verbs;
+    let rows = changes(v, Some((V100, &[])), (V101, &[10]));
+    assert!(
+        rows.iter().all(|r| r.mark == Mark::None),
+        "{:?}",
+        marks(&rows)
+    );
+    // All of 1.0.1 seen: still nothing, and nothing removed.
+    let rows = changes(v, Some((V100, &[])), (V101, &[10, 20, 30, 40]));
+    assert_eq!(rows.len(), 4);
+    assert!(
+        rows.iter().all(|r| r.mark == Mark::None),
+        "{:?}",
+        marks(&rows)
     );
 }
