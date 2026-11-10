@@ -613,3 +613,16 @@ fn a_study_from_a_broken_save_never_panics() {
     });
     assert!(v[0].tried > 0);
 }
+
+#[test]
+fn a_fight_the_sysops_stage_wakes_nobody() {
+    let mut g = Game::new(data(), 2);
+    g.watched = false;
+    g.apply(Action::Program(SAFE_PICK.into()));
+    rez(&mut g, "rototurret");
+    let c = g.combat.as_mut().unwrap();
+    (c.strength, c.strength_max) = (1, 1);
+    play_out(&mut g);
+    assert!(g.bouts.last().unwrap().broken);
+    assert!(g.ice_study.is_empty());
+}

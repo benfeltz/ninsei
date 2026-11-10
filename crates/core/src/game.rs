@@ -120,6 +120,7 @@ pub fn duel(
     seed: u64,
 ) -> Duel {
     let mut g = Game::start(std::sync::Arc::clone(data), seed, kit);
+    g.watched = false;
     // A deck with nothing on its HDD, not the classic four a bare kit is given.
     if kit.programs.is_empty() {
         g.hdd.clear();
@@ -576,6 +577,9 @@ pub struct Game {
     pub ice_study: Vec<crate::ice_study::Study>,
     /// The save's key, which their drafts are drawn from.
     pub study_key: u64,
+    /// The sysops watch this game's fights: a fight the deck wins wakes them. Not in a duel
+    /// they stage themselves.
+    pub watched: bool,
     /// What they shipped this run, in order: (kind's id, the version it replaced, the new one).
     /// `Save::record` puts them in force at home.
     pub shipped: Vec<(String, Version, crate::ice_version::Next)>,
@@ -820,6 +824,7 @@ impl Game {
             ice_versions,
             ice_study: kit.ice_study.clone(),
             study_key: kit.study_key,
+            watched: true,
             shipped: Vec::new(),
             bouts: Vec::new(),
             killer: None,
@@ -1525,6 +1530,9 @@ impl Game {
     /// The deck beat ICE `ice` running `version`: if that's still its kind's version in force,
     /// its sysops study the deck as it stands, from how the fight opened.
     fn wake_study(&mut self, ice: usize, version: Version) {
+        if !self.watched {
+            return;
+        }
         let Some(start) = self.bouts.last().map(|b| b.start) else {
             return;
         };
