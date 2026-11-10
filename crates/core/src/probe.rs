@@ -24,6 +24,7 @@ use crate::data::{ChoiceEffect, Data, Drop, Effect, Penalty};
 use crate::fight::Outcome;
 use crate::game::{Action, ContractStatus, ExecState, Game, Phase, StepWhat};
 use crate::hub::{Entry, RunEnd, Save, Upgrade};
+use crate::ice_study::Pace;
 use crate::network::NodeKind;
 use crate::rng::Rng;
 use crate::tuning::{BETRAY_PCT, TRACE_MAX};
@@ -333,27 +334,10 @@ pub fn play_knowing(g: Game, bot: Bot, known: &[String]) -> (Game, RunLog) {
     play_paced(g, bot, known, None)
 }
 
-/// The sysops' time as the probe plays it: there is no clock, so each bot action is taken to
-/// last [`crate::tuning::PROBE_ACTION_MS`] and a stretch at home [`crate::tuning::PROBE_HOME_MS`],
-/// and the time owed becomes drafts at [`crate::tuning::STUDY_DRAFT_MS`].
-#[derive(Clone, Copy, Debug, Default)]
-struct Pace {
-    /// Milliseconds owed to the sysops.
-    owed: u64,
-}
-
-impl Pace {
-    /// The drafts `ms` more milliseconds make, the remainder carried.
-    fn drafts(&mut self, ms: u32) -> u32 {
-        let draft = u64::from(crate::tuning::STUDY_DRAFT_MS.max(1));
-        self.owed += u64::from(ms);
-        let n = self.owed / draft;
-        self.owed -= n * draft;
-        n as u32
-    }
-}
-
-/// [`play_knowing`], with the sysops at work in the run at `pace` (none: they aren't).
+/// [`play_knowing`], with the sysops at work in the run at `pace` (none: they aren't). There is
+/// no clock: each bot action is taken to last [`crate::tuning::PROBE_ACTION_MS`] (and a stretch
+/// at home [`crate::tuning::PROBE_HOME_MS`]), paced as the game paces them, every owed draft
+/// worked at once.
 fn play_paced(
     mut g: Game,
     bot: Bot,
@@ -372,9 +356,13 @@ fn play_paced(
     while steps < 5_000 {
         steps += 1;
         if let Some(p) = pace.as_deref_mut() {
-            let n = p.drafts(crate::tuning::PROBE_ACTION_MS);
-            if n > 0 {
-                g.apply(Action::Study(n));
+            let busy = crate::ice_study::busy(&g.ice_study);
+            let steps = p.steps(u64::from(crate::tuning::PROBE_ACTION_MS), busy);
+            if steps > 0 {
+                g.apply(Action::Study {
+                    steps,
+                    drafts: u32::MAX,
+                });
             }
         }
         match g.phase {
@@ -1300,7 +1288,11 @@ impl Probe {
             .collect();
         let report = save.record(&g, &keep, &data.rig);
         // The sysops' time at home, before the next run.
-        save.study(&data, self.pace.drafts(crate::tuning::PROBE_HOME_MS));
+        let busy = crate::ice_study::busy(&save.ice_study);
+        let steps = self
+            .pace
+            .steps(u64::from(crate::tuning::PROBE_HOME_MS), busy);
+        save.study(&data, steps, u32::MAX);
         let drafts = tried(save) - drafts_before;
         let banked = report.as_ref().map_or(0, |r| r.banked);
         let f = fate(&g);

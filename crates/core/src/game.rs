@@ -498,10 +498,14 @@ pub enum Action {
     },
     /// Read a bulletin or a post on the board you're connected to: some open doors.
     Read(Reading),
-    /// The sysops work this many drafts' worth of time ([`crate::ice_study::work`]). The app
-    /// sends it as running time passes. It touches nothing the run plays from (its RNG, history,
-    /// cues and log): a version it ships is met at the next fight with that kind.
-    Study(u32),
+    /// The sysops' time ([`crate::ice_study::work`]): `steps` steps of it pass (each study at
+    /// work is owed that many more drafts), and at most `drafts` of what's owed are worked now.
+    /// The app sends it as running time passes. It touches nothing the run plays from (its RNG,
+    /// history, cues and log): a version it ships is met at the next fight with that kind.
+    Study {
+        steps: u32,
+        drafts: u32,
+    },
 }
 
 /// A bulletin or post on a board, by index.
@@ -1095,8 +1099,8 @@ impl Game {
     /// Applies one player action. Illegal actions change nothing but a log line.
     pub fn apply(&mut self, action: Action) {
         // The sysops' time: nothing the run plays from hears it.
-        if let Action::Study(steps) = action {
-            self.study(steps);
+        if let Action::Study { steps, drafts } = action {
+            self.study(steps, drafts);
             return;
         }
         // A pass is made of actions (each RUN, then the end of the turn), applied one by one
@@ -1178,26 +1182,32 @@ impl Game {
             Action::Patch { slot, bin } => self.patch(slot, bin),
             Action::Optimize { slot } => self.optimize(slot),
             // `apply` hands the sysops their time before anything else.
-            Action::Study(_) => unreachable!("applied in `apply`"),
+            Action::Study { .. } => unreachable!("applied in `apply`"),
         }
     }
 
-    /// The sysops work `steps` drafts' worth ([`crate::ice_study::work`]) while the run goes on.
+    /// The sysops' time while the run goes on ([`Action::Study`], [`crate::ice_study::work`]).
     /// What ships is in force from the next fight with its kind, never in one under way, and is
     /// met knowing none of its lines. A run that's over is home's to book.
-    fn study(&mut self, steps: u32) {
+    fn study(&mut self, steps: u32, drafts: u32) {
         if matches!(self.phase, Phase::Flatlined | Phase::JackedOut) {
             return;
         }
         let (data, versions) = (&self.data, &self.ice_versions);
-        let shipped =
-            crate::ice_study::work(&mut self.ice_study, data, self.study_key, steps, |id| {
+        let shipped = crate::ice_study::work(
+            &mut self.ice_study,
+            data,
+            self.study_key,
+            steps,
+            drafts,
+            |id| {
                 let ice = data.ice_by_id(id)?;
                 Some(match versions.iter().find(|(i, ..)| *i == ice) {
                     Some((_, v, p, _)) => (*v, p.text()),
                     None => (Version::default(), data.ice[ice].program.clone()),
                 })
-            });
+            },
+        );
         if shipped.is_empty() {
             return;
         }

@@ -708,26 +708,37 @@ impl App {
         self.screen = Screen::JackIn { t: 0.0 };
     }
 
-    /// The sysops' time at running time `now` (seconds): the drafts due go to the run's studies
+    /// The sysops' time at running time `now` (seconds): its steps go to the run's studies
     /// while a run is on (`Action::Study`, through the rules), else to the save's
-    /// (`Save::study`). Returns how long until the next is due, while any are at work.
+    /// (`Save::study`), and at most `DRAFTS_PER_FRAME` owed drafts are worked a frame. Returns
+    /// how long until the next is due, while any are at work.
     fn sysops_tick(&mut self, now: f64) -> Option<f64> {
+        use ninsei_core::ice_study::{busy, owed};
         let in_run = self.booked.is_none() && self.screen != Screen::Hub;
         let studies = if in_run {
             &self.game.ice_study
         } else {
             &self.save.ice_study
         };
-        let busy = studies.iter().any(|s| !s.rest);
-        let drafts = self.sysops.drafts(now, busy);
-        if drafts > 0 {
+        let steps = self.sysops.steps(now, busy(studies));
+        if steps > 0 || owed(studies) {
+            let drafts = sysops::DRAFTS_PER_FRAME;
             if in_run {
-                self.game.apply(Action::Study(drafts));
-            } else if self.save.study(&self.data, drafts) > 0 {
+                self.game.apply(Action::Study { steps, drafts });
+            } else if self.save.study(&self.data, steps, drafts) > 0 {
                 self.save_dirty = true;
             }
         }
-        busy.then(|| self.sysops.wait())
+        let studies = if in_run {
+            &self.game.ice_study
+        } else {
+            &self.save.ice_study
+        };
+        if owed(studies) {
+            Some(0.0)
+        } else {
+            busy(studies).then(|| self.sysops.wait())
+        }
     }
 
     /// Books the run in the save once it's over (exit or flatline).
@@ -2224,17 +2235,25 @@ mod tests {
         }
 
         #[test]
-        fn a_hitch_is_worked_off_a_few_drafts_a_frame() {
+        fn a_hitch_is_worked_off_a_few_drafts_a_frame_however_many_are_at_work() {
             let mut app = app();
-            app.save.ice_study = vec![enigma_study(&app.data)];
+            let mut other = enigma_study(&app.data);
+            other.id = "tollbooth".into();
+            app.save.ice_study = vec![enigma_study(&app.data), other];
             app.sysops_tick(0.0);
             app.sysops_tick(DRAFT * 1000.0);
-            assert!(app.save.ice_study[0].tried <= sysops::DRAFTS_PER_FRAME);
+            let tried = |app: &App| app.save.ice_study.iter().map(|s| s.tried).sum::<u32>();
+            assert_eq!(
+                tried(&app),
+                sysops::DRAFTS_PER_FRAME,
+                "a frame's worth, not a step's"
+            );
             assert_eq!(
                 app.sysops_tick(DRAFT * 1000.0),
                 Some(0.0),
                 "more owed: next frame"
             );
+            assert_eq!(tried(&app), 2 * sysops::DRAFTS_PER_FRAME);
         }
 
         #[test]

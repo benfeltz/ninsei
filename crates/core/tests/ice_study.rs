@@ -209,10 +209,10 @@ fn the_same_study_ships_the_same_version_however_its_steps_are_batched() {
     let mut one = vec![s.clone()];
     let mut ones = Vec::new();
     for _ in 0..STUDY_PATIENCE {
-        ones.extend(work(&mut one, &d, KEY, 1, in_force));
+        ones.extend(work(&mut one, &d, KEY, 1, u32::MAX, in_force));
     }
     let mut batch = vec![s];
-    let all = work(&mut batch, &d, KEY, 50, in_force);
+    let all = work(&mut batch, &d, KEY, 50, u32::MAX, in_force);
     assert_eq!(ones, all);
     assert_eq!(one, batch);
     assert_eq!(all.len(), 1, "one version, then rest");
@@ -264,7 +264,9 @@ fn a_study_of_a_version_no_longer_in_force_rests() {
     let (d, s) = study_of(&[1]);
     let mut v = vec![s];
     let newer = Version::FIRST.bumped(Bump::Patch);
-    let out = work(&mut v, &d, KEY, 5, |_| Some((newer, "10 TRACE 1".into())));
+    let out = work(&mut v, &d, KEY, 5, u32::MAX, |_| {
+        Some((newer, "10 TRACE 1".into()))
+    });
     assert!(out.is_empty());
     assert!(v[0].rest);
     assert_eq!(v[0].tried, 0);
@@ -359,7 +361,7 @@ fn a_changed_script_starts_a_new_search() {
     let d = data();
     let mut s = home(0x9144);
     run(&mut s, &d, SAFE_PICK, &[("enigma", true)]);
-    s.study(&Arc::new(d.clone()), 2);
+    s.study(&Arc::new(d.clone()), 2, u32::MAX);
     let tried = study(&s, "enigma").unwrap().tried;
     run(
         &mut s,
@@ -385,14 +387,14 @@ fn time_at_home_ships_a_version_the_next_run_carries() {
     );
     let mut shipped = 0;
     for _ in 0..STUDY_PATIENCE {
-        shipped += s.study(&arc, 1);
+        shipped += s.study(&arc, 1, u32::MAX);
     }
     assert!(shipped > 0, "{:?}", s.ice_study);
     assert!(
         s.ice_study.iter().all(|x| x.rest),
         "each shipped once or gave up"
     );
-    assert_eq!(s.study(&arc, 50), 0, "resting until beaten again");
+    assert_eq!(s.study(&arc, 50, u32::MAX), 0, "resting until beaten again");
     let v = s.ice_versions[0].clone();
     assert_eq!(v.version, Version::FIRST.bumped(v.bump.unwrap()));
     let kit = s.kit(&d);
@@ -420,7 +422,7 @@ fn the_same_save_ships_the_same_versions() {
             );
             let mut left = STUDY_PATIENCE;
             while left > 0 {
-                s.study(&arc, batch.min(left));
+                s.study(&arc, batch.min(left), u32::MAX);
                 left = left.saturating_sub(batch);
             }
         }
@@ -473,7 +475,10 @@ fn a_version_that_lands_mid_fight_is_the_next_fight_s_and_met_unknown() {
     rez(&mut g, "enigma");
     let e = ix(&g.data, "enigma");
     let prog = g.combat.as_ref().unwrap().ice_prog.clone();
-    g.apply(Action::Study(STUDY_PATIENCE));
+    g.apply(Action::Study {
+        steps: STUDY_PATIENCE,
+        drafts: u32::MAX,
+    });
     let (id, was, next) = g.shipped.first().cloned().expect("it ships");
     assert_eq!((id.as_str(), was), ("enigma", Version::FIRST));
     let new = was.bumped(next.bump.unwrap());
@@ -521,7 +526,10 @@ fn the_sysops_time_never_touches_what_the_run_plays_from() {
     let mut a = studied_run(7);
     rez(&mut a, "rototurret");
     let mut b = a.clone();
-    b.apply(Action::Study(STUDY_PATIENCE));
+    b.apply(Action::Study {
+        steps: STUDY_PATIENCE,
+        drafts: u32::MAX,
+    });
     assert!(!b.shipped.is_empty(), "something landed");
     assert_eq!(b.rng.clone().next_u64(), a.rng.clone().next_u64());
     assert_eq!(b.log, a.log);
@@ -581,7 +589,10 @@ fn the_sysops_come_home_with_the_run_on_an_exit_or_a_flatline() {
         s.ice_study = vec![study];
         let mut g = s.jack_in(&d, 5);
         assert_eq!((g.ice_study.len(), g.study_key), (1, KEY));
-        g.apply(Action::Study(STUDY_PATIENCE));
+        g.apply(Action::Study {
+            steps: STUDY_PATIENCE,
+            drafts: u32::MAX,
+        });
         assert_eq!(g.shipped.len(), 1);
         let shipped = g.ice_versions.clone();
         if flatline {
@@ -596,7 +607,10 @@ fn the_sysops_come_home_with_the_run_on_an_exit_or_a_flatline() {
         }
         // Over: the run's clock has stopped.
         let before = g.ice_study.clone();
-        g.apply(Action::Study(10));
+        g.apply(Action::Study {
+            steps: 10,
+            drafts: u32::MAX,
+        });
         assert_eq!(g.ice_study, before);
         s.record(&g, &[], &d.rig).unwrap();
         let (v, p) = s.ice_program("enigma", &d).unwrap();
@@ -624,7 +638,7 @@ fn a_study_from_a_broken_save_never_panics() {
     }
     let mut v = vec![s];
     let program = row_program(&d);
-    let _ = work(&mut v, &d, KEY, STUDY_PATIENCE, |_| {
+    let _ = work(&mut v, &d, KEY, STUDY_PATIENCE, u32::MAX, |_| {
         Some((Version::FIRST, program.clone()))
     });
     assert!(v[0].tried > 0);
@@ -743,4 +757,33 @@ fn a_run_shares_the_content_it_was_dialed_with() {
     let d = data();
     let g = s.jack_in(&d, 3);
     assert_eq!(Arc::strong_count(&g.data), 1);
+}
+
+#[test]
+fn drafts_spread_over_frames_ship_what_working_them_at_once_does() {
+    let (d, s) = study_of(&[1, 2, 3]);
+    let mut other = s.clone();
+    other.id = "tollbooth".into();
+    let programs: std::collections::HashMap<String, String> = ["enigma", "tollbooth"]
+        .iter()
+        .map(|id| (id.to_string(), d.ice[ix(&d, id)].program.clone()))
+        .collect();
+    let in_force = |id: &str| Some((Version::FIRST, programs[id].clone()));
+    let mut at_once = vec![s.clone(), other.clone()];
+    let all = work(&mut at_once, &d, KEY, STUDY_PATIENCE, u32::MAX, in_force);
+    assert!(at_once.iter().all(|s| s.owed == 0));
+    // A frame's budget at a time: two drafts, whoever is owed them.
+    let mut framed = vec![s, other];
+    let mut out = work(&mut framed, &d, KEY, STUDY_PATIENCE, 2, in_force);
+    assert_eq!(framed.iter().map(|s| s.tried).sum::<u32>(), 2);
+    while ice_study::owed(&framed) {
+        out.extend(work(&mut framed, &d, KEY, 0, 2, in_force));
+    }
+    let key = |v: &Vec<(String, Version, ice_version::Next)>| {
+        let mut v = v.clone();
+        v.sort_by(|a, b| a.0.cmp(&b.0));
+        v
+    };
+    assert_eq!(key(&out), key(&all));
+    assert_eq!(framed, at_once);
 }

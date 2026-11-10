@@ -10,10 +10,12 @@
 //! they rest without shipping. The ICE's own machine (its cpu, ram, hdd and verbs) is the only
 //! limit on how strong a version gets.
 //!
-//! Pure: a step reads no clock and no run's RNG. Draft k of a study is drawn from the save's
-//! key, the kind, the version and k, and every duel from its own seed, so the same save and
-//! script reach the same next version however the steps are batched. Only when it lands
-//! depends on time, which the app counts ([`crate::tuning::STUDY_DRAFT_MS`]).
+//! Pure: nothing here reads a clock or a run's RNG. Time is handed in as milliseconds
+//! ([`Pace`]: the app's running time, or the probe's assumed pace), and every step of it owes
+//! each study at work one draft ([`work`]). Draft k of a study is drawn from the save's key,
+//! the kind, the version and k, and every duel from its own seed, so the same save and script
+//! reach the same next version however the time is sliced and the drafts are spread over
+//! frames. Only when it lands depends on time.
 
 use std::sync::Arc;
 
@@ -23,7 +25,7 @@ use crate::data::Data;
 use crate::game::{Duel, Kit, RunMods, Start, duel};
 use crate::ice_version::{Bump, Next, Version, against, fired, next_version, seed};
 use crate::rng::Rng;
-use crate::tuning::{STUDY_BAR, STUDY_PATIENCE, STUDY_STARTS};
+use crate::tuning::{STUDY_BAR, STUDY_DRAFT_MS, STUDY_PATIENCE, STUDY_STARTS};
 
 /// The deck as its sysops logged it when it beat their ICE: its numbers, the programs on its
 /// HDD and its script. What their duels are fought against.
@@ -100,6 +102,9 @@ pub struct Study {
     /// Resting: a version shipped, or patience ran out, until the deck beats the version in
     /// force again.
     pub rest: bool,
+    /// Drafts the time that has passed owes them, not yet worked (a frame works a few).
+    #[serde(default)]
+    pub owed: u32,
     /// What the version in force costs the deck from `starts`, and the reads the script walked
     /// into there: worked out at a step when missing (never saved: it comes out the same).
     #[serde(skip)]
@@ -146,6 +151,7 @@ impl Study {
         }
         let (Some(ice), false) = (data.ice_by_id(&self.id), self.starts.is_empty()) else {
             self.rest = true;
+            self.owed = 0;
             return None;
         };
         let row = &data.ice[ice];
@@ -173,6 +179,7 @@ impl Study {
         let ship = out.flatten();
         if ship.is_some() || at + 1 >= STUDY_PATIENCE {
             self.rest = true;
+            self.owed = 0;
         }
         ship
     }
@@ -217,27 +224,78 @@ fn draft_seed(first: u64, k: u32) -> u64 {
     Rng::new(first.wrapping_add(u64::from(k).wrapping_mul(0x9E37_79B9_7F4A_7C15))).next_u64()
 }
 
-/// Steps every study that's at work once, `steps` times, in the order they're kept. `in_force`
-/// gives a kind's version in force and its program, by id. Returns what shipped, in order:
-/// (kind's id, the version it replaces, the new one). A study whose version is no longer in
-/// force rests.
+/// The sysops' pace: running time, handed in as milliseconds (never read from a clock), as
+/// steps of [`crate::tuning::STUDY_DRAFT_MS`], the remainder carried. The app and the probe
+/// both pace the sysops through it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Pace {
+    /// Milliseconds not yet a whole step.
+    carry: u64,
+}
+
+impl Pace {
+    /// The steps `ms` more milliseconds make. With nobody at work (`busy` false) time banks
+    /// nothing, so a study woken later starts from scratch, not from the hours nobody was
+    /// studying.
+    pub fn steps(&mut self, ms: u64, busy: bool) -> u32 {
+        if !busy {
+            self.carry = 0;
+            return 0;
+        }
+        let draft = u64::from(STUDY_DRAFT_MS.max(1));
+        self.carry += ms;
+        let n = self.carry / draft;
+        self.carry -= n * draft;
+        n.min(u64::from(u32::MAX)) as u32
+    }
+
+    /// Milliseconds until the next step.
+    pub fn wait_ms(&self) -> u64 {
+        u64::from(STUDY_DRAFT_MS).saturating_sub(self.carry)
+    }
+}
+
+/// Whether any of `studies` is at work.
+pub fn busy(studies: &[Study]) -> bool {
+    studies.iter().any(|s| !s.rest)
+}
+
+/// Whether any of `studies` is owed drafts not yet worked.
+pub fn owed(studies: &[Study]) -> bool {
+    studies.iter().any(|s| s.owed > 0)
+}
+
+/// `steps` steps of time pass: each study at work is owed that many more drafts. Then at most
+/// `drafts` of what's owed are worked, one study's draft at a time in the order they're kept,
+/// round and round. `in_force` gives a kind's version in force and its program, by id. Returns
+/// what shipped, in order: (kind's id, the version it replaces, the new one). A study whose
+/// version is no longer in force rests. Each study's drafts are its own sequence, so how the
+/// work is spread over calls never changes what ships.
 pub fn work(
     studies: &mut [Study],
     data: &Arc<Data>,
     key: u64,
     steps: u32,
+    drafts: u32,
     mut in_force: impl FnMut(&str) -> Option<(Version, String)>,
 ) -> Vec<(String, Version, Next)> {
+    for s in studies.iter_mut().filter(|s| !s.rest) {
+        s.owed = s.owed.saturating_add(steps);
+    }
     let mut out = Vec::new();
-    for _ in 0..steps {
-        if studies.iter().all(|s| s.rest) {
-            break;
-        }
-        for s in studies.iter_mut().filter(|s| !s.rest) {
+    let mut left = drafts;
+    while left > 0 && owed(studies) {
+        for s in studies.iter_mut().filter(|s| s.owed > 0) {
+            if left == 0 {
+                break;
+            }
             let Some((v, program)) = in_force(&s.id).filter(|(v, _)| *v == s.version) else {
                 s.rest = true;
+                s.owed = 0;
                 continue;
             };
+            left -= 1;
+            s.owed -= 1;
             if let Some(next) = s.step(data, &program, key) {
                 out.push((s.id.clone(), v, next));
             }

@@ -2408,14 +2408,15 @@ impl Save {
         in_force(&self.ice_versions, id, data)
     }
 
-    /// Lets the sysops work `steps` drafts' worth of time ([`crate::ice_study::work`]), and puts
-    /// what they ship in force: every net runs it from the next fight with that kind. Returns how
-    /// many versions shipped.
-    pub fn study(&mut self, data: &std::sync::Arc<Data>, steps: u32) -> usize {
+    /// The sysops' time at home: `steps` steps of it pass and at most `drafts` owed drafts are
+    /// worked ([`crate::ice_study::work`]). What ships is in force on every net from the next
+    /// fight with that kind. Returns how many versions shipped.
+    pub fn study(&mut self, data: &std::sync::Arc<Data>, steps: u32, drafts: u32) -> usize {
         let versions = &self.ice_versions;
-        let shipped = crate::ice_study::work(&mut self.ice_study, data, self.key, steps, |id| {
-            in_force(versions, id, data).map(|(v, p)| (v, p.to_string()))
-        });
+        let shipped =
+            crate::ice_study::work(&mut self.ice_study, data, self.key, steps, drafts, |id| {
+                in_force(versions, id, data).map(|(v, p)| (v, p.to_string()))
+            });
         let n = shipped.len();
         for (id, was, next) in shipped {
             ship(&mut self.ice_versions, &id, was, next);

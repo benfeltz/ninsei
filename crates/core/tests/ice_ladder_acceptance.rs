@@ -63,7 +63,11 @@ fn career(save: &mut Save, d: &Data, runs: u64) -> Seen {
             .map(|b| g.ice_version(b.ice).to_string())
             .collect();
         save.record(&g, &[], &d.rig).unwrap();
-        save.study(&std::sync::Arc::new(d.clone()), tuning::STUDY_PATIENCE);
+        save.study(
+            &std::sync::Arc::new(d.clone()),
+            tuning::STUDY_PATIENCE,
+            u32::MAX,
+        );
         seen.games += 1;
         // Nothing changed inside the run: every fight of a kind ran the version it jacked in on.
         for (b, v) in g.bouts.iter().zip(&during) {

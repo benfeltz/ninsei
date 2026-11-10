@@ -50,7 +50,11 @@ fn career(d: &Data, runs: u64) -> Save {
             }
         }
         s.record(&g, &[], &d.rig).unwrap();
-        s.study(&std::sync::Arc::new(d.clone()), tuning::STUDY_PATIENCE);
+        s.study(
+            &std::sync::Arc::new(d.clone()),
+            tuning::STUDY_PATIENCE,
+            u32::MAX,
+        );
     }
     s
 }
