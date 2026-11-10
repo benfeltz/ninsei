@@ -131,3 +131,53 @@ fn the_ice_that_ended_the_run_is_named() {
     let g = s.jack_in(&d, 4);
     assert_eq!(g.killed_by(), None);
 }
+
+#[test]
+fn the_next_version_is_written_against_the_play_that_won() {
+    use ice_version::{Tell, against, fired};
+    let d = data();
+    let shielded = Tell {
+        integ: 20,
+        shield: 5,
+        cpu: 0,
+        ran: vec![("Firewall".into(), "firewall".into())],
+        strength: 9,
+        turn: 2,
+    };
+    let patched = Tell {
+        integ: 5,
+        shield: 0,
+        cpu: 1,
+        ran: vec![("Patch".into(), "patch".into())],
+        strength: 9,
+        turn: 3,
+    };
+    // A deck that always shields walks into a code gate's TARGET SHIELD read every turn.
+    let f = fired(
+        &d,
+        IceClass::CodeGate,
+        &[shielded.clone(), shielded.clone()],
+    );
+    let w = against(&f, 2);
+    let weight = |w: &[(String, u32)], r: &str| w.iter().find(|(x, _)| x == r).map(|(_, n)| *n);
+    assert_eq!(weight(&w, "TARGET SHIELD > n"), Some(tuning::BIAS_WEIGHT));
+    assert_eq!(weight(&w, "TARGET RAN firewall"), Some(tuning::BIAS_WEIGHT));
+    assert_eq!(weight(&w, "TARGET RAN patch"), None);
+    // One that patched half its turns, low, is half as far into TARGET RAN patch.
+    let f = fired(&d, IceClass::Sentry, &[shielded.clone(), patched.clone()]);
+    let w = against(&f, 2);
+    assert_eq!(
+        weight(&w, "TARGET RAN patch"),
+        Some(tuning::BIAS_WEIGHT / 2)
+    );
+    assert_eq!(
+        weight(&w, "TARGET INTEG < n"),
+        Some(tuning::BIAS_WEIGHT / 2)
+    );
+    // No tells, no bias; and it's the same every time.
+    assert!(against(&fired(&d, IceClass::Barrier, &[]), 0).is_empty());
+    assert_eq!(
+        fired(&d, IceClass::Sentry, std::slice::from_ref(&patched)),
+        fired(&d, IceClass::Sentry, &[patched])
+    );
+}

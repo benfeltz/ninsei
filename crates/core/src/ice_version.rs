@@ -67,6 +67,50 @@ impl Tell {
     }
 }
 
+/// How often each of class `class`'s grammar reads would have been true on the booked turns
+/// `tells`, at some number in its range: (the read as the grammar writes it, turns). Reads that
+/// never would are left out.
+pub fn fired(data: &Data, class: crate::data::IceClass, tells: &[Tell]) -> Vec<(String, u32)> {
+    let mut out = Vec::new();
+    for r in data.ice_grammar.reads(class) {
+        let (lo, hi) = r.n.unwrap_or((0, 0));
+        let conds: Vec<Cond> = (lo..=hi)
+            .filter_map(|n| {
+                match parse_stmt_with(&format!("IF {}", r.with(n)), Vocab::Ice(&Verb::ALL)) {
+                    Stmt::If(c) => Some(c),
+                    _ => None,
+                }
+            })
+            .collect();
+        let n = tells
+            .iter()
+            .filter(|t| conds.iter().any(|c| t.holds(c)))
+            .count() as u32;
+        if n > 0 {
+            out.push((r.read.clone(), n));
+        }
+    }
+    out
+}
+
+/// The bias [`next_version`] takes from reads' `fired` counts over `turns` booked turns: each
+/// read's extra weight is its share of the turns, out of [`crate::tuning::BIAS_WEIGHT`].
+pub fn against(fired: &[(String, u32)], turns: u32) -> Vec<(String, u32)> {
+    if turns == 0 {
+        return Vec::new();
+    }
+    fired
+        .iter()
+        .map(|(r, n)| {
+            (
+                r.clone(),
+                crate::tuning::BIAS_WEIGHT * n.min(&turns) / turns,
+            )
+        })
+        .filter(|(_, w)| *w > 0)
+        .collect()
+}
+
 /// A kind's version, `major.minor.patch`.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Version {

@@ -177,3 +177,10 @@ pub const BLOX_SOFT_POINTS: u32 = 1;
 pub const BLOX_HARD_POINTS: u32 = 2;
 /// MINEFIELD: share of the squares that hide a mine, in percent (at least one mine).
 pub const MINEFIELD_MINE_PCT: usize = 15;
+
+// ICE that patch themselves (141.9).
+
+/// The most weight a read the deck's play kept walking into adds to the grammar's own when the
+/// sysops write a kind's next version. A read true on every booked turn of the fights the kind
+/// lost gets all of it; one never true, none.
+pub const BIAS_WEIGHT: u32 = 6;
