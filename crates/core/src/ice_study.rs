@@ -164,7 +164,7 @@ impl Study {
         };
         let k = self.tried;
         self.tried += 1;
-        let at = k - self.from;
+        let at = k.saturating_sub(self.from);
         let draft = next_version(data, row, program, size(at), &bias, draft_seed(first, k));
         let out = draft.bump.is_some().then(|| {
             let cost = self.cost(&self.fights(data, ice, &draft.program, &kit, first));

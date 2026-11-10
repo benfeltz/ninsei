@@ -595,3 +595,21 @@ fn the_sysops_come_home_with_the_run_on_an_exit_or_a_flatline() {
         }
     }
 }
+
+// Review fixes.
+
+#[test]
+fn a_study_from_a_broken_save_never_panics() {
+    let (d, mut s) = study_of(&[1]);
+    s.deck.integrity = 0;
+    s.from = s.tried + 7;
+    for st in &mut s.starts {
+        st.integrity = 0;
+    }
+    let mut v = vec![s];
+    let program = row_program(&d);
+    let _ = work(&mut v, &d, KEY, STUDY_PATIENCE, |_| {
+        Some((Version::FIRST, program.clone()))
+    });
+    assert!(v[0].tried > 0);
+}

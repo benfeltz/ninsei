@@ -131,7 +131,9 @@ pub fn duel(
         crate::basic::parse_with(program, Vocab::Ice(verbs)),
         None,
     )];
-    g.deck.integrity = start.integrity.clamp(1, g.deck.integrity_max);
+    // A save's study may say anything (hand-edited, or older): never a panic.
+    g.deck.integrity_max = g.deck.integrity_max.max(1);
+    g.deck.integrity = start.integrity.min(g.deck.integrity_max).max(1);
     g.deck.trace = start.trace;
     g.start_combat(g.at, ice);
     if let Some(c) = g.combat.as_mut() {
