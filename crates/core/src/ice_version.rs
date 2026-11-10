@@ -266,11 +266,14 @@ impl Draws<'_> {
         }
         let spot = &spots[rng.below(spots.len())];
         let (lo, hi) = spot.range;
-        // A new number in the range, never the one it had.
-        let mut n = rng.range(lo, hi - 1);
-        if n >= spot.now {
-            n += 1;
-        }
+        // A new number in the range, never the one it had. One outside it (a row or a saved
+        // version may read past its grammar read's range) may become any number in it.
+        let n = if (lo..=hi).contains(&spot.now) {
+            let n = rng.range(lo, hi - 1);
+            n + u32::from(n >= spot.now)
+        } else {
+            rng.range(lo, hi)
+        };
         let b = &mut out[spot.block];
         match &spot.kind {
             Spot::Read(r) => b.read = Some(r.with(n)),

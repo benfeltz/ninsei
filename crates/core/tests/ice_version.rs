@@ -713,3 +713,31 @@ fn a_read_is_the_same_read_however_it_names_its_program() {
         }
     }
 }
+
+#[test]
+fn a_patch_can_draw_every_number_in_range() {
+    use ice_version::{Bump, next_version};
+    let d = Data::builtin().unwrap();
+    let enigma = d.ice.iter().find(|i| i.id == "enigma").unwrap();
+    // The grammar's TARGET SHIELD read takes 0 to 2. A read at 3 is past it (a row or a saved
+    // version may read so); one at 1 is inside.
+    for now in [3u32, 1] {
+        let program = format!("10 IF TARGET SHIELD > {now}\n20 TRACE 10\n30 ATTACK 4");
+        let mut drawn = std::collections::BTreeSet::new();
+        for seed in 0..400 {
+            let next = next_version(&d, enigma, &program, Bump::Patch, &[], seed);
+            let n = next
+                .program
+                .lines()
+                .find_map(|l| l.split_once("IF TARGET SHIELD > "))
+                .map(|(_, n)| n.parse::<u32>().unwrap())
+                .unwrap();
+            // A patch that changed it changed it into the range.
+            assert!(n == now || n <= 2, "{}", next.program);
+            drawn.insert(n);
+        }
+        drawn.remove(&now);
+        let want: std::collections::BTreeSet<u32> = (0..=2).filter(|n| *n != now).collect();
+        assert_eq!(drawn, want, "{program}");
+    }
+}
