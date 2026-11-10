@@ -147,10 +147,11 @@ impl MarkedRow {
 
 /// A version's listing as the ICE DB keeps it: `now` (its program and the lines seen run, sorted)
 /// decompiled, each seen line marked against `prev` (the version before, as it was known), or
-/// unmarked when there's none. Only what was seen is compared: a seen line is matched against
-/// the lines seen in the version before, by statement, in order (the longest run they share),
-/// so a moved block is `~` and the lines around it aren't (the unseen lines of either take no
-/// part); it's `+` only when the version before
+/// unmarked when there's none. Only what was seen is compared, a block at a time (an IF and the
+/// line it guards, or a line on its own: the unit a version moves, adds or removes): a block
+/// seen whole is matched against the blocks seen whole in the version before, by statement, in
+/// order (the longest run they share), so a moved block is `~` on both its lines and the blocks
+/// around it aren't (the unseen take no part); it's `+` only when the version before
 /// was seen whole and didn't have it (otherwise it may have been one of the unseen lines, and
 /// there's no mark). The version before's seen lines that are gone follow as `-`, once every line
 /// of `now` has been seen. Nothing is ever shown, or implied, that wasn't seen.
@@ -173,78 +174,115 @@ pub fn changes(
             .collect();
     };
     let q = basic::parse_with(before, Vocab::Ice(verbs));
-    // The version before as it was known: only its lines seen run.
-    let was: Vec<&basic::Line> = q.lines.iter().filter(|l| seen(known, l.no)).collect();
-    let whole = was.len() == q.lines.len();
-    // And this one as seen so far: its unseen lines take no part either.
-    let is: Vec<&basic::Line> = p.lines.iter().filter(|l| seen(now.1, l.no)).collect();
-    let a: Vec<&basic::Stmt> = was.iter().map(|l| &l.stmt).collect();
-    let b: Vec<&basic::Stmt> = is.iter().map(|l| &l.stmt).collect();
-    let na: Vec<u32> = was.iter().map(|l| l.no).collect();
-    let nb: Vec<u32> = is.iter().map(|l| l.no).collect();
-    let (kept_a, kept_seen) = common(&a, &b, &na, &nb);
-    // Back onto every line of `now`: an unseen line is never kept, moved or new.
-    let mut kept_b = vec![false; p.lines.len()];
-    let mut k = 0;
-    for (i, l) in p.lines.iter().enumerate() {
-        if seen(now.1, l.no) {
-            kept_b[i] = kept_seen[k];
-            k += 1;
+    let (uq, up) = (units(&q), units(&p));
+    let all_seen = |u: &[usize], prog: &Program, known: &[u32]| {
+        u.iter().all(|&k| seen(known, prog.lines[k].no))
+    };
+    // The version before as it was known (its blocks seen whole), and this one as seen so far:
+    // the unseen take no part.
+    let was: Vec<&Vec<usize>> = uq.iter().filter(|u| all_seen(u, &q, known)).collect();
+    let whole = was.len() == uq.len();
+    let is: Vec<usize> = (0..up.len())
+        .filter(|&k| all_seen(&up[k], &p, now.1))
+        .collect();
+    let stmts = |u: &[usize], prog: &'_ Program| -> Vec<basic::Stmt> {
+        u.iter().map(|&k| prog.lines[k].stmt.clone()).collect()
+    };
+    let a: Vec<Vec<basic::Stmt>> = was.iter().map(|u| stmts(u, &q)).collect();
+    let b: Vec<Vec<basic::Stmt>> = is.iter().map(|&k| stmts(&up[k], &p)).collect();
+    let na: Vec<u32> = was.iter().map(|u| q.lines[u[0]].no).collect();
+    let nb: Vec<u32> = is.iter().map(|&k| p.lines[up[k][0]].no).collect();
+    let (kept_a, kept_b) = common(&a, &b, &na, &nb);
+    // The known blocks the common run leaves over: each can account for one block of `now`. The
+    // same block is a move; one with the same read (or the same line) changed inside, and only
+    // its changed lines are marked. What's still left was removed.
+    let mut spare: Vec<bool> = kept_a.iter().map(|k| !k).collect();
+    let mut gone: Vec<usize> = Vec::new();
+    let mut marks = vec![Mark::None; p.lines.len()];
+    let new = if whole { Mark::New } else { Mark::None };
+    for (n, &k) in is.iter().enumerate() {
+        if kept_b[n] {
+            continue;
+        }
+        let lines = &up[k];
+        if let Some(j) = (0..a.len()).find(|&j| spare[j] && a[j] == b[n]) {
+            spare[j] = false;
+            for &line in lines {
+                marks[line] = Mark::Moved;
+            }
+        } else if let Some(j) = (0..a.len())
+            .find(|&j| spare[j] && a[j].len() == b[n].len() && b[n].len() > 1 && a[j][0] == b[n][0])
+        {
+            spare[j] = false;
+            for (i, &line) in lines.iter().enumerate() {
+                if a[j][i] != b[n][i] {
+                    marks[line] = new;
+                    gone.push(was[j][i]);
+                }
+            }
+        } else {
+            for &line in lines {
+                marks[line] = new;
+            }
         }
     }
-    // The known lines the common run leaves over: each can account for one line of `now` (it
-    // moved), and what's still left was removed.
-    let mut spare: Vec<bool> = kept_a.iter().map(|k| !k).collect();
+    gone.extend(
+        was.iter()
+            .zip(&spare)
+            .filter(|(_, s)| **s)
+            .flat_map(|(u, _)| u.iter().copied()),
+    );
+    gone.sort_unstable();
     let mut rows: Vec<MarkedRow> = p
         .lines
         .iter()
-        .enumerate()
-        .map(|(i, l)| {
-            let is_seen = seen(now.1, l.no);
-            let moved = is_seen
-                && !kept_b[i]
-                && match (0..a.len()).find(|&j| spare[j] && *a[j] == l.stmt) {
-                    Some(j) => {
-                        spare[j] = false;
-                        true
-                    }
-                    None => false,
-                };
-            let mark = match () {
-                _ if !is_seen || kept_b[i] => Mark::None,
-                _ if moved => Mark::Moved,
-                _ if whole => Mark::New,
-                _ => Mark::None,
-            };
-            MarkedRow {
-                no: l.no,
-                text: is_seen.then(|| l.text.clone()),
-                mark,
-            }
+        .zip(marks)
+        .map(|(l, mark)| MarkedRow {
+            no: l.no,
+            text: seen(now.1, l.no).then(|| l.text.clone()),
+            mark,
         })
         .collect();
     if p.lines.iter().all(|l| seen(now.1, l.no)) {
-        rows.extend(
-            was.iter()
-                .enumerate()
-                .filter(|(j, _)| spare[*j])
-                .map(|(_, l)| MarkedRow {
-                    no: l.no,
-                    text: Some(l.text.clone()),
-                    mark: Mark::Removed,
-                }),
-        );
+        rows.extend(gone.into_iter().map(|k| MarkedRow {
+            no: q.lines[k].no,
+            text: Some(q.lines[k].text.clone()),
+            mark: Mark::Removed,
+        }));
     }
     rows
 }
 
-/// Which items of `a` and `b` are in their longest common run (in order): (a's, b's). Of the
-/// runs that long, the one that keeps the most items at the same number (`na`, `nb`): versions
-/// are numbered by tens, so a line that stayed where it was is the likelier match.
-fn common<T: PartialEq>(a: &[T], b: &[T], na: &[u32], nb: &[u32]) -> (Vec<bool>, Vec<bool>) {
+/// A program's lines in the units a version changes: an IF and the line it guards, or a line on
+/// its own (indices into `Program::lines`).
+fn units(p: &Program) -> Vec<Vec<usize>> {
+    let mut out = Vec::new();
+    let mut k = 0;
+    while k < p.lines.len() {
+        if matches!(p.lines[k].stmt, basic::Stmt::If(_)) && k + 1 < p.lines.len() {
+            out.push(vec![k, k + 1]);
+            k += 2;
+        } else {
+            out.push(vec![k]);
+            k += 1;
+        }
+    }
+    out
+}
+
+/// Which blocks of `a` and `b` are in their common run (in order) that keeps the most lines:
+/// (a's, b's). Of those, the one that keeps the most blocks at the same number (`na`, `nb`):
+/// versions are numbered by tens, so a block that stayed where it was is the likelier match.
+fn common<T: PartialEq>(
+    a: &[Vec<T>],
+    b: &[Vec<T>],
+    na: &[u32],
+    nb: &[u32],
+) -> (Vec<bool>, Vec<bool>) {
     let (n, m) = (a.len(), b.len());
-    // Score: matches first, then matches at the same number.
-    let score = |i: usize, j: usize| -> u64 { 1000 + u64::from(na[i] == nb[j]) };
+    // Score: lines kept first, then blocks kept at the same number.
+    let score =
+        |i: usize, j: usize| -> u64 { 1000 * a[i].len() as u64 + u64::from(na[i] == nb[j]) };
     let mut best = vec![vec![0u64; m + 1]; n + 1];
     for i in (0..n).rev() {
         for j in (0..m).rev() {

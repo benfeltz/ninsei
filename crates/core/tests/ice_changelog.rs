@@ -250,3 +250,29 @@ fn nothing_about_an_unseen_version_before_leaks_into_the_marks() {
         marks(&rows)
     );
 }
+
+#[test]
+fn a_moved_block_is_marked_whole() {
+    // IF A / X / IF B / X, then the second block moved to the top.
+    let d = data();
+    let v = &enigma(&d).verbs;
+    let before = "10 IF TARGET SHIELD > 0\n20 TRACE 4\n30 IF TURN > 2\n40 TRACE 4";
+    let after = "10 IF TURN > 2\n20 TRACE 4\n30 IF TARGET SHIELD > 0\n40 TRACE 4";
+    let all = [10, 20, 30, 40];
+    let rows = changes(v, Some((before, &all)), (after, &all));
+    let m: Vec<Mark> = rows.iter().map(|r| r.mark).collect();
+    // One block kept, the other moved, each whole: never an IF moved over a kept line.
+    assert!(
+        m == [Mark::Moved, Mark::Moved, Mark::None, Mark::None]
+            || m == [Mark::None, Mark::None, Mark::Moved, Mark::Moved],
+        "{:?}",
+        marks(&rows)
+    );
+    // A block seen in part isn't marked: its other line could be anything.
+    let rows = changes(v, Some((before, &all)), (after, &[10]));
+    assert!(
+        rows.iter().all(|r| r.mark == Mark::None),
+        "{:?}",
+        marks(&rows)
+    );
+}
