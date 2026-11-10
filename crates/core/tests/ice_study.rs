@@ -658,3 +658,74 @@ fn the_sysops_study_the_script_as_the_fight_opened_not_what_it_garbled() {
     let s = g.ice_study.iter().find(|s| s.id == "rototurret").unwrap();
     assert_eq!(s.deck.script, SAFE_PICK);
 }
+
+/// Enigma's ICE DB entry for version 1.0.1 running `program`, its lines 10 and 20 seen.
+fn seen_patch(program: &str) -> hub::IceSeen {
+    hub::IceSeen {
+        id: "enigma".into(),
+        met: 1,
+        lo: 12,
+        hi: 12,
+        lines: vec![10, 20],
+        version: Version::FIRST.bumped(Bump::Patch),
+        bump: Some(Bump::Patch),
+        program: program.into(),
+        won: 1,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn a_saved_version_its_row_no_longer_takes_still_books_the_fights_that_fall_back() {
+    let d = data();
+    let mut s = home(0x9144);
+    // 1.0.1 was saved, then the row changed under it: tier 1 may not SEGFAULT.
+    let bad = "10 SEGFAULT\n20 TRACE 4";
+    s.ice_seen.push(seen_patch(bad));
+    s.ice_versions.push(hub::IceVer {
+        id: "enigma".into(),
+        version: Version::FIRST.bumped(Bump::Patch),
+        program: bad.into(),
+        bump: Some(Bump::Patch),
+    });
+    assert_eq!(s.ice_program("enigma", &d).unwrap().0, Version::FIRST);
+    run(&mut s, &d, SAFE_PICK, &[("enigma", true)]);
+    let e = s.ice_seen.iter().find(|x| x.id == "enigma").unwrap();
+    assert_eq!((e.version, e.won), (Version::FIRST, 1), "{e:?}");
+    assert_eq!(e.past.len(), 1, "1.0.1 kept as it was known");
+    assert_eq!(e.past[0].lines, [10, 20]);
+}
+
+#[test]
+fn a_version_number_met_before_with_another_program_is_met_unknown() {
+    let d = data();
+    let mut s = home(0x9144);
+    s.tools.push("icedb".into());
+    s.ice_seen.push(seen_patch("10 TRACE 4\n20 ATTACK 3"));
+    let now = "10 ATTACK 4\n20 TRACE 4";
+    s.ice_versions.push(hub::IceVer {
+        id: "enigma".into(),
+        version: Version::FIRST.bumped(Bump::Patch),
+        program: now.into(),
+        bump: Some(Bump::Patch),
+    });
+    assert!(
+        s.kit(&d).ice_known.iter().all(|(id, _)| id != "enigma"),
+        "those lines were another program's"
+    );
+    run(&mut s, &d, SAFE_PICK, &[("enigma", true)]);
+    let e = s.ice_seen.iter().find(|x| x.id == "enigma").unwrap();
+    assert_eq!(e.program, now);
+    assert_eq!(e.past.len(), 1);
+    assert_eq!(e.past[0].program, "10 TRACE 4\n20 ATTACK 3");
+    // The same number and program is the same version: its lines come back in.
+    let mut known = e.clone();
+    known.lines = vec![10];
+    s.ice_seen = vec![known];
+    assert!(
+        s.kit(&d)
+            .ice_known
+            .iter()
+            .any(|(id, l)| id == "enigma" && l == &[10])
+    );
+}

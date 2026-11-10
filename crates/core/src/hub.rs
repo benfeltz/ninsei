@@ -1154,15 +1154,23 @@ pub struct SeenVersion {
 }
 
 impl IceSeen {
+    /// Whether this entry is of `version` running `program` (empty for 1.0.0, the row's). A
+    /// version is its number and its program: when the data changes under a save, a saved
+    /// version can fall back to 1.0.0 and the next shipped can take a number met before.
+    pub fn is(&self, version: crate::ice_version::Version, program: &str) -> bool {
+        self.version == version && self.program == program
+    }
+
     /// Meets `version` (made by `bump`, running `program`): a version other than the last one
-    /// met puts that one in `past` as it was known and starts this one with nothing seen.
+    /// met (by number or program, older or newer) puts that one in `past` as it was known and
+    /// starts this one with nothing seen.
     pub fn meet(
         &mut self,
         version: crate::ice_version::Version,
         bump: Option<crate::ice_version::Bump>,
         program: &str,
     ) {
-        if self.version == version {
+        if self.is(version, program) {
             return;
         }
         self.past.push(SeenVersion {
@@ -1223,6 +1231,16 @@ fn in_force<'a>(
             None => (crate::ice_version::Version::default(), row.program.as_str()),
         },
     )
+}
+
+/// Version `v` of `row`, running `program`, as a fight books it (`Bout::program`): empty for
+/// 1.0.0, the row's, else the program as it parses.
+fn as_met(row: &crate::data::IceDef, v: crate::ice_version::Version, program: &str) -> String {
+    if v == crate::ice_version::Version::FIRST {
+        String::new()
+    } else {
+        crate::basic::parse_with(program, crate::basic::Vocab::Ice(&row.verbs)).text()
+    }
 }
 
 /// Puts `next`, the version after `was` of kind `id`, in force in `versions`: the latest
@@ -2352,8 +2370,10 @@ impl Save {
                 .iter()
                 .filter(|s| self.has_tool("icedb") && !s.lines.is_empty())
                 .filter(|s| {
-                    self.ice_program(&s.id, data)
-                        .is_some_and(|(v, _)| v == s.version)
+                    let row = data.ice.iter().find(|r| r.id == s.id);
+                    let now = self.ice_program(&s.id, data);
+                    row.zip(now)
+                        .is_some_and(|(row, (v, p))| s.is(v, &as_met(row, v, p)))
                 })
                 .map(|s| (s.id.clone(), s.lines.clone()))
                 .collect(),
@@ -2552,30 +2572,23 @@ impl Save {
                     ..IceSeen::default()
                 },
             );
-            // Versions only climb; one older than the last met (a hand-edited save) books
-            // nothing of its lines.
-            let current = s.version <= b.version;
-            if current {
-                s.meet(b.version, b.bump, &b.program);
-            }
+            s.meet(b.version, b.bump, &b.program);
             s.met += 1;
             s.broken += u32::from(b.broken);
             s.lo = s.lo.min(strength);
             s.hi = s.hi.max(strength);
-            if current {
-                s.won += u32::from(b.broken);
-                s.lost += u32::from(killer == Some(b.ice) && k + 1 == game.bouts.len());
-                // What the deck saw this version run comes home with its entry, once, at its
-                // last fight on it. A save's own list may not be tidy (hand-edited, or older):
-                // tidy it first.
-                let later = game.bouts[k + 1..]
-                    .iter()
-                    .any(|x| x.ice == b.ice && x.version == b.version);
-                if !later {
-                    s.lines = crate::ice_listing::tidy(std::mem::take(&mut s.lines));
-                    for &no in game.ice_lines_of(b.ice, b.version) {
-                        crate::ice_listing::note_line(&mut s.lines, no);
-                    }
+            s.won += u32::from(b.broken);
+            s.lost += u32::from(killer == Some(b.ice) && k + 1 == game.bouts.len());
+            // What the deck saw this version run comes home with its entry, once, at its
+            // last fight on it. A save's own list may not be tidy (hand-edited, or older):
+            // tidy it first.
+            let later = game.bouts[k + 1..]
+                .iter()
+                .any(|x| x.ice == b.ice && x.version == b.version);
+            if !later {
+                s.lines = crate::ice_listing::tidy(std::mem::take(&mut s.lines));
+                for &no in game.ice_lines_of(b.ice, b.version) {
+                    crate::ice_listing::note_line(&mut s.lines, no);
                 }
             }
         }
