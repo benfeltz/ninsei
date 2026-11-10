@@ -1,0 +1,50 @@
+// What the sysops write new versions of their ICE from. A version is never written by hand: it
+// is the last one with a block moved, a number changed, a read added or removed, or a read
+// replaced (see `crates/core/src/ice_version.rs`), and it always fits its row's machine in
+// `ice.ron` (cpu, ram, hdd, ranges).
+//
+// program_attacks: the verbs whose lines attack the deck's program rather than the deck.
+// fair: (tier: t, most: n) no version of a tier-t ICE holds more than n lines of those verbs.
+//       Every tier in `ice.ron` is listed, and every row's own program keeps to it.
+// classes: per ICE class, the reads a new block may open with:
+//   read:      an ICE's condition, as it follows `IF` (`TARGET INTEG < n`, `TARGET RAN patch`).
+//              A word `n` is the number, drawn from `n: Some((lo, hi))`; a read with no `n`
+//              has `n: None`.
+//   weight:    how often it's drawn, against the class's other reads.
+//   responses: [(Verb, weight)] the verbs the line after it may use, weighted. The number comes
+//              from the ICE's own range; a verb not on the ICE's row is never drawn for it.
+// A class leans the way it fights: a barrier digs in, a code gate runs the clock, a sentry hits.
+(
+    program_attacks: [Spoof, Segfault],
+    fair: [
+        (tier: 0, most: 2),
+        (tier: 1, most: 0),
+        (tier: 2, most: 1),
+    ],
+    classes: [
+        (class: Barrier, reads: [
+            (read: "TARGET CPU < n",    n: Some((1, 2)),  weight: 3, responses: [(Fortify, 3), (Attack, 1)]),
+            (read: "SELF STR < n",      n: Some((8, 14)), weight: 3, responses: [(Fortify, 3), (Attack, 1)]),
+            (read: "TARGET SHIELD > n", n: Some((0, 2)),  weight: 2, responses: [(Fortify, 2), (Attack, 1)]),
+            (read: "TARGET RAN icepick", n: None,         weight: 2, responses: [(Fortify, 3)]),
+            (read: "TARGET INTEG < n",  n: Some((4, 8)),  weight: 1, responses: [(Attack, 3)]),
+            (read: "TURN > n",          n: Some((2, 6)),  weight: 1, responses: [(Attack, 2), (Fortify, 1)]),
+        ]),
+        (class: CodeGate, reads: [
+            (read: "TARGET SHIELD > n", n: Some((0, 2)),  weight: 3, responses: [(Trace, 3), (Spoof, 1), (Attack, 1)]),
+            (read: "TARGET RAN patch",  n: None,          weight: 3, responses: [(Trace, 3), (Segfault, 1)]),
+            (read: "TARGET RAN firewall", n: None,        weight: 2, responses: [(Trace, 2), (Segfault, 1)]),
+            (read: "TARGET CPU > n",    n: Some((0, 2)),  weight: 1, responses: [(Trace, 2)]),
+            (read: "TARGET INTEG < n",  n: Some((4, 8)),  weight: 1, responses: [(Attack, 2)]),
+            (read: "TURN > n",          n: Some((2, 6)),  weight: 1, responses: [(Trace, 2), (Attack, 1)]),
+        ]),
+        (class: Sentry, reads: [
+            (read: "TARGET INTEG < n",  n: Some((4, 9)),  weight: 3, responses: [(Attack, 3)]),
+            (read: "TARGET RAN patch",  n: None,          weight: 3, responses: [(Attack, 3), (Trace, 1)]),
+            (read: "TARGET SHIELD < n", n: Some((1, 2)),  weight: 2, responses: [(Attack, 3)]),
+            (read: "TARGET SHIELD > n", n: Some((0, 2)),  weight: 1, responses: [(Trace, 2), (Spoof, 1)]),
+            (read: "TARGET RAN firewall", n: None,        weight: 1, responses: [(Trace, 2)]),
+            (read: "TURN > n",          n: Some((2, 6)),  weight: 1, responses: [(Attack, 2)]),
+        ]),
+    ],
+)

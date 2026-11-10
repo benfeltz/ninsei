@@ -107,3 +107,110 @@ fn a_bad_range_is_rejected() {
         "{err}"
     );
 }
+
+/// The builtin data with `ice_grammar.ron` edited (a find, which must be there, and its
+/// replacement).
+fn grammar_edited(find: &str, replace: &str) -> Result<Data, String> {
+    let g = include_str!("../../../data/ice_grammar.ron");
+    assert!(g.contains(find), "ice_grammar.ron has no `{find}`");
+    let g = g.replacen(find, replace, 1);
+    Data::parse(Sources {
+        ice_grammar: &g,
+        ..Sources::builtin()
+    })
+}
+
+#[test]
+fn the_shipped_grammar_loads() {
+    let d = Data::builtin().unwrap();
+    for class in [IceClass::Barrier, IceClass::CodeGate, IceClass::Sentry] {
+        assert!(d.ice_grammar.reads(class).len() >= 2, "{class:?}");
+    }
+    assert!(!d.ice_grammar.program_attacks.is_empty());
+}
+
+#[test]
+fn a_bad_grammar_is_rejected() {
+    let bad = [
+        (
+            "\"TARGET RAN icepick\"",
+            "\"TARGET RAN nothing\"",
+            "no program is called",
+        ),
+        (
+            "\"TARGET CPU < n\",    n: Some((1, 2))",
+            "\"TARGET MOOD < n\",    n: Some((1, 2))",
+            "unknown condition",
+        ),
+        (
+            "\"TARGET CPU < n\",    n: Some((1, 2))",
+            "\"TARGET CPU < n\",    n: None",
+            "no range",
+        ),
+        (
+            "\"TARGET RAN icepick\", n: None",
+            "\"TARGET RAN icepick\", n: Some((1, 2))",
+            "no `n`",
+        ),
+        (
+            "\"TARGET CPU < n\",    n: Some((1, 2))",
+            "\"TARGET CPU < n\",    n: Some((2, 1))",
+            "lowest first",
+        ),
+        (
+            "responses: [(Fortify, 3), (Attack, 1)]),",
+            "responses: [(Segfault, 3)]),",
+            "which no BARRIER has",
+        ),
+        (
+            "responses: [(Fortify, 3), (Attack, 1)]),",
+            "responses: []),",
+            "no responses",
+        ),
+        (
+            "weight: 3, responses: [(Fortify, 3), (Attack, 1)]),",
+            "weight: 0, responses: [(Fortify, 3), (Attack, 1)]),",
+            "weight 0",
+        ),
+        ("(tier: 1, most: 0),", "", "no tier 1"),
+        (
+            "(tier: 1, most: 0),",
+            "(tier: 1, most: 0), (tier: 1, most: 1),",
+            "twice",
+        ),
+    ];
+    for (find, replace, why) in bad {
+        let err = grammar_edited(find, replace).expect_err(why);
+        assert!(
+            err.contains("ice_grammar.ron") && err.contains(why),
+            "{why}: {err}"
+        );
+    }
+}
+
+#[test]
+fn a_class_needs_two_reads() {
+    // The Sentry keeps its first read only: every line after it up to the end of its list goes.
+    let g = include_str!("../../../data/ice_grammar.ron");
+    let start = g.find("(class: Sentry, reads: [").unwrap();
+    let lines: Vec<&str> = g[start..].lines().collect();
+    let end = lines.iter().position(|l| l.trim() == "]),").unwrap();
+    let kept = [&lines[..2], &lines[end..]].concat().join("\n");
+    let g = format!("{}{kept}\n", &g[..start]);
+    let err = Data::parse(Sources {
+        ice_grammar: &g,
+        ..Sources::builtin()
+    })
+    .unwrap_err();
+    assert!(err.contains("SENTRY has fewer than two reads"), "{err}");
+}
+
+#[test]
+fn a_row_may_not_attack_the_program_past_its_tier() {
+    // Archer, tier 2, SPOOFs once: a tier 2 that may hold none refuses it.
+    let err = grammar_edited("(tier: 2, most: 1),", "(tier: 2, most: 0),").unwrap_err();
+    assert!(
+        err.contains("archer") && err.contains("attack the program"),
+        "{err}"
+    );
+}
