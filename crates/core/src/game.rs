@@ -1113,6 +1113,13 @@ impl Game {
         self.say(LogKind::Good, format!("uplink: back out at {name}."));
     }
 
+    /// ICE `ice` (an index into `Data::ice`) as a fight screen names it: its name and the version
+    /// of its kind in force this run (`Enigma 1.3.0`). The version is the player's to read, so
+    /// 1.0.0 shows too.
+    pub fn ice_label(&self, ice: usize) -> String {
+        format!("{} {}", self.data.ice[ice].name, self.ice_version(ice))
+    }
+
     /// The version ICE `ice` (an index into `Data::ice`) runs this run: the kit's, or 1.0.0.
     pub fn ice_version(&self, ice: usize) -> Version {
         self.ice_versions
@@ -1126,7 +1133,7 @@ impl Game {
             + ICE_STRENGTH_PER_LAYER * self.depth(node)
             + self.mods.ice_bonus;
         let def = &self.data.ice[ice];
-        let (name, class) = (def.name.clone(), def.class.label());
+        let class = def.class.label();
         // The kind's version in force: the kit's, or 1.0.0, its row's.
         let ice_version = self.ice_version(ice);
         let ice_prog = match self.ice_versions.iter().find(|(i, _, _)| *i == ice) {
@@ -1167,9 +1174,10 @@ impl Game {
             pc: self.top(Side::Deck),
             ..Exec::default()
         };
+        let label = self.ice_label(ice);
         self.say(
             LogKind::Bad,
-            format!("!! {name} rezzed [{class}] strength {strength}"),
+            format!("!! {label} rezzed [{class}] strength {strength}"),
         );
     }
 

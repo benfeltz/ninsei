@@ -458,7 +458,7 @@ fn hud(painter: &Painter, rect: Rect, p: &Palette, g: &Game, preview: Option<fig
     painter.text(
         pos2(x, y),
         Align2::LEFT_CENTER,
-        ice.name.to_uppercase(),
+        g.ice_label(c.ice).to_uppercase(),
         mono(16.0),
         p.bright,
     );
