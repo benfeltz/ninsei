@@ -2226,12 +2226,9 @@ impl Save {
                 .collect(),
             // The sysops' patches: every net runs a patched kind's version.
             ice_programs: self
-                .ice_versions
-                .iter()
-                .filter_map(|v| {
-                    let (version, program) = self.ice_program(&v.id, data)?;
-                    (version == v.version).then(|| (v.id.clone(), version, program.to_string()))
-                })
+                .patches(data)
+                .into_iter()
+                .map(|v| (v.id.clone(), v.version, v.program.clone()))
                 .collect(),
             origins,
         }
@@ -2251,12 +2248,36 @@ impl Save {
             match self
                 .ice_versions
                 .iter()
-                .find(|v| v.id == id && data.check_ice_program(row, &v.program).is_ok())
+                .find(|v| v.id == id && Self::in_force(v, row, data))
             {
                 Some(v) => (v.version, v.program.as_str()),
                 None => (crate::ice_version::Version::default(), row.program.as_str()),
             },
         )
+    }
+
+    /// Whether saved version `v` of `row` is in force: past 1.0.0 (which is always the row's
+    /// own program) and passing the row's check.
+    fn in_force(v: &IceVer, row: &crate::data::IceDef, data: &Data) -> bool {
+        v.version > crate::ice_version::Version::FIRST
+            && data.check_ice_program(row, &v.program).is_ok()
+    }
+
+    /// The saved versions in force, the first for each kind ([`Save::ice_program`]'s), each
+    /// checked once.
+    fn patches<'a>(&'a self, data: &Data) -> Vec<&'a IceVer> {
+        let mut out: Vec<&IceVer> = Vec::new();
+        for v in &self.ice_versions {
+            if out.iter().any(|o| o.id == v.id) {
+                continue;
+            }
+            if let Some(row) = data.ice.iter().find(|r| r.id == v.id)
+                && Self::in_force(v, row, data)
+            {
+                out.push(v);
+            }
+        }
+        out
     }
 
     /// The deck's program: as the last run left it, or the one its kit shipped.

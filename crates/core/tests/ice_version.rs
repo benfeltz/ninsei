@@ -618,3 +618,39 @@ fn every_verb_round_trips_through_its_move() {
         assert_eq!(v.with(7).verb(), (v, n), "{v:?}");
     }
 }
+
+#[test]
+fn a_saved_one_point_oh_is_always_the_rows() {
+    use ice_version::Version;
+    let d = Data::builtin().unwrap();
+    let row = d.ice.iter().find(|i| i.id == "rototurret").unwrap();
+    // A valid program that isn't the row's, saved as 1.0.0, and a later entry for the kind.
+    let mut save = Save {
+        ice_versions: vec![hub::IceVer {
+            id: "rototurret".into(),
+            version: Version::default(),
+            program: "10 ATTACK 3".into(),
+        }],
+        ..Save::default()
+    };
+    assert_eq!(
+        save.ice_program("rototurret", &d),
+        Some((Version::default(), row.program.as_str()))
+    );
+    assert!(save.kit(&d).ice_programs.is_empty());
+    // The first entry for a kind that's in force wins, in the kit as in `ice_program`.
+    let later = patched("10 ATTACK 4").ice_versions[0].clone();
+    let last = hub::IceVer {
+        program: "10 ATTACK 5".into(),
+        ..later.clone()
+    };
+    save.ice_versions.extend([later.clone(), last]);
+    assert_eq!(
+        save.ice_program("rototurret", &d),
+        Some((later.version, "10 ATTACK 4"))
+    );
+    assert_eq!(
+        save.kit(&d).ice_programs,
+        vec![("rototurret".into(), later.version, later.program)]
+    );
+}
