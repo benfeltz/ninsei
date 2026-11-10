@@ -517,7 +517,7 @@ fn a_version_in_the_save_is_what_the_fight_runs() {
     let kit = save.kit(&d);
     assert_eq!(
         kit.ice_programs,
-        vec![("rototurret".to_string(), v, program.to_string())]
+        vec![("rototurret".to_string(), v, program.to_string(), None)]
     );
     let mut g = fight_with(d.clone(), &kit, "rototurret");
     let c = g.combat.as_ref().unwrap();
@@ -648,7 +648,12 @@ fn a_saved_one_point_oh_is_always_the_rows() {
     );
     assert_eq!(
         save.kit(&d).ice_programs,
-        vec![("rototurret".into(), later.version, later.program)]
+        vec![(
+            "rototurret".into(),
+            later.version,
+            later.program,
+            later.bump
+        )]
     );
 }
 

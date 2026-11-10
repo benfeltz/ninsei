@@ -155,15 +155,14 @@ pub struct Kit {
     /// The ICE lines the deck has seen run before (from the save's ICE DB): (ICE id, line
     /// numbers). A fight shows these in clear from its first turn.
     pub ice_known: Vec<(String, Vec<u32>)>,
-    /// The ICE kinds whose version in force isn't 1.0.0 (from the save's `ice_versions`): (ICE
-    /// id, version, program). A fight against one runs this program in place of its row's.
-    pub ice_programs: Vec<(String, crate::ice_version::Version, String)>,
-    /// Those versions as the boards heard of them, in the order they shipped: (ICE id,
-    /// version, how it was made). What a board's ICE news reads.
-    pub shipped: Vec<(
+    /// The ICE kinds whose version in force isn't 1.0.0 (from the save's `ice_versions`, in
+    /// the order they shipped): (ICE id, version, program, how it was made). A fight against
+    /// one runs this program in place of its row's, and a board's news reads them.
+    pub ice_programs: Vec<(
         String,
         crate::ice_version::Version,
-        crate::ice_version::Bump,
+        String,
+        Option<crate::ice_version::Bump>,
     )>,
     /// For each of `programs`, the stash id it came from (`None` for a free program). The run
     /// remembers them so the loadout comes home in its place.
@@ -198,7 +197,6 @@ impl Default for Kit {
             texts: Vec::new(),
             ice_known: Vec::new(),
             ice_programs: Vec::new(),
-            shipped: Vec::new(),
             origins: Vec::new(),
             free: Vec::new(),
         }
@@ -459,13 +457,12 @@ pub struct Game {
     /// line numbers, sorted): what the save knew at the start, plus every line an ICE's pass
     /// executes in this run. They come home even on a flatline. Never read by play.
     pub ice_lines: Vec<(usize, Vec<u32>)>,
-    /// The ICE kinds running a version past 1.0.0, fixed at jack-in from the kit: (index into
-    /// `Data::ice`, version, its program parsed once). Every ICE of a kind runs the same
-    /// version all run.
-    pub ice_versions: Vec<(usize, Version, Program)>,
-    /// The versions in force as the boards heard of them, in the order they shipped: (index into
-    /// `Data::ice`, version, how it was made), from `Kit::shipped`. What a board's news reads.
-    pub shipped: Vec<(usize, Version, crate::ice_version::Bump)>,
+    /// The ICE kinds running a version past 1.0.0, fixed at jack-in from the kit, in the order
+    /// they shipped: (index into `Data::ice`, version, its program parsed once, how it was
+    /// made). Every ICE of a kind runs the same version all run.
+    pub ice_versions: Vec<(usize, Version, Program, Option<crate::ice_version::Bump>)>,
+    /// The network's board's news of those versions (`bbs::news_bulletin`), written at jack-in.
+    pub news: Option<crate::data::BulletinDef>,
     /// Every fight this run, in order, as the rules saw it: what its ICE's sysops read in their
     /// logs. `Save::record` writes the next versions from it.
     pub bouts: Vec<Bout>,
@@ -652,24 +649,25 @@ impl Game {
                 Some((ice, crate::ice_listing::tidy(lines.clone())))
             })
             .collect();
-        let shipped = kit
-            .shipped
-            .iter()
-            .filter_map(|(id, v, b)| Some((data.ice.iter().position(|i| &i.id == id)?, *v, *b)))
-            .collect();
-        let ice_versions = kit
+        let ice_versions: Vec<(usize, Version, Program, Option<crate::ice_version::Bump>)> = kit
             .ice_programs
             .iter()
-            .filter_map(|(id, v, program)| {
+            .filter_map(|(id, v, program, bump)| {
                 let ice = data.ice.iter().position(|i| &i.id == id)?;
                 let verbs = &data.ice[ice].verbs;
                 Some((
                     ice,
                     *v,
                     crate::basic::parse_with(program, Vocab::Ice(verbs)),
+                    *bump,
                 ))
             })
             .collect();
+        let news = crate::bbs::news_bulletin(
+            &data.boards[board],
+            &data,
+            &crate::bbs::shipped(&ice_versions),
+        );
         let mut game = Self {
             at: net.entry(),
             outer: None,
@@ -700,7 +698,7 @@ impl Game {
             ice_versions,
             bouts: Vec::new(),
             killer: None,
-            shipped,
+            news,
             history: crate::history::History::default(),
             cues: Vec::new(),
             site: kit.site.clone(),
@@ -1141,8 +1139,8 @@ impl Game {
     pub fn ice_version(&self, ice: usize) -> Version {
         self.ice_versions
             .iter()
-            .find(|(i, _, _)| *i == ice)
-            .map_or(Version::default(), |(_, v, _)| *v)
+            .find(|(i, ..)| *i == ice)
+            .map_or(Version::default(), |(_, v, ..)| *v)
     }
 
     fn start_combat(&mut self, node: usize, ice: usize) {
@@ -1153,8 +1151,8 @@ impl Game {
         let class = def.class.label();
         // The kind's version in force: the kit's, or 1.0.0, its row's.
         let ice_version = self.ice_version(ice);
-        let ice_prog = match self.ice_versions.iter().find(|(i, _, _)| *i == ice) {
-            Some((_, _, p)) => p.clone(),
+        let ice_prog = match self.ice_versions.iter().find(|(i, ..)| *i == ice) {
+            Some((_, _, p, _)) => p.clone(),
             None => crate::basic::parse_with(&def.program, Vocab::Ice(&def.verbs)),
         };
         self.bouts.push(Bout {

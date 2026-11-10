@@ -347,8 +347,12 @@ mod version_tests {
         let c = g.combat.as_ref().unwrap();
         let ice = c.ice;
         let prog = c.ice_prog.clone();
-        g.ice_versions
-            .push((ice, Version::default().bumped(Bump::Patch), prog));
+        g.ice_versions.push((
+            ice,
+            Version::default().bumped(Bump::Patch),
+            prog,
+            Some(Bump::Patch),
+        ));
         g
     }
 

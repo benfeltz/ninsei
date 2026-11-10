@@ -45,8 +45,8 @@ impl Line for HomeCall {
         &self.def
     }
 
-    fn news(&self) -> Option<crate::data::BulletinDef> {
-        self.news.clone()
+    fn news(&self) -> Option<&crate::data::BulletinDef> {
+        self.news.as_ref()
     }
 
     fn stock(&self) -> &[Vec<StockFile>] {
@@ -217,16 +217,10 @@ impl Save {
             tool_defs: data.tools.clone(),
             cracks: data.crack_labels(),
             tune_titles: data.tune_titles(),
-            news: {
-                let shipped: Vec<_> = self
-                    .shipped(data)
-                    .into_iter()
-                    .filter_map(|(id, v, b)| {
-                        Some((data.ice.iter().position(|i| i.id == id)?, v, b))
-                    })
-                    .collect();
-                crate::bbs::news_bulletin(&data.boards[board], data, &shipped)
-            },
+            // Only a board that hears news reads the versions in force.
+            news: data.boards[board].ice_news.as_ref().and_then(|_| {
+                crate::bbs::news_bulletin(&data.boards[board], data, &self.shipped(data))
+            }),
         }
     }
 

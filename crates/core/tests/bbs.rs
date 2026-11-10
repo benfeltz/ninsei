@@ -162,7 +162,7 @@ fn every_screen_fits_the_terminal() {
             Screen::Hangup { t: 9.0 },
         ];
         // Its own bulletins and its ICE news, if it hears any.
-        screens.extend((0..ninsei_core::bbs::Line::bulletins(&g).len()).map(Screen::Bulletin));
+        screens.extend((0..ninsei_core::bbs::Line::bulletin_count(&g)).map(Screen::Bulletin));
         screens.extend((0..g.bbs().areas.len()).map(Screen::Area));
         screens.push(Screen::Messages);
         for (base, m) in g.bbs().messages.iter().enumerate() {
@@ -479,7 +479,7 @@ fn a_new_version_is_news_on_the_boards_that_would_hear_of_it() {
     use ninsei_core::bbs::Line;
     let d = Data::builtin().unwrap();
     let s = shipped_save(&d);
-    let news = |id: &str| s.home_call(&d, &d.rig, board(&d, id)).news();
+    let news = |id: &str| s.home_call(&d, &d.rig, board(&d, id)).news().cloned();
     // The Gutter hears tier 1 and black ICE, newest first, each in its bump's words.
     let g = news("gutter").expect("the Gutter hears news");
     assert_eq!(g.title, "ICE WATCH");
@@ -518,7 +518,9 @@ fn the_news_comes_after_the_boards_own_bulletins_and_says_so_when_quiet() {
     let d = Data::builtin().unwrap();
     let gutter = board(&d, "gutter");
     let quiet = hub::Save::default().home_call(&d, &d.rig, gutter);
-    let all = quiet.bulletins();
+    let all: Vec<_> = (0..quiet.bulletin_count())
+        .map(|i| quiet.bulletin(i).unwrap())
+        .collect();
     let own = &d.boards[gutter].bulletins;
     assert_eq!(all.len(), own.len() + 1);
     for (a, b) in all.iter().zip(own) {
@@ -560,7 +562,7 @@ fn a_full_news_bulletin_fits_the_terminal() {
     }
     for (i, b) in d.boards.iter().enumerate() {
         let call = s.home_call(&d, &d.rig, i);
-        let n = call.bulletins().len();
+        let n = call.bulletin_count();
         let sess = Session {
             screen: Screen::Bulletin(n - 1),
             status: None,
