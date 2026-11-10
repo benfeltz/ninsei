@@ -142,6 +142,28 @@ fn what_ships_does_better_against_the_script_that_beat_the_last_version() {
 }
 
 #[test]
+fn the_lazy_programs_careers_ship_a_version_of_every_tier_one_kind() {
+    // Follow-up: Rototurret couldn't hurt a deck behind two firewalls, so it never shipped.
+    let d = data();
+    let mut kinds: Vec<String> = Vec::new();
+    for key in 0..4u64 {
+        let mut s = deck(0xF011 + key, 1);
+        for x in career(&mut s, &d, 40, STUDY_PATIENCE) {
+            if !kinds.contains(&x.now.id) {
+                kinds.push(x.now.id.clone());
+            }
+        }
+    }
+    for row in d.ice.iter().filter(|i| i.tier == 1) {
+        assert!(
+            kinds.contains(&row.id),
+            "{} never shipped: {kinds:?}",
+            row.id
+        );
+    }
+}
+
+#[test]
 fn every_version_fits_its_machine_and_can_be_patched_again() {
     let d = data();
     for tier in [1, 2] {
