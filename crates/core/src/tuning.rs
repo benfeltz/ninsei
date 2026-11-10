@@ -190,7 +190,7 @@ pub const BIAS_WEIGHT: u32 = 6;
 pub const LADDER_WINS: [u32; 3] = [5, 4, 4];
 /// The sysops try this many rewrites and ship the one that would have hurt the logged play most
 /// (none, if every one would have hurt it less than the version in force).
-pub const PATCH_DRAFTS: usize = 16;
+pub const PATCH_DRAFTS: usize = 32;
 /// How much of the play that beat a version its sysops keep in the logs: the latest fights that
 /// fit in this many ICE turns.
 pub const TELLS_KEPT: usize = 48;
