@@ -499,6 +499,7 @@ fn patched(program: &str) -> Save {
             id: "rototurret".into(),
             version: Version::default().bumped(Bump::Patch),
             program: program.into(),
+            bump: None,
         }],
         ..Save::default()
     }
@@ -625,6 +626,7 @@ fn a_saved_one_point_oh_is_always_the_rows() {
             id: "rototurret".into(),
             version: Version::default(),
             program: "10 ATTACK 3".into(),
+            bump: None,
         }],
         ..Save::default()
     };
@@ -744,6 +746,7 @@ fn seen_lines_belong_to_a_version() {
         hi: 11,
         lines: vec![10, 20, 30, 40],
         version: ice_version::Version::default(),
+        ..Default::default()
     });
     // The ICE DB keeps 1.0.0's listing as it was known: the row's lines, all in clear.
     let entry = |s: &Save| {

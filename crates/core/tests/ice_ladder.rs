@@ -181,3 +181,125 @@ fn the_next_version_is_written_against_the_play_that_won() {
         fired(&d, IceClass::Sentry, &[patched])
     );
 }
+
+/// Fights the open fight out: a win if `win` (the ICE drops to 1 and the deck picks at it),
+/// else a flatline.
+fn finish(g: &mut Game, win: bool) {
+    if win {
+        let c = g.combat.as_mut().unwrap();
+        (c.strength, c.strength_max) = (1, 1);
+        g.apply(Action::Program("10 RUN icepick".into()));
+        turn(g);
+        assert_ne!(g.phase, Phase::Combat);
+    } else {
+        g.deck.integrity = 1;
+        while g.phase == Phase::Combat {
+            g.apply(Action::EndTurn);
+        }
+        assert_eq!(g.phase, Phase::Flatlined);
+    }
+}
+
+/// Ends a run that's still going: the bot walks into Rototurret and loses.
+fn end_run(g: &mut Game) {
+    if matches!(g.phase, Phase::Flatlined | Phase::JackedOut) {
+        return;
+    }
+    let target = g.net.nodes[g.at].links[0];
+    let ix = g.data.ice.iter().position(|i| i.id == "hunter").unwrap();
+    g.net.nodes[target].kind = NodeKind::Ice;
+    g.net.nodes[target].ice = Some(ix);
+    g.net.nodes[target].cleared = false;
+    g.apply(Action::Move(target));
+    finish(g, false);
+}
+
+#[test]
+fn meeting_a_newer_version_keeps_the_last_one_as_it_was_known() {
+    use ice_version::{Bump, Version};
+    let d = data();
+    let mut s = deck(&d);
+    s.ice_seen.push(hub::IceSeen {
+        id: "enigma".into(),
+        met: 2,
+        broken: 2,
+        lo: 12,
+        hi: 12,
+        lines: vec![10, 30],
+        won: 2,
+        ..Default::default()
+    });
+    let patch = Version::default().bumped(Bump::Patch);
+    let text = "10 ATTACK 4\n20 IF TARGET SHIELD > 0\n30 TRACE 10\n40 TRACE 4";
+    s.ice_versions.push(hub::IceVer {
+        id: "enigma".into(),
+        version: patch,
+        program: text.into(),
+        bump: Some(Bump::Patch),
+    });
+    let mut g = fight(&mut s, &d, "enigma", "");
+    turn(&mut g);
+    finish(&mut g, true);
+    end_run(&mut g);
+    s.record(&g, &[], &d.rig).unwrap();
+    let e = s.ice_seen.iter().find(|x| x.id == "enigma").unwrap();
+    assert_eq!((e.version, e.bump), (patch, Some(Bump::Patch)));
+    assert_eq!(e.program, text);
+    assert_eq!((e.won, e.lost, e.met), (1, 0, 3));
+    assert!(e.lines.contains(&10), "{e:?}");
+    assert_eq!(
+        e.past,
+        vec![hub::SeenVersion {
+            version: Version::default(),
+            bump: None,
+            program: String::new(),
+            lines: vec![10, 30],
+            won: 2,
+            lost: 0,
+        }]
+    );
+    // The ICE DB decompiles the version the lines were seen on.
+    let entry = icedb::entries(&s, &d)
+        .into_iter()
+        .find(|x| x.def.id == "enigma")
+        .unwrap();
+    assert_eq!(entry.program, Some(text));
+}
+
+#[test]
+fn a_loss_counts_against_the_version_that_won_it() {
+    let d = data();
+    let mut s = deck(&d);
+    let mut g = fight(&mut s, &d, "bulwark", "");
+    finish(&mut g, false);
+    s.record(&g, &[], &d.rig).unwrap();
+    let b = s.ice_seen.iter().find(|x| x.id == "bulwark").unwrap();
+    assert_eq!((b.won, b.lost), (0, 1));
+    assert_eq!(b.version.to_string(), "1.0.0");
+    assert!(b.past.is_empty());
+}
+
+#[test]
+fn a_save_from_before_versions_per_seen_line_loads() {
+    let mut s = Save::default();
+    s.ice_seen.push(hub::IceSeen {
+        id: "enigma".into(),
+        met: 1,
+        lines: vec![10],
+        ..Default::default()
+    });
+    let text = s.to_text();
+    let old: String = text
+        .lines()
+        .filter(|l| {
+            let l = l.trim_start();
+            !["bump:", "program: \"\"", "won:", "lost:", "past:"]
+                .iter()
+                .any(|f| l.starts_with(f))
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    assert_ne!(old, text);
+    let back = Save::load(&old).unwrap();
+    assert_eq!(back.ice_seen, s.ice_seen);
+}

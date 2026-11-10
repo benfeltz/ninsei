@@ -1106,7 +1106,7 @@ fn default_intros() -> bool {
 }
 
 /// What you know about one ICE: by id in `data/ice.ron`.
-#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
 pub struct IceSeen {
     pub id: String,
     pub met: u32,
@@ -1117,10 +1117,62 @@ pub struct IceSeen {
     /// The lines of its program you've seen it run, sorted: what the ICE DB decompiles.
     #[serde(default)]
     pub lines: Vec<u32>,
-    /// The version of its kind `lines` were seen on. Seen lines belong to a version: a new one
-    /// is met knowing nothing, since its line 20 is not the last one's.
+    /// The version of its kind `lines` were seen on: the last one met. Seen lines belong to a
+    /// version: a new one is met knowing nothing, since its line 20 is not the last one's.
     #[serde(default)]
     pub version: crate::ice_version::Version,
+    /// How `version` was made from the one before (`None` for 1.0.0).
+    #[serde(default)]
+    pub bump: Option<crate::ice_version::Bump>,
+    /// `version`'s program, as it ran; empty for 1.0.0, the row's.
+    #[serde(default)]
+    pub program: String,
+    /// Fights against `version` won and lost (it ended the run).
+    #[serde(default)]
+    pub won: u32,
+    #[serde(default)]
+    pub lost: u32,
+    /// The versions met before `version`, oldest first, each kept as it was known.
+    #[serde(default)]
+    pub past: Vec<SeenVersion>,
+}
+
+/// A version of an ICE met before the last one, as it was known when a newer one was met.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct SeenVersion {
+    pub version: crate::ice_version::Version,
+    pub bump: Option<crate::ice_version::Bump>,
+    /// Its program; empty for 1.0.0, the row's.
+    pub program: String,
+    pub lines: Vec<u32>,
+    pub won: u32,
+    pub lost: u32,
+}
+
+impl IceSeen {
+    /// Meets `version` (made by `bump`, running `program`): a version other than the last one
+    /// met puts that one in `past` as it was known and starts this one with nothing seen.
+    pub fn meet(
+        &mut self,
+        version: crate::ice_version::Version,
+        bump: Option<crate::ice_version::Bump>,
+        program: &str,
+    ) {
+        if self.version == version {
+            return;
+        }
+        self.past.push(SeenVersion {
+            version: self.version,
+            bump: self.bump,
+            program: std::mem::take(&mut self.program),
+            lines: std::mem::take(&mut self.lines),
+            won: std::mem::take(&mut self.won),
+            lost: std::mem::take(&mut self.lost),
+        });
+        self.version = version;
+        self.bump = bump;
+        self.program = program.to_string();
+    }
 }
 
 /// A kind's version in force and the program it runs.
@@ -1130,6 +1182,9 @@ pub struct IceVer {
     pub id: String,
     pub version: crate::ice_version::Version,
     pub program: String,
+    /// How it was made from the version before.
+    #[serde(default)]
+    pub bump: Option<crate::ice_version::Bump>,
 }
 
 /// A textfile on your disk: which board it came from and its id in that board's `texts`.
@@ -2265,6 +2320,32 @@ impl Save {
         )
     }
 
+    /// The version of ICE `ice` (an index into `Data::ice`) that `game` ran, how it was made, and
+    /// its program as it ran (empty for 1.0.0, the row's).
+    fn met_version(
+        &self,
+        game: &Game,
+        ice: usize,
+    ) -> (
+        crate::ice_version::Version,
+        Option<crate::ice_version::Bump>,
+        String,
+    ) {
+        let version = game.ice_version(ice);
+        let program = game
+            .ice_versions
+            .iter()
+            .find(|(i, _, _)| *i == ice)
+            .map(|(_, _, p)| p.text())
+            .unwrap_or_default();
+        let bump = self
+            .ice_versions
+            .iter()
+            .find(|v| v.id == game.data.ice[ice].id && v.version == version)
+            .and_then(|v| v.bump);
+        (version, bump, program)
+    }
+
     /// Whether saved version `v` of `row` is in force: past 1.0.0 (which is always the row's
     /// own program) and passing the row's check.
     fn in_force(v: &IceVer, row: &crate::data::IceDef, data: &Data) -> bool {
@@ -2386,27 +2467,40 @@ impl Save {
         if game.starters_read {
             self.add_starters(&game.data);
         }
-        for m in &game.history.met {
+        let killer = game.killed_by();
+        for (k, m) in game.history.met.iter().enumerate() {
             let Some(def) = game.data.ice.get(m.ice) else {
                 continue;
             };
-            match self.ice_seen.iter_mut().find(|s| s.id == def.id) {
-                Some(s) => {
-                    s.met += 1;
-                    s.broken += u32::from(m.broken);
-                    s.lo = s.lo.min(m.strength);
-                    s.hi = s.hi.max(m.strength);
+            let (version, bump, program) = self.met_version(game, m.ice);
+            let s = match self.ice_seen.iter().position(|s| s.id == def.id) {
+                Some(i) => &mut self.ice_seen[i],
+                None => {
+                    self.ice_seen.push(IceSeen {
+                        id: def.id.clone(),
+                        met: 0,
+                        broken: 0,
+                        lo: m.strength,
+                        hi: m.strength,
+                        lines: Vec::new(),
+                        version,
+                        bump,
+                        program: program.clone(),
+                        won: 0,
+                        lost: 0,
+                        past: Vec::new(),
+                    });
+                    self.ice_seen.last_mut().expect("just pushed")
                 }
-                None => self.ice_seen.push(IceSeen {
-                    id: def.id.clone(),
-                    met: 1,
-                    broken: u32::from(m.broken),
-                    lo: m.strength,
-                    hi: m.strength,
-                    lines: Vec::new(),
-                    version: game.ice_version(m.ice),
-                }),
-            }
+            };
+            s.meet(version, bump, &program);
+            s.met += 1;
+            s.broken += u32::from(m.broken);
+            s.lo = s.lo.min(m.strength);
+            s.hi = s.hi.max(m.strength);
+            s.won += u32::from(m.broken);
+            // The last fight is the one that ended a flatlined run.
+            s.lost += u32::from(killer == Some(m.ice) && k + 1 == game.history.met.len());
         }
         // What the deck saw each ICE run comes home with its entry, as the fights do.
         for (ice, lines) in &game.ice_lines {
@@ -2416,10 +2510,8 @@ impl Save {
             if let Some(s) = self.ice_seen.iter_mut().find(|s| s.id == def.id) {
                 // The lines this run saw belong to the version it ran; what was seen on another
                 // version says nothing about this one.
-                let version = game.ice_version(*ice);
-                if s.version != version {
-                    s.lines.clear();
-                    s.version = version;
+                if s.version != game.ice_version(*ice) {
+                    continue;
                 }
                 // A save's own list may not be tidy (hand-edited, or older): tidy it first.
                 s.lines = crate::ice_listing::tidy(std::mem::take(&mut s.lines));
