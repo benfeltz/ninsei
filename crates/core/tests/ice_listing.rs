@@ -100,6 +100,7 @@ fn a_save_from_before_lines_loads() {
         lo: 12,
         hi: 12,
         lines: vec![10],
+        version: Default::default(),
     });
     let old = s
         .to_text()
@@ -295,6 +296,7 @@ fn lines_from_a_save_in_any_order_are_kept_tidy() {
         lo: 12,
         hi: 12,
         lines: vec![30, 10, 30],
+        version: Default::default(),
     });
     let mut g = fight_from(&mut s, "enigma");
     let e = ix(&g, "enigma");

@@ -1096,6 +1096,14 @@ impl Game {
         self.say(LogKind::Good, format!("uplink: back out at {name}."));
     }
 
+    /// The version ICE `ice` (an index into `Data::ice`) runs this run: the kit's, or 1.0.0.
+    pub fn ice_version(&self, ice: usize) -> Version {
+        self.ice_versions
+            .iter()
+            .find(|(i, _, _)| *i == ice)
+            .map_or(Version::default(), |(_, v, _)| *v)
+    }
+
     fn start_combat(&mut self, node: usize, ice: usize) {
         let strength = self.data.ice[ice].strength
             + ICE_STRENGTH_PER_LAYER * self.depth(node)
@@ -1103,12 +1111,10 @@ impl Game {
         let def = &self.data.ice[ice];
         let (name, class) = (def.name.clone(), def.class.label());
         // The kind's version in force: the kit's, or 1.0.0, its row's.
-        let (ice_version, ice_prog) = match self.ice_versions.iter().find(|(i, _, _)| *i == ice) {
-            Some((_, v, p)) => (*v, p.clone()),
-            None => (
-                Version::default(),
-                crate::basic::parse_with(&def.program, Vocab::Ice(&def.verbs)),
-            ),
+        let ice_version = self.ice_version(ice);
+        let ice_prog = match self.ice_versions.iter().find(|(i, _, _)| *i == ice) {
+            Some((_, _, p)) => p.clone(),
+            None => crate::basic::parse_with(&def.program, Vocab::Ice(&def.verbs)),
         };
         self.combat = Some(Combat {
             node,

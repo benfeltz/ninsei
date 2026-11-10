@@ -741,3 +741,79 @@ fn a_patch_can_draw_every_number_in_range() {
         assert_eq!(drawn, want, "{program}");
     }
 }
+
+#[test]
+fn seen_lines_belong_to_a_version() {
+    let d = Data::builtin().unwrap();
+    let mut s = patched("10 ATTACK 3\n20 ATTACK 8");
+    s.ensure_key(0x1432);
+    s.ensure_phonebook(&d, 0);
+    s.ensure_hardware(&d);
+    s.tools.push("icedb".into());
+    // Every line of 1.0.0 seen.
+    s.ice_seen.push(hub::IceSeen {
+        id: "rototurret".into(),
+        met: 3,
+        broken: 3,
+        lo: 11,
+        hi: 11,
+        lines: vec![10, 20, 30, 40],
+        version: ice_version::Version::default(),
+    });
+    // The ICE DB keeps 1.0.0's listing as it was known: the row's lines, all in clear.
+    let entry = |s: &Save| {
+        icedb::entries(s, &d)
+            .into_iter()
+            .find(|e| e.def.id == "rototurret")
+            .unwrap()
+            .listing()
+            .into_iter()
+            .map(|l| l.text)
+            .collect::<Vec<_>>()
+    };
+    assert!(
+        entry(&s)[0].contains("4 of 4 lines seen"),
+        "{:?}",
+        entry(&s)
+    );
+    // 1.0.1 is met knowing nothing: line 10 of 1.0.0 is not line 10 of 1.0.1.
+    assert!(s.kit(&d).ice_known.is_empty());
+    let mut g = s.jack_in(&d, 11);
+    let target = g.net.nodes[g.at].links[0];
+    let ix = g
+        .data
+        .ice
+        .iter()
+        .position(|i| i.id == "rototurret")
+        .unwrap();
+    g.net.nodes[target].kind = NodeKind::Ice;
+    g.net.nodes[target].ice = Some(ix);
+    g.net.nodes[target].cleared = false;
+    g.apply(Action::Move(target));
+    assert!(g.ice_seen_lines(ix).is_empty());
+    assert!(ice_listing::rows(&g).iter().all(|r| r.text.is_none()));
+    let c = g.combat.as_mut().unwrap();
+    (c.strength, c.strength_max) = (500, 500);
+    g.apply(Action::Program(String::new()));
+    // It runs line 10, and the run ends.
+    g.apply(Action::EndTurn);
+    g.deck.integrity = 1;
+    while g.phase == Phase::Combat {
+        g.apply(Action::EndTurn);
+    }
+    s.record(&g, &[], &d.rig).unwrap();
+    let seen = s.ice_seen.iter().find(|x| x.id == "rototurret").unwrap();
+    assert_eq!(seen.version.to_string(), "1.0.1");
+    assert!(
+        seen.lines.contains(&10) && !seen.lines.contains(&30),
+        "{seen:?}"
+    );
+    // What it saw of 1.0.1 is 1.0.1's, in the ICE DB and the next fight.
+    let page = entry(&s);
+    assert!(page[0].contains("of 2 lines seen"), "{page:?}");
+    assert!(page.iter().any(|l| l.contains("10 ATTACK 3")), "{page:?}");
+    assert_eq!(
+        s.kit(&d).ice_known,
+        vec![("rototurret".to_string(), seen.lines.clone())]
+    );
+}
