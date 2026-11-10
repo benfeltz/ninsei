@@ -202,6 +202,7 @@ pub fn next_version(
         return unchanged;
     };
     let draws = Draws {
+        data,
         row,
         reads: data.ice_grammar.reads(row.class),
         bias,
@@ -232,6 +233,7 @@ pub fn next_version(
 
 /// What a draw needs: the row, its class's reads and the bias.
 struct Draws<'a> {
+    data: &'a Data,
     row: &'a IceDef,
     reads: &'a [ReadDef],
     bias: &'a [(String, u32)],
@@ -324,17 +326,13 @@ impl Draws<'_> {
             return None;
         }
         let at = guarded[rng.below(guarded.len())];
-        let now = blocks[at].read.as_deref().and_then(|r| self.cond(r));
-        let old = blocks[at].read.as_deref().and_then(|r| self.template(r));
-        let read = self.draw_read(old, rng)?;
+        // Any read but the one it replaces (whether or not the grammar wrote it).
+        let old = blocks[at]
+            .read
+            .as_deref()
+            .and_then(|r| self.data.read_key(r));
+        let read = self.draw_read(old.as_ref(), rng)?;
         if self.has(blocks, read) {
-            return Some(blocks.to_vec());
-        }
-        // A read the grammar didn't write may draw its own condition again: that's no
-        // replacement, so draw again.
-        let same =
-            |c: &Cond| self.cond(&read.with(cond_number(c).unwrap_or(0))).as_ref() == Some(c);
-        if now.as_ref().is_some_and(same) {
             return Some(blocks.to_vec());
         }
         let n = read.n.map_or(0, |(lo, hi)| rng.range(lo, hi));
@@ -401,31 +399,35 @@ impl Draws<'_> {
         }
     }
 
-    /// The grammar read `read` was written from: the one whose condition is the same but for
-    /// its number.
+    /// The grammar read `read` was written from: the same read but for its number
+    /// ([`Data::read_key`]).
     fn template(&self, read: &str) -> Option<&ReadDef> {
-        let c = self.cond(read)?;
-        let n = cond_number(&c).unwrap_or(0);
+        let key = self.data.read_key(read)?;
         self.reads
             .iter()
-            .find(|r| self.cond(&r.with(n)).as_ref() == Some(&c))
+            .find(|r| self.key(r).as_ref() == Some(&key))
     }
 
-    /// Whether a block already opens with grammar read `read` (at any number): a new read is
-    /// one the program doesn't have.
+    fn key(&self, r: &ReadDef) -> Option<Cond> {
+        self.data.read_key(&r.with(0))
+    }
+
+    /// Whether a block already opens with grammar read `read` (at any number, however it names
+    /// a program): a new read is one the program doesn't have.
     fn has(&self, blocks: &[Block], read: &ReadDef) -> bool {
+        let key = self.key(read);
         blocks
             .iter()
             .filter_map(|b| b.read.as_deref())
-            .any(|r| self.template(r).is_some_and(|t| std::ptr::eq(t, read)))
+            .any(|r| self.data.read_key(r) == key)
     }
 
-    /// The reads that could open a block on this row (any but `not`): ones with a response the
-    /// row can make.
-    fn usable(&self, not: Option<&ReadDef>) -> Vec<(&ReadDef, u32)> {
+    /// The reads that could open a block on this row (any but the read keyed `not`): ones with
+    /// a response the row can make.
+    fn usable(&self, not: Option<&Cond>) -> Vec<(&ReadDef, u32)> {
         self.reads
             .iter()
-            .filter(|r| !not.is_some_and(|n| std::ptr::eq(*r, n)))
+            .filter(|r| not.is_none() || self.key(r).as_ref() != not)
             .filter(|r| r.responses.iter().any(|(v, _)| self.can(*v)))
             .map(|r| {
                 let extra: u32 = self
@@ -439,7 +441,7 @@ impl Draws<'_> {
             .collect()
     }
 
-    fn draw_read(&self, not: Option<&ReadDef>, rng: &mut Rng) -> Option<&ReadDef> {
+    fn draw_read(&self, not: Option<&Cond>, rng: &mut Rng) -> Option<&ReadDef> {
         let usable = self.usable(not);
         let i = rng.weighted(usable.iter().map(|(_, w)| *w))?;
         Some(usable[i].0)

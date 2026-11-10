@@ -654,3 +654,52 @@ fn a_saved_one_point_oh_is_always_the_rows() {
         vec![("rototurret".into(), later.version, later.program)]
     );
 }
+
+#[test]
+fn a_read_is_the_same_read_however_it_names_its_program() {
+    use ice_version::{Bump, next_version};
+    let d = Data::builtin().unwrap();
+    assert_eq!(
+        d.read_key("TARGET RAN Patch.exe"),
+        d.read_key("TARGET RAN patch")
+    );
+    assert_eq!(
+        d.read_key("TARGET INTEG < 3"),
+        d.read_key("TARGET INTEG < 8")
+    );
+    assert_ne!(
+        d.read_key("TARGET INTEG < 3"),
+        d.read_key("TARGET INTEG > 3")
+    );
+    // A Hunter that writes its read another way never gains the same read again, and a major
+    // always replaces it with a different one.
+    let hunter = d.ice.iter().find(|i| i.id == "hunter").unwrap();
+    let program = "10 IF TARGET RAN PATCH.EXE\n20 ATTACK 8\n30 TRACE 4\n40 ATTACK 5";
+    d.check_ice_program(hunter, program).unwrap();
+    for seed in 0..200 {
+        for bump in [Bump::Minor, Bump::Major] {
+            let next = next_version(&d, hunter, program, bump, &[], seed);
+            let keys: Vec<_> = blocks_of(hunter, &next.program)
+                .iter()
+                .filter_map(|b| b.read.as_deref().and_then(|r| d.read_key(r)))
+                .collect();
+            let mut unique = keys.clone();
+            unique.dedup();
+            unique.sort_by_key(|k| format!("{k:?}"));
+            unique.dedup();
+            assert_eq!(
+                unique.len(),
+                keys.len(),
+                "{bump:?} {seed}:\n{}",
+                next.program
+            );
+            if bump == Bump::Major {
+                assert!(
+                    !keys.contains(&d.read_key("TARGET RAN patch").unwrap()),
+                    "{seed}:\n{}",
+                    next.program
+                );
+            }
+        }
+    }
+}

@@ -1736,6 +1736,29 @@ impl Data {
         Ok(())
     }
 
+    /// A read (an ICE's condition, as it follows `IF`) as a key for telling reads apart: its
+    /// parsed condition with its number zeroed and a `TARGET RAN` program named by its factory
+    /// id, so `TARGET RAN Patch.exe` and `TARGET RAN patch` are one read, as a fight reads them
+    /// (`basic::names`). `None` for text that isn't a condition.
+    pub fn read_key(&self, read: &str) -> Option<crate::basic::Cond> {
+        use crate::basic::{Cond, Stmt, Verb, Vocab, parse_stmt_with};
+        let Stmt::If(c) = parse_stmt_with(&format!("IF {read}"), Vocab::Ice(&Verb::ALL)) else {
+            return None;
+        };
+        Some(match c {
+            Cond::Cmp(v, op, _) => Cond::Cmp(v, op, 0),
+            Cond::Target(t, op, _) => Cond::Target(t, op, 0),
+            Cond::SelfStr(op, _) => Cond::SelfStr(op, 0),
+            Cond::TargetRan(name) => Cond::TargetRan(
+                self.warez
+                    .iter()
+                    .find(|w| crate::basic::names(&name, &w.name, &w.id))
+                    .map_or(name.to_ascii_lowercase(), |w| w.id.clone()),
+            ),
+            other => other,
+        })
+    }
+
     /// An ICE's row must have budgets to run with, verbs, an HDD, a range for every verb that
     /// takes a number (and none for a verb it doesn't have or that takes none), and a program
     /// that passes [`Data::check_ice_program`].
