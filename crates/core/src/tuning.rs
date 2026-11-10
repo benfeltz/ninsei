@@ -191,8 +191,8 @@ pub const LADDER_WINS: [u32; 3] = [5, 4, 4];
 /// The sysops try this many rewrites and ship the one that would have hurt the logged play most
 /// (none, if every one would have hurt it less than the version in force).
 pub const PATCH_DRAFTS: usize = 16;
-/// How much of the play that beat a version its sysops keep in the logs: the last this many
-/// ICE turns.
+/// How much of the play that beat a version its sysops keep in the logs: the latest fights that
+/// fit in this many ICE turns.
 pub const TELLS_KEPT: usize = 48;
 /// What each move does to a deck, as the sysops weigh a rewrite: per point of a hit past the
 /// shield, per point of trace, per point of strength fortified, and a spoof or a segfault.

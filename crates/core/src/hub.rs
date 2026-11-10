@@ -1190,14 +1190,16 @@ pub struct IceRung {
     pub rung: usize,
     /// The deck's program that won last, as the run started.
     pub program: Option<String>,
-    /// The logs of the play that won since the last bump: the ICE turns of the fights it lost,
-    /// the last `tuning::TELLS_KEPT` of them. The next version is written against them.
-    pub tells: Vec<crate::ice_version::Tell>,
+    /// The logs of the play that won since the last bump: the fights it lost, each its ICE
+    /// turns' tells, keeping the latest fights that fit in `tuning::TELLS_KEPT` turns. The next
+    /// version is written against them.
+    pub tells: Vec<Vec<crate::ice_version::Tell>>,
 }
 
 impl IceRung {
     /// A run's result for this kind: `wins` fights lost to the deck running `program`, and
-    /// whether the kind ended the run (`killed`), with the logs of those wins (`tells`).
+    /// whether the kind ended the run (`killed`), with the logs of those wins (`tells`, a fight
+    /// each).
     /// Returns the bump its sysops ship now, if any, and the logs it is written against:
     /// everything kept since the last one.
     pub fn climb(
@@ -1205,8 +1207,8 @@ impl IceRung {
         program: &str,
         wins: u32,
         killed: bool,
-        tells: &[crate::ice_version::Tell],
-    ) -> Option<(crate::ice_version::Bump, Vec<crate::ice_version::Tell>)> {
+        tells: &[Vec<crate::ice_version::Tell>],
+    ) -> Option<(crate::ice_version::Bump, Vec<Vec<crate::ice_version::Tell>>)> {
         use crate::ice_version::Bump;
         // It stopped you: the last patch worked. An ICE that kills you doesn't evolve.
         if killed {
@@ -1226,8 +1228,12 @@ impl IceRung {
         self.program = Some(program.to_string());
         self.wins += wins;
         self.tells.extend(tells.iter().cloned());
-        let over = self.tells.len().saturating_sub(crate::tuning::TELLS_KEPT);
-        self.tells.drain(..over);
+        // The oldest fights go first, until the rest fit.
+        while self.tells.len() > 1
+            && self.tells.iter().map(Vec::len).sum::<usize>() > crate::tuning::TELLS_KEPT
+        {
+            self.tells.remove(0);
+        }
         let rung = self.rung.min(crate::tuning::LADDER_WINS.len() - 1);
         if self.wins < crate::tuning::LADDER_WINS[rung] {
             return None;
@@ -2405,8 +2411,8 @@ impl Save {
                 .iter()
                 .filter(|b| b.ice == ice && b.broken)
                 .collect();
-            let tells: Vec<crate::ice_version::Tell> =
-                won.iter().flat_map(|b| b.tells.iter().cloned()).collect();
+            let tells: Vec<Vec<crate::ice_version::Tell>> =
+                won.iter().map(|b| b.tells.clone()).collect();
             let rung = match self.ice_ladder.iter().position(|r| r.id == row.id) {
                 Some(i) => &mut self.ice_ladder[i],
                 None => {

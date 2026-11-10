@@ -542,23 +542,27 @@ fn a_bump_is_written_against_every_win_since_the_last() {
     let mut r = hub::IceRung::default();
     let [p, ..] = tuning::LADDER_WINS;
     for i in 0..p - 1 {
-        assert_eq!(r.climb(PLAY, 1, false, &[tell(i, "Firewall")]), None);
+        assert_eq!(r.climb(PLAY, 1, false, &[vec![tell(i, "Firewall")]]), None);
     }
-    let (bump, logs) = r.climb(PLAY, 1, false, &[tell(9, "Patch")]).unwrap();
+    let (bump, logs) = r.climb(PLAY, 1, false, &[vec![tell(9, "Patch")]]).unwrap();
     assert_eq!(bump, Bump::Patch);
-    // Every turn it lost on since the last bump, oldest first.
+    // Every fight it lost since the last bump, oldest first.
     assert_eq!(logs.len() as u32, p);
-    assert_eq!(logs[0], tell(0, "Firewall"));
-    assert_eq!(logs.last(), Some(&tell(9, "Patch")));
+    assert_eq!(logs[0], vec![tell(0, "Firewall")]);
+    assert_eq!(logs.last(), Some(&vec![tell(9, "Patch")]));
     assert_eq!((r.wins, r.rung), (0, 1));
     assert!(r.tells.is_empty());
-    // The logs keep the last TELLS_KEPT turns.
-    let many: Vec<_> = (0..tuning::TELLS_KEPT as u32 + 5)
+    // The logs keep the latest fights that fit in TELLS_KEPT turns.
+    let long: Vec<_> = (0..tuning::TELLS_KEPT as u32 - 2)
         .map(|i| tell(i, "Patch"))
         .collect();
-    r.climb(PLAY, 1, false, &many);
-    assert_eq!(r.tells.len(), tuning::TELLS_KEPT);
-    assert_eq!(r.tells[0], tell(5, "Patch"));
+    r.climb(
+        PLAY,
+        2,
+        false,
+        &[vec![tell(0, "Firewall"); 4], long.clone()],
+    );
+    assert_eq!(r.tells, vec![long]);
 }
 
 #[test]
@@ -567,7 +571,7 @@ fn the_sysops_ship_the_draft_that_would_have_hurt_the_play_most() {
     let d = data();
     let roto = d.ice.iter().find(|i| i.id == "rototurret").unwrap();
     // A deck that always shields: hits into the firewall do nothing.
-    let logs: Vec<_> = (0..10).map(|_| tell(10, "Firewall")).collect();
+    let logs = vec![vec![tell(10, "Firewall"); 10]];
     assert_eq!(harm(roto, "10 ATTACK 5", &logs), 0);
     // The shield takes the first 10 of a hit of 12.
     assert_eq!(harm(roto, "10 ATTACK 12", &logs), 10 * 2 * tuning::HARM_HIT);
@@ -602,5 +606,44 @@ fn the_sysops_ship_the_draft_that_would_have_hurt_the_play_most() {
             let mut r = Rng::new(3);
             r.next_u64()
         })
+    );
+}
+
+#[test]
+fn a_draft_is_judged_on_the_passes_the_ice_would_run() {
+    use ice_version::harm;
+    let d = data();
+    let roto = d.ice.iter().find(|i| i.id == "rototurret").unwrap();
+    // Two turns of a fight, no shield: a cpu-1 ICE hits with its first line, then its second.
+    let fight = vec![vec![tell(0, "Icepick"), tell(0, "Icepick")]];
+    let h = |p: &str| harm(roto, p, &fight);
+    assert_eq!(h("10 ATTACK 5\n20 ATTACK 4"), (5 + 4) * tuning::HARM_HIT);
+    // So a draft that changes only its second line is judged by it.
+    assert!(h("10 ATTACK 5\n20 ATTACK 8") > h("10 ATTACK 5\n20 ATTACK 4"));
+    // The end of the program ends a turn; the next starts at the top.
+    let three = vec![vec![tell(0, "Icepick"); 3]];
+    assert_eq!(
+        harm(roto, "10 ATTACK 5\n20 ATTACK 4", &three),
+        (5 + 4 + 5) * tuning::HARM_HIT
+    );
+    // A fight starts again at the top.
+    assert_eq!(
+        harm(
+            roto,
+            "10 ATTACK 5\n20 ATTACK 4",
+            &[fight[0].clone(), fight[0].clone()]
+        ),
+        2 * (5 + 4) * tuning::HARM_HIT
+    );
+    // A hit uses the shield up, and the next condition reads it gone (Archer: cpu 2).
+    let archer = d.ice.iter().find(|i| i.id == "archer").unwrap();
+    let shielded = vec![vec![tell(4, "Firewall")]];
+    assert_eq!(
+        harm(
+            archer,
+            "10 ATTACK 4\n20 IF TARGET SHIELD > 0\n30 TRACE 5\n40 ATTACK 6",
+            &shielded
+        ),
+        6 * tuning::HARM_HIT
     );
 }
