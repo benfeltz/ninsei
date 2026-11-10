@@ -442,8 +442,9 @@ pub struct Game {
     /// executes in this run. They come home even on a flatline. Never read by play.
     pub ice_lines: Vec<(usize, Vec<u32>)>,
     /// The ICE kinds running a version past 1.0.0, fixed at jack-in from the kit: (index into
-    /// `Data::ice`, version, program). Every ICE of a kind runs the same version all run.
-    pub ice_versions: Vec<(usize, crate::ice_version::Version, String)>,
+    /// `Data::ice`, version, its program parsed once). Every ICE of a kind runs the same
+    /// version all run.
+    pub ice_versions: Vec<(usize, Version, Program)>,
     /// What the run has been doing, for the graphs. Watches the rules, never changes them.
     pub history: crate::history::History,
     /// Sound cues waiting to be played. The app drains them each frame.
@@ -630,7 +631,12 @@ impl Game {
             .iter()
             .filter_map(|(id, v, program)| {
                 let ice = data.ice.iter().position(|i| &i.id == id)?;
-                Some((ice, *v, program.clone()))
+                let verbs = &data.ice[ice].verbs;
+                Some((
+                    ice,
+                    *v,
+                    crate::basic::parse_with(program, Vocab::Ice(verbs)),
+                ))
             })
             .collect();
         let mut game = Self {
@@ -1097,14 +1103,13 @@ impl Game {
         let def = &self.data.ice[ice];
         let (name, class) = (def.name.clone(), def.class.label());
         // The kind's version in force: the kit's, or 1.0.0, its row's.
-        let (ice_version, program) = self
-            .ice_versions
-            .iter()
-            .find(|(i, _, _)| *i == ice)
-            .map_or((Version::default(), def.program.as_str()), |(_, v, p)| {
-                (*v, p.as_str())
-            });
-        let ice_prog = crate::basic::parse_with(program, Vocab::Ice(&def.verbs));
+        let (ice_version, ice_prog) = match self.ice_versions.iter().find(|(i, _, _)| *i == ice) {
+            Some((_, v, p)) => (*v, p.clone()),
+            None => (
+                Version::default(),
+                crate::basic::parse_with(&def.program, Vocab::Ice(&def.verbs)),
+            ),
+        };
         self.combat = Some(Combat {
             node,
             ice,
