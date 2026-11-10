@@ -68,10 +68,12 @@
             40 TRACE 6
             50 ATTACK 4
             60 TRACE 3"),
-    // A sentry that goes for the kill when your integrity dips.
+    // A sentry that goes for the kill when your integrity dips. Attack is its only verb, so its
+    // range reaches past two firewalls stacked in a turn (10): below that no version of it could
+    // ever hurt a deck that firewalls whenever it's next to attack.
     (id: "rototurret", name: "Rototurret", class: Sentry,   tier: 1, strength: 11,
         cpu: 1, ram: 1, verbs: [Attack],
-        hdd: 6, ranges: [(Attack, 3, 8)],
+        hdd: 6, ranges: [(Attack, 3, 12)],
         program: "
             10 IF TARGET INTEG < 6
             20 ATTACK 7

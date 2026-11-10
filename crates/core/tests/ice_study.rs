@@ -237,6 +237,30 @@ fn a_deck_the_ice_never_touches_tires_them_out() {
 }
 
 #[test]
+fn every_tier_one_kind_can_find_a_counter_to_the_lazy_program() {
+    // SAFE_PICK firewalls whenever the ICE is next to attack, two firewalls a turn: a kind whose
+    // machine can't get past that (Rototurret, attacks only, at most 8 against 10) never ships.
+    let d = Arc::new(data());
+    for row in d.ice.iter().filter(|i| i.tier == 1) {
+        let mut shipped = 0;
+        for seed in 0..24u64 {
+            let g = fight(seed, &row.id, SAFE_PICK);
+            let mut s = Study::new(&row.id);
+            let deck = DeckLog::of(&g.deck_kit(), &g.data);
+            s.beaten(Version::FIRST, deck, g.bouts.last().unwrap().start);
+            while !s.rest {
+                shipped += usize::from(s.step(&d, &row.program, KEY ^ seed).is_some());
+            }
+        }
+        assert!(
+            shipped > 0,
+            "{}: no counter to SAFE_PICK in 24 searches",
+            row.id
+        );
+    }
+}
+
+#[test]
 fn a_new_script_starts_a_new_search_and_a_new_version_a_new_study() {
     let (_, mut s) = study_of(&[1, 2]);
     s.tried = 5;
