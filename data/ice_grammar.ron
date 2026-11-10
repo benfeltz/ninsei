@@ -14,9 +14,9 @@
 //   responses: [(Verb, weight)] the verbs the line after it may use, weighted. The number comes
 //              from the ICE's own range; a verb not on the ICE's row is never drawn for it.
 // A class leans the way it fights: a barrier digs in, a code gate runs the clock, a sentry hits.
-// A new version is written against the play that beat the last one: reads that play kept walking
-// into are drawn more, and of several drafts the sysops ship the one that would have hurt it most
-// on the logged turns (`tuning.rs`: BIAS_WEIGHT, PATCH_DRAFTS, HARM_*).
+// The sysops draft new versions against the deck's script that beat the last one: reads the
+// script walks into in their duels are drawn more (`tuning.rs`: BIAS_WEIGHT), and the first draft
+// that does better against it in those duels ships (`crates/core/src/ice_study.rs`).
 (
     program_attacks: [Spoof, Segfault],
     fair: [

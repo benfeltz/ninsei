@@ -1,7 +1,8 @@
-//! 141.9.2 acceptance: ICE evolve between runs, from the outside. Careers of real runs (dialed
-//! from the save, played by the probe's bots, booked by `Save::record`) ship versions that fit
-//! their machines, the same save ships the same ones, nothing changes inside a run, and the
-//! kind that ends a run isn't patched by it.
+//! 141.9.2 acceptance: ICE evolve, from the outside. Careers of real runs (dialed from the
+//! save, played by the probe's bots, booked by `Save::record`, with a patience's worth of the
+//! sysops' time at home after each, 141.9.4) ship versions that fit their machines, the same
+//! save ships the same ones, nothing changes inside a run, and the kind that ends a run isn't
+//! patched by it.
 
 use ninsei_core::hub::{Entry, Save};
 use ninsei_core::probe::{self, Bot, SAFE_PICK};
@@ -62,6 +63,7 @@ fn career(save: &mut Save, d: &Data, runs: u64) -> Seen {
             .map(|b| g.ice_version(b.ice).to_string())
             .collect();
         save.record(&g, &[], &d.rig).unwrap();
+        save.study(&std::sync::Arc::new(d.clone()), tuning::STUDY_PATIENCE);
         seen.games += 1;
         // Nothing changed inside the run: every fight of a kind ran the version it jacked in on.
         for (b, v) in g.bouts.iter().zip(&during) {
@@ -117,7 +119,7 @@ fn the_same_save_ships_the_same_versions_and_another_save_others() {
     let play = |key| {
         let mut s = deck(key, 1);
         career(&mut s, &d, 40);
-        (s.ice_versions, s.ice_ladder)
+        (s.ice_versions, s.ice_study)
     };
     let a = play(7);
     assert!(!a.0.is_empty());

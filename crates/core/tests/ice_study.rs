@@ -268,3 +268,177 @@ fn a_study_of_a_version_no_longer_in_force_rests() {
     assert!(v[0].rest);
     assert_eq!(v[0].tried, 0);
 }
+
+// The save (step 3).
+
+use ninsei_core::hub::Save;
+
+fn home(key: u64) -> Save {
+    let d = data();
+    let mut s = Save::default();
+    s.ensure_key(key);
+    s.ensure_phonebook(&d, 0);
+    s.ensure_hardware(&d);
+    s
+}
+
+/// One run from `save`: each of `fights` in turn on the next node, won (the ICE worn down to 1
+/// and picked at, after a turn of `program`) or lost, then, if it's still going, a loss to
+/// Hunter to end it. Booked.
+fn run(save: &mut Save, d: &Data, program: &str, fights: &[(&str, bool)]) -> Game {
+    save.program = Some(program.to_string());
+    let mut g = save.jack_in(d, 9);
+    let mut fights = fights.to_vec();
+    if fights.last().is_none_or(|(_, won)| *won) {
+        fights.push(("hunter", false));
+    }
+    for (id, win) in fights {
+        let target = g.net.nodes[g.at].links[0];
+        g.net.nodes[target].kind = NodeKind::Ice;
+        g.net.nodes[target].ice = Some(ix(d, id));
+        g.net.nodes[target].cleared = false;
+        g.apply(Action::Move(target));
+        assert_eq!(g.phase, Phase::Combat, "{id}");
+        if win {
+            let now = g.combat.as_ref().unwrap().turn;
+            g.apply(Action::Play);
+            while g.pass_open() {
+                g.apply(Action::Finish);
+            }
+            if g.phase == Phase::Combat && g.combat.as_ref().unwrap().turn == now {
+                g.apply(Action::EndTurn);
+            }
+            if g.phase == Phase::Combat {
+                let c = g.combat.as_mut().unwrap();
+                (c.strength, c.strength_max) = (1, 1);
+                play_out(&mut g);
+            }
+            assert!(g.bouts.last().unwrap().broken, "{id}");
+        } else {
+            g.deck.integrity = 1;
+            while g.phase == Phase::Combat {
+                g.apply(Action::EndTurn);
+            }
+            assert_eq!(g.phase, Phase::Flatlined);
+            break;
+        }
+    }
+    save.record(&g, &[], &d.rig).unwrap();
+    g
+}
+
+fn study<'a>(s: &'a Save, id: &str) -> Option<&'a Study> {
+    s.ice_study.iter().find(|x| x.id == id)
+}
+
+#[test]
+fn beating_a_kind_wakes_its_sysops_and_a_kill_never_does() {
+    let d = data();
+    let mut s = home(0x9144);
+    run(&mut s, &d, SAFE_PICK, &[("enigma", true)]);
+    let e = study(&s, "enigma").expect("beaten: studied");
+    assert!(!e.rest);
+    assert_eq!(e.starts.len(), 1);
+    assert_eq!(e.deck.script, SAFE_PICK);
+    assert!(study(&s, "hunter").is_none(), "it only killed the deck");
+    // Beaten, then killed by it: it did its job, and they rest.
+    run(
+        &mut s,
+        &d,
+        SAFE_PICK,
+        &[("enigma", true), ("enigma", false)],
+    );
+    let e = study(&s, "enigma").unwrap();
+    assert!(e.rest);
+    assert_eq!(e.starts.len(), 2);
+}
+
+#[test]
+fn a_changed_script_starts_a_new_search() {
+    let d = data();
+    let mut s = home(0x9144);
+    run(&mut s, &d, SAFE_PICK, &[("enigma", true)]);
+    s.study(&Arc::new(d.clone()), 2);
+    let tried = study(&s, "enigma").unwrap().tried;
+    run(
+        &mut s,
+        &d,
+        "10 RUN icepick\n20 GOTO 10",
+        &[("enigma", true)],
+    );
+    let e = study(&s, "enigma").unwrap();
+    assert_eq!((e.from, e.starts.len()), (tried, 1));
+    assert!(e.deck.script.contains("GOTO 10"));
+}
+
+#[test]
+fn time_at_home_ships_a_version_the_next_run_carries() {
+    let d = data();
+    let arc = Arc::new(d.clone());
+    let mut s = home(0x9144);
+    run(
+        &mut s,
+        &d,
+        SAFE_PICK,
+        &[("enigma", true), ("rototurret", true), ("icewall", true)],
+    );
+    let mut shipped = 0;
+    for _ in 0..STUDY_PATIENCE {
+        shipped += s.study(&arc, 1);
+    }
+    assert!(shipped > 0, "{:?}", s.ice_study);
+    assert!(
+        s.ice_study.iter().all(|x| x.rest),
+        "each shipped once or gave up"
+    );
+    assert_eq!(s.study(&arc, 50), 0, "resting until beaten again");
+    let v = s.ice_versions[0].clone();
+    assert_eq!(v.version, Version::FIRST.bumped(v.bump.unwrap()));
+    let kit = s.kit(&d);
+    assert!(
+        kit.ice_programs
+            .iter()
+            .any(|(id, ver, ..)| *id == v.id && *ver == v.version)
+    );
+    let g = s.jack_in(&d, 4);
+    assert_eq!(g.ice_version(ix(&d, &v.id)), v.version);
+}
+
+#[test]
+fn the_same_save_ships_the_same_versions() {
+    let d = data();
+    let arc = Arc::new(d.clone());
+    let play = |key: u64, batch: u32| {
+        let mut s = home(key);
+        for _ in 0..4 {
+            run(
+                &mut s,
+                &d,
+                SAFE_PICK,
+                &[("enigma", true), ("rototurret", true), ("icewall", true)],
+            );
+            let mut left = STUDY_PATIENCE;
+            while left > 0 {
+                s.study(&arc, batch.min(left));
+                left = left.saturating_sub(batch);
+            }
+        }
+        s.ice_versions
+    };
+    let a = play(5, 1);
+    assert!(!a.is_empty());
+    assert_eq!(a, play(5, 7), "however the time was sliced");
+    assert_ne!(a, play(6, 1));
+}
+
+#[test]
+fn a_save_from_the_ladder_loads() {
+    let s = home(0x9144);
+    let text = s.to_text().replace(
+        "ice_study: [],",
+        "ice_ladder: [(id: \"enigma\", wins: 3, rung: 1, program: None, tells: [])],",
+    );
+    assert!(text.contains("ice_ladder"));
+    let back = Save::load(&text).unwrap();
+    assert!(back.ice_study.is_empty());
+}

@@ -8,8 +8,9 @@ use ninsei_core::ice_listing::Mark;
 use ninsei_core::probe::{self, Bot, SAFE_PICK};
 use ninsei_core::*;
 
-/// A SAFE_PICK career of `runs` tier-1 runs, its ICE DB on; every fight's rez line checked
-/// against the version the save had in force.
+/// A SAFE_PICK career of `runs` tier-1 runs, its ICE DB on, with a patience's worth of the
+/// sysops' time at home after each (141.9.4); every fight's rez line checked against the
+/// version the save had in force.
 fn career(d: &Data, runs: u64) -> Save {
     let mut s = Save {
         program: Some(SAFE_PICK.into()),
@@ -49,6 +50,7 @@ fn career(d: &Data, runs: u64) -> Save {
             }
         }
         s.record(&g, &[], &d.rig).unwrap();
+        s.study(&std::sync::Arc::new(d.clone()), tuning::STUDY_PATIENCE);
     }
     s
 }

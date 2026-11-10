@@ -180,27 +180,10 @@ pub const MINEFIELD_MINE_PCT: usize = 15;
 
 // ICE that patch themselves (141.9).
 
-/// The most weight a read the deck's play kept walking into adds to the grammar's own when the
-/// sysops write a kind's next version. A read true on every booked turn of the fights the kind
-/// lost gets all of it; one never true, none.
+/// The most weight a read the deck's script kept walking into adds to the grammar's own when
+/// the sysops draft a kind's next version. A read true on every turn of the script's duels
+/// against the version in force gets all of it; one never true, none.
 pub const BIAS_WEIGHT: u32 = 6;
-/// The ladder: fights a kind's version in force must lose before its sysops ship a patch, then a
-/// minor (if the same program beat the patch), then a major (and majors while it keeps winning).
-/// A kind that kills the deck, or a deck that changes its program, sends it back to the patch.
-pub const LADDER_WINS: [u32; 3] = [5, 4, 4];
-/// The sysops try this many rewrites and ship the one that would have hurt the logged play most
-/// (none, if every one would have hurt it less than the version in force).
-pub const PATCH_DRAFTS: usize = 32;
-/// How much of the play that beat a version its sysops keep in the logs: the latest fights that
-/// fit in this many ICE turns.
-pub const TELLS_KEPT: usize = 48;
-/// What each move does to a deck, as the sysops weigh a rewrite: per point of a hit past the
-/// shield, per point of trace, per point of strength fortified, and a spoof or a segfault.
-pub const HARM_HIT: u64 = 3;
-pub const HARM_TRACE: u64 = 3;
-pub const HARM_FORTIFY: u64 = 1;
-pub const HARM_SPOOF: u64 = 10;
-pub const HARM_SEGFAULT: u64 = 6;
 
 // The sysops' simulator (141.9.4, `ice_study.rs`): how a kind's next version is found.
 

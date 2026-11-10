@@ -988,7 +988,7 @@ fn short(name: &str, n: usize) -> String {
 #[derive(Clone)]
 pub struct Probe {
     cfg: Config,
-    data: Data,
+    data: std::sync::Arc<Data>,
     stats: Stats,
     /// Spot-check runs played (both bots, every tier).
     spot_done: u32,
@@ -1037,7 +1037,7 @@ impl Probe {
     pub fn new(data: &Data, cfg: Config) -> Probe {
         Probe {
             cfg,
-            data: data.clone(),
+            data: std::sync::Arc::new(data.clone()),
             stats: Stats::default(),
             spot_done: 0,
             career: 0,
@@ -1188,7 +1188,7 @@ impl Probe {
                 ^ u64::from(self.career % self.cfg.careers.max(1)).wrapping_mul(0xC0FF_EE11)
                 ^ u64::from(self.run).wrapping_mul(0x9E37_79B9),
         );
-        let data = self.data.clone();
+        let data = std::sync::Arc::clone(&self.data);
         let kit = self.kit.clone();
         let save = self.save.get_or_insert_with(|| {
             let mut s = Save {
@@ -1256,6 +1256,8 @@ impl Probe {
             .filter(|&i| !save.free(&data).contains(&g.data.warez[g.hdd[i].warez].id))
             .collect();
         let report = save.record(&g, &keep, &data.rig);
+        // A patience's worth of the sysops' time at home.
+        save.study(&data, crate::tuning::STUDY_PATIENCE);
         let banked = report.as_ref().map_or(0, |r| r.banked);
         let f = fate(&g);
         // What the sysops shipped at this run's end.
