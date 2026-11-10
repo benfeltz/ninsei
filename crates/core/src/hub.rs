@@ -1070,6 +1070,10 @@ pub struct Save {
     /// `ice.ron`.
     #[serde(default)]
     pub ice_versions: Vec<IceVer>,
+    /// Where each beaten kind stands on its sysops' ladder: wins against its version in force,
+    /// the rung, and what the logs say about the play that won.
+    #[serde(default)]
+    pub ice_ladder: Vec<IceRung>,
     /// Programs open with their cracktros (`data/intros/`). On unless switched off in System.
     #[serde(default = "default_intros")]
     pub intros: bool,
@@ -1172,6 +1176,74 @@ impl IceSeen {
         self.version = version;
         self.bump = bump;
         self.program = program.to_string();
+    }
+}
+
+/// A kind on its sysops' ladder: how its version in force has been beaten so far.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+pub struct IceRung {
+    /// By id in `data/ice.ron`.
+    pub id: String,
+    /// Fights its version in force has lost since the last bump.
+    pub wins: u32,
+    /// The next bump's size: 0 a patch, 1 a minor, 2 a major (`tuning::LADDER_WINS`' index).
+    pub rung: usize,
+    /// The deck's program that won last, as the run started.
+    pub program: Option<String>,
+    /// What the logs say about the play that won (`ice_version::fired`), and over how many
+    /// booked turns: the next version is written against it.
+    pub fired: Vec<(String, u32)>,
+    pub turns: u32,
+}
+
+impl IceRung {
+    /// A run's result for this kind: `wins` fights lost to the deck running `program`, and
+    /// whether the kind ended the run (`killed`), with what the logs of those wins said
+    /// (`fired` over `turns`). Returns the bump its sysops ship now, if any, and the bias it is
+    /// written with: everything the logs said since the last one (`ice_version::against`).
+    pub fn climb(
+        &mut self,
+        program: &str,
+        wins: u32,
+        killed: bool,
+        fired: &[(String, u32)],
+        turns: u32,
+    ) -> Option<(crate::ice_version::Bump, Vec<(String, u32)>)> {
+        use crate::ice_version::Bump;
+        // It stopped you: the last patch worked. An ICE that kills you doesn't evolve.
+        if killed {
+            *self = IceRung {
+                id: std::mem::take(&mut self.id),
+                ..IceRung::default()
+            };
+            return None;
+        }
+        if wins == 0 {
+            return None;
+        }
+        // A new program beat it: the next patch is the cheap one again.
+        if self.program.as_deref().is_some_and(|p| p != program) {
+            self.rung = 0;
+        }
+        self.program = Some(program.to_string());
+        self.wins += wins;
+        for (r, n) in fired {
+            match self.fired.iter_mut().find(|(x, _)| x == r) {
+                Some((_, m)) => *m += n,
+                None => self.fired.push((r.clone(), *n)),
+            }
+        }
+        self.turns += turns;
+        let rung = self.rung.min(crate::tuning::LADDER_WINS.len() - 1);
+        if self.wins < crate::tuning::LADDER_WINS[rung] {
+            return None;
+        }
+        let bias = crate::ice_version::against(&self.fired, self.turns);
+        self.wins = 0;
+        self.fired.clear();
+        self.turns = 0;
+        self.rung = (rung + 1).min(crate::tuning::LADDER_WINS.len() - 1);
+        Some(([Bump::Patch, Bump::Minor, Bump::Major][rung], bias))
     }
 }
 
@@ -1297,6 +1369,7 @@ impl Default for Save {
             texts: Vec::new(),
             ice_seen: Vec::new(),
             ice_versions: Vec::new(),
+            ice_ladder: Vec::new(),
             intros: default_intros(),
             guide_seen: false,
             starters_given: false,
@@ -2320,6 +2393,68 @@ impl Save {
         )
     }
 
+    /// Moves every kind `game` met up or down its sysops' ladder, and ships the versions it
+    /// earned: in force from the next jack-in, never in this run. `played` is the deck's program
+    /// as the run started; `killer` the kind that ended it, which doesn't evolve.
+    fn climb_ladders(&mut self, game: &Game, played: &str, killer: Option<usize>) {
+        use crate::ice_version::{fired, next_version, seed};
+        let data = &game.data;
+        let mut kinds: Vec<usize> = game.history.met.iter().map(|m| m.ice).collect();
+        kinds.sort_unstable();
+        kinds.dedup();
+        for ice in kinds {
+            let Some(row) = data.ice.get(ice) else {
+                continue;
+            };
+            let won: Vec<&crate::history::Met> = game
+                .history
+                .met
+                .iter()
+                .filter(|m| m.ice == ice && m.broken)
+                .collect();
+            let tells: Vec<crate::ice_version::Tell> =
+                won.iter().flat_map(|m| m.tells.iter().cloned()).collect();
+            let rung = match self.ice_ladder.iter().position(|r| r.id == row.id) {
+                Some(i) => &mut self.ice_ladder[i],
+                None => {
+                    self.ice_ladder.push(IceRung {
+                        id: row.id.clone(),
+                        ..IceRung::default()
+                    });
+                    self.ice_ladder.last_mut().expect("just pushed")
+                }
+            };
+            let Some((bump, bias)) = rung.climb(
+                played,
+                won.len() as u32,
+                killer == Some(ice),
+                &fired(data, row.class, &tells),
+                tells.len() as u32,
+            ) else {
+                continue;
+            };
+            let Some((version, program)) = self.ice_program(&row.id, data) else {
+                continue;
+            };
+            let next = next_version(
+                data,
+                row,
+                program,
+                bump,
+                &bias,
+                seed(self.key, &row.id, version),
+            );
+            let Some(made) = next.bump else { continue };
+            self.ice_versions.retain(|v| v.id != row.id);
+            self.ice_versions.push(IceVer {
+                id: row.id.clone(),
+                version: version.bumped(made),
+                program: next.program,
+                bump: Some(made),
+            });
+        }
+    }
+
     /// The version of ICE `ice` (an index into `Data::ice`) that `game` ran, how it was made, and
     /// its program as it ran (empty for 1.0.0, the row's).
     fn met_version(
@@ -2402,6 +2537,8 @@ impl Save {
         };
         self.runs += 1;
         // What you leave in the program is what the deck keeps, however the run ended.
+        // The program the run started with: what the sysops' ladder reads as the play.
+        let played = self.program_text(&game.data);
         self.program = Some(game.program.text());
         if let Some(site) = &game.site {
             self.heat_up(site.entry, end);
@@ -2520,6 +2657,7 @@ impl Save {
                 }
             }
         }
+        self.climb_ladders(game, &played, killer);
         let mut boards = Vec::new();
         if game.bbs_seen {
             let b = game.bbs();

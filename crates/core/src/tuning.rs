@@ -184,3 +184,7 @@ pub const MINEFIELD_MINE_PCT: usize = 15;
 /// sysops write a kind's next version. A read true on every booked turn of the fights the kind
 /// lost gets all of it; one never true, none.
 pub const BIAS_WEIGHT: u32 = 6;
+/// The ladder: fights a kind's version in force must lose before its sysops ship a patch, then a
+/// minor (if the same program beat the patch), then a major (and majors while it keeps winning).
+/// A kind that kills the deck, or a deck that changes its program, sends it back to the patch.
+pub const LADDER_WINS: [u32; 3] = [3, 3, 3];
