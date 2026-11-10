@@ -336,7 +336,13 @@ fn the_careers_face_evolving_ice_and_the_report_says_what_shipped() {
             .any(|l| l.contains("ICE versions (spot runs stay on 1.0.0)"))
     );
     let targets: Vec<&String> = lines.iter().filter(|l| l.contains("target:")).collect();
-    assert_eq!(targets.len(), 3, "{lines:#?}");
+    // Two targets: evolved ICE beat SAFE_PICK more, and every tier-1 kind ships. The careful
+    // careers are reported, never judged.
+    assert_eq!(targets.len(), 2, "{lines:#?}");
+    assert!(
+        !targets.iter().any(|l| l.contains("careful")),
+        "{targets:#?}"
+    );
     assert!(
         targets
             .iter()

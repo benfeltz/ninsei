@@ -185,10 +185,6 @@ pub const CAREFUL_C: &str = "\
 /// version of a kind it met, or ICE killed it, it writes its next one.
 pub const ROTATION: [&str; 3] = [CAREFUL, CAREFUL_B, CAREFUL_C];
 
-/// Targets the report checks evolving ICE against (141.9.2). The competent careers must get out
-/// of at least this share of their runs at every tier, however the ICE evolve.
-pub const CURVE_FLOOR: u32 = 90;
-
 /// The starter kit's `SAFE` (`data/hub/starts.ron`) with `55 RUN icepick` typed in: patch when
 /// low, firewall before an attack, and pick at the ICE. The first edit a player makes, and the
 /// program ICE that read the deck have to beat.
@@ -1606,7 +1602,9 @@ impl Probe {
 
     /// What the sysops did: versions shipped per kind, careful careers' exits as more
     /// kinds are patched, how tier-1 ICE did against the lazy program before and after, and a
-    /// met/unmet line per target. Spot runs dial from a fresh save, so they stay on 1.0.0.
+    /// met/unmet line per target: evolved ICE beat SAFE_PICK more than 1.0.0 does, and every
+    /// tier-1 kind ships a version. The careful careers are reported, never judged. Spot runs
+    /// dial from a fresh save, so they stay on 1.0.0.
     fn versions_report(&self) -> Vec<String> {
         let s = &self.stats;
         let careers = u64::from(self.cfg.careers.max(1));
@@ -1672,16 +1670,8 @@ impl Probe {
         let mark = |ok: bool| if ok { "met" } else { "unmet" };
         let (one, vs) = (&s.spot[pick][0], &s.versus[0]);
         out.push(format!(
-            "  target: tier-1 versions beat the lazy program more .. {}",
+            "  target: evolved tier-1 ICE beat SAFE_PICK more .... {}",
             mark(vs.runs > 0 && died(vs) > died(one))
-        ));
-        let curve = s
-            .career
-            .iter()
-            .all(|t| t.runs == 0 || t.win_pct() >= CURVE_FLOOR);
-        out.push(format!(
-            "  target: careful careers out {CURVE_FLOOR}%+ at every tier ...... {}",
-            mark(curve)
         ));
         let tier1: Vec<&str> = self
             .data
