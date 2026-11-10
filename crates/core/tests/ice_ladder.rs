@@ -455,6 +455,19 @@ fn a_new_program_sends_the_ladder_back_to_a_patch() {
 }
 
 #[test]
+fn a_new_program_starts_the_count_over() {
+    // Wins and logs earned by one program don't ship a patch against another.
+    let mut r = hub::IceRung::default();
+    let [p, ..] = tuning::LADDER_WINS;
+    for _ in 0..p - 1 {
+        r.climb(PLAY, 1, false, &[vec![tell(0, "Firewall")]]);
+    }
+    assert_eq!(r.climb(OTHER, 1, false, &[vec![tell(0, "Patch")]]), None);
+    assert_eq!((r.wins, r.rung), (1, 0));
+    assert_eq!(r.tells, vec![vec![tell(0, "Patch")]]);
+}
+
+#[test]
 fn an_ice_that_kills_you_does_not_evolve_but_what_you_beat_first_does() {
     let d = data();
     let mut s = deck(&d);

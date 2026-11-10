@@ -1221,9 +1221,11 @@ impl IceRung {
         if wins == 0 {
             return None;
         }
-        // A new program beat it: the next patch is the cheap one again.
+        // A new program beat it: the count starts over, for that play, at the cheap patch.
         if self.program.as_deref().is_some_and(|p| p != program) {
             self.rung = 0;
+            self.wins = 0;
+            self.tells.clear();
         }
         self.program = Some(program.to_string());
         self.wins += wins;
