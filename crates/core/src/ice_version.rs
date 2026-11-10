@@ -16,12 +16,228 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::basic::{Cond, Program, Stmt, Verb, Vocab, parse_stmt_with, parse_with};
+use crate::basic::{Cond, Program, Stmt, Target, Var, Verb, Vocab, parse_stmt_with, parse_with};
 use crate::data::{Data, IceDef, ReadDef};
 use crate::rng::Rng;
 
 /// Draws of one kind of change before the generator falls back to a smaller one.
 const TRIES: usize = 32;
+
+/// The deck as an ICE's conditions read it: what its sysop sees in the logs of a turn. A fight
+/// reads its ICE's conditions through [`Tell::holds`], and the next version is written against
+/// the tells booked in the fights a kind lost, so the two can't disagree.
+#[derive(Serialize, Deserialize, Clone, Debug, Default, PartialEq, Eq)]
+pub struct Tell {
+    /// `TARGET INTEG`.
+    pub integ: u32,
+    /// `TARGET SHIELD`: the shield up.
+    pub shield: u32,
+    /// `TARGET CPU`: the deck's cycles left.
+    pub cpu: u32,
+    /// What `TARGET RAN` reads: the programs the deck ran this turn, as (the name in its binary,
+    /// its factory id).
+    pub ran: Vec<(String, String)>,
+    /// `SELF STR`.
+    pub strength: u32,
+    /// `TURN`.
+    pub turn: u32,
+}
+
+/// What an ICE's conditions read: a fight as it stands, or a turn in the logs ([`Tell`]).
+pub trait Reads {
+    /// `TARGET INTEG`, `TARGET SHIELD`, `TARGET CPU`.
+    fn target(&self, t: Target) -> u32;
+    /// `TARGET RAN <name>`.
+    fn ran(&self, name: &str) -> bool;
+    /// `SELF STR`.
+    fn strength(&self) -> u32;
+    /// `TURN`.
+    fn turn(&self) -> u32;
+}
+
+/// Whether an ICE's condition is true of what `r` reads: the one place an ICE's conditions are
+/// decided, in a fight and in the logs. A condition no ICE can write (the deck's own words) is
+/// false.
+pub fn holds(cond: &Cond, r: &impl Reads) -> bool {
+    match cond {
+        Cond::Target(t, op, n) => op.test(r.target(*t), *n),
+        Cond::TargetRan(name) => r.ran(name),
+        Cond::SelfStr(op, n) => op.test(r.strength(), *n),
+        Cond::Cmp(Var::Turn, op, n) => op.test(r.turn(), *n),
+        _ => false,
+    }
+}
+
+impl Reads for Tell {
+    fn target(&self, t: Target) -> u32 {
+        match t {
+            Target::Integ => self.integ,
+            Target::Shield => self.shield,
+            Target::Cpu => self.cpu,
+        }
+    }
+    fn ran(&self, name: &str) -> bool {
+        self.ran
+            .iter()
+            .any(|(n, id)| crate::basic::names(name, n, id))
+    }
+    fn strength(&self) -> u32 {
+        self.strength
+    }
+    fn turn(&self) -> u32 {
+        self.turn
+    }
+}
+
+impl Tell {
+    /// Whether an ICE's condition was true on this turn ([`holds`]).
+    pub fn holds(&self, cond: &Cond) -> bool {
+        holds(cond, self)
+    }
+}
+
+/// How often each of class `class`'s grammar reads would have been true on the booked turns
+/// `tells`, at some number in its range: (the read as the grammar writes it, turns). Reads that
+/// never would are left out.
+pub fn fired(data: &Data, class: crate::data::IceClass, tells: &[Tell]) -> Vec<(String, u32)> {
+    let mut out = Vec::new();
+    for r in data.ice_grammar.reads(class) {
+        let (lo, hi) = r.n.unwrap_or((0, 0));
+        let conds: Vec<Cond> = (lo..=hi)
+            .filter_map(|n| {
+                match parse_stmt_with(&format!("IF {}", r.with(n)), Vocab::Ice(&Verb::ALL)) {
+                    Stmt::If(c) => Some(c),
+                    _ => None,
+                }
+            })
+            .collect();
+        let n = tells
+            .iter()
+            .filter(|t| conds.iter().any(|c| t.holds(c)))
+            .count() as u32;
+        if n > 0 {
+            out.push((r.read.clone(), n));
+        }
+    }
+    out
+}
+
+/// The bias [`next_version`] takes from reads' `fired` counts over `turns` booked turns: each
+/// read's extra weight is its share of the turns, out of [`crate::tuning::BIAS_WEIGHT`].
+pub fn against(fired: &[(String, u32)], turns: u32) -> Vec<(String, u32)> {
+    if turns == 0 {
+        return Vec::new();
+    }
+    fired
+        .iter()
+        .map(|(r, n)| {
+            (
+                r.clone(),
+                crate::tuning::BIAS_WEIGHT * n.min(&turns) / turns,
+            )
+        })
+        .filter(|(_, w)| *w > 0)
+        .collect()
+}
+
+/// What `program`, on ICE `row`'s machine, would have done to the decks of the logged fights
+/// `fights` (each a fight's tells, turn by turn), summed and weighed by the `tuning::HARM_*`
+/// numbers. Each fight replays as the ICE runs: from the top, each turn carrying on where the
+/// last stopped, with its cpu and ram; the end of the program ends a turn, and the next starts
+/// at the top. A hit counts past the shield, and uses it up for the rest of that turn, as
+/// `TARGET SHIELD` then reads it. How the sysops judge a rewrite against the logs.
+pub fn harm(row: &IceDef, program: &str, fights: &[Vec<Tell>]) -> u64 {
+    use crate::data::Intent;
+    use crate::tuning::{HARM_FORTIFY, HARM_HIT, HARM_SEGFAULT, HARM_SPOOF, HARM_TRACE};
+    let p = parse_with(program, Vocab::Ice(&row.verbs));
+    let lines = &p.lines;
+    let mut total = 0;
+    for fight in fights {
+        let mut pc = 0;
+        for turn in fight {
+            let mut t = turn.clone();
+            let (mut cpu, mut ram) = (row.cpu, row.ram);
+            // Past its last line, it starts at the top.
+            if pc >= lines.len() {
+                pc = 0;
+            }
+            loop {
+                let Some(l) = lines.get(pc) else {
+                    // The end of the program: its turn is over, and the next starts at the top.
+                    pc = 0;
+                    break;
+                };
+                match &l.stmt {
+                    Stmt::If(c) => {
+                        if ram == 0 {
+                            break;
+                        }
+                        ram -= 1;
+                        pc += if t.holds(c) { 1 } else { 2 };
+                    }
+                    Stmt::Act(a) => {
+                        pc += 1;
+                        total += match *a {
+                            Intent::Attack(n) => {
+                                let past = n.saturating_sub(t.shield);
+                                t.shield = t.shield.saturating_sub(n);
+                                u64::from(past) * HARM_HIT
+                            }
+                            Intent::Trace(n) => u64::from(n) * HARM_TRACE,
+                            Intent::Fortify(n) => u64::from(n) * HARM_FORTIFY,
+                            Intent::Spoof(_) => HARM_SPOOF,
+                            Intent::Segfault if !t.ran.is_empty() => HARM_SEGFAULT,
+                            Intent::Segfault => 0,
+                        };
+                        cpu -= 1;
+                        if cpu == 0 {
+                            break;
+                        }
+                    }
+                    _ => pc += 1,
+                }
+            }
+        }
+    }
+    total
+}
+
+/// The next version as the sysops write it against the logs `fights` of the play that beat this
+/// one (each a fight's tells): [`crate::tuning::PATCH_DRAFTS`] drafts from [`next_version`] (biased by [`against`] the
+/// reads the play walked into), and the one whose [`harm`] on those turns is greatest. If every
+/// draft would have hurt that play less than `program` does, nothing ships (`bump: None`). No
+/// logs, and the first draft ships.
+pub fn written_against(
+    data: &Data,
+    row: &IceDef,
+    program: &str,
+    bump: Bump,
+    fights: &[Vec<Tell>],
+    seed: u64,
+) -> Next {
+    let tells: Vec<Tell> = fights.iter().flatten().cloned().collect();
+    let bias = against(&fired(data, row.class, &tells), tells.len() as u32);
+    let now = harm(row, program, fights);
+    let mut rng = Rng::new(seed);
+    let mut best: Option<(u64, Next)> = None;
+    for _ in 0..crate::tuning::PATCH_DRAFTS {
+        let draft = next_version(data, row, program, bump, &bias, rng.next_u64());
+        if draft.bump.is_none() {
+            continue;
+        }
+        let h = harm(row, &draft.program, fights);
+        if best.as_ref().is_none_or(|(b, _)| h > *b) {
+            best = Some((h, draft));
+        }
+    }
+    match best {
+        Some((h, draft)) if h > now || tells.is_empty() => draft,
+        _ => Next {
+            bump: None,
+            program: program.to_string(),
+        },
+    }
+}
 
 /// A kind's version, `major.minor.patch`.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]

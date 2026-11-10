@@ -10,8 +10,9 @@ use crate::hub::{IceSeen, Save};
 pub struct Entry<'a> {
     pub def: &'a IceDef,
     pub seen: Option<&'a IceSeen>,
-    /// The program of the version its seen lines belong to (`IceSeen::version`): the row's at
-    /// 1.0.0, or the version in force. `None` when the save no longer holds that version.
+    /// The program of the version its seen lines belong to (`IceSeen::version`): the one it
+    /// ran (`IceSeen::program`), the row's at 1.0.0, or the version in force. `None` when the
+    /// save no longer holds it.
     pub program: Option<&'a str>,
 }
 
@@ -22,6 +23,9 @@ pub fn entries<'a>(save: &'a Save, data: &'a Data) -> Vec<Entry<'a>> {
         .map(|def| {
             let seen = save.ice_seen.iter().find(|s| s.id == def.id);
             let program = seen.and_then(|s| {
+                if !s.program.is_empty() {
+                    return Some(s.program.as_str());
+                }
                 if s.version == crate::ice_version::Version::FIRST {
                     return Some(def.program.as_str());
                 }

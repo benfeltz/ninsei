@@ -115,6 +115,7 @@ fn a_version_in_the_save_is_in_force_from_jack_in_on_every_net() {
         id: "tollbooth".into(),
         version: v,
         program: next.program.clone(),
+        bump: None,
     });
     let want = basic::parse_with(&next.program, basic::Vocab::Ice(&row.verbs));
     for site in 0..3 {
@@ -130,6 +131,7 @@ fn a_version_in_the_save_is_in_force_from_jack_in_on_every_net() {
             id: "tollbooth".into(),
             version: v,
             program: next.program.clone(),
+            bump: None,
         });
     }
 }
@@ -221,6 +223,7 @@ fn a_patched_kind_is_met_blind_and_learned_on_its_own_version() {
         id: "enigma".into(),
         version: Version::default().bumped(next.bump.unwrap()),
         program: next.program,
+        bump: None,
     });
     assert!(s.kit(&d).ice_known.is_empty());
     let g = fight(&mut s, &d, "enigma");

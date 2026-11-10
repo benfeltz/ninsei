@@ -32,7 +32,7 @@ fn every_row_has_a_machine_its_program_fits() {
 #[test]
 fn a_program_longer_than_its_hdd_is_rejected() {
     let err = ice_edited(
-        "hdd: 5, ranges: [(Fortify, 3, 5), (Attack, 3, 5)]",
+        "hdd: 10, ranges: [(Fortify, 3, 5), (Attack, 3, 5)]",
         "hdd: 2, ranges: [(Fortify, 3, 5), (Attack, 3, 5)]",
     )
     .unwrap_err();
@@ -43,7 +43,7 @@ fn a_program_longer_than_its_hdd_is_rejected() {
 fn rems_do_not_count_against_the_hdd() {
     // Ice Wall's three lines and a REM fit an HDD of three.
     ice_edited(
-        "hdd: 5, ranges: [(Fortify, 3, 5), (Attack, 3, 5)],\n        program: \"",
+        "hdd: 10, ranges: [(Fortify, 3, 5), (Attack, 3, 5)],\n        program: \"",
         "hdd: 3, ranges: [(Fortify, 3, 5), (Attack, 3, 5)],\n        program: \"\n            5 REM a wall",
     )
     .unwrap();
@@ -245,34 +245,17 @@ fn versions_count_and_print_as_semver() {
 }
 
 #[test]
-fn straight_line_ice_round_trip_through_blocks() {
+fn every_builtin_ice_round_trips_through_blocks() {
+    // Every kind can be patched: its program is in block form.
     let d = Data::builtin().unwrap();
-    let mut straight = 0;
     for ice in &d.ice {
         let vocab = basic::Vocab::Ice(&ice.verbs);
         let p = basic::parse_with(&ice.program, vocab);
-        let Some(blocks) = ice_version::blocks(&p) else {
-            // Only the ICE that jump aren't in block form.
-            assert!(
-                p.lines
-                    .iter()
-                    .any(|l| matches!(l.stmt, basic::Stmt::Goto(_))),
-                "{}",
-                ice.id
-            );
-            continue;
-        };
-        straight += 1;
+        let blocks = ice_version::blocks(&p).unwrap_or_else(|| panic!("{}", ice.id));
         let again = basic::parse_with(&ice_version::render(&blocks), vocab);
         let stmts = |p: &basic::Program| p.lines.iter().map(|l| l.stmt.clone()).collect::<Vec<_>>();
         assert_eq!(stmts(&again), stmts(&p), "{}", ice.id);
         assert_eq!(ice_version::blocks(&again), Some(blocks), "{}", ice.id);
-    }
-    assert_eq!(straight, 7);
-    for id in ["archer", "hydra"] {
-        let ice = d.ice.iter().find(|i| i.id == id).unwrap();
-        let p = basic::parse_with(&ice.program, basic::Vocab::Ice(&ice.verbs));
-        assert_eq!(ice_version::blocks(&p), None, "{id}");
     }
 }
 
@@ -331,7 +314,7 @@ fn every_version_is_valid_and_the_change_it_says() {
     use ice_version::{Bump, next_version};
     let d = Data::builtin().unwrap();
     let ice = block_form(&d);
-    assert_eq!(ice.len(), 7);
+    assert_eq!(ice.len(), d.ice.len());
     for row in ice {
         let before = blocks_of(row, &row.program);
         for bump in [Bump::Patch, Bump::Minor, Bump::Major] {
@@ -431,10 +414,12 @@ fn a_program_not_in_block_form_comes_back_unchanged() {
     use ice_version::{Bump, next_version};
     let d = Data::builtin().unwrap();
     let archer = d.ice.iter().find(|i| i.id == "archer").unwrap();
+    let jumps = "10 IF TARGET SHIELD > 0\n20 GOTO 40\n30 ATTACK 4\n40 TRACE 3";
+    d.check_ice_program(archer, jumps).unwrap();
     for bump in [Bump::Patch, Bump::Minor, Bump::Major] {
-        let next = next_version(&d, archer, &archer.program, bump, &[], 3);
+        let next = next_version(&d, archer, jumps, bump, &[], 3);
         assert_eq!(next.bump, None);
-        assert_eq!(next.program, archer.program);
+        assert_eq!(next.program, jumps);
     }
 }
 
@@ -514,6 +499,7 @@ fn patched(program: &str) -> Save {
             id: "rototurret".into(),
             version: Version::default().bumped(Bump::Patch),
             program: program.into(),
+            bump: None,
         }],
         ..Save::default()
     }
@@ -640,6 +626,7 @@ fn a_saved_one_point_oh_is_always_the_rows() {
             id: "rototurret".into(),
             version: Version::default(),
             program: "10 ATTACK 3".into(),
+            bump: None,
         }],
         ..Save::default()
     };
@@ -759,6 +746,7 @@ fn seen_lines_belong_to_a_version() {
         hi: 11,
         lines: vec![10, 20, 30, 40],
         version: ice_version::Version::default(),
+        ..Default::default()
     });
     // The ICE DB keeps 1.0.0's listing as it was known: the row's lines, all in clear.
     let entry = |s: &Save| {

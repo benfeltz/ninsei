@@ -1,6 +1,6 @@
 //! Run state and the rules that change it. The app only ever calls [`Game::apply`].
 
-use crate::basic::{Cond, Program, Stmt, Target, Var, Vocab};
+use crate::basic::{Cond, Program, Stmt, Var, Vocab};
 use crate::binary::{self, Bin, Spec};
 use crate::data::{BetrayalEffect, ChoiceEffect, Data, Drop, Intent, LootTable, Penalty};
 use crate::ice_version::Version;
@@ -61,6 +61,16 @@ pub struct Slot {
     pub bin: Bin,
     /// What `bin` decodes to. Kept in step with `bin`; a slot never holds an invalid binary.
     pub spec: Spec,
+}
+
+/// One fight, booked by the rules as it goes: which ICE, whether it fell, and the deck as the
+/// ICE's conditions read it at the start of each of its turns.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Bout {
+    /// Index into `Data::ice`.
+    pub ice: usize,
+    pub broken: bool,
+    pub tells: Vec<crate::ice_version::Tell>,
 }
 
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -445,6 +455,11 @@ pub struct Game {
     /// `Data::ice`, version, its program parsed once). Every ICE of a kind runs the same
     /// version all run.
     pub ice_versions: Vec<(usize, Version, Program)>,
+    /// Every fight this run, in order, as the rules saw it: what its ICE's sysops read in their
+    /// logs. `Save::record` writes the next versions from it.
+    pub bouts: Vec<Bout>,
+    /// The ICE whose fight ended the run in a flatline (an index into `Data::ice`).
+    pub killer: Option<usize>,
     /// What the run has been doing, for the graphs. Watches the rules, never changes them.
     pub history: crate::history::History,
     /// Sound cues waiting to be played. The app drains them each frame.
@@ -667,6 +682,8 @@ impl Game {
             starters_read: false,
             ice_lines,
             ice_versions,
+            bouts: Vec::new(),
+            killer: None,
             history: crate::history::History::default(),
             cues: Vec::new(),
             site: kit.site.clone(),
@@ -1116,6 +1133,11 @@ impl Game {
             Some((_, _, p)) => p.clone(),
             None => crate::basic::parse_with(&def.program, Vocab::Ice(&def.verbs)),
         };
+        self.bouts.push(Bout {
+            ice,
+            broken: false,
+            tells: Vec::new(),
+        });
         self.combat = Some(Combat {
             node,
             ice,
@@ -1240,6 +1262,9 @@ impl Game {
 
     fn win_combat(&mut self) {
         let Some(c) = self.combat.take() else { return };
+        if let Some(b) = self.bouts.last_mut() {
+            b.broken = true;
+        }
         self.end_pass();
         self.phase = Phase::Exploring;
         self.net.nodes[c.node].cleared = true;
@@ -1280,6 +1305,15 @@ impl Game {
         c.marked = None;
         c.ice_cpu = def.cpu;
         c.ice_ifs = def.ram;
+        // What the ICE sees as its turn begins goes in its sysop's logs.
+        let tell = self.tell();
+        if let Some(b) = self.bouts.last_mut() {
+            b.tells.push(tell);
+        }
+        let Some(c) = self.combat.as_mut() else {
+            return Err("no fight in progress.".into());
+        };
+        let def = &self.data.ice[c.ice];
         // A lagged ICE runs its program and does nothing it says: it loses this turn's moves.
         // Said once, however its pass goes.
         if c.stunned {
@@ -1310,7 +1344,7 @@ impl Game {
         self.deck.trace += mods.trace(TRACE_PER_COMBAT_TURN);
         if self.deck.integrity == 0 {
             self.phase = Phase::Flatlined;
-            self.combat = None;
+            self.killer = self.combat.take().map(|c| c.ice);
             self.end_pass();
             self.say(LogKind::Bad, "!! deck integrity zero. FLATLINE.");
             return Ok(());
@@ -1470,22 +1504,38 @@ impl Game {
             // Spoofed or lagged, NEXT names no move: the IF is false (and still spent its GB).
             Cond::Next(m) => self.ice_next().is_some_and(|i| m.is(i)),
             Cond::Have(name) => self.slot_named(name).is_some(),
-            Cond::Target(t, op, n) => {
-                let v = match t {
-                    Target::Integ => self.deck.integrity,
-                    Target::Shield => c.map_or(0, |c| c.shield),
-                    Target::Cpu => c.map_or(0, |c| c.cpu),
-                };
-                op.test(v, *n)
+            // An ICE's: read as its sysop will read the logs.
+            Cond::Target(..) | Cond::TargetRan(_) | Cond::SelfStr(..) => {
+                crate::ice_version::holds(cond, self)
             }
-            Cond::TargetRan(name) => c.is_some_and(|c| {
-                self.hdd.iter().any(|s| {
-                    c.ran.contains(&s.uid)
-                        && crate::basic::names(name, &s.spec.name, &self.data.warez[s.warez].id)
-                })
-            }),
-            Cond::SelfStr(op, n) => op.test(c.map_or(0, |c| c.strength), *n),
         }
+    }
+
+    /// The deck as the ICE's conditions read it right now, kept for the logs
+    /// ([`crate::ice_version::Tell`]); a fight reads it in place ([`crate::ice_version::Reads`]).
+    pub fn tell(&self) -> crate::ice_version::Tell {
+        let c = self.combat.as_ref();
+        crate::ice_version::Tell {
+            integ: self.deck.integrity,
+            shield: c.map_or(0, |c| c.shield),
+            cpu: c.map_or(0, |c| c.cpu),
+            ran: c.map_or(Vec::new(), |c| {
+                self.hdd
+                    .iter()
+                    .filter(|s| c.ran.contains(&s.uid))
+                    .map(|s| (s.spec.name.clone(), self.data.warez[s.warez].id.clone()))
+                    .collect()
+            }),
+            strength: c.map_or(0, |c| c.strength),
+            turn: c.map_or(0, |c| c.turn),
+        }
+    }
+
+    /// The ICE whose fight ended the run in a flatline (an index into `Data::ice`): its
+    /// integrity or its trace ran out with that ICE in front. `None` for an exit, or a flatline
+    /// out of a fight (a trace on a hop, an encounter's damage).
+    pub fn killed_by(&self) -> Option<usize> {
+        self.killer.filter(|_| self.phase == Phase::Flatlined)
     }
 
     /// Replaces the deck's program. Stopped partway through a turn, it carries on from the
@@ -2318,7 +2368,8 @@ impl Game {
         if self.deck.trace >= TRACE_MAX {
             self.deck.trace = TRACE_MAX;
             self.phase = Phase::Flatlined;
-            self.combat = None;
+            // Traced out in a fight: that ICE kept you there.
+            self.killer = self.combat.take().map(|c| c.ice);
             self.end_pass();
             self.say(LogKind::Bad, "!! trace complete. they found you. FLATLINE.");
             return true;
@@ -2668,4 +2719,30 @@ pub fn roll_stock(def: &crate::data::BbsDef, rng: &mut Rng) -> Vec<Vec<StockFile
                 .collect()
         })
         .collect()
+}
+
+/// A fight as its ICE's conditions read it, in place: what [`Game::tell`] copies for the logs.
+impl crate::ice_version::Reads for Game {
+    fn target(&self, t: crate::basic::Target) -> u32 {
+        let c = self.combat.as_ref();
+        match t {
+            crate::basic::Target::Integ => self.deck.integrity,
+            crate::basic::Target::Shield => c.map_or(0, |c| c.shield),
+            crate::basic::Target::Cpu => c.map_or(0, |c| c.cpu),
+        }
+    }
+    fn ran(&self, name: &str) -> bool {
+        self.combat.as_ref().is_some_and(|c| {
+            self.hdd.iter().any(|s| {
+                c.ran.contains(&s.uid)
+                    && crate::basic::names(name, &s.spec.name, &self.data.warez[s.warez].id)
+            })
+        })
+    }
+    fn strength(&self) -> u32 {
+        self.combat.as_ref().map_or(0, |c| c.strength)
+    }
+    fn turn(&self) -> u32 {
+        self.combat.as_ref().map_or(0, |c| c.turn)
+    }
 }
