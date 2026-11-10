@@ -251,7 +251,8 @@ fn a_new_script_starts_a_new_search_and_a_new_version_a_new_study() {
     );
     let v = Version::FIRST.bumped(Bump::Patch);
     s.beaten(v, deck, start);
-    assert_eq!((s.version, s.tried, s.from), (v, 0, 0));
+    assert_eq!((s.version, s.tried, s.from), (v, 5, 5), "a new search");
+    assert_eq!(s.starts.len(), 1, "the old version's starts were its");
     for _ in 0..STUDY_STARTS + 3 {
         s.beaten(v, s.deck.clone(), start);
     }

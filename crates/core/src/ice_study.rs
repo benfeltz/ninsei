@@ -92,7 +92,8 @@ pub struct Study {
     pub deck: DeckLog,
     /// How the fights it lost opened, oldest first: the latest [`STUDY_STARTS`].
     pub starts: Vec<Start>,
-    /// Drafts of this version tried so far: the next is draft number `tried`.
+    /// Drafts these sysops have tried, of every version: the next is draft number `tried` (of
+    /// the stream drawn from the version under study).
     pub tried: u32,
     /// The draft this search began at: sizes and patience count from it.
     pub from: u32,
@@ -114,20 +115,14 @@ impl Study {
         }
     }
 
-    /// The deck (`deck`) beat `version` of kind `id` from `start`. A study of another version
-    /// starts over; a new script starts a new search, at patches; the same script adds the
+    /// The deck (`deck`) beat `version` of kind `id` from `start`. Another version, or a new
+    /// script, starts a new search, at patches, from this start alone; the same script adds the
     /// start to what they fight it from, and wakes them if they were resting.
     pub fn beaten(&mut self, version: Version, deck: DeckLog, start: Start) {
         let same = self.version == version
             && !self.starts.is_empty()
             && crate::hub::same_play(&self.deck.script, &deck.script);
-        if self.version != version {
-            *self = Study {
-                id: std::mem::take(&mut self.id),
-                version,
-                ..Study::default()
-            };
-        }
+        self.version = version;
         if !same {
             self.starts.clear();
             self.from = self.tried;

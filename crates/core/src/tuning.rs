@@ -195,7 +195,13 @@ pub const STUDY_BAR: u32 = 5;
 /// deck beats it again. The first third are patches, the next minors, the last majors.
 pub const STUDY_PATIENCE: u32 = 24;
 /// The pace: milliseconds of running time a draft takes, at work or idle alike. Each kind
-/// under study gets one draft per this many.
-pub const STUDY_DRAFT_MS: u32 = 5_000;
+/// under study gets one draft per this many. The probe's careful careers keep their 90% floor
+/// from about 240 s; at 5 s they fall to 85% at tier 2.
+pub const STUDY_DRAFT_MS: u32 = 300_000;
 /// The fights a study keeps to stage its duels from: the latest this many it lost.
 pub const STUDY_STARTS: usize = 6;
+/// The probe has no clock, so it assumes how long its bots take: milliseconds of play an
+/// action takes (a move, a turn of a fight, a choice), and the time spent at home between two
+/// runs. Each becomes the sysops' drafts at `STUDY_DRAFT_MS`, and the report prints both.
+pub const PROBE_ACTION_MS: u32 = 3_000;
+pub const PROBE_HOME_MS: u32 = 60_000;

@@ -344,6 +344,16 @@ fn the_careers_face_evolving_ice_and_the_report_says_what_shipped() {
         "{targets:#?}"
     );
     assert!(lines.iter().all(|l| l.chars().count() <= 70), "{lines:#?}");
+    // The probe has no clock: it says the pace it assumed, and what a version cost the sysops.
+    let pace = format!(
+        "pace: a draft every {}s; a bot action {}s, home {}s a run",
+        ninsei_core::tuning::STUDY_DRAFT_MS / 1000,
+        ninsei_core::tuning::PROBE_ACTION_MS / 1000,
+        ninsei_core::tuning::PROBE_HOME_MS / 1000
+    );
+    assert!(lines.iter().any(|l| l.trim() == pace), "{lines:#?}");
+    assert!(s.drafts[0] > 0 && s.drafts[1] > 0, "{:?}", s.drafts);
+    assert!(lines.iter().any(|l| l.contains("drafts tried a version shipped")));
 }
 
 #[test]
