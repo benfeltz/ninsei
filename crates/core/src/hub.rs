@@ -1065,6 +1065,11 @@ pub struct Save {
     /// database, and never changes play.
     #[serde(default)]
     pub ice_seen: Vec<IceSeen>,
+    /// The ICE kinds the sysops have patched: each one's version in force and its program,
+    /// what every net runs from the next jack-in. A kind not here runs 1.0.0, its row in
+    /// `ice.ron`.
+    #[serde(default)]
+    pub ice_versions: Vec<IceVer>,
     /// Programs open with their cracktros (`data/intros/`). On unless switched off in System.
     #[serde(default = "default_intros")]
     pub intros: bool,
@@ -1112,6 +1117,19 @@ pub struct IceSeen {
     /// The lines of its program you've seen it run, sorted: what the ICE DB decompiles.
     #[serde(default)]
     pub lines: Vec<u32>,
+    /// The version of its kind `lines` were seen on. Seen lines belong to a version: a new one
+    /// is met knowing nothing, since its line 20 is not the last one's.
+    #[serde(default)]
+    pub version: crate::ice_version::Version,
+}
+
+/// A kind's version in force and the program it runs.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct IceVer {
+    /// By id in `data/ice.ron`.
+    pub id: String,
+    pub version: crate::ice_version::Version,
+    pub program: String,
 }
 
 /// A textfile on your disk: which board it came from and its id in that board's `texts`.
@@ -1223,6 +1241,7 @@ impl Default for Save {
             game_rounds: Default::default(),
             texts: Vec::new(),
             ice_seen: Vec::new(),
+            ice_versions: Vec::new(),
             intros: default_intros(),
             guide_seen: false,
             starters_given: false,
@@ -2203,14 +2222,71 @@ impl Save {
                 .map(|k| (k.board.clone(), k.id.clone()))
                 .collect(),
             // What earlier runs saw is the ICE DB's: without it the deck starts each fight blind.
+            // Only lines seen on the version in force: a new version starts blind.
             ice_known: self
                 .ice_seen
                 .iter()
                 .filter(|s| self.has_tool("icedb") && !s.lines.is_empty())
+                .filter(|s| {
+                    self.ice_program(&s.id, data)
+                        .is_some_and(|(v, _)| v == s.version)
+                })
                 .map(|s| (s.id.clone(), s.lines.clone()))
+                .collect(),
+            // The sysops' patches: every net runs a patched kind's version.
+            ice_programs: self
+                .patches(data)
+                .into_iter()
+                .map(|v| (v.id.clone(), v.version, v.program.clone()))
                 .collect(),
             origins,
         }
+    }
+
+    /// The version of ICE kind `id` in force and its program: the save's, or 1.0.0 and the
+    /// row's own when the sysops haven't patched it. A saved program that no longer passes the
+    /// row's check (the row changed under it) falls back to the row's: saves load, never crash.
+    /// `None` for an id that isn't in `ice.ron`.
+    pub fn ice_program<'a>(
+        &'a self,
+        id: &str,
+        data: &'a Data,
+    ) -> Option<(crate::ice_version::Version, &'a str)> {
+        let row = data.ice.iter().find(|i| i.id == id)?;
+        Some(
+            match self
+                .ice_versions
+                .iter()
+                .find(|v| v.id == id && Self::in_force(v, row, data))
+            {
+                Some(v) => (v.version, v.program.as_str()),
+                None => (crate::ice_version::Version::default(), row.program.as_str()),
+            },
+        )
+    }
+
+    /// Whether saved version `v` of `row` is in force: past 1.0.0 (which is always the row's
+    /// own program) and passing the row's check.
+    fn in_force(v: &IceVer, row: &crate::data::IceDef, data: &Data) -> bool {
+        v.version > crate::ice_version::Version::FIRST
+            && data.check_ice_program(row, &v.program).is_ok()
+    }
+
+    /// The saved versions in force, the first for each kind ([`Save::ice_program`]'s), each
+    /// checked once.
+    fn patches<'a>(&'a self, data: &Data) -> Vec<&'a IceVer> {
+        let mut out: Vec<&IceVer> = Vec::new();
+        for v in &self.ice_versions {
+            if out.iter().any(|o| o.id == v.id) {
+                continue;
+            }
+            if let Some(row) = data.ice.iter().find(|r| r.id == v.id)
+                && Self::in_force(v, row, data)
+            {
+                out.push(v);
+            }
+        }
+        out
     }
 
     /// The deck's program: as the last run left it, or the one its kit shipped.
@@ -2328,6 +2404,7 @@ impl Save {
                     lo: m.strength,
                     hi: m.strength,
                     lines: Vec::new(),
+                    version: game.ice_version(m.ice),
                 }),
             }
         }
@@ -2337,6 +2414,13 @@ impl Save {
                 continue;
             };
             if let Some(s) = self.ice_seen.iter_mut().find(|s| s.id == def.id) {
+                // The lines this run saw belong to the version it ran; what was seen on another
+                // version says nothing about this one.
+                let version = game.ice_version(*ice);
+                if s.version != version {
+                    s.lines.clear();
+                    s.version = version;
+                }
                 // A save's own list may not be tidy (hand-edited, or older): tidy it first.
                 s.lines = crate::ice_listing::tidy(std::mem::take(&mut s.lines));
                 for &no in lines {

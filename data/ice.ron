@@ -16,6 +16,12 @@
 // cpu: actions a turn (each verb spends one). ram: IFs a turn (each spends one). Both at least 1.
 //      Its turn ends when either runs out, at the end of the program (it starts at the top
 //      next turn), or when it goes round without spending either: it stalls.
+// hdd: the most lines its program may hold (REMs don't count).
+// ranges: [(Verb, lo, hi)] the numbers each verb's line may carry, one range for every verb on
+//         `verbs` that takes a number (Segfault takes none). cpu, ram, hdd and the ranges are
+//         the ICE's machine: every version of its program (1.0.0 is the one here; the sysops
+//         write the next ones between runs, see `ice_grammar.ron`) fits it, and no version
+//         raises it. A bigger machine is a stronger ICE.
 // yields: (below: pct, chance: pct, line: "...")  optional. Once a hit leaves it at `below`% of its
 //         strength or less, each hit has a `chance`% chance it gives up and says `line`.
 //         Giving up counts as a win.
@@ -23,6 +29,7 @@
     // A barrier that digs in once you've spent your cycles.
     (id: "icewall",    name: "Ice Wall",   class: Barrier,  tier: 1, strength: 14,
         cpu: 1, ram: 1, verbs: [Fortify, Attack],
+        hdd: 5, ranges: [(Fortify, 3, 5), (Attack, 3, 5)],
         program: "
             10 IF TARGET CPU < 1
             20 FORTIFY 4
@@ -30,6 +37,7 @@
     // A barrier that rebuilds itself when it's been hurt.
     (id: "bulwark",    name: "Bulwark",    class: Barrier,  tier: 1, strength: 18,
         cpu: 1, ram: 1, verbs: [Fortify, Attack],
+        hdd: 6, ranges: [(Fortify, 4, 6), (Attack, 2, 5)],
         program: "
             10 IF SELF STR < 12
             20 FORTIFY 5
@@ -38,6 +46,7 @@
     // A code gate that runs the clock when you hide behind a firewall.
     (id: "enigma",     name: "Enigma",     class: CodeGate, tier: 1, strength: 12,
         cpu: 1, ram: 1, verbs: [Trace, Attack],
+        hdd: 6, ranges: [(Trace, 3, 11), (Attack, 3, 5)],
         program: "
             10 IF TARGET SHIELD > 0
             20 TRACE 10
@@ -46,6 +55,7 @@
     // A code gate that bills you for every firewall and every patch.
     (id: "tollbooth",  name: "Tollbooth",  class: CodeGate, tier: 1, strength: 15,
         cpu: 1, ram: 2, verbs: [Trace, Attack],
+        hdd: 8, ranges: [(Trace, 2, 9), (Attack, 3, 5)],
         program: "
             10 IF TARGET SHIELD > 0
             20 TRACE 8
@@ -56,6 +66,7 @@
     // A sentry that goes for the kill when your integrity dips.
     (id: "rototurret", name: "Rototurret", class: Sentry,   tier: 1, strength: 11,
         cpu: 1, ram: 1, verbs: [Attack],
+        hdd: 6, ranges: [(Attack, 3, 8)],
         program: "
             10 IF TARGET INTEG < 6
             20 ATTACK 7
@@ -64,6 +75,7 @@
     // A sentry that hits hard the turn you patch; otherwise it marks you, then hits.
     (id: "hunter",     name: "Hunter",     class: Sentry,   tier: 1, strength: 13,
         cpu: 1, ram: 1, verbs: [Trace, Attack],
+        hdd: 6, ranges: [(Trace, 3, 5), (Attack, 4, 9)],
         program: "
             10 IF TARGET RAN patch
             20 ATTACK 8
@@ -73,6 +85,7 @@
     // the clock, and shoots the moment the firewall's down, harder the weaker you are. It sits deep, where every layer adds to its strength.
     (id: "archer",     name: "Archer",     class: Sentry,   tier: 2, strength: 11,
         cpu: 1, ram: 2, verbs: [Attack, Trace, Spoof],
+        hdd: 14, ranges: [(Attack, 3, 7), (Trace, 2, 5), (Spoof, 1, 3)],
         program: "
             10 IF TARGET SHIELD > 0
             20 GOTO 80
@@ -90,6 +103,7 @@
     // whenever you're shielded, rewriting itself as it does, and otherwise hits. It sits deep, where every layer adds to its strength.
     (id: "hydra",      name: "Hydra",      class: CodeGate, tier: 2, strength: 11,
         cpu: 1, ram: 2, verbs: [Trace, Attack, Fortify, Segfault],
+        hdd: 11, ranges: [(Trace, 4, 6), (Attack, 3, 5), (Fortify, 1, 3)],
         program: "
             10 IF TARGET RAN firewall
             20 SEGFAULT
@@ -104,6 +118,7 @@
     // program, hits, and gives up when it's losing.
     (id: "rival",      name: "kr4ken",     class: CodeGate, tier: 0, strength: 20,
         cpu: 1, ram: 2, verbs: [Attack, Trace, Fortify, Spoof, Segfault],
+        hdd: 9, ranges: [(Attack, 3, 6), (Trace, 2, 5), (Fortify, 2, 4), (Spoof, 1, 3)],
         program: "
             10 IF TARGET SHIELD > 0
             20 SPOOF 2

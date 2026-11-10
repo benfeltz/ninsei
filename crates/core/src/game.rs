@@ -3,6 +3,7 @@
 use crate::basic::{Cond, Program, Stmt, Target, Var, Vocab};
 use crate::binary::{self, Bin, Spec};
 use crate::data::{BetrayalEffect, ChoiceEffect, Data, Drop, Intent, LootTable, Penalty};
+use crate::ice_version::Version;
 use crate::network::{NetParams, Network, NodeKind};
 use crate::rng::Rng;
 use crate::tuning::*;
@@ -67,6 +68,8 @@ pub struct Combat {
     pub node: usize,
     /// Index into `Data::ice`.
     pub ice: usize,
+    /// The version of its kind it runs (1.0.0 is its row's program).
+    pub ice_version: Version,
     pub strength: u32,
     pub strength_max: u32,
     /// The ICE's program, parsed in its own vocabulary.
@@ -142,6 +145,9 @@ pub struct Kit {
     /// The ICE lines the deck has seen run before (from the save's ICE DB): (ICE id, line
     /// numbers). A fight shows these in clear from its first turn.
     pub ice_known: Vec<(String, Vec<u32>)>,
+    /// The ICE kinds whose version in force isn't 1.0.0 (from the save's `ice_versions`): (ICE
+    /// id, version, program). A fight against one runs this program in place of its row's.
+    pub ice_programs: Vec<(String, crate::ice_version::Version, String)>,
     /// For each of `programs`, the stash id it came from (`None` for a free program). The run
     /// remembers them so the loadout comes home in its place.
     pub origins: Vec<Option<u32>>,
@@ -174,6 +180,7 @@ impl Default for Kit {
             tunes: Vec::new(),
             texts: Vec::new(),
             ice_known: Vec::new(),
+            ice_programs: Vec::new(),
             origins: Vec::new(),
             free: Vec::new(),
         }
@@ -434,6 +441,10 @@ pub struct Game {
     /// line numbers, sorted): what the save knew at the start, plus every line an ICE's pass
     /// executes in this run. They come home even on a flatline. Never read by play.
     pub ice_lines: Vec<(usize, Vec<u32>)>,
+    /// The ICE kinds running a version past 1.0.0, fixed at jack-in from the kit: (index into
+    /// `Data::ice`, version, its program parsed once). Every ICE of a kind runs the same
+    /// version all run.
+    pub ice_versions: Vec<(usize, Version, Program)>,
     /// What the run has been doing, for the graphs. Watches the rules, never changes them.
     pub history: crate::history::History,
     /// Sound cues waiting to be played. The app drains them each frame.
@@ -615,6 +626,19 @@ impl Game {
                 Some((ice, crate::ice_listing::tidy(lines.clone())))
             })
             .collect();
+        let ice_versions = kit
+            .ice_programs
+            .iter()
+            .filter_map(|(id, v, program)| {
+                let ice = data.ice.iter().position(|i| &i.id == id)?;
+                let verbs = &data.ice[ice].verbs;
+                Some((
+                    ice,
+                    *v,
+                    crate::basic::parse_with(program, Vocab::Ice(verbs)),
+                ))
+            })
+            .collect();
         let mut game = Self {
             at: net.entry(),
             outer: None,
@@ -642,6 +666,7 @@ impl Game {
             boards_read: Vec::new(),
             starters_read: false,
             ice_lines,
+            ice_versions,
             history: crate::history::History::default(),
             cues: Vec::new(),
             site: kit.site.clone(),
@@ -1071,16 +1096,30 @@ impl Game {
         self.say(LogKind::Good, format!("uplink: back out at {name}."));
     }
 
+    /// The version ICE `ice` (an index into `Data::ice`) runs this run: the kit's, or 1.0.0.
+    pub fn ice_version(&self, ice: usize) -> Version {
+        self.ice_versions
+            .iter()
+            .find(|(i, _, _)| *i == ice)
+            .map_or(Version::default(), |(_, v, _)| *v)
+    }
+
     fn start_combat(&mut self, node: usize, ice: usize) {
         let strength = self.data.ice[ice].strength
             + ICE_STRENGTH_PER_LAYER * self.depth(node)
             + self.mods.ice_bonus;
         let def = &self.data.ice[ice];
         let (name, class) = (def.name.clone(), def.class.label());
-        let ice_prog = crate::basic::parse_with(&def.program, Vocab::Ice(&def.verbs));
+        // The kind's version in force: the kit's, or 1.0.0, its row's.
+        let ice_version = self.ice_version(ice);
+        let ice_prog = match self.ice_versions.iter().find(|(i, _, _)| *i == ice) {
+            Some((_, _, p)) => p.clone(),
+            None => crate::basic::parse_with(&def.program, Vocab::Ice(&def.verbs)),
+        };
         self.combat = Some(Combat {
             node,
             ice,
+            ice_version,
             strength,
             strength_max: strength,
             ice_prog,

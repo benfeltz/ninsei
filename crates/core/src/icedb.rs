@@ -10,15 +10,26 @@ use crate::hub::{IceSeen, Save};
 pub struct Entry<'a> {
     pub def: &'a IceDef,
     pub seen: Option<&'a IceSeen>,
+    /// The program of the version its seen lines belong to (`IceSeen::version`): the row's at
+    /// 1.0.0, or the version in force. `None` when the save no longer holds that version.
+    pub program: Option<&'a str>,
 }
 
 /// Every ICE, in data order, with what you know of it.
 pub fn entries<'a>(save: &'a Save, data: &'a Data) -> Vec<Entry<'a>> {
     data.ice
         .iter()
-        .map(|def| Entry {
-            def,
-            seen: save.ice_seen.iter().find(|s| s.id == def.id),
+        .map(|def| {
+            let seen = save.ice_seen.iter().find(|s| s.id == def.id);
+            let program = seen.and_then(|s| {
+                if s.version == crate::ice_version::Version::FIRST {
+                    return Some(def.program.as_str());
+                }
+                save.ice_program(&def.id, data)
+                    .filter(|(v, _)| *v == s.version)
+                    .map(|(_, p)| p)
+            });
+            Entry { def, seen, program }
         })
         .collect()
 }
@@ -64,10 +75,10 @@ impl Entry<'_> {
     /// is known, then each line numbered, the unseen ones `????`. Empty until you've met it.
     /// Each line comes with whether it's muted: a line not yet seen run.
     pub fn listing(&self) -> Vec<PageLine> {
-        let Some(s) = self.seen else {
+        let (Some(s), Some(program)) = (self.seen, self.program) else {
             return Vec::new();
         };
-        let rows = crate::ice_listing::decompile_def(&self.def.program, &self.def.verbs, &s.lines);
+        let rows = crate::ice_listing::decompile_def(program, &self.def.verbs, &s.lines);
         let (seen, all) = crate::ice_listing::known(&rows);
         let mut out = vec![PageLine::plain(format!(
             "listing        decompiled, {seen} of {all} lines seen"

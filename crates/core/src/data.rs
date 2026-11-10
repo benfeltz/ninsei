@@ -11,6 +11,9 @@ pub enum IceClass {
 }
 
 impl IceClass {
+    /// Every class.
+    pub const ALL: [IceClass; 3] = [IceClass::Barrier, IceClass::CodeGate, IceClass::Sentry];
+
     pub fn label(self) -> &'static str {
         match self {
             IceClass::Barrier => "BARRIER",
@@ -77,6 +80,19 @@ pub enum Intent {
 }
 
 impl Intent {
+    /// The verb this move is written with, and its number (`None` for one that takes none):
+    /// the inverse of [`crate::basic::Verb::with`].
+    pub fn verb(self) -> (crate::basic::Verb, Option<u32>) {
+        use crate::basic::Verb;
+        match self {
+            Intent::Attack(n) => (Verb::Attack, Some(n)),
+            Intent::Trace(n) => (Verb::Trace, Some(n)),
+            Intent::Fortify(n) => (Verb::Fortify, Some(n)),
+            Intent::Spoof(n) => (Verb::Spoof, Some(n)),
+            Intent::Segfault => (Verb::Segfault, None),
+        }
+    }
+
     pub fn describe(self) -> String {
         match self {
             Intent::Attack(n) => format!("ATTACK {n}"),
@@ -105,9 +121,106 @@ pub struct IceDef {
     pub ram: u32,
     /// The verbs its program may use; any other word is a bad line.
     pub verbs: Vec<crate::basic::Verb>,
+    /// The most lines its program may hold (REMs don't count): its HDD. Every version of its
+    /// program fits it.
+    pub hdd: u32,
+    /// The numbers a verb's line may carry, as (verb, lowest, highest): one for every verb on
+    /// `verbs` that takes a number. Every version of its program keeps inside them.
+    pub ranges: Vec<(crate::basic::Verb, u32, u32)>,
     /// Whether it gives up when it's losing.
     #[serde(default)]
     pub yields: Option<YieldDef>,
+}
+
+impl IceDef {
+    /// The numbers `verb`'s line may carry, (lowest, highest), if its row gives a range.
+    pub fn range(&self, verb: crate::basic::Verb) -> Option<(u32, u32)> {
+        self.ranges
+            .iter()
+            .find(|(v, _, _)| *v == verb)
+            .map(|&(_, lo, hi)| (lo, hi))
+    }
+}
+
+/// What the sysops write new ICE versions from (`data/ice_grammar.ron`): which verbs attack
+/// the deck's program and how many such lines a tier may hold, and per class the reads a new
+/// block may open with and the verbs that may follow them.
+#[derive(Deserialize, Clone, Debug)]
+pub struct IceGrammar {
+    /// The verbs whose lines attack the deck's program rather than the deck.
+    pub program_attacks: Vec<crate::basic::Verb>,
+    /// The most lines of `program_attacks` verbs a version may hold, per tier.
+    pub fair: Vec<FairDef>,
+    pub classes: Vec<ClassGrammar>,
+}
+
+/// No version of a tier-`tier` ICE holds more than `most` lines that attack the program.
+#[derive(Deserialize, Clone, Copy, Debug)]
+pub struct FairDef {
+    pub tier: u32,
+    pub most: u32,
+}
+
+/// One class's reads.
+#[derive(Deserialize, Clone, Debug)]
+pub struct ClassGrammar {
+    pub class: IceClass,
+    pub reads: Vec<ReadDef>,
+}
+
+/// A read a new block may open with: an ICE's condition, its number drawn from `n`, and the
+/// verbs the guarded line may use, weighted.
+#[derive(Deserialize, Clone, Debug)]
+pub struct ReadDef {
+    /// The condition as it follows `IF`; a word `n` is the number.
+    pub read: String,
+    /// The number's range, when the read has an `n`.
+    pub n: Option<(u32, u32)>,
+    pub weight: u32,
+    pub responses: Vec<(crate::basic::Verb, u32)>,
+}
+
+/// The word in a read that stands for its number.
+pub const READ_SLOT: &str = "n";
+
+impl ReadDef {
+    /// Whether the read has a number to draw.
+    pub fn has_slot(&self) -> bool {
+        self.read.split_whitespace().any(|w| w == READ_SLOT)
+    }
+
+    /// The condition with `n` written in for its number.
+    pub fn with(&self, n: u32) -> String {
+        self.read
+            .split_whitespace()
+            .map(|w| {
+                if w == READ_SLOT {
+                    n.to_string()
+                } else {
+                    w.to_string()
+                }
+            })
+            .collect::<Vec<_>>()
+            .join(" ")
+    }
+}
+
+impl IceGrammar {
+    /// Class `class`'s reads (none if the grammar has no entry for it).
+    pub fn reads(&self, class: IceClass) -> &[ReadDef] {
+        self.classes
+            .iter()
+            .find(|c| c.class == class)
+            .map_or(&[], |c| &c.reads)
+    }
+
+    /// The most lines that attack the program a tier-`tier` ICE may hold.
+    pub fn most_program_attacks(&self, tier: u32) -> u32 {
+        self.fair
+            .iter()
+            .find(|f| f.tier == tier)
+            .map_or(0, |f| f.most)
+    }
 }
 
 /// A fighter that can give up: once a hit drops it to `below`% of its strength or less,
@@ -789,6 +902,7 @@ pub fn rgb(hex: &str) -> Option<[u8; 3]> {
 pub struct Sources<'a> {
     pub warez: &'a str,
     pub ice: &'a str,
+    pub ice_grammar: &'a str,
     pub loot: &'a str,
     pub boards: &'a [BoardSrc<'a>],
     pub events: &'a str,
@@ -826,6 +940,7 @@ impl Sources<'static> {
         Self {
             warez: include_str!("../../../data/warez.ron"),
             ice: include_str!("../../../data/ice.ron"),
+            ice_grammar: include_str!("../../../data/ice_grammar.ron"),
             loot: include_str!("../../../data/loot.ron"),
             boards: BUILTIN_BOARDS,
             events: include_str!("../../../data/events.ron"),
@@ -863,6 +978,8 @@ impl Sources<'static> {
 pub struct Data {
     pub warez: Vec<WarezDef>,
     pub ice: Vec<IceDef>,
+    /// What new ICE versions are written from.
+    pub ice_grammar: IceGrammar,
     pub loot: LootTables,
     /// Every BBS, the default board first.
     pub boards: Vec<BbsDef>,
@@ -944,6 +1061,8 @@ impl Data {
         let data = Self {
             warez: ron::from_str(src.warez).map_err(|e| format!("warez.ron: {e}"))?,
             ice: ron::from_str(src.ice).map_err(|e| format!("ice.ron: {e}"))?,
+            ice_grammar: ron::from_str(src.ice_grammar)
+                .map_err(|e| format!("ice_grammar.ron: {e}"))?,
             loot: ron::from_str(src.loot).map_err(|e| format!("loot.ron: {e}"))?,
             boards,
             events: ron::from_str(src.events).map_err(|e| format!("events.ron: {e}"))?,
@@ -1055,6 +1174,8 @@ impl Data {
                 return Err(format!("duplicate warez id `{}`", w.id));
             }
         }
+        self.validate_ice_grammar()
+            .map_err(|e| format!("ice_grammar.ron: {e}"))?;
         for ice in &self.ice {
             self.validate_ice_program(ice)
                 .map_err(|e| format!("ICE `{}`: {e}", ice.id))?;
@@ -1524,11 +1645,131 @@ impl Data {
         self.tunes.iter().find(|t| t.id == id)
     }
 
-    /// An ICE's program must parse in its own vocabulary, every GOTO must land, every
-    /// `TARGET RAN` must name a program that exists, a verb must be reachable from the top, and
-    /// it must have budgets to run with.
+    /// The grammar: every tier on the map listed once in `fair`, every class an ICE has given
+    /// at least two reads, each read a condition in an ICE's vocabulary (with a range for its
+    /// `n` exactly when it has one) naming only programs that exist, and each response a verb
+    /// some ICE of that class has.
+    fn validate_ice_grammar(&self) -> Result<(), String> {
+        use crate::basic::{Cond, Stmt, Vocab, parse_stmt_with};
+        let g = &self.ice_grammar;
+        for (i, f) in g.fair.iter().enumerate() {
+            if g.fair[..i].iter().any(|o| o.tier == f.tier) {
+                return Err(format!("tier {} is in `fair` twice", f.tier));
+            }
+        }
+        for ice in &self.ice {
+            if !g.fair.iter().any(|f| f.tier == ice.tier) {
+                return Err(format!(
+                    "`fair` has no tier {} (ICE `{}`)",
+                    ice.tier, ice.id
+                ));
+            }
+        }
+        for (i, c) in g.classes.iter().enumerate() {
+            if g.classes[..i].iter().any(|o| o.class == c.class) {
+                return Err(format!("{} is listed twice", c.class.label()));
+            }
+        }
+        for class in IceClass::ALL {
+            let rows: Vec<&IceDef> = self.ice.iter().filter(|i| i.class == class).collect();
+            if rows.is_empty() {
+                continue;
+            }
+            let reads = g.reads(class);
+            if reads.len() < 2 {
+                return Err(format!("{} has fewer than two reads", class.label()));
+            }
+            for (i, r) in reads.iter().enumerate() {
+                let err = |m: String| Err(format!("{} read `{}`: {m}", class.label(), r.read));
+                // Twice, at any number or however it names a program, is one read.
+                let key = self.read_key(&r.with(0));
+                if key.is_some()
+                    && let Some(o) = reads[..i].iter().find(|o| self.read_key(&o.with(0)) == key)
+                {
+                    return err(format!("is `{}` again", o.read));
+                }
+                if r.weight == 0 {
+                    return err("weight 0".into());
+                }
+                let samples = match (r.has_slot(), r.n) {
+                    (true, Some((lo, hi))) if lo <= hi && hi <= crate::basic::MAX_ARG => {
+                        vec![lo, hi]
+                    }
+                    (true, Some((lo, hi))) => {
+                        return err(format!(
+                            "n {lo}..{hi} (lowest first, at most {})",
+                            crate::basic::MAX_ARG
+                        ));
+                    }
+                    (true, None) => return err("has an `n` but no range".into()),
+                    (false, Some(_)) => return err("has a range but no `n`".into()),
+                    (false, None) => vec![0],
+                };
+                for n in samples {
+                    match parse_stmt_with(
+                        &format!("IF {}", r.with(n)),
+                        Vocab::Ice(&crate::basic::Verb::ALL),
+                    ) {
+                        Stmt::If(Cond::TargetRan(name))
+                            if !self
+                                .warez
+                                .iter()
+                                .any(|w| crate::basic::names(&name, &w.name, &w.id)) =>
+                        {
+                            return err(format!("no program is called `{name}`"));
+                        }
+                        Stmt::If(_) => {}
+                        Stmt::Bad(why) => return err(why),
+                        _ => return err("isn't a condition".into()),
+                    }
+                }
+                if r.responses.is_empty() {
+                    return err("has no responses".into());
+                }
+                for &(v, w) in &r.responses {
+                    if w == 0 {
+                        return err(format!("{} has weight 0", v.word()));
+                    }
+                    if !rows.iter().any(|i| i.verbs.contains(&v)) {
+                        return err(format!(
+                            "responds with {}, which no {} has",
+                            v.word(),
+                            class.label()
+                        ));
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// A read (an ICE's condition, as it follows `IF`) as a key for telling reads apart: its
+    /// parsed condition with its number zeroed and a `TARGET RAN` program named by its factory
+    /// id, so `TARGET RAN Patch.exe` and `TARGET RAN patch` are one read, as a fight reads them
+    /// (`basic::names`). `None` for text that isn't a condition.
+    pub fn read_key(&self, read: &str) -> Option<crate::basic::Cond> {
+        use crate::basic::{Cond, Stmt, Verb, Vocab, parse_stmt_with};
+        let Stmt::If(c) = parse_stmt_with(&format!("IF {read}"), Vocab::Ice(&Verb::ALL)) else {
+            return None;
+        };
+        Some(match c {
+            Cond::Cmp(v, op, _) => Cond::Cmp(v, op, 0),
+            Cond::Target(t, op, _) => Cond::Target(t, op, 0),
+            Cond::SelfStr(op, _) => Cond::SelfStr(op, 0),
+            Cond::TargetRan(name) => Cond::TargetRan(
+                self.warez
+                    .iter()
+                    .find(|w| crate::basic::names(&name, &w.name, &w.id))
+                    .map_or(name.to_ascii_lowercase(), |w| w.id.clone()),
+            ),
+            other => other,
+        })
+    }
+
+    /// An ICE's row must have budgets to run with, verbs, an HDD, a range for every verb that
+    /// takes a number (and none for a verb it doesn't have or that takes none), and a program
+    /// that passes [`Data::check_ice_program`].
     fn validate_ice_program(&self, ice: &IceDef) -> Result<(), String> {
-        use crate::basic::{Cond, Stmt, Vocab};
         if ice.cpu == 0 || ice.ram == 0 {
             return Err(format!(
                 "cpu {} and ram {} must both be at least 1",
@@ -1538,12 +1779,75 @@ impl Data {
         if ice.verbs.is_empty() {
             return Err("has no verbs".into());
         }
-        let p = crate::basic::parse_with(&ice.program, Vocab::Ice(&ice.verbs));
+        if ice.hdd == 0 {
+            return Err("hdd must be at least 1".into());
+        }
+        for (i, &(v, lo, hi)) in ice.ranges.iter().enumerate() {
+            let word = v.word();
+            if !ice.verbs.contains(&v) {
+                return Err(format!("a range for {word}, which isn't on its verbs"));
+            }
+            if !v.takes_number() {
+                return Err(format!("a range for {word}, which takes no number"));
+            }
+            if ice.ranges[..i].iter().any(|(o, _, _)| *o == v) {
+                return Err(format!("two ranges for {word}"));
+            }
+            if lo > hi || hi > crate::basic::MAX_ARG {
+                return Err(format!(
+                    "{word}'s range {lo}..{hi} (lowest first, at most {})",
+                    crate::basic::MAX_ARG
+                ));
+            }
+        }
+        if let Some(v) = ice
+            .verbs
+            .iter()
+            .find(|v| v.takes_number() && ice.range(**v).is_none())
+        {
+            return Err(format!("{} has no range", v.word()));
+        }
+        self.check_ice_program(ice, &ice.program)
+    }
+
+    /// Whether `program` may run on ICE `ice`'s machine: it parses in the ICE's vocabulary,
+    /// every GOTO lands, every `TARGET RAN` names a program that exists, a verb can be reached
+    /// from the top, it fits the HDD (REMs don't count), every verb's number is inside its
+    /// range, and it holds no more lines that attack the program than its tier may (the
+    /// grammar's `fair`). The row's own program and every version the generator draws pass this one check.
+    pub fn check_ice_program(&self, ice: &IceDef, program: &str) -> Result<(), String> {
+        use crate::basic::{Cond, Stmt, Vocab};
+        let p = crate::basic::parse_with(program, Vocab::Ice(&ice.verbs));
         if let Some(s) = p.stray.first() {
             return Err(format!("program line `{s}` has no line number"));
         }
         if !p.can_act() {
             return Err("program never acts: no verb can be reached from the top".into());
+        }
+        let lines = p
+            .lines
+            .iter()
+            .filter(|l| !matches!(l.stmt, Stmt::Rem))
+            .count();
+        if lines > ice.hdd as usize {
+            return Err(format!(
+                "program has {lines} lines, more than its hdd {}",
+                ice.hdd
+            ));
+        }
+        let attacks = p
+            .lines
+            .iter()
+            .filter(|l| {
+                matches!(l.stmt, Stmt::Act(i) if self.ice_grammar.program_attacks.contains(&i.verb().0))
+            })
+            .count();
+        let most = self.ice_grammar.most_program_attacks(ice.tier);
+        if attacks > most as usize {
+            return Err(format!(
+                "program has {attacks} lines that attack the program; tier {} holds {most}",
+                ice.tier
+            ));
         }
         for l in &p.lines {
             if let Some(why) = p.fault(l.no) {
@@ -1558,6 +1862,18 @@ impl Data {
                 return Err(format!(
                     "program line {} reads `{name}`, which no program is called",
                     l.no
+                ));
+            }
+            if let Stmt::Act(intent) = l.stmt
+                && let (v, Some(n)) = intent.verb()
+                && let Some((lo, hi)) = ice.range(v)
+                && !(lo..=hi).contains(&n)
+            {
+                return Err(format!(
+                    "program line {} `{}`: {} takes {lo} to {hi}",
+                    l.no,
+                    l.text,
+                    v.word()
                 ));
             }
         }

@@ -26,6 +26,7 @@ pub mod history;
 pub mod home_bbs;
 pub mod hub;
 pub mod ice_listing;
+pub mod ice_version;
 pub mod icedb;
 pub mod intro;
 pub mod leet;
