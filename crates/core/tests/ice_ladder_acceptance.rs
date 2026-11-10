@@ -51,7 +51,7 @@ fn career(save: &mut Save, d: &Data, runs: u64) -> Seen {
             continue;
         };
         // Fixed at jack-in: the run's versions are the save's.
-        for (ice, v, _) in &g.ice_versions {
+        for (ice, v, ..) in &g.ice_versions {
             let id = &d.ice[*ice].id;
             assert_eq!(save.ice_program(id, d).unwrap().0, *v);
         }

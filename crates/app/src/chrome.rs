@@ -333,3 +333,103 @@ pub fn view(c: Chrome) -> &'static dyn ChromeView {
 pub fn act(a: Action) -> Request {
     Request::Cmd(ninsei_core::Command::Game(a))
 }
+
+#[cfg(test)]
+mod version_tests {
+    use super::*;
+    use crate::uitest::Harness;
+    use egui::{Rect, UiBuilder, pos2, vec2};
+    use ninsei_core::ice_version::{Bump, Version};
+
+    /// A fight against a kind whose version in force is 1.0.1.
+    fn patched_fight() -> ninsei_core::Game {
+        let mut g = crate::stack::tests::a_fight(&ninsei_core::Data::builtin().unwrap());
+        let c = g.combat.as_ref().unwrap();
+        let ice = c.ice;
+        let prog = c.ice_prog.clone();
+        g.ice_versions.push((
+            ice,
+            Version::default().bumped(Bump::Patch),
+            prog,
+            Some(Bump::Patch),
+        ));
+        g
+    }
+
+    /// Everything painted or labelled by chrome `chrome`'s pane `draw` in a fight.
+    fn drawn(
+        g: &ninsei_core::Game,
+        chrome: Chrome,
+        draw: impl Fn(&dyn ChromeView, &mut Panes, &mut Ui),
+    ) -> Vec<String> {
+        let mut h = Harness::new(1280.0, 900.0);
+        // Long enough for the Ono's fight view to finish jacking in.
+        for _ in 0..40 {
+            let (mut term, mut focus, mut hex, mut keep) =
+                (ninsei_term::LineEditor::default(), false, None, Vec::new());
+            let mut suite = crate::suite::State::default();
+            h.frame(vec![], |ui| {
+                let mut panes = Panes {
+                    game: g,
+                    pal: crate::theme::Palette::from_def(&g.data.themes[0]),
+                    map: ninsei_core::netview::MapView::Iso,
+                    deck: String::new(),
+                    chrome,
+                    corrupt: (0.0, 0),
+                    term: &mut term,
+                    focus_input: &mut focus,
+                    bbs_open: false,
+                    hex: &mut hex,
+                    keep: &mut keep,
+                    keep_room: 0,
+                    suite: &mut suite,
+                    hear: &Vec::new,
+                    scope_rate: 0,
+                    out: Vec::new(),
+                };
+                let rect = Rect::from_min_size(pos2(0.0, 0.0), vec2(900.0, 700.0));
+                let mut w = ui.new_child(UiBuilder::new().max_rect(rect));
+                draw(view(chrome), &mut panes, &mut w);
+            });
+        }
+        let mut out: Vec<String> = h.texts().iter().map(|s| s.to_string()).collect();
+        // Text-mode panes paint a glyph a cell: put each painted row back together.
+        let mut glyphs = h.painted_text();
+        glyphs.sort_by(|a, b| {
+            (a.1.center().y.round(), a.1.left())
+                .partial_cmp(&(b.1.center().y.round(), b.1.left()))
+                .unwrap()
+        });
+        let mut rows: Vec<(f32, String)> = Vec::new();
+        for (t, r) in glyphs {
+            let y = r.center().y.round();
+            match rows.last_mut() {
+                Some((ly, s)) if (*ly - y).abs() < 2.0 => s.push_str(&t),
+                _ => rows.push((y, t)),
+            }
+        }
+        out.extend(rows.into_iter().map(|(_, s)| s));
+        out
+    }
+
+    #[test]
+    fn every_deck_names_the_ice_with_its_version() {
+        let g = patched_fight();
+        let label = g.ice_label(g.combat.as_ref().unwrap().ice).to_uppercase();
+        assert!(label.ends_with(" 1.0.1"), "{label}");
+        // Cell-painted rows have no glyphs for their spaces: compare without them.
+        let bare = |t: &str| t.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+        let has = |texts: &[String]| texts.iter().any(|t| bare(t).contains(&bare(&label)));
+        // The Sense/Net's ICE card (and the classic panes' target).
+        let t = drawn(&g, Chrome::Stack, |v, p, ui| v.target(p, ui));
+        assert!(has(&t), "stack card: {t:?}");
+        // The Ono-Sendai's target.ice and its fight view.
+        let t = drawn(&g, Chrome::Btop, |v, p, ui| v.target(p, ui));
+        assert!(has(&t), "target.ice: {t:?}");
+        let t = drawn(&g, Chrome::Btop, |v, p, ui| v.network(p, ui));
+        assert!(has(&t), "fight view: {t:?}");
+        // The Hosaka's incident report.
+        let t = drawn(&g, Chrome::Suite, |v, p, ui| v.target(p, ui));
+        assert!(has(&t), "incident report: {t:?}");
+    }
+}

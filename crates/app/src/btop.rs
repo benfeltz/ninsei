@@ -524,7 +524,7 @@ impl Panes<'_> {
         boxed(
             ui,
             &p,
-            &format!("target.ice  {}", ice.name.to_uppercase()),
+            &format!("target.ice  {}", g.ice_label(c.ice).to_uppercase()),
             &note,
             |ui| {
                 ui.horizontal(|ui| {

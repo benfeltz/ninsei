@@ -714,3 +714,37 @@ fn a_garbled_line_is_the_same_play() {
     }
     assert_eq!(r.wins, p - 1);
 }
+
+#[test]
+fn a_fight_names_its_ice_with_the_version_in_force() {
+    let d = data();
+    let mut s = deck(&d);
+    let g = fight(&mut s, &d, "enigma", "");
+    let e = g.data.ice.iter().position(|i| i.id == "enigma").unwrap();
+    assert_eq!(g.ice_label(e), "Enigma 1.0.0");
+    assert!(
+        g.log
+            .iter()
+            .any(|l| l.text.starts_with("!! Enigma 1.0.0 rezzed"))
+    );
+    s.ice_versions.push(hub::IceVer {
+        id: "enigma".into(),
+        version: ice_version::Version::default().bumped(ice_version::Bump::Patch),
+        program: "10 ATTACK 4\n20 TRACE 4".into(),
+        bump: Some(ice_version::Bump::Patch),
+    });
+    let g = fight(&mut s, &d, "enigma", "");
+    assert_eq!(g.ice_label(e), "Enigma 1.0.1");
+    let w: std::collections::HashMap<_, _> = suite::watches(&g).into_iter().collect();
+    assert_eq!(w["ICE"], "ENIGMA 1.0.1");
+    // The steps keep the bare name.
+    let mut g = g;
+    g.apply(Action::EndTurn);
+    assert!(
+        g.log
+            .iter()
+            .any(|l| l.text.starts_with("Enigma 10 ATTACK 4")),
+        "{:?}",
+        g.log
+    );
+}

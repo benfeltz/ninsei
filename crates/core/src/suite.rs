@@ -90,7 +90,7 @@ pub fn watches(g: &Game) -> Vec<(&'static str, String)> {
         format!("{} / {}", g.deck.integrity, g.deck.integrity_max),
         format!("{} %", g.deck.trace),
         g.next_move().map_or(String::new(), |m| m.text(LAGGED)),
-        g.data.ice[c.ice].name.to_uppercase(),
+        g.ice_label(c.ice).to_uppercase(),
         last,
     ];
     NAMES.into_iter().zip(values).collect()

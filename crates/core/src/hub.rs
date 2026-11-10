@@ -2399,7 +2399,7 @@ impl Save {
             ice_programs: self
                 .patches(data)
                 .into_iter()
-                .map(|v| (v.id.clone(), v.version, v.program.clone()))
+                .map(|v| (v.id.clone(), v.version, v.program.clone(), v.bump))
                 .collect(),
             origins,
         }
@@ -2496,19 +2496,10 @@ impl Save {
         Option<crate::ice_version::Bump>,
         String,
     ) {
-        let version = game.ice_version(ice);
-        let program = game
-            .ice_versions
-            .iter()
-            .find(|(i, _, _)| *i == ice)
-            .map(|(_, _, p)| p.text())
-            .unwrap_or_default();
-        let bump = self
-            .ice_versions
-            .iter()
-            .find(|v| v.id == game.data.ice[ice].id && v.version == version)
-            .and_then(|v| v.bump);
-        (version, bump, program)
+        game.ice_versions.iter().find(|(i, ..)| *i == ice).map_or(
+            (game.ice_version(ice), None, String::new()),
+            |(_, v, p, b)| (*v, *b, p.text()),
+        )
     }
 
     /// Whether saved version `v` of `row` is in force: past 1.0.0 (which is always the row's
@@ -2516,6 +2507,19 @@ impl Save {
     fn in_force(v: &IceVer, row: &crate::data::IceDef, data: &Data) -> bool {
         v.version > crate::ice_version::Version::FIRST
             && data.check_ice_program(row, &v.program).is_ok()
+    }
+
+    /// The versions in force as the boards heard of them, in the order they shipped (the order
+    /// `ice_versions` keeps): (index into `Data::ice`, version, how it was made). A version with
+    /// no bump (set by hand) isn't news.
+    pub fn shipped(
+        &self,
+        data: &Data,
+    ) -> Vec<(usize, crate::ice_version::Version, crate::ice_version::Bump)> {
+        self.patches(data)
+            .into_iter()
+            .filter_map(|v| Some((data.ice_by_id(&v.id)?, v.version, v.bump?)))
+            .collect()
     }
 
     /// The saved versions in force, the first for each kind ([`Save::ice_program`]'s), each

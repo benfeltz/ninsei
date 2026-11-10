@@ -39,6 +39,22 @@
             "|07GAMES area is up. Fresh cracks, cheap. Kids, keep it clean.",
         ]),
     ],
+    // What the Gutter hears about the sysops' new ICE builds: m0th, from the callers' war
+    // stories. A rumour says a kind changed and how much, never what it does now.
+    ice_news: Some((
+        title: "ICE WATCH",
+        tiers: [1, 2],
+        count: 6,
+        none: [
+            "|07Quiet on the wire. Same old ICE out there.",
+            "|07Keep your notes. They're good till the sysops get sore.",
+            "",
+            "|08-- m0th",
+        ],
+        patch: "|15{ice} {version}|07: patched. Somebody leaned on the old one too hard.",
+        minor: "|15{ice} {version}|07: learned a new trick, word is. Watch it.",
+        major: "|12!! |15{ice} {version}|07: rewritten from scratch. Throw out your notes.",
+    )),
     users: [
         (handle: "m0th",      location: "Ninsei",       doing: "Sysop chat"),
         (handle: "c4se",      location: "Chiba",        doing: "Playing NIBBLER"),

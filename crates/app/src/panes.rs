@@ -486,7 +486,7 @@ impl Panes<'_> {
                     _ => "BLACK ICE",
                 };
                 ui.label(
-                    RichText::new(ice.name.to_uppercase())
+                    RichText::new(g.ice_label(c.ice).to_uppercase())
                         .heading()
                         .color(p.bright),
                 );
