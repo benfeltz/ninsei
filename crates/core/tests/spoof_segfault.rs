@@ -1,5 +1,7 @@
 //! 141.3.3: ICE verbs that attack the deck's program, SPOOF and SEGFAULT, and the sniffer.
 
+mod common;
+
 use ninsei_core::Data;
 use ninsei_core::basic::{self, Stmt, Verb, Vocab};
 use ninsei_core::data::Intent;
@@ -33,18 +35,11 @@ fn spoof_and_segfault_are_an_ices_words() {
 /// The builtin ICE with one more row, `probe`, that has this program and verbs. It is tier 0, the
 /// rival's, which may hold two lines that attack the program (`ice_grammar.ron`'s `fair`).
 fn with_row(program: &str, verbs: &str) -> Data {
-    let ice = include_str!("../../../data/ice.ron");
-    let end = ice.rfind(']').unwrap();
-    let ranges = open_ranges(verbs);
-    let row = format!(
-        "    (id: \"probe\", name: \"Probe\", class: Sentry, tier: 0, strength: 10, \
-         cpu: 1, ram: 2, verbs: [{verbs}], hdd: 40, ranges: [{ranges}], program: \"{program}\"),\n"
-    );
-    let ice = format!("{}{row}{}", &ice[..end], &ice[end..]);
-    Data::parse(ninsei_core::Sources {
-        ice: &ice,
-        ..ninsei_core::Sources::builtin()
-    })
+    common::with_probe_row(
+        "class: Sentry, tier: 0, strength: 10, cpu: 1, ram: 2",
+        verbs,
+        program,
+    )
     .unwrap()
 }
 
@@ -372,15 +367,4 @@ fn segfault_hits_the_line_that_ran_what_its_target_ran_named() {
     g.apply(Action::EndTurn);
     assert!(g.program.fault(30).is_some(), "{}", g.program.text());
     assert!(g.program.fault(20).is_none());
-}
-
-/// A range of 0 to 999 for each verb in `verbs` (as a row writes them) that takes a number.
-fn open_ranges(verbs: &str) -> String {
-    verbs
-        .split(',')
-        .map(str::trim)
-        .filter(|v| !v.is_empty() && *v != "Segfault")
-        .map(|v| format!("({v}, 0, 999)"))
-        .collect::<Vec<_>>()
-        .join(", ")
 }
