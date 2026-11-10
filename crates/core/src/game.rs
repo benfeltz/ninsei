@@ -1169,10 +1169,8 @@ impl Game {
             Action::Buy { area, file } => self.buy(area, file),
             Action::Patch { slot, bin } => self.patch(slot, bin),
             Action::Optimize { slot } => self.optimize(slot),
-            Action::Study(steps) => {
-                self.study(steps);
-                Ok(())
-            }
+            // `apply` hands the sysops their time before anything else.
+            Action::Study(_) => unreachable!("applied in `apply`"),
         }
     }
 
