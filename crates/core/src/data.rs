@@ -404,16 +404,25 @@ pub struct IceNewsDef {
 /// The words an ICE news line may fill in.
 pub const NEWS_SLOTS: [&str; 2] = ["{ice}", "{version}"];
 
+/// The longest version a board's news is checked to fit: three digits a part.
+pub const LONG_VERSION: &str = "999.999.999";
+
 impl IceNewsDef {
-    /// The line for a version made by `bump`, filled in for `ice` at `version`.
-    pub fn line(&self, bump: crate::ice_version::Bump, ice: &str, version: &str) -> String {
+    /// The template for a version made by `bump`.
+    pub fn template(&self, bump: crate::ice_version::Bump) -> &str {
         use crate::ice_version::Bump;
-        let t = match bump {
+        match bump {
             Bump::Patch => &self.patch,
             Bump::Minor => &self.minor,
             Bump::Major => &self.major,
-        };
-        t.replace("{ice}", ice).replace("{version}", version)
+        }
+    }
+
+    /// The line for a version made by `bump`, filled in for `ice` at `version`.
+    pub fn line(&self, bump: crate::ice_version::Bump, ice: &str, version: &str) -> String {
+        self.template(bump)
+            .replace("{ice}", ice)
+            .replace("{version}", version)
     }
 }
 
@@ -1687,8 +1696,8 @@ impl Data {
         self.tunes.iter().find(|t| t.id == id)
     }
 
-    /// A board's ICE news: tiers some ICE has, a count of 1 to 9, only the known words to fill,
-    /// every line within the terminal with the longest name and a long version, and room on the
+    /// A board's ICE news: tiers some ICE has, a count of 1 to 9, both words in every line and
+    /// no others, every line within the terminal with the longest name and a `LONG_VERSION`, and room on the
     /// bulletins menu (at most 8 of its own, so the news is the 9th at most).
     fn validate_ice_news(&self, b: &BbsDef) -> Result<(), String> {
         let Some(n) = &b.ice_news else {
@@ -1722,29 +1731,25 @@ impl Data {
             .map(|i| i.name.as_str())
             .max_by_key(|n| n.chars().count())
             .unwrap_or("");
-        for bump in [
-            crate::ice_version::Bump::Patch,
-            crate::ice_version::Bump::Minor,
-            crate::ice_version::Bump::Major,
-        ] {
-            let filled = n.line(bump, longest, "99.99.99");
+        // A bulletin's lines are indented three cells in a 78-cell screen. Versions climb for
+        // ever; one past this many digits is clipped when it's shown.
+        let fits = |line: &str| crate::ansi::visible_len(line) <= crate::bbs::COLS - 3;
+        if let Some(l) = n.none.iter().find(|l| !fits(l)) {
+            return Err(format!("`{l}` is wider than the terminal"));
+        }
+        for bump in crate::ice_version::Bump::ALL {
+            let t = n.template(bump);
+            if let Some(slot) = NEWS_SLOTS.iter().find(|s| !t.contains(**s)) {
+                return Err(format!("`{t}` doesn't name {slot}"));
+            }
+            let filled = n.line(bump, longest, LONG_VERSION);
             if filled.contains('{') || filled.contains('}') {
                 return Err(format!(
                     "`{filled}` has a word it can't fill ({NEWS_SLOTS:?})"
                 ));
             }
-        }
-        // A bulletin's lines are indented three cells in a 78-cell screen.
-        for line in n.none.iter().cloned().chain(
-            [
-                crate::ice_version::Bump::Patch,
-                crate::ice_version::Bump::Minor,
-                crate::ice_version::Bump::Major,
-            ]
-            .map(|bump| n.line(bump, longest, "99.99.99")),
-        ) {
-            if crate::ansi::visible_len(&line) > crate::bbs::COLS - 3 {
-                return Err(format!("`{line}` is wider than the terminal"));
+            if !fits(&filled) {
+                return Err(format!("`{filled}` is wider than the terminal"));
             }
         }
         Ok(())

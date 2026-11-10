@@ -64,7 +64,7 @@
             "|08-- Office of Information Security",
         ],
         patch: "|07Maintenance release |15{ice} {version}|07 has been deployed to all sites.",
-        minor: "|07Feature release |15{ice} {version}|07 has been deployed. No action required.",
+        minor: "|07Feature release |15{ice} {version}|07 deployed. No action required.",
         major: "|07Major release |15{ice} {version}|07 deployed following a security review.",
     )),
     users: [

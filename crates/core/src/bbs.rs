@@ -844,9 +844,10 @@ pub fn news_bulletin(
         .rev()
         .filter_map(|(ice, v, bump)| {
             let row = data.ice.get(*ice)?;
+            // Checked to fit at `LONG_VERSION`; a version past it is cut at the screen's edge.
             n.tiers
                 .contains(&row.tier)
-                .then(|| n.line(*bump, &row.name, &v.to_string()))
+                .then(|| crate::ansi::clip(&n.line(*bump, &row.name, &v.to_string()), COLS - 3))
         })
         .take(n.count)
         .collect();

@@ -301,6 +301,9 @@ pub enum Bump {
 }
 
 impl Bump {
+    /// Every size of change, smallest first.
+    pub const ALL: [Bump; 3] = [Bump::Patch, Bump::Minor, Bump::Major];
+
     /// The word a changelog prints it as.
     pub fn word(self) -> &'static str {
         match self {

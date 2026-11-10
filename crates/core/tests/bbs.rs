@@ -548,10 +548,11 @@ fn a_full_news_bulletin_fits_the_terminal() {
     for row in &d.ice {
         s.ice_versions.push(hub::IceVer {
             id: row.id.clone(),
+            // Past what the data is checked at: the line is cut at the screen's edge.
             version: Version {
-                major: 99,
-                minor: 99,
-                patch: 99,
+                major: 12345,
+                minor: 999,
+                patch: 1000,
             },
             program: row.program.clone(),
             bump: Some(Bump::Major),
@@ -602,6 +603,16 @@ fn bad_ice_news_is_rejected() {
         ("tiers: [2, 0],", "tiers: [7],", "no ICE of tier 7"),
         ("tiers: [2, 0],", "tiers: [],", "hears no tiers"),
         ("new trick. don't", "{who} new trick. don't", "can't fill"),
+        (
+            "minor: \"|12{ice} {version}|08. new trick.",
+            "minor: \"|12{ice}|08. new trick.",
+            "doesn't name {version}",
+        ),
+        (
+            "major: \"|12{ice} {version}|08.",
+            "major: \"|12something {version}|08.",
+            "doesn't name {ice}",
+        ),
         (
             "patched. they read their logs.",
             "patched. they read their logs. they read their logs. they read their logs.",
