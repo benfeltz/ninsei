@@ -201,3 +201,18 @@ pub const HARM_TRACE: u64 = 3;
 pub const HARM_FORTIFY: u64 = 1;
 pub const HARM_SPOOF: u64 = 10;
 pub const HARM_SEGFAULT: u64 = 6;
+
+// The sysops' simulator (141.9.4, `ice_study.rs`): how a kind's next version is found.
+
+/// The bar: how much more a draft must cost the deck than the version in force, in points a
+/// fight (integrity lost as a percent of the deck's most, plus trace gained), summed over the
+/// starts it's fought from. The first draft over it ships.
+pub const STUDY_BAR: u32 = 5;
+/// The patience: drafts tried of a version before its sysops rest without shipping, until the
+/// deck beats it again. The first third are patches, the next minors, the last majors.
+pub const STUDY_PATIENCE: u32 = 24;
+/// The pace: milliseconds of running time a draft takes, at work or idle alike. Each kind
+/// under study gets one draft per this many.
+pub const STUDY_DRAFT_MS: u32 = 5_000;
+/// The fights a study keeps to stage its duels from: the latest this many it lost.
+pub const STUDY_STARTS: usize = 6;
