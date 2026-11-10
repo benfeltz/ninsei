@@ -184,7 +184,7 @@ pub const CAREFUL_C: &str = "\
 /// version of a kind it met, or ICE killed it, it writes its next one.
 pub const ROTATION: [&str; 3] = [CAREFUL, CAREFUL_B, CAREFUL_C];
 
-/// Targets the report checks the ladder against (141.9.2). The competent careers must get out
+/// Targets the report checks evolving ICE against (141.9.2). The competent careers must get out
 /// of at least this share of their runs at every tier, however the ICE evolve.
 pub const CURVE_FLOOR: u32 = 90;
 
@@ -1612,7 +1612,7 @@ impl Probe {
         }
     }
 
-    /// What the sysops' ladder did: versions shipped per kind, careful careers' exits as more
+    /// What the sysops did: versions shipped per kind, careful careers' exits as more
     /// kinds are patched, how tier-1 ICE did against the lazy program before and after, and a
     /// met/unmet line per target. Spot runs dial from a fresh save, so they stay on 1.0.0.
     fn versions_report(&self) -> Vec<String> {

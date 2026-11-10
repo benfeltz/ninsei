@@ -1066,7 +1066,7 @@ pub struct Save {
     #[serde(default)]
     pub ice_seen: Vec<IceSeen>,
     /// The ICE kinds the sysops have patched: each one's version in force and its program,
-    /// what every net runs from the next jack-in. A kind not here runs 1.0.0, its row in
+    /// what every net runs from the next fight with that kind. A kind not here runs 1.0.0, its row in
     /// `ice.ron`.
     #[serde(default)]
     pub ice_versions: Vec<IceVer>,

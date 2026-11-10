@@ -1,5 +1,5 @@
 //! 141.9.1 acceptance: the ICE's machine, the grammar, the generator and versions in the save,
-//! checked from the outside, the way 141.9.2's ladder will use them.
+//! checked from the outside, the way the sysops' simulator uses them (141.9.4).
 
 use ninsei_core::hub::{IceVer, Save};
 use ninsei_core::ice_version::{Bump, Version, next_version, seed};

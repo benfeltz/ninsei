@@ -353,7 +353,11 @@ fn the_careers_face_evolving_ice_and_the_report_says_what_shipped() {
     );
     assert!(lines.iter().any(|l| l.trim() == pace), "{lines:#?}");
     assert!(s.drafts[0] > 0 && s.drafts[1] > 0, "{:?}", s.drafts);
-    assert!(lines.iter().any(|l| l.contains("drafts tried a version shipped")));
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("drafts tried a version shipped"))
+    );
 }
 
 #[test]
