@@ -267,6 +267,11 @@ fn a_fight_that_rezzes_on_the_node_that_just_fell_is_booked_and_its_lines_come_h
         );
         c.ice_exec = Default::default();
     }
+    // The rules book it as `start_combat` does.
+    let mut bout = g.bouts.last().unwrap().clone();
+    g.bouts.last_mut().unwrap().broken = true;
+    bout.ice = hunter;
+    g.bouts.push(bout);
     let mut h = std::mem::take(&mut g.history);
     h.record(&was, &g, Action::Run(0), None);
     g.history = h;

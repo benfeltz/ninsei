@@ -442,3 +442,155 @@ fn a_save_from_the_ladder_loads() {
     let back = Save::load(&text).unwrap();
     assert!(back.ice_study.is_empty());
 }
+
+// In the run (step 4).
+
+/// Moves `g` into a fight against `id` on the next node over.
+fn rez(g: &mut Game, id: &str) {
+    let target = g.net.nodes[g.at].links[0];
+    let ice = ix(&g.data, id);
+    g.net.nodes[target].kind = NodeKind::Ice;
+    g.net.nodes[target].ice = Some(ice);
+    g.net.nodes[target].cleared = false;
+    g.apply(Action::Move(target));
+    assert_eq!(g.phase, Phase::Combat, "{id}");
+}
+
+/// A run on `seed` whose sysops are at work on Enigma 1.0.0 (a study that ships).
+fn studied_run(seed: u64) -> Game {
+    let (_, s) = study_of(&[1, 2, 3]);
+    let mut g = Game::new(data(), seed);
+    g.apply(Action::Program(SAFE_PICK.into()));
+    g.ice_study = vec![s];
+    g.study_key = KEY;
+    g
+}
+
+#[test]
+fn a_version_that_lands_mid_fight_is_the_next_fight_s_and_met_unknown() {
+    let mut g = studied_run(7);
+    rez(&mut g, "enigma");
+    let e = ix(&g.data, "enigma");
+    let prog = g.combat.as_ref().unwrap().ice_prog.clone();
+    g.apply(Action::Study(STUDY_PATIENCE));
+    let (id, was, next) = g.shipped.first().cloned().expect("it ships");
+    assert_eq!((id.as_str(), was), ("enigma", Version::FIRST));
+    let new = was.bumped(next.bump.unwrap());
+    // The fight under way runs what it opened on, and says so.
+    let c = g.combat.as_ref().unwrap();
+    assert_eq!((c.ice_version, &c.ice_prog), (Version::FIRST, &prog));
+    assert_eq!(g.ice_label(e), "Enigma 1.0.0");
+    assert_eq!(g.ice_version(e), new, "in force");
+    play_out(&mut g);
+    assert_eq!(g.phase, Phase::Exploring, "SAFE_PICK beats it on this seed");
+    // The next opens on it, knowing none of its lines, whatever was seen of 1.0.0.
+    assert!(!g.ice_lines_of(e, Version::FIRST).is_empty());
+    rez(&mut g, "enigma");
+    let c = g.combat.as_ref().unwrap();
+    assert_eq!(c.ice_version, new);
+    assert_eq!(c.ice_prog.text(), next.program);
+    assert_eq!(g.ice_label(e), format!("Enigma {new}"));
+    assert!(g.ice_seen_lines(e).is_empty());
+    assert!(ice_listing::rows(&g).iter().all(|r| r.text.is_none()));
+    assert!(
+        g.log
+            .iter()
+            .any(|l| l.text.starts_with(&format!("!! Enigma {new} rezzed")))
+    );
+}
+
+#[test]
+fn the_sysops_time_never_touches_what_the_run_plays_from() {
+    let mut a = studied_run(7);
+    rez(&mut a, "rototurret");
+    let mut b = a.clone();
+    b.apply(Action::Study(STUDY_PATIENCE));
+    assert!(!b.shipped.is_empty(), "something landed");
+    assert_eq!(b.rng.clone().next_u64(), a.rng.clone().next_u64());
+    assert_eq!(b.log, a.log);
+    assert_eq!(b.cues, a.cues);
+    assert_eq!(format!("{:?}", b.history), format!("{:?}", a.history));
+    // The same play from here plays the same, while no fight meets what landed.
+    for g in [&mut a, &mut b] {
+        play_out(g);
+        for _ in 0..3 {
+            if g.phase != Phase::Exploring {
+                break;
+            }
+            let to = g.reachable().iter().find(|&&n| {
+                g.net.nodes[n]
+                    .ice
+                    .is_none_or(|i| g.data.ice[i].id != "enigma")
+            });
+            let Some(&to) = to else { break };
+            g.apply(Action::Move(to));
+            play_out(g);
+        }
+    }
+    assert_eq!(b.rng.clone().next_u64(), a.rng.clone().next_u64());
+    assert_eq!(
+        (b.at, b.deck.integrity, b.deck.trace),
+        (a.at, a.deck.integrity, a.deck.trace)
+    );
+}
+
+#[test]
+fn beating_a_kind_in_a_run_wakes_its_sysops_there() {
+    let mut g = Game::new(data(), 2);
+    g.apply(Action::Program(SAFE_PICK.into()));
+    rez(&mut g, "rototurret");
+    let c = g.combat.as_mut().unwrap();
+    (c.strength, c.strength_max) = (1, 1);
+    let start = g.bouts.last().unwrap().start;
+    play_out(&mut g);
+    assert!(g.bouts.last().unwrap().broken);
+    let s = g
+        .ice_study
+        .iter()
+        .find(|s| s.id == "rototurret")
+        .expect("woken");
+    assert!(!s.rest);
+    assert_eq!(s.starts, vec![start]);
+    assert_eq!(s.deck.script, SAFE_PICK);
+}
+
+#[test]
+fn the_sysops_come_home_with_the_run_on_an_exit_or_a_flatline() {
+    let d = data();
+    for flatline in [false, true] {
+        let mut s = home(KEY);
+        s.key = KEY;
+        let (_, study) = study_of(&[1, 2, 3]);
+        s.ice_study = vec![study];
+        let mut g = s.jack_in(&d, 5);
+        assert_eq!((g.ice_study.len(), g.study_key), (1, KEY));
+        g.apply(Action::Study(STUDY_PATIENCE));
+        assert_eq!(g.shipped.len(), 1);
+        let shipped = g.ice_versions.clone();
+        if flatline {
+            rez(&mut g, "enigma");
+            g.deck.integrity = 1;
+            while g.phase == Phase::Combat {
+                g.apply(Action::EndTurn);
+            }
+            assert_eq!(g.phase, Phase::Flatlined);
+        } else {
+            g.phase = Phase::JackedOut;
+        }
+        // Over: the run's clock has stopped.
+        let before = g.ice_study.clone();
+        g.apply(Action::Study(10));
+        assert_eq!(g.ice_study, before);
+        s.record(&g, &[], &d.rig).unwrap();
+        let (v, p) = s.ice_program("enigma", &d).unwrap();
+        assert_eq!(v, shipped[0].1);
+        assert_eq!(p, shipped[0].2.text());
+        assert_eq!(s.ice_study.len(), 1);
+        assert!(s.ice_study[0].rest);
+        if flatline {
+            // Killed by its new version, met unknown, booked as that version's.
+            let e = s.ice_seen.iter().find(|x| x.id == "enigma").unwrap();
+            assert_eq!((e.version, e.lost), (v, 1));
+        }
+    }
+}

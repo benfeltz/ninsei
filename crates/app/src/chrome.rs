@@ -344,15 +344,13 @@ mod version_tests {
     /// A fight against a kind whose version in force is 1.0.1.
     fn patched_fight() -> ninsei_core::Game {
         let mut g = crate::stack::tests::a_fight(&ninsei_core::Data::builtin().unwrap());
-        let c = g.combat.as_ref().unwrap();
+        let c = g.combat.as_mut().unwrap();
         let ice = c.ice;
         let prog = c.ice_prog.clone();
-        g.ice_versions.push((
-            ice,
-            Version::default().bumped(Bump::Patch),
-            prog,
-            Some(Bump::Patch),
-        ));
+        // A fight that opened on 1.0.1: a version that lands mid-fight is the next fight's.
+        let patch = Version::default().bumped(Bump::Patch);
+        c.ice_version = patch;
+        g.ice_versions.push((ice, patch, prog, Some(Bump::Patch)));
         g
     }
 
