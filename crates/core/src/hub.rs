@@ -1222,7 +1222,11 @@ impl IceRung {
             return None;
         }
         // A new program beat it: the count starts over, for that play, at the cheap patch.
-        if self.program.as_deref().is_some_and(|p| p != program) {
+        if self
+            .program
+            .as_deref()
+            .is_some_and(|p| !same_play(p, program))
+        {
             self.rung = 0;
             self.wins = 0;
             self.tells.clear();
@@ -1248,6 +1252,21 @@ impl IceRung {
         self.tells.clear();
         self.rung = (self.rung + 1).min(crate::tuning::LADDER_WINS.len() - 1);
     }
+}
+
+/// Whether two deck programs are the same play: the same lines, each with the same text, or
+/// garbled in one of them (a SEGFAULT's garbage comes home with the save until it's retyped, and
+/// a player who retypes it hasn't changed their play).
+pub fn same_play(a: &str, b: &str) -> bool {
+    let (a, b) = (crate::basic::parse(a), crate::basic::parse(b));
+    a.stray == b.stray
+        && a.lines.len() == b.lines.len()
+        && a.lines.iter().zip(&b.lines).all(|(x, y)| {
+            x.no == y.no
+                && (x.text == y.text
+                    || crate::basic::garbled(&x.text)
+                    || crate::basic::garbled(&y.text))
+        })
 }
 
 /// A kind's version in force and the program it runs.

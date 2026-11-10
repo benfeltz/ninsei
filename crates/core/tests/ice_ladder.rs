@@ -696,3 +696,21 @@ fn a_draft_is_judged_on_the_passes_the_ice_would_run() {
         6 * tuning::HARM_HIT
     );
 }
+
+#[test]
+fn a_garbled_line_is_the_same_play() {
+    use hub::same_play;
+    let garbled = "10 RUN firewall\n20 #$%&@!?*";
+    assert!(same_play(PLAY, garbled));
+    assert!(same_play(garbled, PLAY));
+    assert!(!same_play(PLAY, OTHER));
+    assert!(!same_play(PLAY, "10 RUN firewall"));
+    assert!(!same_play(PLAY, "10 RUN firewall\n30 RUN icepick"));
+    // So a garbled copy coming home and the player retyping it keep the ladder climbing.
+    let mut r = hub::IceRung::default();
+    let [p, ..] = tuning::LADDER_WINS;
+    for k in 0..p - 1 {
+        r.climb(if k % 2 == 0 { PLAY } else { garbled }, 1, false, &[]);
+    }
+    assert_eq!(r.wins, p - 1);
+}
