@@ -17,7 +17,7 @@ use std::fmt;
 use serde::{Deserialize, Serialize};
 
 use crate::basic::{Cond, Program, Stmt, Verb, Vocab, parse_stmt_with, parse_with};
-use crate::data::{Data, IceDef, ReadDef, verb_of};
+use crate::data::{Data, IceDef, ReadDef};
 use crate::rng::Rng;
 
 /// Draws of one kind of change before the generator falls back to a smaller one.
@@ -368,7 +368,7 @@ impl Draws<'_> {
                 });
             }
             if let Stmt::Act(intent) = self.stmt(&b.line)
-                && let (v, Some(now)) = verb_of(intent)
+                && let (v, Some(now)) = intent.verb()
                 && let Some((lo, hi)) = self.row.range(v)
                 && lo < hi
             {
@@ -396,7 +396,7 @@ impl Draws<'_> {
 
     fn verb(&self, line: &str) -> Option<Verb> {
         match self.stmt(line) {
-            Stmt::Act(i) => Some(verb_of(i).0),
+            Stmt::Act(i) => Some(i.verb().0),
             _ => None,
         }
     }

@@ -610,3 +610,11 @@ fn the_same_save_gives_the_same_versions() {
     assert_eq!(a.deck, b.deck);
     assert_eq!(a.combat, b.combat);
 }
+
+#[test]
+fn every_verb_round_trips_through_its_move() {
+    for v in basic::Verb::ALL {
+        let n = if v.takes_number() { Some(7) } else { None };
+        assert_eq!(v.with(7).verb(), (v, n), "{v:?}");
+    }
+}

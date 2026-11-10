@@ -77,6 +77,19 @@ pub enum Intent {
 }
 
 impl Intent {
+    /// The verb this move is written with, and its number (`None` for one that takes none):
+    /// the inverse of [`crate::basic::Verb::with`].
+    pub fn verb(self) -> (crate::basic::Verb, Option<u32>) {
+        use crate::basic::Verb;
+        match self {
+            Intent::Attack(n) => (Verb::Attack, Some(n)),
+            Intent::Trace(n) => (Verb::Trace, Some(n)),
+            Intent::Fortify(n) => (Verb::Fortify, Some(n)),
+            Intent::Spoof(n) => (Verb::Spoof, Some(n)),
+            Intent::Segfault => (Verb::Segfault, None),
+        }
+    }
+
     pub fn describe(self) -> String {
         match self {
             Intent::Attack(n) => format!("ATTACK {n}"),
@@ -123,18 +136,6 @@ impl IceDef {
             .iter()
             .find(|(v, _, _)| *v == verb)
             .map(|&(_, lo, hi)| (lo, hi))
-    }
-}
-
-/// The verb an ICE's move is written with, and its number (`None` for one that takes none).
-pub fn verb_of(intent: Intent) -> (crate::basic::Verb, Option<u32>) {
-    use crate::basic::Verb;
-    match intent {
-        Intent::Attack(n) => (Verb::Attack, Some(n)),
-        Intent::Trace(n) => (Verb::Trace, Some(n)),
-        Intent::Fortify(n) => (Verb::Fortify, Some(n)),
-        Intent::Spoof(n) => (Verb::Spoof, Some(n)),
-        Intent::Segfault => (Verb::Segfault, None),
     }
 }
 
@@ -218,15 +219,6 @@ impl IceGrammar {
             .map_or(0, |f| f.most)
     }
 }
-
-/// Every verb an ICE may have: what a grammar's reads are parsed with.
-pub const ICE_VERBS: [crate::basic::Verb; 5] = [
-    crate::basic::Verb::Attack,
-    crate::basic::Verb::Trace,
-    crate::basic::Verb::Fortify,
-    crate::basic::Verb::Spoof,
-    crate::basic::Verb::Segfault,
-];
 
 /// A fighter that can give up: once a hit drops it to `below`% of its strength or less,
 /// each hit after that has a `chance`% chance it quits. Quitting counts as a win.
@@ -1704,7 +1696,10 @@ impl Data {
                     (false, None) => vec![0],
                 };
                 for n in samples {
-                    match parse_stmt_with(&format!("IF {}", r.with(n)), Vocab::Ice(&ICE_VERBS)) {
+                    match parse_stmt_with(
+                        &format!("IF {}", r.with(n)),
+                        Vocab::Ice(&crate::basic::Verb::ALL),
+                    ) {
                         Stmt::If(Cond::TargetRan(name))
                             if !self
                                 .warez
@@ -1811,7 +1806,7 @@ impl Data {
             .lines
             .iter()
             .filter(|l| {
-                matches!(l.stmt, Stmt::Act(i) if self.ice_grammar.program_attacks.contains(&verb_of(i).0))
+                matches!(l.stmt, Stmt::Act(i) if self.ice_grammar.program_attacks.contains(&i.verb().0))
             })
             .count();
         let most = self.ice_grammar.most_program_attacks(ice.tier);
@@ -1837,7 +1832,7 @@ impl Data {
                 ));
             }
             if let Stmt::Act(intent) = l.stmt
-                && let (v, Some(n)) = verb_of(intent)
+                && let (v, Some(n)) = intent.verb()
                 && let Some((lo, hi)) = ice.range(v)
                 && !(lo..=hi).contains(&n)
             {
