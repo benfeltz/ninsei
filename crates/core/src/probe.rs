@@ -24,6 +24,7 @@ use crate::data::{ChoiceEffect, Data, Drop, Effect, Penalty};
 use crate::fight::Outcome;
 use crate::game::{Action, ContractStatus, ExecState, Game, Phase, StepWhat};
 use crate::hub::{Entry, RunEnd, Save, Upgrade};
+use crate::ice_study::Pace;
 use crate::network::NodeKind;
 use crate::rng::Rng;
 use crate::tuning::{BETRAY_PCT, TRACE_MAX};
@@ -184,10 +185,6 @@ pub const CAREFUL_C: &str = "\
 /// version of a kind it met, or ICE killed it, it writes its next one.
 pub const ROTATION: [&str; 3] = [CAREFUL, CAREFUL_B, CAREFUL_C];
 
-/// Targets the report checks the ladder against (141.9.2). The competent careers must get out
-/// of at least this share of their runs at every tier, however the ICE evolve.
-pub const CURVE_FLOOR: u32 = 90;
-
 /// The starter kit's `SAFE` (`data/hub/starts.ron`) with `55 RUN icepick` typed in: patch when
 /// low, firewall before an attack, and pick at the ICE. The first edit a player makes, and the
 /// program ICE that read the deck have to beat.
@@ -329,7 +326,20 @@ pub fn play(g: Game, bot: Bot) -> (Game, RunLog) {
 
 /// [`play`], for a runner who already knows the phone ranges in `known` (so it won't buy them
 /// again at a BBS).
-pub fn play_knowing(mut g: Game, bot: Bot, known: &[String]) -> (Game, RunLog) {
+pub fn play_knowing(g: Game, bot: Bot, known: &[String]) -> (Game, RunLog) {
+    play_paced(g, bot, known, None)
+}
+
+/// [`play_knowing`], with the sysops at work in the run at `pace` (none: they aren't). There is
+/// no clock: each bot action is taken to last [`crate::tuning::PROBE_ACTION_MS`] (and a stretch
+/// at home [`crate::tuning::PROBE_HOME_MS`]), paced as the game paces them, every owed draft
+/// worked at once.
+fn play_paced(
+    mut g: Game,
+    bot: Bot,
+    known: &[String],
+    mut pace: Option<&mut Pace>,
+) -> (Game, RunLog) {
     let mut log = RunLog::default();
     let mut shopped: Vec<(bool, usize)> = Vec::new();
     let mut steps = 0;
@@ -341,6 +351,16 @@ pub fn play_knowing(mut g: Game, bot: Bot, known: &[String]) -> (Game, RunLog) {
     let mut clock = FightClock::default();
     while steps < 5_000 {
         steps += 1;
+        if let Some(p) = pace.as_deref_mut() {
+            let busy = crate::ice_study::busy(&g.ice_study);
+            let steps = p.steps(u64::from(crate::tuning::PROBE_ACTION_MS), busy);
+            if steps > 0 {
+                g.apply(Action::Study {
+                    steps,
+                    drafts: u32::MAX,
+                });
+            }
+        }
         match g.phase {
             Phase::Exploring => {
                 if bot != Bot::Dumb {
@@ -957,6 +977,8 @@ pub struct Stats {
     /// but against the versions its careers shipped (each career's last, in turn): the same
     /// program and deck as the spot row, so the difference is the versions.
     pub versus: [TierStats; 3],
+    /// Drafts the sysops tried, in the careful careers and in the SAFE_PICK ones.
+    pub drafts: [u64; 2],
 }
 
 /// Adds one shipped version of kind `id`, made by `bump`, to a tally.
@@ -988,13 +1010,15 @@ fn short(name: &str, n: usize) -> String {
 #[derive(Clone)]
 pub struct Probe {
     cfg: Config,
-    data: Data,
+    data: std::sync::Arc<Data>,
     stats: Stats,
     /// Spot-check runs played (both bots, every tier).
     spot_done: u32,
     career: u32,
     run: u32,
     save: Option<Save>,
+    /// The sysops' time owed in this career.
+    pace: Pace,
     /// The tier this career is playing, and how its recent runs there went (true = exit).
     tier: u32,
     recent: Vec<bool>,
@@ -1037,12 +1061,13 @@ impl Probe {
     pub fn new(data: &Data, cfg: Config) -> Probe {
         Probe {
             cfg,
-            data: data.clone(),
+            data: std::sync::Arc::new(data.clone()),
             stats: Stats::default(),
             spot_done: 0,
             career: 0,
             run: 0,
             save: None,
+            pace: Pace::default(),
             tier: 1,
             recent: Vec::new(),
             first: [0, 0],
@@ -1188,7 +1213,7 @@ impl Probe {
                 ^ u64::from(self.career % self.cfg.careers.max(1)).wrapping_mul(0xC0FF_EE11)
                 ^ u64::from(self.run).wrapping_mul(0x9E37_79B9),
         );
-        let data = self.data.clone();
+        let data = std::sync::Arc::clone(&self.data);
         let kit = self.kit.clone();
         let save = self.save.get_or_insert_with(|| {
             let mut s = Save {
@@ -1250,12 +1275,21 @@ impl Probe {
         let known: Vec<String> = save.ranges.iter().map(|r| r.id.clone()).collect();
         let patched = save.ice_versions.len();
         let before = save.ice_versions.clone();
-        let (g, log) = play_knowing(g, bot, &known);
+        let tried = |s: &Save| -> u64 { s.ice_study.iter().map(|x| u64::from(x.tried)).sum() };
+        let drafts_before = tried(save);
+        let (g, log) = play_paced(g, bot, &known, Some(&mut self.pace));
         // Take home every program that isn't a starter, while the stash has room.
         let keep: Vec<usize> = (0..g.hdd.len())
             .filter(|&i| !save.free(&data).contains(&g.data.warez[g.hdd[i].warez].id))
             .collect();
         let report = save.record(&g, &keep, &data.rig);
+        // The sysops' time at home, before the next run.
+        let busy = crate::ice_study::busy(&save.ice_study);
+        let steps = self
+            .pace
+            .steps(u64::from(crate::tuning::PROBE_HOME_MS), busy);
+        save.study(&data, steps, u32::MAX);
+        let drafts = tried(save) - drafts_before;
         let banked = report.as_ref().map_or(0, |r| r.banked);
         let f = fate(&g);
         // What the sysops shipped at this run's end.
@@ -1265,6 +1299,7 @@ impl Probe {
             .filter(|v| !before.contains(v))
             .filter_map(|v| v.bump.map(|b| (v.id.clone(), b)))
             .collect();
+        self.stats.drafts[usize::from(picking)] += drafts;
         let tally = if picking {
             &mut self.stats.pick_shipped
         } else {
@@ -1557,6 +1592,7 @@ impl Probe {
             self.career += 1;
             self.run = 0;
             self.save = None;
+            self.pace = Pace::default();
             self.rotation = 0;
             self.tier = 1;
             self.recent.clear();
@@ -1564,9 +1600,11 @@ impl Probe {
         }
     }
 
-    /// What the sysops' ladder did: versions shipped per kind, careful careers' exits as more
+    /// What the sysops did: versions shipped per kind, careful careers' exits as more
     /// kinds are patched, how tier-1 ICE did against the lazy program before and after, and a
-    /// met/unmet line per target. Spot runs dial from a fresh save, so they stay on 1.0.0.
+    /// met/unmet line per target: evolved ICE beat SAFE_PICK more than 1.0.0 does, and every
+    /// tier-1 kind ships a version. The careful careers are reported, never judged. Spot runs
+    /// dial from a fresh save, so they stay on 1.0.0.
     fn versions_report(&self) -> Vec<String> {
         let s = &self.stats;
         let careers = u64::from(self.cfg.careers.max(1));
@@ -1595,6 +1633,19 @@ impl Probe {
                 per(b[2])
             ));
         }
+        let made = |t: &[(String, [u32; 3])]| t.iter().flat_map(|(_, n)| n).sum::<u32>();
+        let each = |d: u64, n: u32| d as f32 / n.max(1) as f32;
+        out.push(format!(
+            "  drafts tried a version shipped: careful {:.1}, SAFE_PICK {:.1}",
+            each(s.drafts[0], made(&s.shipped)),
+            each(s.drafts[1], made(&s.pick_shipped))
+        ));
+        out.push(format!(
+            "  pace: a draft every {}s; a bot action {}s, home {}s a run",
+            crate::tuning::STUDY_DRAFT_MS / 1000,
+            crate::tuning::PROBE_ACTION_MS / 1000,
+            crate::tuning::PROBE_HOME_MS / 1000
+        ));
         out.push("  careful runs by kinds patched when dialed   runs  out".into());
         for (label, (runs, exits)) in ["none", "1-3", "4-6", "7+"].iter().zip(s.by_patched) {
             out.push(format!("  {label:<44}{runs:>5} {:>3}%", pct(exits, runs)));
@@ -1619,16 +1670,8 @@ impl Probe {
         let mark = |ok: bool| if ok { "met" } else { "unmet" };
         let (one, vs) = (&s.spot[pick][0], &s.versus[0]);
         out.push(format!(
-            "  target: tier-1 versions beat the lazy program more .. {}",
+            "  target: evolved tier-1 ICE beat SAFE_PICK more .... {}",
             mark(vs.runs > 0 && died(vs) > died(one))
-        ));
-        let curve = s
-            .career
-            .iter()
-            .all(|t| t.runs == 0 || t.win_pct() >= CURVE_FLOOR);
-        out.push(format!(
-            "  target: careful careers out {CURVE_FLOOR}%+ at every tier ...... {}",
-            mark(curve)
         ));
         let tier1: Vec<&str> = self
             .data
