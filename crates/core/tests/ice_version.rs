@@ -283,3 +283,197 @@ fn what_is_not_in_block_form() {
         );
     }
 }
+
+/// Every builtin ICE whose program is in block form.
+fn block_form(d: &Data) -> Vec<&IceDef> {
+    d.ice
+        .iter()
+        .filter(|i| {
+            ice_version::blocks(&basic::parse_with(&i.program, basic::Vocab::Ice(&i.verbs)))
+                .is_some()
+        })
+        .collect()
+}
+
+fn blocks_of(ice: &IceDef, text: &str) -> Vec<ice_version::Block> {
+    ice_version::blocks(&basic::parse_with(text, basic::Vocab::Ice(&ice.verbs)))
+        .expect("a version stays in block form")
+}
+
+/// The statements of `blocks`, as a sorted list: a moved block keeps them.
+fn statements(blocks: &[ice_version::Block]) -> Vec<String> {
+    let mut out: Vec<String> = blocks
+        .iter()
+        .flat_map(|b| {
+            b.read
+                .iter()
+                .map(|r| format!("IF {r}"))
+                .chain([b.line.clone()])
+        })
+        .collect();
+    out.sort();
+    out
+}
+
+#[test]
+fn every_version_is_valid_and_the_change_it_says() {
+    use ice_version::{Bump, next_version};
+    let d = Data::builtin().unwrap();
+    let ice = block_form(&d);
+    assert_eq!(ice.len(), 7);
+    for row in ice {
+        let before = blocks_of(row, &row.program);
+        for bump in [Bump::Patch, Bump::Minor, Bump::Major] {
+            for seed in 0..200u64 {
+                let next = next_version(&d, row, &row.program, bump, &[], seed);
+                let why = format!("{} {bump:?} seed {seed}:\n{}", row.id, next.program);
+                // Every builtin ICE can take every kind of change.
+                assert_eq!(next.bump, Some(bump), "{why}");
+                d.check_ice_program(row, &next.program)
+                    .unwrap_or_else(|e| panic!("{why}\n{e}"));
+                assert_eq!(
+                    next,
+                    next_version(&d, row, &row.program, bump, &[], seed),
+                    "{why}"
+                );
+                let after = blocks_of(row, &next.program);
+                assert_ne!(after, before, "{why}");
+                match bump {
+                    Bump::Patch => {
+                        assert_eq!(after.len(), before.len(), "{why}");
+                        // The same lines in a new order, or one line's number changed.
+                        let (a, b) = (statements(&after), statements(&before));
+                        let differ = a.iter().filter(|s| !b.contains(s)).count();
+                        assert!(differ <= 1, "{why}");
+                        if differ == 1 {
+                            let pos = |bl: &[ice_version::Block]| {
+                                bl.iter().map(|x| x.read.is_some()).collect::<Vec<_>>()
+                            };
+                            assert_eq!(pos(&after), pos(&before), "{why}");
+                        }
+                    }
+                    Bump::Minor => {
+                        assert_eq!(after.len().abs_diff(before.len()), 1, "{why}");
+                        // A read and its line come or go; the lines on their own stay.
+                        let bare = |bl: &[ice_version::Block]| {
+                            let mut v: Vec<String> = bl
+                                .iter()
+                                .filter(|x| x.read.is_none())
+                                .map(|x| x.line.clone())
+                                .collect();
+                            v.sort();
+                            v
+                        };
+                        assert_eq!(bare(&after), bare(&before), "{why}");
+                    }
+                    Bump::Major => {
+                        assert_eq!(after.len(), before.len(), "{why}");
+                        // No read twice.
+                        let mut r: Vec<String> =
+                            after.iter().filter_map(|x| x.read.clone()).collect();
+                        r.sort();
+                        r.dedup();
+                        assert_eq!(r.len(), after.iter().filter(|x| x.read.is_some()).count());
+                        let reads = |bl: &[ice_version::Block]| {
+                            bl.iter().filter_map(|x| x.read.clone()).collect::<Vec<_>>()
+                        };
+                        assert_ne!(reads(&after), reads(&before), "{why}");
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn versions_climb_and_stay_on_the_machine() {
+    use ice_version::{Bump, Version, next_version, seed};
+    let d = Data::builtin().unwrap();
+    for row in block_form(&d) {
+        let (mut v, mut text) = (Version::default(), row.program.clone());
+        for step in 0..60 {
+            let bump = [Bump::Patch, Bump::Minor, Bump::Major][step % 3];
+            let next = next_version(&d, row, &text, bump, &[], seed(7, &row.id, v));
+            d.check_ice_program(row, &next.program)
+                .unwrap_or_else(|e| panic!("{} at {v}: {e}\n{}", row.id, next.program));
+            // No read twice, at any number.
+            let mut reads: Vec<String> = blocks_of(row, &next.program)
+                .iter()
+                .filter_map(|b| b.read.clone())
+                .map(|r| r.trim_end_matches(|c: char| c.is_ascii_digit()).to_string())
+                .collect();
+            let all = reads.len();
+            reads.sort();
+            reads.dedup();
+            assert_eq!(reads.len(), all, "{} at {v}:\n{}", row.id, next.program);
+            if let Some(b) = next.bump {
+                v = v.bumped(b);
+            }
+            text = next.program;
+        }
+        assert!(v > Version::default(), "{}", row.id);
+    }
+}
+
+#[test]
+fn a_program_not_in_block_form_comes_back_unchanged() {
+    use ice_version::{Bump, next_version};
+    let d = Data::builtin().unwrap();
+    let archer = d.ice.iter().find(|i| i.id == "archer").unwrap();
+    for bump in [Bump::Patch, Bump::Minor, Bump::Major] {
+        let next = next_version(&d, archer, &archer.program, bump, &[], 3);
+        assert_eq!(next.bump, None);
+        assert_eq!(next.program, archer.program);
+    }
+}
+
+#[test]
+fn a_change_that_cannot_fit_falls_back_and_at_worst_changes_nothing() {
+    use ice_version::{Bump, next_version};
+    let d = Data::builtin().unwrap();
+    let mut row = d.ice.iter().find(|i| i.id == "rototurret").unwrap().clone();
+    // One line, its number pinned, on a full HDD: nothing can move, change, come or go.
+    row.hdd = 1;
+    row.ranges = vec![(basic::Verb::Attack, 5, 5)];
+    let next = next_version(&d, &row, "10 ATTACK 5", Bump::Major, &[], 1);
+    assert_eq!(next.bump, None);
+    assert_eq!(next.program, "10 ATTACK 5");
+    // With room for a number, a major that has no read to replace and no room to add one is a
+    // patch.
+    row.ranges = vec![(basic::Verb::Attack, 4, 6)];
+    let next = next_version(&d, &row, "10 ATTACK 5", Bump::Major, &[], 1);
+    assert_eq!(next.bump, Some(Bump::Patch));
+    assert_ne!(next.program, "10 ATTACK 5");
+}
+
+#[test]
+fn the_seed_is_the_saves_the_kinds_and_the_versions() {
+    use ice_version::{Bump, Version, seed};
+    let v = Version::default();
+    assert_eq!(seed(1, "enigma", v), seed(1, "enigma", v));
+    assert_ne!(seed(1, "enigma", v), seed(2, "enigma", v));
+    assert_ne!(seed(1, "enigma", v), seed(1, "bulwark", v));
+    assert_ne!(
+        seed(1, "enigma", v),
+        seed(1, "enigma", v.bumped(Bump::Patch))
+    );
+}
+
+#[test]
+fn a_bias_draws_its_read_more() {
+    use ice_version::{Bump, next_version};
+    let d = Data::builtin().unwrap();
+    let wall = d.ice.iter().find(|i| i.id == "icewall").unwrap();
+    let count = |bias: &[(String, u32)]| {
+        (0..300u64)
+            .filter(|&s| {
+                next_version(&d, wall, &wall.program, Bump::Major, bias, s)
+                    .program
+                    .contains("TARGET RAN icepick")
+            })
+            .count()
+    };
+    let plain = count(&[]);
+    let biased = count(&[("TARGET RAN icepick".to_string(), 40)]);
+    assert!(biased > plain * 2, "{plain} -> {biased}");
+}

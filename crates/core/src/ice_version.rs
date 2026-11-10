@@ -16,7 +16,12 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::basic::{Program, Stmt};
+use crate::basic::{Cond, Program, Stmt, Verb, Vocab, parse_stmt_with, parse_with};
+use crate::data::{Data, IceDef, ReadDef, verb_of};
+use crate::rng::Rng;
+
+/// Draws of one kind of change before the generator falls back to a smaller one.
+const TRIES: usize = 32;
 
 /// A kind's version, `major.minor.patch`.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -144,4 +149,344 @@ pub fn render(blocks: &[Block]) -> String {
         .map(|(i, s)| format!("{} {s}", (i + 1) * 10))
         .collect::<Vec<_>>()
         .join("\n")
+}
+
+/// The seed a kind's next version is drawn from: the save's key, the kind's id and the version
+/// being replaced. Never a run's RNG or the clock, so the same save writes the same versions.
+pub fn seed(key: u64, id: &str, version: Version) -> u64 {
+    // FNV-1a over the three, then mixed by the RNG's own step.
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    let bytes = key
+        .to_le_bytes()
+        .into_iter()
+        .chain(id.bytes())
+        .chain([0])
+        .chain(version.major.to_le_bytes())
+        .chain(version.minor.to_le_bytes())
+        .chain(version.patch.to_le_bytes());
+    for b in bytes {
+        h ^= u64::from(b);
+        h = h.wrapping_mul(0x0000_0100_0000_01b3);
+    }
+    Rng::new(h).next_u64()
+}
+
+/// A new version's program, and the change it is: `None` when no change fit and the program is
+/// the one given.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Next {
+    pub bump: Option<Bump>,
+    pub program: String,
+}
+
+/// The next version of ICE `row`'s `program`: a change of kind `bump` drawn from `seed`, from
+/// its class's reads in `data.ice_grammar` (each read's weight raised by its entry in `bias`, a
+/// list of (read as the grammar writes it, extra weight)). Every candidate passes
+/// [`Data::check_ice_program`], the check the row's own program passed; a draw that fails is
+/// redrawn from the same stream, and when no change of that kind fits it falls back to the next
+/// smaller one. Total: at worst it returns `program` unchanged, as it does a program that isn't
+/// in block form.
+pub fn next_version(
+    data: &Data,
+    row: &IceDef,
+    program: &str,
+    bump: Bump,
+    bias: &[(String, u32)],
+    seed: u64,
+) -> Next {
+    let unchanged = Next {
+        bump: None,
+        program: program.to_string(),
+    };
+    let Some(blocks) = blocks(&parse_with(program, Vocab::Ice(&row.verbs))) else {
+        return unchanged;
+    };
+    let draws = Draws {
+        row,
+        reads: data.ice_grammar.reads(row.class),
+        bias,
+    };
+    let before = render(&blocks);
+    let mut rng = Rng::new(seed);
+    let mut want = Some(bump);
+    while let Some(b) = want {
+        for _ in 0..TRIES {
+            let drawn = match b {
+                Bump::Patch => draws.patch(&blocks, &mut rng),
+                Bump::Minor => draws.minor(&blocks, &mut rng),
+                Bump::Major => draws.major(&blocks, &mut rng),
+            };
+            let Some(drawn) = drawn else { break };
+            let text = render(&drawn);
+            if text != before && data.check_ice_program(row, &text).is_ok() {
+                return Next {
+                    bump: Some(b),
+                    program: text,
+                };
+            }
+        }
+        want = b.smaller();
+    }
+    unchanged
+}
+
+/// What a draw needs: the row, its class's reads and the bias.
+struct Draws<'a> {
+    row: &'a IceDef,
+    reads: &'a [ReadDef],
+    bias: &'a [(String, u32)],
+}
+
+impl Draws<'_> {
+    // Each draw returns `None` when its kind of change can't happen to these blocks at all, and
+    // otherwise a candidate, which may be the blocks unchanged (an unlucky draw, drawn again).
+
+    /// Moves a block, or changes one number inside its range. `None` when neither can happen.
+    fn patch(&self, blocks: &[Block], rng: &mut Rng) -> Option<Vec<Block>> {
+        let spots = self.numbers(blocks);
+        let can_move = blocks.len() >= 2;
+        let move_it = match (can_move, spots.is_empty()) {
+            (false, true) => return None,
+            (true, false) => rng.below(2) == 0,
+            (can, _) => can,
+        };
+        let mut out = blocks.to_vec();
+        if move_it {
+            let from = rng.below(out.len());
+            let b = out.remove(from);
+            // Anywhere but where it was.
+            let mut to = rng.below(out.len());
+            if to >= from {
+                to += 1;
+            }
+            out.insert(to, b);
+            return Some(out);
+        }
+        let spot = &spots[rng.below(spots.len())];
+        let (lo, hi) = spot.range;
+        // A new number in the range, never the one it had.
+        let mut n = rng.range(lo, hi - 1);
+        if n >= spot.now {
+            n += 1;
+        }
+        let b = &mut out[spot.block];
+        match &spot.kind {
+            Spot::Read(r) => b.read = Some(r.with(n)),
+            Spot::Line(v) => b.line = format!("{} {n}", v.word()),
+        }
+        Some(out)
+    }
+
+    /// Adds a read and its response where the HDD has room, or removes a read and its line.
+    fn minor(&self, blocks: &[Block], rng: &mut Rng) -> Option<Vec<Block>> {
+        let lines: usize = blocks
+            .iter()
+            .map(|b| 1 + usize::from(b.read.is_some()))
+            .sum();
+        let can_add = lines + 2 <= self.row.hdd as usize && !self.usable(None).is_empty();
+        let guarded: Vec<usize> = (0..blocks.len())
+            .filter(|&i| blocks[i].read.is_some())
+            .collect();
+        let add = match (can_add, guarded.is_empty()) {
+            (false, true) => return None,
+            (true, false) => rng.below(2) == 0,
+            (can, _) => can,
+        };
+        let mut out = blocks.to_vec();
+        if add {
+            let read = self.draw_read(None, rng)?;
+            if self.has(blocks, read) {
+                return Some(out);
+            }
+            let line = self.draw_line(read, rng)?;
+            let n = read.n.map_or(0, |(lo, hi)| rng.range(lo, hi));
+            let at = rng.below(out.len() + 1);
+            out.insert(
+                at,
+                Block {
+                    read: Some(read.with(n)),
+                    line,
+                },
+            );
+        } else {
+            out.remove(guarded[rng.below(guarded.len())]);
+        }
+        Some(out)
+    }
+
+    /// Replaces one block's read with a different one from the grammar. The line it guards
+    /// stays if the new read may guard it, else it is drawn again.
+    fn major(&self, blocks: &[Block], rng: &mut Rng) -> Option<Vec<Block>> {
+        let guarded: Vec<usize> = (0..blocks.len())
+            .filter(|&i| blocks[i].read.is_some())
+            .collect();
+        if guarded.is_empty() {
+            return None;
+        }
+        let at = guarded[rng.below(guarded.len())];
+        let now = blocks[at].read.as_deref().and_then(|r| self.cond(r));
+        let old = blocks[at].read.as_deref().and_then(|r| self.template(r));
+        let read = self.draw_read(old, rng)?;
+        if self.has(blocks, read) {
+            return Some(blocks.to_vec());
+        }
+        // A read the grammar didn't write may draw its own condition again: that's no
+        // replacement, so draw again.
+        let same =
+            |c: &Cond| self.cond(&read.with(cond_number(c).unwrap_or(0))).as_ref() == Some(c);
+        if now.as_ref().is_some_and(same) {
+            return Some(blocks.to_vec());
+        }
+        let n = read.n.map_or(0, |(lo, hi)| rng.range(lo, hi));
+        let mut out = blocks.to_vec();
+        let keeps = self
+            .verb(&out[at].line)
+            .is_some_and(|v| read.responses.iter().any(|(r, _)| *r == v));
+        if !keeps {
+            out[at].line = self.draw_line(read, rng)?;
+        }
+        out[at].read = Some(read.with(n));
+        Some(out)
+    }
+
+    /// Every number a patch could change: a verb's (inside its row's range) or a read's (inside
+    /// its grammar read's), where the range has room for another.
+    fn numbers(&self, blocks: &[Block]) -> Vec<NumberSpot<'_>> {
+        let mut out = Vec::new();
+        for (i, b) in blocks.iter().enumerate() {
+            if let Some(read) = &b.read
+                && let Some(r) = self.template(read)
+                && let (Some((lo, hi)), Some(now)) =
+                    (r.n, self.cond(read).as_ref().and_then(cond_number))
+                && lo < hi
+            {
+                out.push(NumberSpot {
+                    block: i,
+                    range: (lo, hi),
+                    now,
+                    kind: Spot::Read(r),
+                });
+            }
+            if let Stmt::Act(intent) = self.stmt(&b.line)
+                && let (v, Some(now)) = verb_of(intent)
+                && let Some((lo, hi)) = self.row.range(v)
+                && lo < hi
+            {
+                out.push(NumberSpot {
+                    block: i,
+                    range: (lo, hi),
+                    now,
+                    kind: Spot::Line(v),
+                });
+            }
+        }
+        out
+    }
+
+    fn stmt(&self, text: &str) -> Stmt {
+        parse_stmt_with(text, Vocab::Ice(&self.row.verbs))
+    }
+
+    fn cond(&self, read: &str) -> Option<Cond> {
+        match self.stmt(&format!("IF {read}")) {
+            Stmt::If(c) => Some(c),
+            _ => None,
+        }
+    }
+
+    fn verb(&self, line: &str) -> Option<Verb> {
+        match self.stmt(line) {
+            Stmt::Act(i) => Some(verb_of(i).0),
+            _ => None,
+        }
+    }
+
+    /// The grammar read `read` was written from: the one whose condition is the same but for
+    /// its number.
+    fn template(&self, read: &str) -> Option<&ReadDef> {
+        let c = self.cond(read)?;
+        let n = cond_number(&c).unwrap_or(0);
+        self.reads
+            .iter()
+            .find(|r| self.cond(&r.with(n)).as_ref() == Some(&c))
+    }
+
+    /// Whether a block already opens with grammar read `read` (at any number): a new read is
+    /// one the program doesn't have.
+    fn has(&self, blocks: &[Block], read: &ReadDef) -> bool {
+        blocks
+            .iter()
+            .filter_map(|b| b.read.as_deref())
+            .any(|r| self.template(r).is_some_and(|t| std::ptr::eq(t, read)))
+    }
+
+    /// The reads that could open a block on this row (any but `not`): ones with a response the
+    /// row can make.
+    fn usable(&self, not: Option<&ReadDef>) -> Vec<(&ReadDef, u32)> {
+        self.reads
+            .iter()
+            .filter(|r| !not.is_some_and(|n| std::ptr::eq(*r, n)))
+            .filter(|r| r.responses.iter().any(|(v, _)| self.can(*v)))
+            .map(|r| {
+                let extra: u32 = self
+                    .bias
+                    .iter()
+                    .filter(|(b, _)| *b == r.read)
+                    .map(|(_, w)| *w)
+                    .sum();
+                (r, r.weight + extra)
+            })
+            .collect()
+    }
+
+    fn draw_read(&self, not: Option<&ReadDef>, rng: &mut Rng) -> Option<&ReadDef> {
+        let usable = self.usable(not);
+        let i = rng.weighted(usable.iter().map(|(_, w)| *w))?;
+        Some(usable[i].0)
+    }
+
+    /// A line `read` may guard: one of its responses the row can make, with a number from the
+    /// row's range.
+    fn draw_line(&self, read: &ReadDef, rng: &mut Rng) -> Option<String> {
+        let ok: Vec<(Verb, u32)> = read
+            .responses
+            .iter()
+            .copied()
+            .filter(|(v, _)| self.can(*v))
+            .collect();
+        let v = ok[rng.weighted(ok.iter().map(|(_, w)| *w))?].0;
+        Some(match self.row.range(v) {
+            Some((lo, hi)) => format!("{} {}", v.word(), rng.range(lo, hi)),
+            None => v.word().to_string(),
+        })
+    }
+
+    /// Whether the row can write a line of verb `v`: it's on its verbs, with a range if it
+    /// takes a number.
+    fn can(&self, v: Verb) -> bool {
+        self.row.verbs.contains(&v) && (!v.takes_number() || self.row.range(v).is_some())
+    }
+}
+
+/// A number a patch could change.
+struct NumberSpot<'a> {
+    block: usize,
+    range: (u32, u32),
+    now: u32,
+    kind: Spot<'a>,
+}
+
+enum Spot<'a> {
+    /// The read's number, written back through its grammar read.
+    Read(&'a ReadDef),
+    /// The guarded line's verb's number.
+    Line(Verb),
+}
+
+/// The number a condition compares with, if it has one.
+fn cond_number(c: &Cond) -> Option<u32> {
+    match c {
+        Cond::Cmp(_, _, n) | Cond::Target(_, _, n) | Cond::SelfStr(_, n) => Some(*n),
+        _ => None,
+    }
 }
