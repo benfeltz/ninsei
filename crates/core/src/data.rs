@@ -1021,6 +1021,30 @@ impl Sources<'static> {
     }
 }
 
+/// The game's content as a run takes it: an `Arc<Data>` is shared, a plain `Data` copied.
+pub trait Shared {
+    fn data(&self) -> &Data;
+    fn share(&self) -> std::sync::Arc<Data>;
+}
+
+impl Shared for Data {
+    fn data(&self) -> &Data {
+        self
+    }
+    fn share(&self) -> std::sync::Arc<Data> {
+        std::sync::Arc::new(self.clone())
+    }
+}
+
+impl Shared for std::sync::Arc<Data> {
+    fn data(&self) -> &Data {
+        self
+    }
+    fn share(&self) -> std::sync::Arc<Data> {
+        std::sync::Arc::clone(self)
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Data {
     pub warez: Vec<WarezDef>,

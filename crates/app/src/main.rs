@@ -308,6 +308,8 @@ struct App {
 
 impl App {
     fn new(cc: &eframe::CreationContext<'_>, data: Data, first_seed: Option<u64>) -> Self {
+        // Shared with every run from here on, never copied.
+        let data = std::sync::Arc::new(data);
         let mut boot = vec![
             String::new(),
             String::new(),
@@ -366,7 +368,7 @@ impl App {
                 s
             },
             bbs_heard: false,
-            data: std::sync::Arc::new(data),
+            data,
             sysops: sysops::Clock::default(),
             save,
             save_dirty: keyed,

@@ -1836,8 +1836,15 @@ impl Save {
         fits[(h % fits.len() as u64) as usize]
     }
 
-    /// Dials a phonebook entry: a run on that network with your loadout and RIG.
-    pub fn dial(&mut self, data: &Data, entry: u32, seed: u64) -> Result<Game, String> {
+    /// Dials a phonebook entry: a run on that network with your loadout and RIG. An
+    /// `Arc<Data>` is shared with the run; a plain `Data` is copied into it.
+    pub fn dial(
+        &mut self,
+        content: &impl crate::data::Shared,
+        entry: u32,
+        seed: u64,
+    ) -> Result<Game, String> {
+        let data = content.data();
         let e = self
             .entry(entry)
             .ok_or("no such number in the phonebook.")?
@@ -1870,7 +1877,7 @@ impl Save {
         // Stash programs on the disk leave the stash for the run; the loadout remembers them.
         let taken: Vec<u32> = kit.origins.iter().flatten().copied().collect();
         self.stash.retain(|s| !taken.contains(&s.id));
-        Ok(Game::start(data.clone(), seed, &kit))
+        Ok(Game::start(content.share(), seed, &kit))
     }
 
     /// Heat after a run on `entry`: it heats up, every other number cools down.
@@ -2463,11 +2470,11 @@ impl Save {
     /// Starts a run. Stash programs in the loadout leave the stash: they come back only
     /// if you reach the exit and keep them. The loadout itself is remembered: a program that
     /// comes home goes back onto the disk in its place.
-    pub fn jack_in(&mut self, data: &Data, seed: u64) -> Game {
-        let kit = self.kit(data);
+    pub fn jack_in(&mut self, content: &impl crate::data::Shared, seed: u64) -> Game {
+        let kit = self.kit(content.data());
         let taken: Vec<u32> = kit.origins.iter().flatten().copied().collect();
         self.stash.retain(|s| !taken.contains(&s.id));
-        Game::start(data.clone(), seed, &kit)
+        Game::start(content.share(), seed, &kit)
     }
 
     /// Books a finished run: banks credits and fragments, and on an exit stashes the programs

@@ -729,3 +729,18 @@ fn a_version_number_met_before_with_another_program_is_met_unknown() {
             .any(|(id, l)| id == "enigma" && l == &[10])
     );
 }
+
+#[test]
+fn a_run_shares_the_content_it_was_dialed_with() {
+    let arc = Arc::new(data());
+    let mut s = home(0x9144);
+    let g = s.jack_in(&arc, 1);
+    assert!(Arc::ptr_eq(&g.data, &arc));
+    let entry = s.phonebook[0].id;
+    let g = s.dial(&arc, entry, 2).unwrap();
+    assert!(Arc::ptr_eq(&g.data, &arc));
+    // A plain `Data` is copied, as before.
+    let d = data();
+    let g = s.jack_in(&d, 3);
+    assert_eq!(Arc::strong_count(&g.data), 1);
+}
