@@ -2565,11 +2565,17 @@ impl Save {
             if current {
                 s.won += u32::from(b.broken);
                 s.lost += u32::from(killer == Some(b.ice) && k + 1 == game.bouts.len());
-                // What the deck saw this version run comes home with its entry. A save's own
-                // list may not be tidy (hand-edited, or older): tidy it first.
-                s.lines = crate::ice_listing::tidy(std::mem::take(&mut s.lines));
-                for &no in game.ice_lines_of(b.ice, b.version) {
-                    crate::ice_listing::note_line(&mut s.lines, no);
+                // What the deck saw this version run comes home with its entry, once, at its
+                // last fight on it. A save's own list may not be tidy (hand-edited, or older):
+                // tidy it first.
+                let later = game.bouts[k + 1..]
+                    .iter()
+                    .any(|x| x.ice == b.ice && x.version == b.version);
+                if !later {
+                    s.lines = crate::ice_listing::tidy(std::mem::take(&mut s.lines));
+                    for &no in game.ice_lines_of(b.ice, b.version) {
+                        crate::ice_listing::note_line(&mut s.lines, no);
+                    }
                 }
             }
         }

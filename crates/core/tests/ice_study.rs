@@ -498,6 +498,22 @@ fn a_version_that_lands_mid_fight_is_the_next_fight_s_and_met_unknown() {
             .iter()
             .any(|l| l.text.starts_with(&format!("!! Enigma {new} rezzed")))
     );
+    // Home books each version with its own lines: 1.0.0 as it was known, then the new one.
+    let old_lines = g.ice_lines_of(e, Version::FIRST).to_vec();
+    play_out(&mut g);
+    let new_lines = g.ice_lines_of(e, new).to_vec();
+    g.phase = Phase::JackedOut;
+    let mut save = home(KEY);
+    let rig = g.data.rig.clone();
+    save.record(&g, &[], &rig).unwrap();
+    let seen = save.ice_seen.iter().find(|x| x.id == "enigma").unwrap();
+    assert_eq!((seen.version, &seen.lines), (new, &new_lines));
+    assert_eq!(seen.past.len(), 1);
+    assert_eq!(
+        (seen.past[0].version, &seen.past[0].lines),
+        (Version::FIRST, &old_lines)
+    );
+    assert_eq!(seen.met, 2);
 }
 
 #[test]
