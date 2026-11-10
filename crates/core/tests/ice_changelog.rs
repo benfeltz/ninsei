@@ -197,3 +197,24 @@ fn one_version_met_has_no_changelog_and_an_unmet_kind_is_question_marks() {
     assert_eq!(unmet.name(), "????");
     assert!(unmet.changelog().is_empty());
 }
+
+#[test]
+fn a_changed_number_is_new_even_when_the_same_line_is_elsewhere() {
+    // 30 TRACE 10 became 30 TRACE 11; TRACE 11 was already at 10 and 50, and still is.
+    let d = data();
+    let v = &enigma(&d).verbs;
+    let before = "10 TRACE 11\n20 IF TARGET SHIELD > 0\n30 TRACE 10\n40 TRACE 11";
+    let after = "10 TRACE 11\n20 IF TARGET SHIELD > 0\n30 TRACE 11\n40 TRACE 11";
+    let all = [10, 20, 30, 40];
+    let rows = changes(v, Some((before, &all)), (after, &all));
+    assert_eq!(
+        marks(&rows),
+        [
+            " 10 TRACE 11",
+            " 20 IF TARGET SHIELD > 0",
+            "+30 TRACE 11",
+            " 40 TRACE 11",
+            "-30 TRACE 10"
+        ]
+    );
+}

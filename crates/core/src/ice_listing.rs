@@ -175,16 +175,28 @@ pub fn changes(
         q.lines.iter().map(|l| &l.stmt).collect(),
         p.lines.iter().map(|l| &l.stmt).collect(),
     );
-    let (kept_a, kept_b) = common(&a, &b);
+    let numbers = |prog: &Program| prog.lines.iter().map(|l| l.no).collect::<Vec<_>>();
+    let (kept_a, kept_b) = common(&a, &b, &numbers(&q), &numbers(&p));
+    // The version before's lines the common run leaves over: each can account for one line of
+    // `now` (it moved), and what's still left was removed.
+    let mut spare: Vec<bool> = kept_a.iter().map(|k| !k).collect();
     let mut rows: Vec<MarkedRow> = p
         .lines
         .iter()
         .enumerate()
         .map(|(i, l)| {
             let is_seen = seen(now.1, l.no);
+            let moved = !kept_b[i]
+                && match (0..a.len()).find(|&j| spare[j] && *a[j] == l.stmt) {
+                    Some(j) => {
+                        spare[j] = false;
+                        true
+                    }
+                    None => false,
+                };
             let mark = match () {
                 _ if !is_seen || kept_b[i] => Mark::None,
-                _ if a.contains(&&l.stmt) => Mark::Moved,
+                _ if moved => Mark::Moved,
                 _ => Mark::New,
             };
             MarkedRow {
@@ -200,7 +212,7 @@ pub fn changes(
             q.lines
                 .iter()
                 .enumerate()
-                .filter(|(i, l)| !kept_a[*i] && !b.contains(&&l.stmt))
+                .filter(|(j, _)| spare[*j])
                 .map(|(_, l)| MarkedRow {
                     no: l.no,
                     text: seen(known, l.no).then(|| l.text.clone()),
@@ -211,28 +223,33 @@ pub fn changes(
     rows
 }
 
-/// Which items of `a` and `b` are in their longest common run (in order): (a's, b's).
-fn common<T: PartialEq>(a: &[T], b: &[T]) -> (Vec<bool>, Vec<bool>) {
+/// Which items of `a` and `b` are in their longest common run (in order): (a's, b's). Of the
+/// runs that long, the one that keeps the most items at the same number (`na`, `nb`): versions
+/// are numbered by tens, so a line that stayed where it was is the likelier match.
+fn common<T: PartialEq>(a: &[T], b: &[T], na: &[u32], nb: &[u32]) -> (Vec<bool>, Vec<bool>) {
     let (n, m) = (a.len(), b.len());
-    let mut len = vec![vec![0usize; m + 1]; n + 1];
+    // Score: matches first, then matches at the same number.
+    let score = |i: usize, j: usize| -> u64 { 1000 + u64::from(na[i] == nb[j]) };
+    let mut best = vec![vec![0u64; m + 1]; n + 1];
     for i in (0..n).rev() {
         for j in (0..m).rev() {
-            len[i][j] = if a[i] == b[j] {
-                len[i + 1][j + 1] + 1
+            let skip = best[i + 1][j].max(best[i][j + 1]);
+            best[i][j] = if a[i] == b[j] {
+                skip.max(best[i + 1][j + 1] + score(i, j))
             } else {
-                len[i + 1][j].max(len[i][j + 1])
+                skip
             };
         }
     }
     let (mut ka, mut kb) = (vec![false; n], vec![false; m]);
     let (mut i, mut j) = (0, 0);
     while i < n && j < m {
-        if a[i] == b[j] {
+        if a[i] == b[j] && best[i][j] == best[i + 1][j + 1] + score(i, j) {
             ka[i] = true;
             kb[j] = true;
             i += 1;
             j += 1;
-        } else if len[i + 1][j] >= len[i][j + 1] {
+        } else if best[i + 1][j] >= best[i][j + 1] {
             i += 1;
         } else {
             j += 1;
