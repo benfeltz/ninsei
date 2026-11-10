@@ -16,12 +16,56 @@ use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-use crate::basic::{Cond, Program, Stmt, Verb, Vocab, parse_stmt_with, parse_with};
+use crate::basic::{Cond, Program, Stmt, Target, Var, Verb, Vocab, parse_stmt_with, parse_with};
 use crate::data::{Data, IceDef, ReadDef};
 use crate::rng::Rng;
 
 /// Draws of one kind of change before the generator falls back to a smaller one.
 const TRIES: usize = 32;
+
+/// The deck as an ICE's conditions read it: what its sysop sees in the logs of a turn. A fight
+/// reads its ICE's conditions through [`Tell::holds`], and the next version is written against
+/// the tells booked in the fights a kind lost, so the two can't disagree.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct Tell {
+    /// `TARGET INTEG`.
+    pub integ: u32,
+    /// `TARGET SHIELD`: the shield up.
+    pub shield: u32,
+    /// `TARGET CPU`: the deck's cycles left.
+    pub cpu: u32,
+    /// What `TARGET RAN` reads: the programs the deck ran this turn, as (the name in its binary,
+    /// its factory id).
+    pub ran: Vec<(String, String)>,
+    /// `SELF STR`.
+    pub strength: u32,
+    /// `TURN`.
+    pub turn: u32,
+}
+
+impl Tell {
+    /// Whether an ICE's condition is true of this deck. A condition no ICE can write (the
+    /// deck's own words) is false.
+    pub fn holds(&self, cond: &Cond) -> bool {
+        match cond {
+            Cond::Target(t, op, n) => op.test(
+                match t {
+                    Target::Integ => self.integ,
+                    Target::Shield => self.shield,
+                    Target::Cpu => self.cpu,
+                },
+                *n,
+            ),
+            Cond::TargetRan(name) => self
+                .ran
+                .iter()
+                .any(|(n, id)| crate::basic::names(name, n, id)),
+            Cond::SelfStr(op, n) => op.test(self.strength, *n),
+            Cond::Cmp(Var::Turn, op, n) => op.test(self.turn, *n),
+            _ => false,
+        }
+    }
+}
 
 /// A kind's version, `major.minor.patch`.
 #[derive(Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
