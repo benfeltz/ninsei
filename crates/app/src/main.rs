@@ -1858,8 +1858,12 @@ impl App {
                         break;
                     }
                     // The connect was skipped: the modem channel goes quiet, the run's tune and
-                    // cues play on.
-                    Outcome::Cut => self.speaker.stop(),
+                    // cues play on. Its sound counts as heard, so a dial that hadn't started yet
+                    // never plays over the splash.
+                    Outcome::Cut => {
+                        self.speaker.stop();
+                        self.bbs_heard = true;
+                    }
                     Outcome::None => {}
                 }
             }
@@ -2622,6 +2626,21 @@ mod tests {
             assert_eq!(app.game.at, bbs, "jacked onto the board");
             let view = app.bbs.as_ref().expect("its window opened");
             assert!(view.session.connecting(), "and the call plays");
+        }
+
+        #[test]
+        fn a_skip_before_the_dial_leaves_nothing_to_dial() {
+            let (mut h, mut app) = running("onosendai");
+            let bbs = app.game.net.bbs().unwrap();
+            app.game.at = bbs;
+            app.last_at = bbs;
+            app.bbs = Some(BbsView::new());
+            assert!(!app.bbs_heard, "its sound hasn't started");
+            frame(&mut h, &mut app, Vec::new());
+            frame(&mut h, &mut app, text("x"));
+            assert!(!app.bbs.as_ref().unwrap().session.connecting(), "skipped");
+            assert!(app.bbs_heard, "so sync_sound won't dial it now");
+            assert_eq!(app.bbs_call().map(|c| c.skippable()), Some(true));
         }
 
         #[test]
