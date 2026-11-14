@@ -363,6 +363,8 @@ impl RunMods {
 pub struct Site {
     /// Phonebook entry id.
     pub entry: u32,
+    /// The number it was dialed on: its board's X.25 address is built from it.
+    pub number: String,
     pub name: String,
     pub tier: u32,
     /// Trait labels.
@@ -1355,6 +1357,19 @@ impl Game {
         self.bbs_def
             .as_deref()
             .unwrap_or(&self.data.boards[self.board])
+    }
+
+    /// The X.121 address of this network's board, as the net's PAD calls it: the DNIC from
+    /// `hub/networks.ron`, the number the run was dialed on (a plain run, dialed on nothing,
+    /// uses its board's own) and the BBS node's place. Read from what the run has; never
+    /// rolled.
+    pub fn bbs_address(&self) -> String {
+        let number = self
+            .site
+            .as_ref()
+            .map_or(self.bbs().phone.as_str(), |s| s.number.as_str());
+        let node = self.root().bbs().unwrap_or(0);
+        self.data.networks.x25.address(number, node)
     }
 
     pub fn root(&self) -> &Network {

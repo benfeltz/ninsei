@@ -496,6 +496,79 @@ pub const NEWS_SLOTS: [&str; 2] = ["{ice}", "{version}"];
 /// The longest version a board's news is checked to fit: three digits a part.
 pub const LONG_VERSION: &str = "999.999.999";
 
+/// The packet net every network in the phonebook sits on (`hub/networks.ron`'s `x25`): a board
+/// reached in a run is an X.25 call through its PAD, never a modem call. The PAD knows addresses
+/// and call states and nothing else; its words are its own, with `{address}` filled in.
+#[derive(Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct X25Def {
+    /// The net's DNIC: the four digits every X.121 address on it starts with.
+    pub dnic: String,
+    /// The PAD's line as the call goes out.
+    pub call: String,
+    /// When the far end accepts the call.
+    pub connected: String,
+    /// When the far end clears it (the board said goodbye).
+    pub clear: String,
+    /// The run log's one line for the call: `{address}` and `{board}`.
+    pub log: String,
+}
+
+/// The digits of a network's own number an X.25 address keeps (the last ones), and of the node.
+pub const X25_NUMBER_DIGITS: usize = 8;
+pub const X25_NODE_DIGITS: usize = 2;
+
+/// The longest address an [`X25Def`] is checked to fit: a DNIC, then a full NTN.
+pub const LONG_X25_ADDRESS: &str = "9999 9999999999";
+
+impl X25Def {
+    /// The X.121 address of the board on node `node` of the network whose number is `number`:
+    /// the DNIC, then the network's number (its last [`X25_NUMBER_DIGITS`] digits) and the
+    /// node's place (its last [`X25_NODE_DIGITS`]), as `4409 55501990 07`. Nothing rolled: the
+    /// same network and node always have the same address.
+    pub fn address(&self, number: &str, node: usize) -> String {
+        let digits: Vec<char> = number.chars().filter(char::is_ascii_digit).collect();
+        let ntn: String = digits[digits.len().saturating_sub(X25_NUMBER_DIGITS)..]
+            .iter()
+            .collect();
+        let node = node % 10usize.pow(X25_NODE_DIGITS as u32);
+        format!("{} {ntn} {node:0w$}", self.dnic, w = X25_NODE_DIGITS)
+    }
+
+    /// One of the PAD's lines with `address` filled in.
+    pub fn say(line: &str, address: &str) -> String {
+        line.replace("{address}", address)
+    }
+
+    /// The run log's line for a call to `board` at `address`.
+    pub fn log_line(&self, address: &str, board: &str) -> String {
+        Self::say(&self.log, address).replace("{board}", board)
+    }
+
+    /// The DNIC is four digits, and every screen line fits the terminal at the longest address.
+    pub fn validate(&self) -> Result<(), String> {
+        if self.dnic.len() != 4 || !self.dnic.chars().all(|c| c.is_ascii_digit()) {
+            return Err(format!("x25: DNIC `{}` isn't four digits", self.dnic));
+        }
+        for (what, line) in [
+            ("call", &self.call),
+            ("connected", &self.connected),
+            ("clear", &self.clear),
+        ] {
+            if line.trim().is_empty() {
+                return Err(format!("x25: `{what}` is empty"));
+            }
+            let w = crate::ansi::visible_len(&Self::say(line, LONG_X25_ADDRESS));
+            if w > crate::bbs::COLS {
+                return Err(format!("x25: `{what}` is {w} wide at the longest address"));
+            }
+        }
+        if !self.log.contains("{address}") || !self.log.contains("{board}") {
+            return Err("x25: `log` needs {address} and {board}".into());
+        }
+        Ok(())
+    }
+}
+
 impl IceNewsDef {
     /// The template for a version made by `bump`.
     pub fn template(&self, bump: crate::ice_version::Bump) -> &str {
