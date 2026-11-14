@@ -1070,6 +1070,11 @@ pub struct Save {
     /// `ice.ron`.
     #[serde(default)]
     pub ice_versions: Vec<IceVer>,
+    /// The ICE sources you own, one per kind and version: what a fight's listing and the ICE DB
+    /// print. They're the ICE DB's and the IDE's data, not programs on the deck: they take no
+    /// HDD slot and no stash room.
+    #[serde(default)]
+    pub ice_sources: Vec<IceSource>,
     /// Each beaten kind's sysops, at work on its next version or resting
     /// ([`crate::ice_study`]), in the order the deck first beat them.
     #[serde(default)]
@@ -1261,6 +1266,39 @@ pub fn ship(
     });
 }
 
+/// The source of one version of one ICE kind: its program as written, the thing a fight's
+/// listing and the ICE DB print. Owning one version's says nothing of the next.
+#[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+pub struct IceSource {
+    /// By id in `data/ice.ron`.
+    pub id: String,
+    pub version: crate::ice_version::Version,
+    /// Its program; empty for 1.0.0, the row's (so a change to the row doesn't strand it).
+    #[serde(default)]
+    pub program: String,
+}
+
+impl IceSource {
+    /// Its program, as the kind's row reads it: the row's own for 1.0.0. `None` for a kind no
+    /// longer in `ice.ron`, or a saved program that no longer passes the row's check (the row
+    /// changed under it): such a source is no longer anything's, and nothing shows it.
+    pub fn text<'a>(&'a self, data: &'a Data) -> Option<&'a str> {
+        let row = data.ice.iter().find(|r| r.id == self.id)?;
+        if self.version == crate::ice_version::Version::FIRST {
+            return Some(row.program.as_str());
+        }
+        data.check_ice_program(row, &self.program)
+            .is_ok()
+            .then_some(self.program.as_str())
+    }
+
+    /// Whether it's the source of version `v` of kind `id` running `program` (as a fight books
+    /// it: empty for 1.0.0, see `Bout::program`).
+    pub fn is(&self, id: &str, v: crate::ice_version::Version, program: &str) -> bool {
+        self.id == id && self.version == v && self.program == program
+    }
+}
+
 /// A kind's version in force and the program it runs.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct IceVer {
@@ -1383,6 +1421,7 @@ impl Default for Save {
             texts: Vec::new(),
             ice_seen: Vec::new(),
             ice_versions: Vec::new(),
+            ice_sources: Vec::new(),
             ice_study: Vec::new(),
             intros: default_intros(),
             guide_seen: false,
@@ -1454,6 +1493,54 @@ impl Save {
         }
         self.tools.push(id.into());
         true
+    }
+
+    /// The source of version `version` of ICE kind `id`, if it's a version the sysops have put
+    /// out: 1.0.0 (the row's) or the version in force. The one way a source comes in, at home;
+    /// a run's come home through `record`. False if you had it, or there's no such version.
+    pub fn learn_source(
+        &mut self,
+        data: &Data,
+        id: &str,
+        version: crate::ice_version::Version,
+    ) -> bool {
+        let Some(row) = data.ice.iter().find(|r| r.id == id) else {
+            return false;
+        };
+        let program = match self.ice_program(id, data) {
+            _ if version == crate::ice_version::Version::FIRST => String::new(),
+            Some((v, p)) if v == version => as_met(row, v, p),
+            _ => return false,
+        };
+        self.add_source(
+            data,
+            IceSource {
+                id: id.to_string(),
+                version,
+                program,
+            },
+        )
+    }
+
+    /// Keeps `src`, unless you own it or it no longer reads as its kind. True if it was new.
+    fn add_source(&mut self, data: &Data, src: IceSource) -> bool {
+        if src.text(data).is_none()
+            || self
+                .ice_sources
+                .iter()
+                .any(|s| s.is(&src.id, src.version, &src.program))
+        {
+            return false;
+        }
+        self.ice_sources.push(src);
+        true
+    }
+
+    /// Whether you own the source of version `version` of ICE kind `id` (one that still reads).
+    pub fn owns_source(&self, data: &Data, id: &str, version: crate::ice_version::Version) -> bool {
+        self.ice_sources
+            .iter()
+            .any(|s| s.id == id && s.version == version && s.text(data).is_some())
     }
 
     /// Whether you own a game, in either copy (an id in `hub/games.ron`).
@@ -2384,6 +2471,13 @@ impl Save {
                 })
                 .map(|s| (s.id.clone(), s.lines.clone()))
                 .collect(),
+            // The sources you own go into the run as they are: the fight's listing is theirs.
+            ice_sources: self
+                .ice_sources
+                .iter()
+                .filter(|s| s.text(data).is_some())
+                .cloned()
+                .collect(),
             ice_study: self.ice_study.clone(),
             study_key: self.key,
             // The sysops' patches: every net runs a patched kind's version.
@@ -2546,6 +2640,10 @@ impl Save {
             .collect();
         for (b, t) in &game.texts {
             self.keep_text(b, t);
+        }
+        // And so does an ICE's source.
+        for src in &game.sources_got {
+            self.add_source(&game.data, src.clone());
         }
         let here = game.bbs().name.clone();
         for id in &game.boards_read {

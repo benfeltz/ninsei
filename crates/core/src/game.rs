@@ -255,6 +255,9 @@ pub struct Kit {
     /// The ICE lines the deck has seen run before (from the save's ICE DB): (ICE id, line
     /// numbers). A fight shows these in clear from its first turn.
     pub ice_known: Vec<(String, Vec<u32>)>,
+    /// The ICE sources the save owns (`Save::ice_sources`): a fight against a version whose
+    /// source is here lists its program.
+    pub ice_sources: Vec<crate::hub::IceSource>,
     /// The ICE kinds whose version in force isn't 1.0.0 (from the save's `ice_versions`, in
     /// the order they shipped): (ICE id, version, program, how it was made). A fight against
     /// one runs this program in place of its row's, and a board's news reads them.
@@ -301,6 +304,7 @@ impl Default for Kit {
             tunes: Vec::new(),
             texts: Vec::new(),
             ice_known: Vec::new(),
+            ice_sources: Vec::new(),
             ice_programs: Vec::new(),
             ice_study: Vec::new(),
             study_key: 0,
@@ -574,6 +578,10 @@ pub struct Game {
     /// in force at the start, plus every line an ICE's pass executes in this run. They come home
     /// even on a flatline. Never read by play.
     pub ice_lines: Vec<(usize, Version, Vec<u32>)>,
+    /// The ICE sources the save owned at jack-in (the kit's). Never read by play.
+    pub sources: Vec<crate::hub::IceSource>,
+    /// The ICE sources got this run, in order. They come home even on a flatline.
+    pub sources_got: Vec<crate::hub::IceSource>,
     /// The ICE kinds running a version past 1.0.0, in the order they shipped: (index into
     /// `Data::ice`, version, its program parsed once, how it was made). From the kit, and
     /// replaced as the sysops ship mid-run: a fight runs the version in force as it opens.
@@ -828,6 +836,8 @@ impl Game {
             boards_read: Vec::new(),
             starters_read: false,
             ice_lines,
+            sources: kit.ice_sources.clone(),
+            sources_got: Vec::new(),
             ice_versions,
             ice_study: kit.ice_study.clone(),
             study_key: kit.study_key,
@@ -1346,6 +1356,50 @@ impl Game {
             Some(c) if c.ice == ice => c.ice_version,
             _ => self.ice_version(ice),
         }
+    }
+
+    /// The program version `v` of ICE `ice` runs, as a fight books it (`Bout::program`: empty
+    /// for 1.0.0, the row's): `None` for a version past 1.0.0 that isn't in force this run.
+    fn version_program(&self, ice: usize, v: Version) -> Option<String> {
+        if v == Version::FIRST {
+            return Some(String::new());
+        }
+        self.ice_versions
+            .iter()
+            .find(|(i, w, ..)| *i == ice && *w == v)
+            .map(|(_, _, p, _)| p.text())
+    }
+
+    /// Whether the deck owns the source of version `v` of ICE `ice`: from the save, or got this
+    /// run. A version the run doesn't run (one replaced since, or never shipped) is never owned
+    /// here. Never read by play.
+    pub fn owns_source(&self, ice: usize, v: Version) -> bool {
+        let Some(program) = self.version_program(ice, v) else {
+            return false;
+        };
+        let id = &self.data.ice[ice].id;
+        self.sources
+            .iter()
+            .chain(&self.sources_got)
+            .any(|s| s.is(id, v, &program))
+    }
+
+    /// Gets the source of version `v` of ICE `ice` (1.0.0, or the version in force this run):
+    /// it lists from now on and comes home with the run. False if the deck had it, or the run
+    /// has no such version.
+    pub fn learn_source(&mut self, ice: usize, v: Version) -> bool {
+        if ice >= self.data.ice.len() || self.owns_source(ice, v) {
+            return false;
+        }
+        let Some(program) = self.version_program(ice, v) else {
+            return false;
+        };
+        self.sources_got.push(crate::hub::IceSource {
+            id: self.data.ice[ice].id.clone(),
+            version: v,
+            program,
+        });
+        true
     }
 
     /// The version ICE `ice` (an index into `Data::ice`) runs this run: the kit's, or 1.0.0.
