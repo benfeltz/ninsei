@@ -66,6 +66,8 @@
         patch: "|12{ice} {version}|08. patched. they read their logs.",
         minor: "|12{ice} {version}|08. new trick. don't run what you ran.",
         major: "|12{ice} {version}|08. new code. whatever worked, didn't.",
+        by: "acid_burn",
+        sign: "|08-- {by}",
     )),
     // d1rge's rips: black ICE and kr4ken's code, ripped off the backbones.
     sources: Some((

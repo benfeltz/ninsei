@@ -54,6 +54,8 @@
         patch: "|15{ice} {version}|07: patched. Somebody leaned on the old one too hard.",
         minor: "|15{ice} {version}|07: learned a new trick, word is. Watch it.",
         major: "|12!! |15{ice} {version}|07: rewritten from scratch. Throw out your notes.",
+        by: "c4se",
+        sign: "|08-- {by}, who heard it first",
     )),
     // m0th's hacked ICE: tier-1 source, cracked by the scene, the newest each kind has had
     // cracked (1.0.0 from the start). Generated from ice.ron; prices are tuning.rs's.

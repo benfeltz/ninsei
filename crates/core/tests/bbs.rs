@@ -484,17 +484,26 @@ fn a_new_version_is_news_on_the_boards_that_would_hear_of_it() {
     // The Gutter hears tier 1 and black ICE, newest first, each in its bump's words.
     let g = news("gutter").expect("the Gutter hears news");
     assert_eq!(g.title, "ICE WATCH");
-    assert_eq!(g.body.len(), 3, "{:?}", g.body);
+    // A caller's post, signed under the news.
+    assert_eq!(g.body.len(), 5, "{:?}", g.body);
+    assert_eq!(g.body[3], "");
+    assert_eq!(g.body[4], "|08-- c4se, who heard it first");
     assert!(g.body[0].contains("Enigma 2.0.0") && g.body[0].contains("rewritten"));
     assert!(g.body[1].contains("Archer 1.1.0") && g.body[1].contains("trick"));
     assert!(g.body[2].contains("Rototurret 1.0.1") && g.body[2].contains("patched"));
     // Dead Sector hears only the black builds.
     let ds = news("deadsector").expect("Dead Sector hears news");
-    assert_eq!(ds.body.len(), 1, "{:?}", ds.body);
+    assert_eq!(ds.body.len(), 3, "{:?}", ds.body);
+    assert!(ds.body[2].contains("acid_burn"));
     assert!(ds.body[0].contains("Archer 1.1.0"));
     // CorpLink posts a memo, and never says ICE.
     let c = news("corplink").expect("CorpLink posts its updates");
-    assert_eq!(c.body.len(), 3);
+    assert_eq!(c.body.len(), 5);
+    assert!(
+        c.body[4].contains("R.OKONKWO"),
+        "Security signs it, by name: {:?}",
+        c.body
+    );
     for l in std::iter::once(&c.title).chain(&c.body) {
         assert!(!l.contains("ICE"), "{l}");
     }
@@ -629,4 +638,29 @@ fn bad_ice_news_is_rejected() {
             "{why}: {err}"
         );
     }
+}
+
+#[test]
+fn the_news_is_a_caller_s_post_and_its_poster_is_checked() {
+    use ninsei_core::bbs::Line;
+    let d = Data::builtin().unwrap();
+    // Quiet: the board's own words, unsigned.
+    let mut s = hub::Save::default();
+    for b in &d.boards {
+        s.learn_board(&b.id, "test");
+    }
+    let g = s
+        .home_call(&d, &d.rig, board(&d, "gutter"))
+        .news()
+        .cloned()
+        .unwrap();
+    assert!(!g.body.iter().any(|l| l.contains("c4se")), "{:?}", g.body);
+    // A poster who isn't a caller, or a sign that names nobody, is refused.
+    let gutter = board(&d, "gutter");
+    let mut bad = d.clone();
+    bad.boards[gutter].ice_news.as_mut().unwrap().by = "nobody".into();
+    assert!(bad.validate().is_err());
+    let mut bad = d.clone();
+    bad.boards[gutter].ice_news.as_mut().unwrap().sign = "-- m0th".into();
+    assert!(bad.validate().is_err());
 }

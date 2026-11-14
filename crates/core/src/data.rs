@@ -410,6 +410,11 @@ pub struct IceNewsDef {
     pub patch: String,
     pub minor: String,
     pub major: String,
+    /// The caller who posts it: a handle from the board's own `users`. Its news is theirs, not
+    /// the sysop's: the scene's word that a version is in the wild.
+    pub by: String,
+    /// Their sign-off under the news, with `{by}` for the handle.
+    pub sign: String,
 }
 
 /// A board's ICE source area, in its own voice: one file per kind of the ICE tiers it carries,
@@ -1797,6 +1802,15 @@ impl Data {
         if n.none.is_empty() {
             return Err("nothing to say when there's no news".into());
         }
+        if !b.users.iter().any(|u| u.handle == n.by) {
+            return Err(format!(
+                "posted by `{}`, who isn't one of its callers",
+                n.by
+            ));
+        }
+        if !n.sign.contains("{by}") {
+            return Err(format!("`{}` doesn't name {{by}}", n.sign));
+        }
         let longest = self
             .ice
             .iter()
@@ -1808,6 +1822,10 @@ impl Data {
         let fits = |line: &str| crate::ansi::visible_len(line) <= crate::bbs::COLS - 3;
         if let Some(l) = n.none.iter().find(|l| !fits(l)) {
             return Err(format!("`{l}` is wider than the terminal"));
+        }
+        let signed = n.sign.replace("{by}", &n.by);
+        if !fits(&signed) {
+            return Err(format!("`{signed}` is wider than the terminal"));
         }
         for bump in crate::ice_version::Bump::ALL {
             let t = n.template(bump);
