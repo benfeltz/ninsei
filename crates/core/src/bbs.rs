@@ -947,10 +947,14 @@ pub fn news_bulletin(
         .collect();
     Some(BulletinDef {
         title: n.title.clone(),
+        // News is a caller's post, signed; the quiet body is the board's own.
         body: if lines.is_empty() {
             n.none.clone()
         } else {
-            lines
+            let mut body = lines;
+            body.push(String::new());
+            body.push(n.sign.replace("{by}", &n.by));
+            body
         },
         on_read: None,
     })

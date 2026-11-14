@@ -66,6 +66,8 @@
         patch: "|07Maintenance release |15{ice} {version}|07 has been deployed to all sites.",
         minor: "|07Feature release |15{ice} {version}|07 deployed. No action required.",
         major: "|07Major release |15{ice} {version}|07 deployed following a security review.",
+        by: "R.OKONKWO",
+        sign: "|08-- {by}, Office of Information Security",
     )),
     // IT's approved vendor documentation for the perimeter software: the office's word for
     // the same files. It never says hacked and never names who supplied them.

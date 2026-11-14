@@ -168,7 +168,9 @@ fn the_boards_tell_what_shipped_in_their_own_words() {
         if want.is_empty() {
             assert_eq!(news.body, n.none, "{}", b.id);
         } else {
-            assert_eq!(news.body.len(), want.len(), "{}", b.id);
+            // The news, then a blank line and its caller's sign-off.
+            assert_eq!(news.body.len(), want.len() + 2, "{}", b.id);
+            assert!(news.body.last().unwrap().contains(&n.by), "{}", b.id);
             for (line, w) in news.body.iter().zip(&want) {
                 assert!(
                     ansi::plain(line).contains(w.as_str()),
