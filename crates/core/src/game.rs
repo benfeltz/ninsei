@@ -122,7 +122,7 @@ pub fn duel(
     start: Start,
     seed: u64,
 ) -> Duel {
-    let mut g = Game::start(std::sync::Arc::clone(data), seed, kit);
+    let mut g = Game::start_with(std::sync::Arc::clone(data), seed, kit, false);
     g.watched = false;
     // A deck with nothing on its HDD, not the classic four a bare kit is given.
     if kit.programs.is_empty() {
@@ -571,8 +571,9 @@ pub struct Game {
     pub bbs_stock: Vec<Vec<StockFile>>,
     /// This network's BBS: an index into `Data::boards`. Read it through [`Game::bbs`].
     pub board: usize,
-    /// That board as this run found it: its own areas and its ICE source area.
-    bbs_def: crate::data::BbsDef,
+    /// That board as this run found it, when it has an ICE source area: its own areas and
+    /// that one. `None`: the board as it is in data.
+    bbs_def: Option<Box<crate::data::BbsDef>>,
     /// Whether the runner connected to the BBS: its number goes in the phonebook at home.
     pub bbs_seen: bool,
     /// Contracts posted on the BBS jobs board, rolled when you connect.
@@ -833,7 +834,12 @@ impl Game {
 
     /// A run with a kit from home: the deck's numbers and the chosen loadout.
     pub fn start(data: impl Into<std::sync::Arc<Data>>, seed: u64, kit: &Kit) -> Self {
-        let data: std::sync::Arc<Data> = data.into();
+        Self::start_with(data.into(), seed, kit, true)
+    }
+
+    /// [`Game::start`]; `board_area` false for a game nobody calls a board in (a sysops'
+    /// duel), which never builds its board's source area.
+    fn start_with(data: std::sync::Arc<Data>, seed: u64, kit: &Kit, board_area: bool) -> Self {
         let mut rng = Rng::new(seed);
         let net = Network::generate_with(&mut rng, &data, &kit.net);
         let board = if kit.board < data.boards.len() {
@@ -877,7 +883,6 @@ impl Game {
             &data,
             &crate::bbs::shipped(&ice_versions),
         );
-        let data_board = data.boards[board].clone();
         let mut game = Self {
             at: net.entry(),
             outer: None,
@@ -894,7 +899,7 @@ impl Game {
             hops: 0,
             bbs_stock,
             board,
-            bbs_def: data_board,
+            bbs_def: None,
             bbs_seen: false,
             bbs_jobs: Vec::new(),
             contracts: Vec::new(),
@@ -964,21 +969,27 @@ impl Game {
             }
         }
         // The board's source area, after its own were rolled: it's never rolled itself.
-        let area = crate::bbs::source_area(&game.data.boards[board], &game.data, |i| {
-            let v = game.ice_version(i);
-            if game.cracked(i, v) {
-                v
-            } else {
-                Version::FIRST
-            }
-        });
+        let area = board_area
+            .then(|| {
+                crate::bbs::source_area(&game.data.boards[board], &game.data, |i| {
+                    let v = game.ice_version(i);
+                    if game.cracked(i, v) {
+                        v
+                    } else {
+                        Version::FIRST
+                    }
+                })
+            })
+            .flatten();
         if let Some(area) = area {
             game.bbs_stock.push(
                 (0..area.files.len())
                     .map(|def| StockFile { def, bought: false })
                     .collect(),
             );
-            game.bbs_def.areas.push(area);
+            let mut def = game.data.boards[board].clone();
+            def.areas.push(area);
+            game.bbs_def = Some(Box::new(def));
         }
         game.say(LogKind::Sys, format!("ninsei v0.0.1 // seed {seed:016x}"));
         game.say(LogKind::Sys, "carrier detected. handshake ok.");
@@ -1310,7 +1321,9 @@ impl Game {
     /// The network's board as this run found it: its own areas, then its ICE source area
     /// (`bbs::source_area`) as the scene had cracked them at jack-in.
     pub fn bbs(&self) -> &crate::data::BbsDef {
-        &self.bbs_def
+        self.bbs_def
+            .as_deref()
+            .unwrap_or(&self.data.boards[self.board])
     }
 
     pub fn root(&self) -> &Network {
