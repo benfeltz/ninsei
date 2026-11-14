@@ -393,6 +393,9 @@ fn leaving_a_run_s_board_clears_the_call_at_once() {
             assert!(!ansi::plain(l).contains(w), "{w} in {l}");
         }
     }
+    // What the run's own screen says after: the PAD's clear, not a modem's.
+    let dropped = ninsei_core::bbs::Line::connect(&g).dropped();
+    assert_eq!(dropped, x25.clear.replace("{address}", &addr));
     // A short beat, then it closes.
     assert_eq!(s.tick(&g, tuning::X25_CLEAR_SECS - 0.01), Outcome::None);
     assert_eq!(s.tick(&g, 0.02), Outcome::Closed);

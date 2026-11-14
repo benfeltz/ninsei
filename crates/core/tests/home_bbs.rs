@@ -425,6 +425,7 @@ fn a_home_call_is_a_modem_call_and_can_t_be_hurried() {
         let h = ninsei_core::modem::Handshake::new(&b.phone);
         assert_eq!(call.connect(), Call::Modem(h.clone()), "{}", b.id);
         assert!(!call.connect().skippable());
+        assert_eq!(call.connect().dropped(), "NO CARRIER");
         assert_eq!(
             Session::title(&call),
             format!("TELIX 3.51 — {}  {} 8N1  ANSI-BBS", b.name, b.baud),

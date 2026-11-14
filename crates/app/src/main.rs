@@ -1851,7 +1851,9 @@ impl App {
                     Outcome::Act(a) => self.game.apply(a),
                     Outcome::Closed => {
                         self.bbs = None;
-                        self.game.say(LogKind::Sys, "NO CARRIER");
+                        // The PAD cleared the call: the run's log says so in its words.
+                        let dropped = ninsei_core::bbs::Line::connect(&self.game).dropped();
+                        self.game.say(LogKind::Sys, dropped);
                         self.focus_input = true;
                         break;
                     }
@@ -2597,6 +2599,23 @@ mod tests {
             let phone = ninsei_core::bbs::Line::board(&home).phone.clone();
             app.home_bbs = Some((BbsView::new(), home));
             assert_eq!(app.bbs_call(), Some(Call::Modem(Handshake::new(&phone))));
+        }
+
+        #[test]
+        fn leaving_a_run_s_board_logs_the_pad_s_clear() {
+            let (mut h, mut app) = running("onosendai");
+            let bbs = app.game.net.bbs().unwrap();
+            app.game.at = bbs;
+            app.last_at = bbs;
+            let mut v = BbsView::new();
+            v.session.screen = ninsei_core::bbs::Screen::Hangup { t: 0.0 };
+            app.bbs = Some(v);
+            frame(&mut h, &mut app, text("x"));
+            assert!(app.bbs.is_none(), "a key closes the clear");
+            let last = &app.game.log.last().unwrap().text;
+            let clear = (app.data.networks.x25.clear).replace("{address}", &app.game.bbs_address());
+            assert_eq!(last, &clear);
+            assert!(!app.game.log.iter().any(|l| l.text.contains("NO CARRIER")));
         }
 
         #[test]

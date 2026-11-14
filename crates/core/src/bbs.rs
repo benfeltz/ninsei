@@ -46,6 +46,15 @@ impl Call {
         matches!(self, Call::Packet { .. })
     }
 
+    /// What the caller's own screen says once the window has closed: the modem's `NO CARRIER`,
+    /// or the PAD's clear.
+    pub fn dropped(&self) -> String {
+        match self {
+            Call::Modem(_) => "NO CARRIER".into(),
+            Call::Packet { address, pad, .. } => X25Def::say(&pad.clear, address),
+        }
+    }
+
     /// How long the hang-up shows before the window closes.
     pub fn clear_secs(&self) -> f32 {
         match self {
