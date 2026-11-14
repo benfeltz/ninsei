@@ -252,9 +252,6 @@ pub struct Kit {
     pub tunes: Vec<String>,
     /// Textfiles already on your disk, as (board id, text id).
     pub texts: Vec<(String, String)>,
-    /// The ICE lines the deck has seen run before (from the save's ICE DB): (ICE id, line
-    /// numbers). A fight shows these in clear from its first turn.
-    pub ice_known: Vec<(String, Vec<u32>)>,
     /// The ICE sources the save owns (`Save::ice_sources`): a fight against a version whose
     /// source is here lists its program.
     pub ice_sources: Vec<crate::hub::IceSource>,
@@ -303,7 +300,6 @@ impl Default for Kit {
             games: Vec::new(),
             tunes: Vec::new(),
             texts: Vec::new(),
-            ice_known: Vec::new(),
             ice_sources: Vec::new(),
             ice_programs: Vec::new(),
             ice_study: Vec::new(),
@@ -573,11 +569,6 @@ pub struct Game {
     pub boards_read: Vec<String>,
     /// You read a partner directory this run: the starter networks come home with you.
     pub starters_read: bool,
-    /// The lines of each ICE's program the deck has seen it run, as (index into `Data::ice`,
-    /// the version they were seen on, line numbers, sorted): what the save knew of the version
-    /// in force at the start, plus every line an ICE's pass executes in this run. They come home
-    /// even on a flatline. Never read by play.
-    pub ice_lines: Vec<(usize, Version, Vec<u32>)>,
     /// The ICE sources the save owned at jack-in (the kit's). Never read by play.
     pub sources: Vec<crate::hub::IceSource>,
     /// The ICE sources got this run, in order. They come home even on a flatline.
@@ -777,19 +768,6 @@ impl Game {
             fragments: 0,
             caps: kit.caps,
         };
-        let ice_lines = kit
-            .ice_known
-            .iter()
-            .filter_map(|(id, lines)| {
-                let ice = data.ice.iter().position(|i| &i.id == id)?;
-                let v = kit
-                    .ice_programs
-                    .iter()
-                    .find(|(k, ..)| k == id)
-                    .map_or(Version::default(), |(_, v, ..)| *v);
-                Some((ice, v, crate::ice_listing::tidy(lines.clone())))
-            })
-            .collect();
         let ice_versions: Vec<(usize, Version, Program, Option<crate::ice_version::Bump>)> = kit
             .ice_programs
             .iter()
@@ -835,7 +813,6 @@ impl Game {
             hints: Vec::new(),
             boards_read: Vec::new(),
             starters_read: false,
-            ice_lines,
             sources: kit.ice_sources.clone(),
             sources_got: Vec::new(),
             ice_versions,
@@ -1359,10 +1336,19 @@ impl Game {
     }
 
     /// The program version `v` of ICE `ice` runs, as a fight books it (`Bout::program`: empty
-    /// for 1.0.0, the row's): `None` for a version past 1.0.0 that isn't in force this run.
+    /// for 1.0.0, the row's): `None` for a version past 1.0.0 that isn't in force this run or
+    /// the fight's.
     fn version_program(&self, ice: usize, v: Version) -> Option<String> {
         if v == Version::FIRST {
             return Some(String::new());
+        }
+        // The fight under way runs the version it opened on, though another has landed since.
+        if let Some(c) = self
+            .combat
+            .as_ref()
+            .filter(|c| c.ice == ice && c.ice_version == v)
+        {
+            return Some(c.ice_prog.text());
         }
         self.ice_versions
             .iter()
@@ -1382,6 +1368,13 @@ impl Game {
             .iter()
             .chain(&self.sources_got)
             .any(|s| s.is(id, v, &program))
+    }
+
+    /// Whether the ICE in front lists: the deck owns the source of the version it's fighting.
+    pub fn ice_listed(&self) -> bool {
+        self.combat
+            .as_ref()
+            .is_some_and(|c| self.owns_source(c.ice, c.ice_version))
     }
 
     /// Gets the source of version `v` of ICE `ice` (1.0.0, or the version in force this run):
@@ -1745,39 +1738,6 @@ impl Game {
             })
     }
 
-    /// Notes that the deck saw the current ICE run line `no` (`Game::ice_lines`).
-    fn saw_ice_line(&mut self, no: u32) {
-        let Some((ice, v)) = self.combat.as_ref().map(|c| (c.ice, c.ice_version)) else {
-            return;
-        };
-        let lines = match self
-            .ice_lines
-            .iter()
-            .position(|(i, w, _)| *i == ice && *w == v)
-        {
-            Some(k) => &mut self.ice_lines[k].2,
-            None => {
-                self.ice_lines.push((ice, v, Vec::new()));
-                &mut self.ice_lines.last_mut().expect("just pushed").2
-            }
-        };
-        crate::ice_listing::note_line(lines, no);
-    }
-
-    /// The lines of ICE `ice`'s program the deck has seen run (sorted), on the version it meets
-    /// ([`Game::version_met`]): what was seen of another version says nothing of this one.
-    pub fn ice_seen_lines(&self, ice: usize) -> &[u32] {
-        self.ice_lines_of(ice, self.version_met(ice))
-    }
-
-    /// The lines of version `v` of ICE `ice` the deck has seen run (sorted).
-    pub fn ice_lines_of(&self, ice: usize, v: Version) -> &[u32] {
-        self.ice_lines
-            .iter()
-            .find(|(i, w, _)| *i == ice && *w == v)
-            .map_or(&[], |(.., l)| l.as_slice())
-    }
-
     /// What an ICE's verb does, as `end_turn` used to do its intent: a hit less the shield
     /// (which the hit uses up), a trace, or strength. A lagged ICE does nothing.
     fn act(&mut self, act: Intent) -> StepWhat {
@@ -1942,6 +1902,17 @@ impl Game {
         let step = Step { line, what };
         let said = match side {
             Side::Deck => !matches!(step.what, StepWhat::Ran { .. }),
+            // Without its source the deck sees what the ICE does, never which line did it or
+            // what it read on the way (`step_text_of` says it with no line).
+            Side::Ice if !self.ice_listed() => matches!(
+                step.what,
+                StepWhat::Hit { .. }
+                    | StepWhat::Traced(_)
+                    | StepWhat::Fortified(_)
+                    | StepWhat::Spoofed(_)
+                    | StepWhat::Segfaulted(_)
+                    | StepWhat::Break
+            ),
             Side::Ice => !step.what.ends_turn() && step.what != StepWhat::Lagged,
         };
         if said {
@@ -2059,9 +2030,6 @@ impl Game {
             let next = self.prog(side).after(no);
             self.ex_mut(side).pc = next;
             ran |= !matches!(stmt, Stmt::Rem);
-            if side == Side::Ice && !matches!(stmt, Stmt::Rem) {
-                self.saw_ice_line(no);
-            }
             match stmt {
                 Stmt::Rem => {}
                 Stmt::Bad(why) => {

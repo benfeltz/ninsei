@@ -104,7 +104,10 @@ fn a_fight_fills_in_its_entry() {
     assert_eq!(e.name(), e.def.name);
     let page = e.lines(&s, &d).join("\n");
     assert!(page.contains(e.def.class.label()));
-    assert!(page.contains("decompiled"), "{page}");
+    assert!(
+        page.contains("source         none on disk"),
+        "fighting it got no code: {page}"
+    );
     // Fought again and lost: met twice, broken once.
     let mut again = 0;
     for seed in 5..60 {

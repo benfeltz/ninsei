@@ -88,10 +88,11 @@ fn spoof_hides_next_for_its_turns_on_every_screen_and_to_if_next() {
     let mut g = fight_on(data, "10 IF NEXT ATTACK\n20 STOP");
     assert_eq!(g.next_move(), Some(NextMove::Act(Intent::Spoof(2))));
     g.apply(Action::EndTurn);
-    assert!(g.log.iter().any(|l| {
-        l.text
-            .contains("SPOOF 2: its next moves are hidden for 2 turns.")
-    }));
+    assert!(
+        g.log
+            .iter()
+            .any(|l| { l.text.contains("its next moves are hidden for 2 turns.") })
+    );
     // Two blind turns: NEXT reads ???, IF NEXT is false but costs its GB, no listing mark.
     for turn in 0..2 {
         assert_eq!(g.next_move(), Some(NextMove::Spoofed), "turn {turn}");
@@ -252,7 +253,7 @@ fn a_turn_played_on_the_hotbar_segfaults_the_first_line_and_the_log_reads_in_ord
     let said: Vec<&str> = g.log[before..].iter().map(|l| l.text.as_str()).collect();
     let ice = said
         .iter()
-        .position(|t| t.contains("SEGFAULT: garbles your line 20"))
+        .position(|t| t.contains("garbles your line 20"))
         .unwrap();
     let err = said
         .iter()
@@ -353,7 +354,7 @@ fn segfault_hits_the_line_that_ran_what_its_target_ran_named() {
     assert!(
         g.log
             .iter()
-            .any(|l| l.text.contains("SEGFAULT: finds nothing to garble."))
+            .any(|l| l.text.contains("finds nothing to garble."))
     );
 
     // And a spare: with the first firewall line garbled, the next one that names it goes.

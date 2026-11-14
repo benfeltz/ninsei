@@ -77,11 +77,10 @@ pub fn ice_window(rows: &[IceRow], n: usize) -> Vec<IceRow> {
 /// A row of the ICE's listing in btop's lowercase: `▶` on the line it carries on from.
 pub fn ice_line(r: &IceRow) -> String {
     let mark = if r.cursor { "▶" } else { "·" };
-    format!("{mark} {:>3} {}", r.no, r.shown().to_lowercase())
+    format!("{mark} {:>3} {}", r.no, r.text.to_lowercase())
 }
 
-/// The heading over the ICE's listing: how much of it the deck has seen.
-pub fn ice_heading(rows: &[IceRow]) -> String {
-    let (seen, all) = crate::ice_listing::known(rows);
-    format!("PROG {seen}/{all}")
+/// The heading over the ICE's listing.
+pub fn ice_heading(_rows: &[IceRow]) -> String {
+    "PROG".to_string()
 }

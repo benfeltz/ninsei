@@ -562,10 +562,10 @@ impl Panes<'_> {
         ui.label(RichText::new(ninsei_core::ice_listing::heading(&rows)).color(p.dim));
         for r in &rows {
             let text = RichText::new(ninsei_core::ice_listing::card_line(r)).monospace();
-            let text = match (r.next, r.text.is_some()) {
-                (true, _) => text.color(p.bg).background_color(p.fg),
-                (false, true) => text.color(p.fg),
-                (false, false) => text.color(p.dim),
+            let text = if r.next {
+                text.color(p.bg).background_color(p.fg)
+            } else {
+                text.color(p.fg)
             };
             ui.label(text);
         }

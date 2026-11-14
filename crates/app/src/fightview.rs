@@ -555,11 +555,7 @@ fn hud(painter: &Painter, rect: Rect, p: &Palette, g: &Game, preview: Option<fig
     // the preview line under the strength readout.
     let rows = ninsei_core::ice_listing::rows(g);
     for (k, r) in btop_fight::ice_window(&rows, 3).iter().enumerate() {
-        let col = match (r.next, r.text.is_some()) {
-            (true, _) => p.bright,
-            (false, true) => p.fg,
-            (false, false) => alpha(p.dim, 0.8),
-        };
+        let col = if r.next { p.bright } else { p.fg };
         painter.text(
             pos2(rx + 42.0, y + 18.0 + k as f32 * 14.0),
             Align2::LEFT_CENTER,
