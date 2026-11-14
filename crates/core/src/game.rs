@@ -628,6 +628,21 @@ pub struct Game {
     pub program: Program,
     /// Where the program is in this fight.
     pub exec: Exec,
+    /// Set only on the copy `Game::starved` plays: what the forecast may and may not know.
+    dry: Dry,
+}
+
+/// The forecast's copy of the game (`Game::starved`): it plays the deck's pass and stops where
+/// the next line would depend on what the player can't see.
+#[derive(Clone, Copy, Debug, Default)]
+struct Dry {
+    /// This is the forecast's copy: the pass's end doesn't play the ICE's turn.
+    on: bool,
+    /// A RUN has run on the copy: the ICE's NEXT may now read what its unseen lines make of it.
+    ran: bool,
+    /// The copy came to what it can't know without giving it away: a quit roll, or a NEXT
+    /// after a RUN. Nothing from there on is forecast.
+    unsure: bool,
 }
 
 /// Whether the deck's program has the turn.
@@ -753,13 +768,23 @@ fn finish(mut starved: Vec<u32>, went: Vec<u32>) -> Vec<u32> {
     starved
 }
 
-/// The line a step executed, if it did: a RUN that ran, an IF, a GOTO or a STOP.
-fn executed(s: &Step) -> Option<u32> {
-    matches!(
-        s.what,
-        StepWhat::Ran { .. } | StepWhat::If(_) | StepWhat::Goto(_) | StepWhat::Stop
-    )
-    .then_some(s.line)
+/// Where the deck's pass stood before a line ([`Game::deck_mark`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DeckMark {
+    len: usize,
+    fight: Option<usize>,
+}
+
+impl Step {
+    /// The line this step executed, if it did: a RUN that ran, an IF, a GOTO or a STOP. What
+    /// the forecast (`Game::starved`) counts as executed.
+    pub fn executed(&self) -> Option<u32> {
+        matches!(
+            self.what,
+            StepWhat::Ran { .. } | StepWhat::If(_) | StepWhat::Goto(_) | StepWhat::Stop
+        )
+        .then_some(self.line)
+    }
 }
 
 impl Game {
@@ -874,6 +899,7 @@ impl Game {
             from_stash: Vec::new(),
             program: crate::basic::parse(&kit.program),
             exec: Exec::default(),
+            dry: Dry::default(),
         };
         let classic: Vec<String> = CLASSIC_WAREZ.iter().map(|s| s.to_string()).collect();
         let free = if kit.free.is_empty() {
@@ -1072,27 +1098,26 @@ impl Game {
         // What this pass already executed, if one is under way (or a hang holds it).
         let mut went: Vec<u32> = Vec::new();
         if self.exec.open || self.exec.broke.is_some() {
-            went.extend(self.exec.trace.iter().filter_map(executed));
+            went.extend(self.exec.trace.iter().filter_map(Step::executed));
         }
         let mut skipped: Vec<u32> = Vec::new();
         // The copy plays as Step would; what it does never reaches this game.
         let mut g = self.clone();
+        g.dry = Dry {
+            on: true,
+            ..Dry::default()
+        };
         let mut ghost = None;
         // The STOPs it carried on past, as a player pressing Step would: coming back to one
         // goes round for ever, and the forecast ends there.
         let mut stops: Vec<u32> = Vec::new();
         'pass: loop {
-            let from = if g.exec.open { g.exec.trace.len() } else { 0 };
-            let fight = g.combat.as_ref().map(|c| c.node);
+            let mark = g.deck_mark();
             let how = g.line(Side::Deck);
-            let trace = &g.exec.trace;
-            // A RUN that broke this ICE starts the next one's fight with a fresh trace.
-            let new = if trace.len() < from || g.combat.as_ref().map(|c| c.node) != fight {
-                &trace[..]
-            } else {
-                &trace[from..]
-            };
-            for s in new {
+            if g.dry.unsure {
+                break;
+            }
+            for (i, s) in g.deck_steps_since(mark).iter().enumerate() {
                 match &s.what {
                     StepWhat::Skipped(_) => {
                         let run = self
@@ -1103,10 +1128,11 @@ impl Game {
                             skipped.push(s.line);
                         }
                     }
-                    // The cycles ran out after this line: the walk goes on from the next.
-                    StepWhat::OutOfCpu => {
-                        ghost = Some(self.program.after(s.line));
-                    }
+                    // The cycles ran out after this line, and the walk goes on from the next;
+                    // or they were out before it ran anything (the hotbar spent them), and
+                    // the line under the ▶ is the first to go without.
+                    StepWhat::OutOfCpu if i == 0 => ghost = Some(Some(s.line)),
+                    StepWhat::OutOfCpu => ghost = Some(self.program.after(s.line)),
                     // No GB for this IF: it starves, and so does what it leads to.
                     StepWhat::OutOfRam => ghost = Some(Some(s.line)),
                     StepWhat::Stop if stops.contains(&s.line) => break 'pass,
@@ -1114,7 +1140,7 @@ impl Game {
                         stops.push(s.line);
                         went.push(s.line);
                     }
-                    _ => went.extend(executed(s)),
+                    _ => went.extend(s.executed()),
                 }
             }
             match how {
@@ -1126,10 +1152,36 @@ impl Game {
             }
         }
         starved.extend(skipped);
-        if let Some(from) = ghost {
-            starved.extend(self.walk_from(from));
+        if let Some(from) = ghost.filter(|_| !g.dry.unsure) {
+            // Walked on the copy, as the pass left it: its IFs read what its RUNs did.
+            starved.extend(g.walk_from(from));
         }
         finish(starved, went)
+    }
+
+    /// Where the deck's pass stands, to read the steps a line adds after it
+    /// ([`Game::deck_steps_since`]).
+    pub fn deck_mark(&self) -> DeckMark {
+        DeckMark {
+            len: if self.exec.open {
+                self.exec.trace.len()
+            } else {
+                0
+            },
+            fight: self.combat.as_ref().map(|c| c.node),
+        }
+    }
+
+    /// The deck's steps since `mark`: the pass's new ones, or all of a fight's that a RUN
+    /// started (it starts with a fresh trace).
+    pub fn deck_steps_since(&self, mark: DeckMark) -> &[Step] {
+        let trace = &self.exec.trace;
+        let fight = self.combat.as_ref().map(|c| c.node);
+        if trace.len() < mark.len || fight != mark.fight {
+            trace
+        } else {
+            &trace[mark.len..]
+        }
     }
 
     /// The RUNs that can never run on this deck: no such program on the disk, or one that
@@ -1149,7 +1201,8 @@ impl Game {
     }
 
     /// The deck's lines a pass comes to from line `from` on, with no budgets: its IFs read as
-    /// the fight stands now, round to the first line it comes back to or the program's end.
+    /// the fight stands now, round to the first line it comes back to or the program's end,
+    /// or to a NEXT the forecast's own RUNs may have changed.
     fn walk_from(&self, from: Option<u32>) -> Vec<u32> {
         let p = &self.program;
         let mut pc = from;
@@ -1162,6 +1215,8 @@ impl Game {
             let next = p.after(no);
             pc = next;
             match p.line(no).map(|l| &l.stmt) {
+                // Past a RUN, NEXT is the ICE's unseen lines' to say: the walk stops.
+                Some(Stmt::If(Cond::Next(_))) if self.dry.ran => break,
                 Some(Stmt::If(cond)) if !self.test(cond) => pc = p.skip(next),
                 Some(Stmt::Goto(to)) if p.line(*to).is_some() => pc = Some(*to),
                 _ => {}
@@ -1666,7 +1721,15 @@ impl Game {
             return false;
         };
         let leet = c.leet;
-        if c.strength * 100 > y.below * c.strength_max || !self.rng.chance(y.chance) {
+        if c.strength * 100 > y.below * c.strength_max {
+            return false;
+        }
+        // The forecast never rolls: whether the ICE quits is the turn's to find out.
+        if self.dry.on {
+            self.dry.unsure = true;
+            return false;
+        }
+        if !self.rng.chance(y.chance) {
             return false;
         }
         let name = self.data.ice[c.ice].name.clone();
@@ -2210,6 +2273,7 @@ impl Game {
                         Ok(p) => {
                             self.exec.visited.clear();
                             let uid = self.hdd[slot].uid;
+                            self.dry.ran |= self.dry.on;
                             self.apply(Action::Run(slot));
                             if let Some(c) = self.combat.as_mut() {
                                 c.ran_lines.push((uid, no));
@@ -2252,6 +2316,12 @@ impl Game {
                 Stmt::Run(_) | Stmt::Act(_) => {
                     let why = "?SYNTAX ERROR: unknown keyword".to_string();
                     self.trace_step(side, no, StepWhat::Skipped(why));
+                }
+                // The forecast's copy can't read NEXT once its own RUNs may have changed it:
+                // the ICE's unseen lines decide that, and the screen hasn't shown it yet.
+                Stmt::If(Cond::Next(_)) if side == Side::Deck && self.dry.on && self.dry.ran => {
+                    self.dry.unsure = true;
+                    return Line::Hung;
                 }
                 Stmt::If(cond) => {
                     if ifs == 0 {
@@ -2333,6 +2403,8 @@ impl Game {
     /// The pass is over. The deck's ends the turn, and the ICE acts; the ICE's ends its turn.
     fn close(&mut self, side: Side) -> Line {
         match side {
+            // The forecast's copy stops where the pass does, its state as the pass left it.
+            Side::Deck if self.dry.on => {}
             Side::Deck => self.apply(Action::EndTurn),
             Side::Ice => {
                 let e = self.ex_mut(side);

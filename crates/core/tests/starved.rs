@@ -127,6 +127,79 @@ fn a_program_not_on_the_disk_is_starved_in_and_out_of_a_fight() {
 }
 
 #[test]
+fn the_line_under_the_cursor_starves_when_the_hotbar_spent_the_cycles() {
+    let mut g = run_with(7, 3, 6, &["icepick"]);
+    into_fight(&mut g, 1, Some(500));
+    g.apply(Action::Program(
+        "10 IF INTEG > 0\n20 RUN icepick\n30 RUN icepick".into(),
+    ));
+    g.apply(Action::Step);
+    assert_eq!(g.exec.pc, Some(20));
+    let pick = g.slot_named("icepick").unwrap();
+    for _ in 0..3 {
+        g.apply(Action::Run(pick));
+    }
+    assert_eq!(g.combat.as_ref().unwrap().cpu, 0);
+    assert_eq!(g.starved(), [20, 30], "the line under the ▶ too");
+}
+
+#[test]
+fn the_walk_past_the_last_cycle_reads_what_the_pass_did() {
+    let mut g = run_with(7, 3, 6, &["icepick", "patch", "firewall"]);
+    into_fight(&mut g, 1, Some(500));
+    g.deck.integrity = 4;
+    // The patch lifts INTEG to 7 before the cycles run out, so the IF the walk comes to is
+    // false and its firewall is behind it, not starved.
+    g.apply(Action::Program(
+        "10 RUN patch\n20 RUN icepick\n30 RUN icepick\n40 IF INTEG < 5\n50 RUN firewall".into(),
+    ));
+    assert_eq!(g.starved(), [40]);
+}
+
+#[test]
+fn the_forecast_never_rolls_whether_the_ice_quits() {
+    let data = Data::builtin().unwrap();
+    let rival = data.ice.iter().position(|i| i.id == "rival").unwrap();
+    assert!(data.ice[rival].yields.is_some());
+    let program = picks(10, 4);
+    // Strong enough that no pick this turn could make it quit: the fourth pick starves.
+    let mut g = run_with(7, 3, 6, &["icepick"]);
+    into_fight(&mut g, rival, Some(500));
+    g.apply(Action::Program(program.clone()));
+    assert_eq!(g.starved(), [40]);
+    // One pick takes it under its yield line: whether it quits is the turn's roll, so the
+    // forecast stops there, whatever the roll would say.
+    for seed in 0..20 {
+        let mut g = run_with(seed, 3, 6, &["icepick"]);
+        into_fight(&mut g, rival, None);
+        let c = g.combat.as_mut().unwrap();
+        (c.strength, c.strength_max) = (12, 20);
+        g.apply(Action::Program(program.clone()));
+        assert_eq!(g.starved(), Vec::<u32>::new(), "seed {seed}");
+    }
+}
+
+#[test]
+fn the_forecast_never_reads_a_next_its_own_runs_may_have_changed() {
+    let data = Data::builtin().unwrap();
+    let hunter = data.ice.iter().position(|i| i.id == "hunter").unwrap();
+    let mut g = run_with(7, 3, 6, &["icepick", "patch", "firewall"]);
+    into_fight(&mut g, hunter, Some(500));
+    // Hunter's unseen `10 IF TARGET RAN patch` turns its NEXT to an attack once the patch has
+    // run: the forecast mustn't show it before the screen does, so it stops at the IF.
+    g.apply(Action::Program(
+        "10 RUN patch\n20 IF NEXT ATTACK\n30 RUN firewall\n40 RUN icepick\n50 RUN icepick".into(),
+    ));
+    assert_eq!(g.starved(), Vec::<u32>::new());
+    // A NEXT read before any RUN is what's on screen now: the forecast goes on.
+    g.apply(Action::Program(
+        "10 IF NEXT ATTACK\n20 RUN firewall\n30 RUN icepick\n40 RUN icepick\n50 RUN icepick\n60 RUN icepick"
+            .into(),
+    ));
+    assert_eq!(g.starved(), [60]);
+}
+
+#[test]
 fn the_forecast_changes_nothing() {
     let mut g = run_with(11, 3, 6, &["icepick", "patch", "firewall", "torch"]);
     into_fight(&mut g, 1, None);
@@ -141,15 +214,6 @@ fn the_forecast_changes_nothing() {
     assert_eq!(g.starved(), first, "and asked again, the same answer");
 }
 
-/// The lines a step executed: RUNs that ran, IFs, GOTOs and STOPs.
-fn executed(s: &ninsei_core::game::Step) -> Option<u32> {
-    matches!(
-        s.what,
-        StepWhat::Ran { .. } | StepWhat::If(_) | StepWhat::Goto(_) | StepWhat::Stop
-    )
-    .then_some(s.line)
-}
-
 /// Plays a turn a Step at a time, as the driver does, and returns the lines it executed. A
 /// STOP or a hang hands the turn over and the turn is ended there, as the probe's bots do.
 fn play_turn(g: &mut Game) -> Vec<u32> {
@@ -157,15 +221,9 @@ fn play_turn(g: &mut Game) -> Vec<u32> {
     let ice = g.combat.as_ref().map(|c| c.node);
     let mut went = Vec::new();
     for _ in 0..1000 {
-        let from = if g.exec.open { g.exec.trace.len() } else { 0 };
+        let mark = g.deck_mark();
         g.apply(Action::Step);
-        let trace = &g.exec.trace;
-        let new = if trace.len() < from || g.combat.as_ref().map(|c| c.node) != ice {
-            &trace[..]
-        } else {
-            &trace[from..]
-        };
-        went.extend(new.iter().filter_map(executed));
+        went.extend(g.deck_steps_since(mark).iter().filter_map(|s| s.executed()));
         if g.phase != Phase::Combat || turn(g) != t || g.combat.as_ref().map(|c| c.node) != ice {
             return went;
         }
