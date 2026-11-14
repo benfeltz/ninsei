@@ -36,6 +36,8 @@ pub struct HomeCall {
     cracks: Vec<(String, String)>,
     /// Each tune's id and its title, for "you already have".
     tune_titles: Vec<(String, String)>,
+    /// Each ICE kind's id and its name, for "you already have".
+    ice_names: Vec<(String, String)>,
     /// The board's news of new ICE versions, as it stands today.
     news: Option<crate::data::BulletinDef>,
     /// The ICE sources you own that its source area lists: (ICE id, version).
@@ -106,6 +108,7 @@ impl Line for HomeCall {
             &self.tool_defs,
             &self.cracks,
             &self.tune_titles,
+            &self.ice_names,
             &f.item,
             self,
         ) {
@@ -247,6 +250,7 @@ impl Save {
             tool_defs: data.tools.clone(),
             cracks: data.crack_labels(),
             tune_titles: data.tune_titles(),
+            ice_names: data.ice_names(),
             // Only a board that hears news reads the versions in force.
             news: data.boards[board].ice_news.as_ref().and_then(|_| {
                 crate::bbs::news_bulletin(&data.boards[board], data, &self.shipped(data))

@@ -2826,6 +2826,7 @@ impl Game {
             &self.data.tools,
             &self.data.crack_labels(),
             &self.data.tune_titles(),
+            &self.data.ice_names(),
             &def.item,
             self,
         ) {
@@ -3097,6 +3098,7 @@ pub fn tool_blocker(
     tools: &[crate::data::ToolDef],
     cracks: &[(String, String)],
     tunes: &[(String, String)],
+    ice: &[(String, String)],
     item: &Drop,
     line: &dyn crate::bbs::Line,
 ) -> Option<String> {
@@ -3105,12 +3107,19 @@ pub fn tool_blocker(
             return Some("that textfile's already on your disk.".into());
         }
         _ if !line.owns(item) => return None,
-        Drop::Tool(id) => tools.iter().find(|t| t.id == *id).map(|t| &t.name),
-        Drop::Game(id) => cracks.iter().find(|(g, _)| g == id).map(|(_, l)| l),
-        Drop::Tune(id) => tunes.iter().find(|(t, _)| t == id).map(|(_, l)| l),
+        Drop::Tool(id) => tools.iter().find(|t| t.id == *id).map(|t| t.name.clone()),
+        Drop::Game(id) => cracks.iter().find(|(g, _)| g == id).map(|(_, l)| l.clone()),
+        Drop::Tune(id) => tunes.iter().find(|(t, _)| t == id).map(|(_, l)| l.clone()),
+        Drop::Source { ice: id, version } => ice
+            .iter()
+            .find(|(i, _)| i == id)
+            .map(|(_, n)| format!("{n} {version}'s source")),
         _ => None,
     };
-    Some(format!("you already have {}.", name.map_or("that", |n| n)))
+    Some(format!(
+        "you already have {}.",
+        name.as_deref().unwrap_or("that")
+    ))
 }
 
 /// A board's listing for one visit: per area, `stock` files picked at random.
