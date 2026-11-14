@@ -63,10 +63,20 @@ pub fn rows(g: &Game) -> Vec<IceRow> {
     rows
 }
 
-/// The ICE card's heading over the listing (the Sense/Net's, and the classic panes').
-pub fn heading(_rows: &[IceRow]) -> String {
-    "its program".to_string()
+/// A deck's words for the ICE's listing: the heading over it, and what stands in its place in a
+/// fight when the deck has no source for the version in front (`rows` is empty). The words say
+/// what is there, as that deck's software would, and never where a source might come from.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct IceWords {
+    pub heading: &'static str,
+    pub none: &'static str,
 }
+
+/// The classic panes' words: the terminal's caps.
+pub const CLASSIC: IceWords = IceWords {
+    heading: "PROGRAM",
+    none: "NO SOURCE.",
+};
 
 /// A row as the ICE card prints it: the cursor's ▶, the number right-aligned in five cells,
 /// the statement.

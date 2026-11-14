@@ -438,7 +438,7 @@ impl ChromeView for Stack {
     fn target(&self, p: &mut Panes, ui: &mut Ui) {
         round(ui);
         ui.visuals_mut().widgets.noninteractive.bg_stroke.color = p.pal.fg;
-        p.target(ui);
+        p.target_with(ui, &stack_fight::ICE_WORDS);
     }
 
     /// The Script card, the whole run: Step, Run and Pause press only with ICE in front.

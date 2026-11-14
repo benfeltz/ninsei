@@ -554,6 +554,15 @@ fn hud(painter: &Painter, rect: Rect, p: &Palette, g: &Game, preview: Option<fig
     // Under it, the ICE's program from where it carries on, as the deck has seen it, clear of
     // the preview line under the strength readout.
     let rows = ninsei_core::ice_listing::rows(g);
+    if rows.is_empty() {
+        painter.text(
+            pos2(rx + 42.0, y + 18.0),
+            Align2::LEFT_CENTER,
+            crate::kit::cells::cut(btop_fight::ICE_WORDS.none, room(11.0)),
+            mono(11.0),
+            p.dim,
+        );
+    }
     for (k, r) in btop_fight::ice_window(&rows, 3).iter().enumerate() {
         let col = if r.next { p.bright } else { p.fg };
         painter.text(

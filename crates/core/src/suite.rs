@@ -379,10 +379,12 @@ impl Watch {
 /// The incident report's table of the ICE's procedure: step, statement.
 pub const PROCEDURE_COLUMNS: [&str; 2] = ["STEP", "STATEMENT"];
 
-/// The heading over it.
-pub fn procedure_title(_rows: &[crate::ice_listing::IceRow]) -> String {
-    "PROCEDURE".to_string()
-}
+/// The procedure's words, Turbo Debugger's: a module loaded with no debug information says it
+/// has no symbol table.
+pub const ICE_WORDS: crate::ice_listing::IceWords = crate::ice_listing::IceWords {
+    heading: "PROCEDURE",
+    none: "PROGRAM HAS NO SYMBOL TABLE",
+};
 
 /// A row of the ICE's procedure as the incident report lists it.
 #[derive(Clone, Debug, PartialEq, Eq)]
