@@ -215,19 +215,12 @@ impl Game {
     /// ICE's steps are named for the ICE, since the OS is watching it run.
     pub fn step_text_of(&self, side: Side, s: &Step) -> String {
         let ice = self.combat.as_ref().filter(|_| side == Side::Ice);
-        // An ICE whose source the deck doesn't own: what it did, never the line that did it.
+        // An ICE whose source the deck doesn't own: what it did, never the line that did it
+        // (`trace_step` says nothing else of its pass).
         if let Some(c) = ice.filter(|_| !self.ice_listed()) {
             let did = match &s.what {
-                StepWhat::Hit { dmg, blocked: 0 } => format!("hits for {dmg}."),
-                StepWhat::Hit { dmg, blocked } => format!("hits for {dmg} ({blocked} blocked)."),
-                StepWhat::Traced(n) => format!("traces +{n}."),
-                StepWhat::Fortified(n) => format!("fortifies +{n}."),
-                StepWhat::Lagged => "lagged. it does nothing.".to_string(),
-                StepWhat::Spoofed(n) => format!("its next moves are hidden for {n} turns."),
-                StepWhat::Segfaulted(Some(hit)) => format!("garbles your line {hit}."),
-                StepWhat::Segfaulted(None) => "finds nothing to garble.".to_string(),
                 StepWhat::Break => "stalls. it does nothing.".to_string(),
-                _ => "acts.".to_string(),
+                w => effect(w).unwrap_or_default(),
             };
             return format!("{} {did}", self.data.ice[c.ice].name);
         }
@@ -262,24 +255,29 @@ impl Game {
             StepWhat::OutOfCpu => "out of cycles. the turn is over.".to_string(),
             StepWhat::OutOfRam => format!("{no} {text}: no memory left for it. the turn is over."),
             StepWhat::End => "end of program. the turn is over.".to_string(),
-            StepWhat::Hit { dmg, blocked: 0 } => format!("{no} {text}: hits for {dmg}."),
-            StepWhat::Hit { dmg, blocked } => {
-                format!("{no} {text}: hits for {dmg} ({blocked} blocked).")
-            }
-            StepWhat::Traced(n) => format!("{no} {text}: traces +{n}."),
-            StepWhat::Fortified(n) => format!("{no} {text}: fortifies +{n}."),
-            StepWhat::Lagged => format!("{no} {text}: lagged. it does nothing."),
-            StepWhat::Spoofed(n) => {
-                format!("{no} {text}: its next moves are hidden for {n} turns.")
-            }
-            StepWhat::Segfaulted(Some(hit)) => format!("{no} {text}: garbles your line {hit}."),
-            StepWhat::Segfaulted(None) => format!("{no} {text}: finds nothing to garble."),
+            w => format!("{no} {text}: {}", effect(w).unwrap_or_default()),
         };
         match ice {
             Some(c) => format!("{} {said}", self.data.ice[c.ice].name),
             None => said,
         }
     }
+}
+
+/// What an ICE's verb did, in the same words whether or not the log names the line that did it:
+/// `None` for a step that isn't a verb's.
+fn effect(what: &StepWhat) -> Option<String> {
+    Some(match what {
+        StepWhat::Hit { dmg, blocked: 0 } => format!("hits for {dmg}."),
+        StepWhat::Hit { dmg, blocked } => format!("hits for {dmg} ({blocked} blocked)."),
+        StepWhat::Traced(n) => format!("traces +{n}."),
+        StepWhat::Fortified(n) => format!("fortifies +{n}."),
+        StepWhat::Lagged => "lagged. it does nothing.".to_string(),
+        StepWhat::Spoofed(n) => format!("its next moves are hidden for {n} turns."),
+        StepWhat::Segfaulted(Some(hit)) => format!("garbles your line {hit}."),
+        StepWhat::Segfaulted(None) => "finds nothing to garble.".to_string(),
+        _ => return None,
+    })
 }
 
 /// How many of a wireframe's `total` edges are still up at `strength` of `max`: all of them at
