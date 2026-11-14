@@ -652,7 +652,8 @@ impl App {
         if let Some(id) = self.home.dial_started.take()
             && let Some(number) = self.save.entry(id).map(|e| e.number.clone())
         {
-            self.speaker.dial(&number);
+            self.speaker
+                .dial(&ninsei_core::modem::Handshake::new(&number));
         }
         // Hung up mid-handshake: the modem goes quiet with it.
         if std::mem::take(&mut self.home.dial_cut) {
@@ -672,16 +673,26 @@ impl App {
         }
         let open = self.bbs.is_some() || self.home_bbs.is_some();
         if open && !self.bbs_heard {
-            // A call from home dials that board's number; in a run, the network's board.
-            let phone = match &self.home_bbs {
-                Some((_, call)) => ninsei_core::bbs::Line::board(call).phone.clone(),
-                None => self.game.bbs().phone.clone(),
-            };
-            self.speaker.dial(&phone);
+            // The line's own call, the one its window ticks against: a call from home dials
+            // that board's number; in a run, the net's PAD calls the network's board.
+            if let Some(call) = self.bbs_call() {
+                self.speaker.dial(call.timeline());
+            }
         } else if !open && self.bbs_heard {
             self.speaker.stop();
         }
         self.bbs_heard = open;
+    }
+
+    /// The call on the BBS window's line, if one is up: a board called from home, else the
+    /// run's.
+    fn bbs_call(&self) -> Option<ninsei_core::bbs::Call> {
+        use ninsei_core::bbs::Line;
+        match (&self.home_bbs, &self.bbs) {
+            (Some((_, call)), _) => Some(call.connect()),
+            (None, Some(_)) => Some(self.game.connect()),
+            (None, None) => None,
+        }
     }
 
     fn toggle_crt(&mut self) {
@@ -837,6 +848,11 @@ impl App {
                     self.home_bbs = None;
                     self.home.say("NO CARRIER");
                     return;
+                }
+                // The connect was skipped: its sound goes with it.
+                Outcome::Cut => {
+                    self.speaker.stop();
+                    continue;
                 }
                 _ => continue,
             };
@@ -1839,7 +1855,10 @@ impl App {
                         self.focus_input = true;
                         break;
                     }
-                    Outcome::None | Outcome::Cut => {}
+                    // The connect was skipped: the modem channel goes quiet, the run's tune and
+                    // cues play on.
+                    Outcome::Cut => self.speaker.stop(),
+                    Outcome::None => {}
                 }
             }
         }
@@ -2558,6 +2577,26 @@ mod tests {
             assert!(!app.sound_popup.is_open());
             typed(&mut h, &mut app, "d");
             assert_eq!(app.term.text(), "abcd");
+        }
+
+        #[test]
+        fn the_bbs_sounds_its_own_line() {
+            use ninsei_core::bbs::Call;
+            use ninsei_core::modem::Handshake;
+            let (_, mut app) = running("onosendai");
+            assert_eq!(app.bbs_call(), None, "no line, no sound");
+            // A run's board: the net's PAD, the X.25 call its window ticks against.
+            app.bbs = Some(BbsView::new());
+            let call = app.bbs_call().unwrap();
+            assert!(matches!(call, Call::Packet { .. }));
+            assert_eq!(call.timeline(), &Handshake::x25());
+            // A board called from home: the full handshake to its number.
+            app.bbs = None;
+            let rig = app.data.rig.clone();
+            let home = app.save.home_call(&app.data, &rig, 0);
+            let phone = ninsei_core::bbs::Line::board(&home).phone.clone();
+            app.home_bbs = Some((BbsView::new(), home));
+            assert_eq!(app.bbs_call(), Some(Call::Modem(Handshake::new(&phone))));
         }
 
         #[test]
