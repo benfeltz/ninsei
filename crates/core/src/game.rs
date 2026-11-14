@@ -180,6 +180,9 @@ pub struct Combat {
     pub ice: usize,
     /// The version of its kind it runs (1.0.0 is its row's program).
     pub ice_version: Version,
+    /// The deck owns the source of that version (`Game::owns_source`, as the fight opened or
+    /// since): every screen and the log list its program. Never read by play.
+    pub listed: bool,
     pub strength: u32,
     pub strength_max: u32,
     /// The ICE's program, parsed in its own vocabulary.
@@ -1344,19 +1347,10 @@ impl Game {
     }
 
     /// The program version `v` of ICE `ice` runs, as a fight books it (`Bout::program`: empty
-    /// for 1.0.0, the row's): `None` for a version past 1.0.0 that isn't in force this run or
-    /// the fight's.
+    /// for 1.0.0, the row's): `None` for a version past 1.0.0 that isn't in force this run.
     fn version_program(&self, ice: usize, v: Version) -> Option<String> {
         if v == Version::FIRST {
             return Some(String::new());
-        }
-        // The fight under way runs the version it opened on, though another has landed since.
-        if let Some(c) = self
-            .combat
-            .as_ref()
-            .filter(|c| c.ice == ice && c.ice_version == v)
-        {
-            return Some(c.ice_prog.text());
         }
         self.ice_versions
             .iter()
@@ -1378,11 +1372,10 @@ impl Game {
             .any(|s| s.is(id, v, &program))
     }
 
-    /// Whether the ICE in front lists: the deck owns the source of the version it's fighting.
+    /// Whether the ICE in front lists: the deck owns the source of the version it's fighting
+    /// (`Combat::listed`).
     pub fn ice_listed(&self) -> bool {
-        self.combat
-            .as_ref()
-            .is_some_and(|c| self.owns_source(c.ice, c.ice_version))
+        self.combat.as_ref().is_some_and(|c| c.listed)
     }
 
     /// [`Action::GetSource`]: the source of version `v` of ICE `ice` (1.0.0, or a version this
@@ -1402,6 +1395,13 @@ impl Game {
             version: v,
             program,
         });
+        if let Some(c) = self
+            .combat
+            .as_mut()
+            .filter(|c| c.ice == ice && c.ice_version == v)
+        {
+            c.listed = true;
+        }
         Ok(())
     }
 
@@ -1443,10 +1443,12 @@ impl Game {
             broken: false,
             tells: Vec::new(),
         });
+        let listed = self.owns_source(ice, ice_version);
         self.combat = Some(Combat {
             node,
             ice,
             ice_version,
+            listed,
             strength,
             strength_max: strength,
             ice_prog,

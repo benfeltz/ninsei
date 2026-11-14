@@ -41,13 +41,13 @@ pub fn decompile_def(program: &str, verbs: &[Verb]) -> Vec<IceRow> {
 
 /// The ICE in front, as the deck has it, with its cursor and NEXT's line marked: the fight's
 /// own parse of its program, when the deck owns the source of the version it's fighting
-/// (`Game::owns_source`); otherwise nothing at all, not even how many lines there are. Empty
+/// (`Combat::listed`); otherwise nothing at all, not even how many lines there are. Empty
 /// outside a fight. Build it once a frame and hand it to each deck's words.
 pub fn rows(g: &Game) -> Vec<IceRow> {
     let Some(c) = g.combat.as_ref().filter(|_| fighting(g)) else {
         return Vec::new();
     };
-    if !g.owns_source(c.ice, c.ice_version) {
+    if !c.listed {
         return Vec::new();
     }
     let cursor = c.ice_prog.rest(c.ice_exec.pc.or(c.ice_prog.first()));
