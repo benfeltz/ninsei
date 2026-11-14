@@ -663,4 +663,7 @@ fn the_news_is_a_caller_s_post_and_its_poster_is_checked() {
     let mut bad = d.clone();
     bad.boards[gutter].ice_news.as_mut().unwrap().sign = "-- m0th".into();
     assert!(bad.validate().is_err());
+    let mut bad = d.clone();
+    bad.boards[gutter].ice_news.as_mut().unwrap().sign = "-- {by} on {ice}".into();
+    assert!(bad.validate().is_err(), "a slot it can't fill");
 }

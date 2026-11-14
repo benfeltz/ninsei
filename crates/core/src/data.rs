@@ -1870,6 +1870,9 @@ impl Data {
             return Err(format!("`{l}` is wider than the terminal"));
         }
         let signed = n.sign.replace("{by}", &n.by);
+        if signed.contains('{') || signed.contains('}') {
+            return Err(format!("`{signed}` has a word it can't fill ({{by}} only)"));
+        }
         if !fits(&signed) {
             return Err(format!("`{signed}` is wider than the terminal"));
         }
