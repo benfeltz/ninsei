@@ -1839,7 +1839,7 @@ impl App {
                         self.focus_input = true;
                         break;
                     }
-                    Outcome::None => {}
+                    Outcome::None | Outcome::Cut => {}
                 }
             }
         }

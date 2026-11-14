@@ -362,3 +362,80 @@ fn every_home_screen_fits() {
         );
     }
 }
+
+/// Everything a call from home shows while it dials and hangs up, every board, a frame every
+/// 50 ms, with what each tick and each key does: the home call's whole modem theatre.
+fn home_theatre() -> String {
+    let d = data();
+    let s = knows_all(500);
+    let mut out = String::new();
+    for board in 0..d.boards.len() {
+        let call = s.home_call(&d, &d.rig, board);
+        let mut sess = Session::new();
+        for _ in 0..200 {
+            let before = sess.screen;
+            let key = sess.clone().key(&call, 'x');
+            let lines = sess.render(&call).join("\n");
+            let tick = sess.tick(&call, 0.05);
+            out.push_str(&format!("{before:?} {key:?} {tick:?}\n{lines}\n"));
+            if sess.screen == Screen::Splash {
+                break;
+            }
+        }
+        sess.screen = Screen::Main;
+        sess.key(&call, 'G');
+        for _ in 0..40 {
+            let before = sess.screen;
+            let key = sess.clone().key(&call, 'x');
+            let lines = sess.render(&call).join("\n");
+            let tick = sess.tick(&call, 0.05);
+            out.push_str(&format!("{before:?} {key:?} {tick:?}\n{lines}\n"));
+            if tick == ninsei_core::bbs::Outcome::Closed {
+                break;
+            }
+        }
+    }
+    out
+}
+
+#[test]
+fn the_home_call_dials_and_hangs_up_as_it_always_did() {
+    // Pinned on main before the run's X.25 call came (140): every line of every board's dial
+    // and hang-up, frame by frame, and what each tick and key did. A home call ignores keys
+    // while it dials and hangs up with +++, ATH0 and NO CARRIER over BBS_HANGUP_SECS.
+    let t = home_theatre();
+    if let Ok(path) = std::env::var("THEATRE_OUT") {
+        std::fs::write(path, &t).unwrap();
+    }
+    let h = t.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
+        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
+    });
+    assert_eq!((h, t.len()), (0x6cf8_3224_9dcb_fefb, 40789));
+    assert!(t.contains("ATDT") && t.contains("NO CARRIER") && !t.contains(" COM"));
+}
+
+#[test]
+fn a_home_call_is_a_modem_call_and_can_t_be_hurried() {
+    use ninsei_core::bbs::{Call, Outcome};
+    let d = data();
+    let s = knows_all(500);
+    for board in 0..d.boards.len() {
+        let call = s.home_call(&d, &d.rig, board);
+        let b = call.board();
+        let h = ninsei_core::modem::Handshake::new(&b.phone);
+        assert_eq!(call.connect(), Call::Modem(h.clone()), "{}", b.id);
+        assert!(!call.connect().skippable());
+        assert_eq!(
+            Session::title(&call),
+            format!("TELIX 3.51 — {}  {} 8N1  ANSI-BBS", b.name, b.baud),
+            "the title as it was"
+        );
+        let mut sess = Session::new();
+        assert_eq!(sess.skip(&call), Outcome::None, "a click doesn't hurry it");
+        assert_eq!(sess.key(&call, ' '), Outcome::None);
+        sess.tick(&call, h.end - 0.01);
+        assert!(sess.connecting(), "the full handshake");
+        sess.tick(&call, 0.02);
+        assert_eq!(sess.screen, Screen::Splash);
+    }
+}
