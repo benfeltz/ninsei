@@ -16,7 +16,7 @@ Every text in the game has an author inside the world, and it knows only what th
 | CPU Shopper (editors, advertisers) | products, prices, 1-800 hotlines, what's reviewed this issue | your deck, your settings app, a key to press, a board's 555 number |
 | Sense/Net Customer Care | its deck, its welcome stack, its partners, its terms of service | the illicit boards (it deletes posts about them) |
 | CorpLink's help desk | policy, requisitions, memos, who's logged in | that anyone outside the company is reading |
-| The OS (menus, windows, System) | its own windows and the tools you own | what a magazine printed, what you haven't found |
+| The OS (menus, windows, System) | its own windows, the tools you own and the files on its disk (an ICE's source, when you have one; a fight shows it nothing else of the ICE's code) | what a magazine printed, what you haven't found, where a missing file might be got |
 | A contract client (MSG nodes, the Jobs board) | its grudge and its target | more than it needs you to know |
 
 When a screen needs to tell the player something its author couldn't know, it's the wrong screen: put it where the in-world author would.
