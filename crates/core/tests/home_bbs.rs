@@ -363,55 +363,83 @@ fn every_home_screen_fits() {
     }
 }
 
-/// Everything a call from home shows while it dials and hangs up, every board, a frame every
-/// 50 ms, with what each tick and each key does: the home call's whole modem theatre.
-fn home_theatre() -> String {
-    let d = data();
-    let s = knows_all(500);
-    let mut out = String::new();
-    for board in 0..d.boards.len() {
-        let call = s.home_call(&d, &d.rig, board);
-        let mut sess = Session::new();
-        for _ in 0..200 {
-            let before = sess.screen;
-            let key = sess.clone().key(&call, 'x');
-            let lines = sess.render(&call).join("\n");
-            let tick = sess.tick(&call, 0.05);
-            out.push_str(&format!("{before:?} {key:?} {tick:?}\n{lines}\n"));
-            if sess.screen == Screen::Splash {
-                break;
-            }
-        }
-        sess.screen = Screen::Main;
-        sess.key(&call, 'G');
-        for _ in 0..40 {
-            let before = sess.screen;
-            let key = sess.clone().key(&call, 'x');
-            let lines = sess.render(&call).join("\n");
-            let tick = sess.tick(&call, 0.05);
-            out.push_str(&format!("{before:?} {key:?} {tick:?}\n{lines}\n"));
-            if tick == ninsei_core::bbs::Outcome::Closed {
-                break;
-            }
+/// What a call from home showed at `t` seconds into its dial, as it always has: written out
+/// here from the board's own data and the handshake, apart from the code that draws it.
+fn dial_lines(b: &data::BbsDef, h: &ninsei_core::modem::Handshake, t: f32) -> Vec<String> {
+    let mut v = vec!["|07ATZ".to_string()];
+    if t >= h.offhook {
+        v.push(format!("|07ATDT {}", b.phone));
+    }
+    for &ring in &h.rings {
+        if t >= ring {
+            v.push("|08~~ RING ~~".into());
         }
     }
-    out
+    if t >= h.connect {
+        v.push(format!("|15CONNECT {}/ARQ/V42BIS", b.baud));
+    }
+    if t >= h.connect + 0.15 {
+        v.push("|07Negotiating ANSI... |10OK".into());
+        v.push(format!("|08{}", b.look.software));
+    }
+    v
+}
+
+/// And at `t` seconds into its hang-up.
+fn hangup_lines(b: &data::BbsDef, t: f32) -> Vec<String> {
+    let mut v = vec![format!("|07{}", b.look.goodbye.replace("{board}", &b.name))];
+    for (after, line) in [(0.2, "|08+++"), (0.5, "|08ATH0"), (0.8, "|15NO CARRIER")] {
+        if t > after {
+            v.push(line.into());
+        }
+    }
+    v
 }
 
 #[test]
 fn the_home_call_dials_and_hangs_up_as_it_always_did() {
-    // Pinned on main before the run's X.25 call came (140): every line of every board's dial
-    // and hang-up, frame by frame, and what each tick and key did. A home call ignores keys
-    // while it dials and hangs up with +++, ATH0 and NO CARRIER over BBS_HANGUP_SECS.
-    let t = home_theatre();
-    if let Ok(path) = std::env::var("THEATRE_OUT") {
-        std::fs::write(path, &t).unwrap();
+    // Every board's dial and hang-up from home, a frame every 50 ms, line for line against what
+    // they showed before the run's X.25 call came (140): the full handshake, keys ignored
+    // throughout, then +++, ATH0 and NO CARRIER over BBS_HANGUP_SECS.
+    use ninsei_core::bbs::Outcome;
+    let d = data();
+    let s = knows_all(500);
+    for board in 0..d.boards.len() {
+        let call = s.home_call(&d, &d.rig, board);
+        let b = call.board();
+        let h = ninsei_core::modem::Handshake::new(&b.phone);
+        let mut sess = Session::new();
+        let mut t = 0.0f32;
+        while sess.connecting() {
+            assert_eq!(sess.render(&call), dial_lines(b, &h, t), "{} at {t}", b.id);
+            let mut tried = sess.clone();
+            assert_eq!(tried.key(&call, 'x'), Outcome::None);
+            assert_eq!(tried.screen, sess.screen, "a key doesn't hurry it");
+            assert_eq!(sess.tick(&call, 0.05), Outcome::None);
+            t += 0.05;
+        }
+        assert!(
+            t >= h.end && t < h.end + 0.06,
+            "{}: the splash at the call's end",
+            b.id
+        );
+        assert_eq!(sess.screen, Screen::Splash);
+        sess.screen = Screen::Main;
+        sess.key(&call, 'G');
+        let mut t = 0.0f32;
+        loop {
+            assert_eq!(sess.render(&call), hangup_lines(b, t), "{} at {t}", b.id);
+            let mut tried = sess.clone();
+            assert_eq!(tried.key(&call, 'x'), Outcome::None, "nor its hang-up");
+            let o = sess.tick(&call, 0.05);
+            t += 0.05;
+            if o == Outcome::Closed {
+                break;
+            }
+            assert!(t < tuning::BBS_HANGUP_SECS, "{}", b.id);
+        }
+        assert!(t >= tuning::BBS_HANGUP_SECS && t < tuning::BBS_HANGUP_SECS + 0.06);
     }
-    let h = t.bytes().fold(0xcbf2_9ce4_8422_2325u64, |h, b| {
-        (h ^ u64::from(b)).wrapping_mul(0x0100_0000_01b3)
-    });
-    assert_eq!((h, t.len()), (0x6cf8_3224_9dcb_fefb, 40789));
-    assert!(t.contains("ATDT") && t.contains("NO CARRIER") && !t.contains(" COM"));
 }
 
 #[test]
