@@ -564,7 +564,11 @@ fn hud(painter: &Painter, rect: Rect, p: &Palette, g: &Game, preview: Option<fig
         );
     }
     for (k, r) in btop_fight::ice_window(&rows, 3).iter().enumerate() {
-        let col = if r.next { p.bright } else { p.fg };
+        let col = match (r.next, r.rem) {
+            (true, _) => p.bright,
+            (false, true) => p.dim,
+            (false, false) => p.fg,
+        };
         painter.text(
             pos2(rx + 42.0, y + 18.0 + k as f32 * 14.0),
             Align2::LEFT_CENTER,

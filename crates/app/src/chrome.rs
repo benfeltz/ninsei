@@ -535,4 +535,39 @@ mod version_tests {
             );
         }
     }
+
+    #[test]
+    fn every_deck_shows_the_notes_its_source_came_with() {
+        // A source bought on the Gutter: the NiGHTMOTHS' remark sits under the IF it reads,
+        // the line Enigma carries on from as the fight opens, so every window shows it.
+        let d = ninsei_core::Data::builtin().unwrap();
+        let mut save = ninsei_core::hub::Save::default();
+        save.ensure_key(0x1411_3001);
+        save.ensure_phonebook(&d, 0);
+        save.ensure_hardware(&d);
+        save.ice_sources.push(ninsei_core::hub::IceSource {
+            id: "enigma".into(),
+            version: ninsei_core::ice_version::Version::FIRST,
+            program: String::new(),
+            from: "gutter".into(),
+        });
+        let mut g = save.jack_in(&d, 11);
+        let n = g.net.nodes[g.at].links[0];
+        g.net.nodes[n].kind = ninsei_core::NodeKind::Ice;
+        g.net.nodes[n].ice = Some(d.ice_by_id("enigma").unwrap());
+        g.net.nodes[n].cleared = false;
+        g.apply(ninsei_core::Action::Move(n));
+        let bare = |t: &str| {
+            t.chars()
+                .filter(|c| !c.is_whitespace())
+                .collect::<String>()
+                .to_lowercase()
+        };
+        // The narrow fight view ends a long row with an ellipsis, as it does every row.
+        let remark = bare("sees ur firewall");
+        for (what, chrome, _, draw) in listings() {
+            let t = drawn(&g, chrome, draw);
+            assert!(t.iter().any(|l| bare(l).contains(&remark)), "{what}: {t:?}");
+        }
+    }
 }

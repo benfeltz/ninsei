@@ -1447,6 +1447,22 @@ impl Game {
                     .any(|(i, w, left)| *i == ice && *w == v && *left > 0))
     }
 
+    /// The source the deck owns of the version the ICE in front runs (its board's header and
+    /// remarks list with it), if it does.
+    pub fn fight_source(&self) -> Option<&crate::hub::IceSource> {
+        let c = self.combat.as_ref().filter(|c| c.listed)?;
+        let program = if c.ice_version == Version::FIRST {
+            String::new()
+        } else {
+            c.ice_prog.text()
+        };
+        let id = &self.data.ice[c.ice].id;
+        self.sources
+            .iter()
+            .chain(&self.sources_got)
+            .find(|s| s.is(id, c.ice_version, &program))
+    }
+
     /// Whether the ICE in front lists: the deck owns the source of the version it's fighting
     /// (`Combat::listed`).
     pub fn ice_listed(&self) -> bool {
@@ -1469,6 +1485,7 @@ impl Game {
             id: self.data.ice[ice].id.clone(),
             version: v,
             program,
+            from: String::new(),
         });
         if let Some(c) = self
             .combat
@@ -3082,8 +3099,13 @@ impl Game {
                     return;
                 };
                 let name = self.data.ice[i].name.clone();
-                // A source the deck has already is no news; `learn_source` says nothing.
+                // A source the deck has already is no news; `learn_source` says nothing. One
+                // bought here carries this board's header and remarks.
                 if self.learn_source(i, version).is_ok() {
+                    let board = self.bbs().id.clone();
+                    if let Some(s) = self.sources_got.last_mut() {
+                        s.from = board;
+                    }
                     self.say(LogKind::Loot, format!("+ ICE source: {name} {version}"));
                 }
             }

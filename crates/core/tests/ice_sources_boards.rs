@@ -201,7 +201,17 @@ fn bought_in_a_run_it_lists_in_the_next_fight_and_comes_home_on_a_flatline() {
     g.net.nodes[n].cleared = false;
     g.apply(Action::Move(n));
     assert_eq!(g.phase, Phase::Combat);
-    assert_eq!(ice_listing::rows(&g).len(), 4);
+    let rows = ice_listing::rows(&g);
+    assert_eq!(rows.iter().filter(|r| !r.rem).count(), 4);
+    // Bought on the Gutter: the NiGHTMOTHS' header and a remark on its read.
+    assert!(
+        rows[0].rem && rows[0].text.contains("NiGHTMOTHS"),
+        "{rows:#?}"
+    );
+    assert!(
+        rows.iter().any(|r| r.rem && r.text.contains("firewall")),
+        "{rows:#?}"
+    );
     // Flatline: it comes home.
     g.deck.integrity = 1;
     let c = g.combat.as_mut().unwrap();

@@ -1021,6 +1021,7 @@ mod icedb_tests {
                 id: "enigma".into(),
                 version,
                 program: program.into(),
+                from: String::new(),
             });
         }
         let enigma = data.ice.iter().position(|i| i.id == "enigma");

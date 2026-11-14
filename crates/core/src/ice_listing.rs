@@ -8,16 +8,61 @@ use crate::basic::{self, Program, Verb, Vocab};
 use crate::game::Game;
 use crate::listing::fighting;
 
-/// One line of the ICE's program.
+/// One line of the ICE's program, or a remark row its source carries.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct IceRow {
+    /// Its line number; 0 for a remark row.
     pub no: u32,
-    /// The statement.
+    /// The statement, or the remark.
     pub text: String,
-    /// The line the ICE carries on from next turn.
+    /// The line the ICE carries on from next turn (never a remark row).
     pub cursor: bool,
-    /// The line NEXT's move is on.
+    /// The line NEXT's move is on (never a remark row).
     pub next: bool,
+    /// A remark row: the header or a comment the source's board put on it, never part of the
+    /// ICE's program (never run, never counted against its machine).
+    pub rem: bool,
+}
+
+impl IceRow {
+    fn remark(text: String) -> IceRow {
+        IceRow {
+            no: 0,
+            text,
+            cursor: false,
+            next: false,
+            rem: true,
+        }
+    }
+}
+
+/// A source's notes: the header and remarks its board (`IceSource::from`) puts on kind `ice`
+/// at `version`, if that board has a `sources` block. `None` for a source from no board.
+pub fn notes<'a>(
+    data: &'a crate::data::Data,
+    from: &str,
+    ice: &str,
+    version: crate::ice_version::Version,
+) -> Option<(Vec<String>, &'a crate::data::SourcesDef)> {
+    let b = data.boards.get(data.board(from)?)?;
+    let s = b.sources.as_ref()?;
+    Some((s.header_lines(ice, &version.to_string(), &b.name), s))
+}
+
+/// `rows` with a source's notes: the header first, then each line, a remark after each IF its
+/// board's remarks know. The rows that aren't the program are `rem`.
+pub fn annotate(
+    rows: Vec<IceRow>,
+    header: Vec<String>,
+    sources: &crate::data::SourcesDef,
+) -> Vec<IceRow> {
+    let mut out: Vec<IceRow> = header.into_iter().map(IceRow::remark).collect();
+    for r in rows {
+        let remark = sources.remark(&r.text).map(str::to_string);
+        out.push(r);
+        out.extend(remark.map(IceRow::remark));
+    }
+    out
 }
 
 /// An ICE's program listed whole, every line numbered. No marks.
@@ -30,6 +75,7 @@ pub fn decompile(program: &Program) -> Vec<IceRow> {
             text: l.text.clone(),
             cursor: false,
             next: false,
+            rem: false,
         })
         .collect()
 }
@@ -60,7 +106,14 @@ pub fn rows(g: &Game) -> Vec<IceRow> {
         r.cursor = Some(r.no) == cursor;
         r.next = Some(r.no) == next;
     }
-    rows
+    // The source's board's notes, if it came from one.
+    let notes = g
+        .fight_source()
+        .and_then(|s| notes(&g.data, &s.from, &g.data.ice[c.ice].name, c.ice_version));
+    match notes {
+        Some((header, sources)) => annotate(rows, header, sources),
+        None => rows,
+    }
 }
 
 /// A deck's words for the ICE's listing: the heading over it, and what stands in its place in a
@@ -81,6 +134,9 @@ pub const CLASSIC: IceWords = IceWords {
 /// A row as the ICE card prints it: the cursor's ▶, the number right-aligned in five cells,
 /// the statement.
 pub fn card_line(r: &IceRow) -> String {
+    if r.rem {
+        return format!("       REM {}", r.text);
+    }
     let mark = if r.cursor { "▶" } else { " " };
     format!("{mark}{:>5} {}", r.no, r.text)
 }

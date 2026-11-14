@@ -768,6 +768,7 @@ fn a_version_number_met_before_with_another_program_is_met_unknown() {
         id: "enigma".into(),
         version: patch,
         program: "10 TRACE 4\n20 ATTACK 3".into(),
+        from: String::new(),
     });
     let g = s.jack_in(&d, 1);
     assert!(!g.owns_source(ix(&d, "enigma"), patch));

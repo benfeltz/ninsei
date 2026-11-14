@@ -76,6 +76,19 @@
         tiers: [2],
         first: "{ice} {version} reference",
         patched: "{ice} {version} revised ref.",
+        header: [
+            "DOCUMENT CONTROL: {ice} {version}",
+            "Approved for internal reference only.",
+            "Do not distribute outside the company.",
+        ],
+        remarks: [
+            (read: "TARGET SHIELD", text: "Reviewer: responds to firewalls."),
+            (read: "TARGET INTEG",  text: "Reviewer: escalates on damage."),
+            (read: "TARGET RAN",    text: "Reviewer: audits recent processes."),
+            (read: "TARGET CPU",    text: "Reviewer: monitors CPU load."),
+            (read: "SELF STR",      text: "Reviewer: self-repair threshold."),
+            (read: "TURN",          text: "Reviewer: escalates over time."),
+        ],
     )),
     users: [
         (handle: "HELPDESK",   location: "Bldg 4",      doing: "Resetting passwords"),

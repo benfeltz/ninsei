@@ -75,6 +75,18 @@
         tiers: [2, 0],
         first: "{ice} {version}, old code.",
         patched: "{ice} {version}, fresh rip.",
+        header: [
+            "RAZORWIRE // {ice} {version}",
+            "ripped for DEAD SECTOR. n0 n4mes.",
+        ],
+        remarks: [
+            (read: "TARGET SHIELD", text: "reads ur shield"),
+            (read: "TARGET INTEG",  text: "counts ur integ"),
+            (read: "TARGET RAN",    text: "logs ur last run"),
+            (read: "TARGET CPU",    text: "counts ur cycles"),
+            (read: "SELF STR",      text: "knows when it's hurt"),
+            (read: "TURN",          text: "counts turns"),
+        ],
     )),
     users: [
         (handle: "d1rge",     location: "???",          doing: "Watching you"),

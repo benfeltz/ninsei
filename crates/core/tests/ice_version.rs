@@ -748,6 +748,7 @@ fn a_source_belongs_to_a_version() {
         id: "rototurret".into(),
         version: ice_version::Version::default(),
         program: String::new(),
+        from: String::new(),
     });
     let fight = |s: &mut Save| {
         let mut g = s.jack_in(&d, 11);

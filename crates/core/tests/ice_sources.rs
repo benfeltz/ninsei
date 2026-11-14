@@ -117,6 +117,7 @@ fn a_source_whose_program_no_longer_reads_is_owned_by_nothing() {
         id: "enigma".into(),
         version: v,
         program: "10 SEGFAULT\n20 SEGFAULT".into(),
+        from: String::new(),
     });
     assert!(!s.ice_sources[0].reads(&d));
     // Never learned that way, and dropped as the save loads.
@@ -217,6 +218,7 @@ fn the_save_and_the_fight_agree_on_what_is_owned() {
         program: d.ice[ix(&d, "enigma")]
             .program
             .replace("ATTACK 4", "ATTACK 5"),
+        from: String::new(),
     });
     assert!(s.ice_sources[0].reads(&d), "it reads");
     assert!(!s.owns_source(&d, "enigma", v));

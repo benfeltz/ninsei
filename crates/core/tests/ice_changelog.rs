@@ -146,6 +146,7 @@ fn source(version: Version, program: &str) -> IceSource {
         id: "enigma".into(),
         version,
         program: program.into(),
+        from: String::new(),
     }
 }
 

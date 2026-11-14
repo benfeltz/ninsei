@@ -117,6 +117,7 @@ fn the_ice_db_shows_only_the_sources_you_own() {
             id: id.clone(),
             version: *v,
             program: program.clone(),
+            from: String::new(),
         });
     }
     for e in icedb::entries(&s, &d) {

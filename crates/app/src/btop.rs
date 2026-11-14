@@ -552,7 +552,11 @@ impl Panes<'_> {
                         cols[0].label(text(words.none, p.dim));
                     }
                     for r in ninsei_core::btop_fight::ice_window(&rows, anim::INTENTS_AHEAD) {
-                        let col = if r.next { p.bright } else { p.fg };
+                        let col = match (r.next, r.rem) {
+                            (true, _) => p.bright,
+                            (false, true) => p.dim,
+                            (false, false) => p.fg,
+                        };
                         cols[0].label(text(ninsei_core::btop_fight::ice_line(&r), col));
                     }
                     // Damage waterfall: newest turn on top, older ones fade out below.

@@ -1271,6 +1271,10 @@ pub struct IceSource {
     /// Its program; empty for 1.0.0, the row's (so a change to the row doesn't strand it).
     #[serde(default)]
     pub program: String,
+    /// The board it came from (an id in `data/bbs/`): its header and remarks list with it.
+    /// Empty: from no board, and it lists bare.
+    #[serde(default)]
+    pub from: String,
 }
 
 impl IceSource {
@@ -1531,6 +1535,7 @@ impl Save {
                 id: id.to_string(),
                 version,
                 program,
+                from: String::new(),
             },
         )
     }
