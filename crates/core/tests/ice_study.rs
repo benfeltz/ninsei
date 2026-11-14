@@ -500,7 +500,12 @@ fn a_version_that_lands_mid_fight_is_the_next_fight_s_and_met_unknown() {
     let e = ix(&g.data, "enigma");
     let prog = g.combat.as_ref().unwrap().ice_prog.clone();
     // The deck owns 1.0.0's source: this fight lists, though a new version lands under it.
-    assert!(g.learn_source(e, Version::FIRST));
+    g.apply(Action::GetSource {
+        ice: e,
+        version: Version::FIRST,
+    });
+
+    assert!(g.owns_source(e, Version::FIRST));
     g.apply(Action::Study {
         steps: STUDY_PATIENCE,
         drafts: u32::MAX,

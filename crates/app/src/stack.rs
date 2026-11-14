@@ -1668,7 +1668,12 @@ pub(crate) mod tests {
             );
         }
         // With its source, every line in clear.
-        assert!(g.learn_source(ice, ninsei_core::ice_version::Version::FIRST));
+        g.apply(ninsei_core::Action::GetSource {
+            ice,
+            version: ninsei_core::ice_version::Version::FIRST,
+        });
+
+        assert!(g.owns_source(ice, ninsei_core::ice_version::Version::FIRST));
         let rows = ninsei_core::ice_listing::rows(&g);
         assert_eq!(rows.len(), prog.len());
         ice_card(&mut h, &g, (600.0, 500.0), vec![]);

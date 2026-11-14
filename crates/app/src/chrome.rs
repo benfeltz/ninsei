@@ -513,7 +513,12 @@ mod version_tests {
     fn every_deck_lists_the_ice_s_program_from_its_source() {
         let mut g = crate::stack::tests::a_fight(&ninsei_core::Data::builtin().unwrap());
         let ice = g.combat.as_ref().unwrap().ice;
-        assert!(g.learn_source(ice, ninsei_core::ice_version::Version::FIRST));
+        g.apply(ninsei_core::Action::GetSource {
+            ice,
+            version: ninsei_core::ice_version::Version::FIRST,
+        });
+
+        assert!(g.owns_source(ice, ninsei_core::ice_version::Version::FIRST));
         let rows = ninsei_core::ice_listing::rows(&g);
         let bare = |t: &str| t.chars().filter(|c| !c.is_whitespace()).collect::<String>();
         for (what, chrome, words, draw) in listings() {
