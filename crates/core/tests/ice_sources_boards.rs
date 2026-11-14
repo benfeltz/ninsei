@@ -353,3 +353,14 @@ fn from_home_what_is_bought_is_what_was_on_the_screen() {
     assert_eq!(s.bank, bank - SOURCE_PRICE[1]);
     assert!(s.owns_source(&d, "enigma", s.ice_versions[0].version));
 }
+
+#[test]
+fn a_source_dropped_anywhere_but_a_board_s_area_is_refused() {
+    let mut d = data();
+    d.loot.ice.entries[0].drop = Drop::Source {
+        ice: "enigmaa".into(),
+        version: Version::FIRST,
+    };
+    let e = d.validate().unwrap_err();
+    assert!(e.contains("ICE source"), "{e}");
+}
