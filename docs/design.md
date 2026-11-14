@@ -241,7 +241,11 @@ A reader of the ICE's listing can predict both *when* and *where* (Archer SPOOFs
 
 Between runs the desk plays the tunes you own, on every deck, through **TRAX**, a player you download like any tool. Winamp 2 is the feel on every desktop (a playlist, transport, a position bar, the level, a spectrum); each desktop's period program is the look (cmus on AnarchyOS; the Liza and Desktop dresses come in 137.2 and 137.3). Tunes are music disks: the crews' releases on the boards' files, a publisher's compilation in CPU Shopper, and the one or two a new deck ships with. They're synthesized like everything else.
 
-The run's tune wins. Jacking in pauses the desk's music where it was, and jacking out picks it up there; a cracktro takes the speaker while its tune plays and gives it back after; a dial never touches it (the modem is its own channel, and you listened to music while it screamed). The player keeps its tune, repeat and shuffle on the save; where it is in a tune lasts the session.
+The run's tune wins. Jacking in pauses the desk's music where it was, and jacking out picks it up there; a cracktro takes the speaker while its tune plays and gives it back after; a dial never touches it (the modem is its own channel, and you listened to music while it screamed). Nor does a run's board: it's an X.25 call through the net's PAD, a short burst of packets on the modem channel, and skipping it cuts only that. The player keeps its tune, repeat and shuffle on the save; where it is in a tune lasts the session.
+
+## Boards on the line
+
+Calling a board from home is a phone call and gets the whole theatre: `ATZ`, `ATDT`, the touch tones, two rings, the answer tone and the carrier until `CONNECT`, about five seconds, and nothing hurries it; leaving is `+++`, `ATH0`, `NO CARRIER`. In a run you're already on the net, so a board there is an X.25 call through the net's PAD (Telenet and Tymnet, X.28's terse service signals): `CALL <address>`, a burst of packets, `<address> COM`, the board's software line, the splash, about half a second (`X25_*` in `tuning.rs`). Any key or a click hurries it, and nothing on screen says so: a terminal never told you to press a key to skip. Leaving is the board's goodbye and `<address> CLR DTE`, gone in a beat. The window's title names the line it's on: the baud and `8N1` from home, the X.25 address in a run. Shots: `docs/shots/bbs-x25-connect-amber.png`, `-synthwave.png`, and the clear beside them.
 
 ## Shared rules for every part
 
