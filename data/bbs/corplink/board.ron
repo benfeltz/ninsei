@@ -67,6 +67,14 @@
         minor: "|07Feature release |15{ice} {version}|07 deployed. No action required.",
         major: "|07Major release |15{ice} {version}|07 deployed following a security review.",
     )),
+    // IT's approved vendor documentation for the perimeter software: the office's word for
+    // the same files. It never says hacked and never names who supplied them.
+    sources: Some((
+        name: "VENDOR DOCUMENTATION",
+        tiers: [2],
+        first: "{ice} {version} reference",
+        patched: "{ice} {version} revised ref.",
+    )),
     users: [
         (handle: "HELPDESK",   location: "Bldg 4",      doing: "Resetting passwords"),
         (handle: "J.TANAKA",   location: "Accounts",    doing: "Reading Memos"),

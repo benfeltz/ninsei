@@ -55,6 +55,14 @@
         minor: "|15{ice} {version}|07: learned a new trick, word is. Watch it.",
         major: "|12!! |15{ice} {version}|07: rewritten from scratch. Throw out your notes.",
     )),
+    // m0th's hacked ICE: tier-1 source, cracked by the scene, the newest each kind has had
+    // cracked (1.0.0 from the start). Generated from ice.ron; prices are tuning.rs's.
+    sources: Some((
+        name: "HACKED ICE",
+        tiers: [1],
+        first: "{ice} {version}, the classic",
+        patched: "{ice} {version} src, cracked",
+    )),
     users: [
         (handle: "m0th",      location: "Ninsei",       doing: "Sysop chat"),
         (handle: "c4se",      location: "Chiba",        doing: "Playing NIBBLER"),

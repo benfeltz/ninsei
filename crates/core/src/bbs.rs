@@ -4,6 +4,7 @@
 
 use crate::data::{BbsDef, BulletinDef, Drop, HeaderStyle, Look};
 use crate::game::{Action, ContractStatus, Game, Reading, StockFile};
+use crate::ice_version::Version;
 use crate::modem::Handshake;
 use crate::tuning::{BBS_CPS, BBS_HANGUP_SECS};
 
@@ -51,6 +52,9 @@ pub trait Line {
     fn has_crack(&self, id: &str) -> bool;
     /// Whether you own a tune: it lists as yours, like a tool.
     fn has_tune(&self, id: &str) -> bool;
+    /// Whether you own the source of version `version` of ICE kind `ice` (an id in `ice.ron`):
+    /// it lists as yours, like a tool.
+    fn has_source(&self, ice: &str, version: Version) -> bool;
     /// The board's news of new ICE versions, if it hears any ([`news_bulletin`]): none by
     /// default.
     fn news(&self) -> Option<&BulletinDef> {
@@ -75,6 +79,7 @@ pub trait Line {
             Drop::Tool(t) => self.has_tool(t),
             Drop::Game(g) => self.has_crack(g),
             Drop::Tune(t) => self.has_tune(t),
+            Drop::Source { ice, version } => self.has_source(ice, *version),
             _ => false,
         }
     }
@@ -136,6 +141,12 @@ impl Line for Game {
 
     fn has_crack(&self, id: &str) -> bool {
         Game::has_crack(self, id)
+    }
+
+    fn has_source(&self, ice: &str, version: Version) -> bool {
+        self.data
+            .ice_by_id(ice)
+            .is_some_and(|i| self.owns_source(i, version))
     }
 
     fn has_tune(&self, id: &str) -> bool {
@@ -271,7 +282,14 @@ impl Session {
             Screen::Post { .. } => vec![('Q', "back".into())],
             Screen::Bulletins => numbered(game.bulletin_count(), "Q"),
             Screen::Jobs => numbered(game.jobs().len(), "Q"),
-            Screen::Areas => numbered(b.areas.len(), "Q"),
+            Screen::Areas => {
+                let mut v = numbered(b.areas.len(), "Q");
+                // A tenth area is `0`, as the boards number it.
+                if b.areas.len() >= 10 {
+                    v.insert(9, ('0', String::new()));
+                }
+                v
+            }
             Screen::Area(a) => numbered(game.stock()[a].len(), "Q"),
             Screen::Read { area, file } => {
                 let mut v = Vec::new();
@@ -362,7 +380,7 @@ impl Session {
                 _ if back => self.go(Screen::Main),
                 _ => {}
             },
-            Screen::Areas => match digit {
+            Screen::Areas => match digit.map(area_number) {
                 Some(n) if (1..=game.board().areas.len()).contains(&n) => {
                     self.go(Screen::Area(n - 1))
                 }
@@ -598,7 +616,7 @@ impl Session {
                         .count();
                     out.push(format!(
                         "   {} {lb}{:<26}{dm}{left} file(s)",
-                        hot(&(i + 1).to_string()),
+                        hot(&area_key(i).to_string()),
                         a.name
                     ));
                 }
@@ -748,6 +766,16 @@ fn read(game: &dyn Line, r: Reading) -> Outcome {
     }
 }
 
+/// The key that picks area `i` (from 0): `1` to `9`, then `0` for the tenth.
+pub fn area_key(i: usize) -> char {
+    char::from_digit(((i + 1) % 10) as u32, 10).unwrap_or('?')
+}
+
+/// The area a digit picks, from 1: `0` is the tenth.
+fn area_number(d: usize) -> usize {
+    if d == 0 { 10 } else { d }
+}
+
 /// The pipe code for CGA colour `c`.
 fn pipe(c: u8) -> String {
     format!("|{c:02}")
@@ -829,8 +857,70 @@ fn drop_tag(item: &Drop, l: &Look) -> String {
         Drop::Text(_) => format!(" {}[READ]", pipe(l.ok)),
         Drop::Tool(_) | Drop::Game(_) => format!(" {}[EXE]", pipe(l.key)),
         Drop::Tune(_) => format!(" {}[MUS]", pipe(l.key)),
+        Drop::Source { .. } => format!(" {}[SRC]", pipe(l.key)),
         _ => format!(" {}[MOD]", pipe(l.aside)),
     }
+}
+
+/// Board `def`'s ICE source area, if it sells sources (`BbsDef::sources`): one file per kind of
+/// the tiers it carries, in `ice.ron`'s order, at the version `newest` gives for it (the newest
+/// the scene has cracked: 1.0.0 until the version in force is), priced by tier from `tuning.rs`.
+/// Every file is always stocked. Generated, never hand-listed, and never rolled.
+pub fn source_area(
+    def: &BbsDef,
+    data: &crate::data::Data,
+    newest: impl Fn(usize) -> Version,
+) -> Option<crate::data::BbsAreaDef> {
+    let s = def.sources.as_ref()?;
+    let files = data
+        .ice
+        .iter()
+        .enumerate()
+        .filter(|(_, row)| s.tiers.contains(&row.tier))
+        .map(|(i, row)| {
+            let v = newest(i);
+            let first = v == Version::FIRST;
+            let tier = (row.tier as usize).min(crate::tuning::SOURCE_PRICE.len() - 1);
+            let price = if first {
+                crate::tuning::SOURCE_PRICE_FIRST[tier]
+            } else {
+                crate::tuning::SOURCE_PRICE[tier]
+            };
+            crate::data::BbsFileDef {
+                file: source_file(&row.name, v),
+                item: Drop::Source {
+                    ice: row.id.clone(),
+                    version: v,
+                },
+                price,
+                desc: s.desc(first, &row.name, &v.to_string()),
+            }
+        })
+        .collect::<Vec<_>>();
+    Some(crate::data::BbsAreaDef {
+        name: s.name.clone(),
+        stock: files.len() as u32,
+        always: true,
+        files,
+    })
+}
+
+/// A source's 8.3 file name: the kind's name, letters and digits only, up to eight, and the
+/// version as three base-36 digits (`ENIGMA.100`, `ICEWALL.1A2`); a number past 35 prints as
+/// `Z`.
+pub fn source_file(name: &str, v: Version) -> String {
+    let stem: String = name
+        .chars()
+        .filter(char::is_ascii_alphanumeric)
+        .take(8)
+        .collect::<String>()
+        .to_ascii_uppercase();
+    let d = |n: u32| {
+        char::from_digit(n.min(35), 36)
+            .unwrap_or('Z')
+            .to_ascii_uppercase()
+    };
+    format!("{stem}.{}{}{}", d(v.major), d(v.minor), d(v.patch))
 }
 
 /// Board `board`'s news of new ICE versions, from `shipped` (each kind's version in force, as
