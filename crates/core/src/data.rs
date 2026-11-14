@@ -2270,6 +2270,14 @@ impl Data {
             .collect()
     }
 
+    /// Every ICE kind's id with its name.
+    pub fn ice_names(&self) -> Vec<(String, String)> {
+        self.ice
+            .iter()
+            .map(|i| (i.id.clone(), i.name.clone()))
+            .collect()
+    }
+
     /// Every game's id with its crack's label.
     pub fn crack_labels(&self) -> Vec<(String, String)> {
         self.games

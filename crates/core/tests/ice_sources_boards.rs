@@ -232,7 +232,11 @@ fn bought_from_home_it_is_yours_and_takes_no_stash_room() {
     assert_eq!(s.stash.len(), stash);
     assert!(s.owns_source(&d, "hydra", Version::FIRST));
     let call = s.home_call(&d, &d.rig, dead);
-    assert!(call.buy_blocker(a, f).is_some(), "yours now");
+    assert_eq!(
+        call.buy_blocker(a, f).as_deref(),
+        Some("you already have Hydra 1.0.0's source."),
+        "yours now"
+    );
     assert!(s.home_buy(&d, &d.rig, dead, a, f).is_err());
     assert_eq!(s.bank, bank - SOURCE_PRICE_FIRST[2]);
 }
