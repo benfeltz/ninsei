@@ -563,11 +563,12 @@ mod version_tests {
                 .collect::<String>()
                 .to_lowercase()
         };
-        // The narrow fight view ends a long row with an ellipsis, as it does every row.
-        let remark = bare("sees ur firewall");
+        let remark = bare("sees ur firewall. it adapts");
         for (what, chrome, _, draw) in listings() {
             let t = drawn(&g, chrome, draw);
-            assert!(t.iter().any(|l| bare(l).contains(&remark)), "{what}: {t:?}");
+            let shown = t.iter().any(|l| bare(l).contains(&remark));
+            // The fight view's three lines have no room for notes; every other place shows them.
+            assert_eq!(shown, what != "fight view", "{what}: {t:?}");
         }
     }
 }

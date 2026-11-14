@@ -62,15 +62,28 @@ pub fn title(_g: &Game) -> &'static str {
     TITLE
 }
 
-/// The ICE's listing (`ice_listing::rows`) as the fight screens show it: up to `n` rows from
-/// the line it carries on from, wrapping to the top as its program does.
-pub fn ice_window(rows: &[IceRow], n: usize) -> Vec<IceRow> {
-    let at = rows.iter().position(|r| r.cursor).unwrap_or(0);
-    rows.iter()
+/// The ICE's listing (`ice_listing::rows`) as the fight screens show it: up to `n` lines of
+/// its program from the line it carries on from (its first line when none is marked, as under
+/// a SPOOF), wrapping to the top as its program does. A window counts program lines only: the
+/// source's header never shows in one, and with `remarks` each line brings the remark under it.
+pub fn ice_window(rows: &[IceRow], n: usize, remarks: bool) -> Vec<IceRow> {
+    // Each program line with the remark rows that follow it.
+    let mut lines: Vec<Vec<&IceRow>> = Vec::new();
+    for r in rows {
+        match lines.last_mut() {
+            Some(l) if r.rem => l.push(r),
+            _ if r.rem => {} // the header, before the first line
+            _ => lines.push(vec![r]),
+        }
+    }
+    let at = lines.iter().position(|l| l[0].cursor).unwrap_or(0);
+    lines
+        .iter()
         .cycle()
         .skip(at)
-        .take(n.min(rows.len()))
-        .cloned()
+        .take(n.min(lines.len()))
+        .flat_map(|l| l.iter().take(if remarks { l.len() } else { 1 }))
+        .map(|r| (*r).clone())
         .collect()
 }
 

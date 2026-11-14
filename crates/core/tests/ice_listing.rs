@@ -193,7 +193,7 @@ fn the_ono_shows_a_window_of_the_listing_from_the_ice_cursor() {
     g.apply(Action::EndTurn);
     // Enigma carries on from 40 after its first turn's ATTACK at 30.
     let rows = ice_listing::rows(&g);
-    let w = btop_fight::ice_window(&rows, 3);
+    let w = btop_fight::ice_window(&rows, 3, true);
     let lines: Vec<String> = w.iter().map(btop_fight::ice_line).collect();
     assert_eq!(
         lines,
@@ -205,7 +205,7 @@ fn the_ono_shows_a_window_of_the_listing_from_the_ice_cursor() {
         "from the cursor, wrapping to the top"
     );
     // Never more rows than the program has.
-    assert_eq!(btop_fight::ice_window(&rows, 9).len(), 4);
+    assert_eq!(btop_fight::ice_window(&rows, 9, true).len(), 4);
 }
 
 #[test]

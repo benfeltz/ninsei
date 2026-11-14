@@ -133,7 +133,7 @@ fn each_deck_prints_a_remark_its_own_way() {
     );
     assert!(first.rem && !first.next);
     // The Ono's window starts at the line it carries on from, a code row.
-    let w = btop_fight::ice_window(&rows, 3);
+    let w = btop_fight::ice_window(&rows, 3, true);
     assert!(w[0].cursor && !w[0].rem);
 }
 
@@ -155,7 +155,7 @@ fn the_ice_db_lists_the_notes_with_the_source() {
     assert_eq!(page[top + 1], "       REM DOCUMENT CONTROL: Enigma 1.0.0");
     assert!(
         page.iter()
-            .any(|l| l == "       REM Reviewer: responds to firewalls."),
+            .any(|l| l == "       REM Reviewer: reacts to firewalls."),
         "{page:#?}"
     );
     let at = page
@@ -221,4 +221,47 @@ fn a_source_bought_on_a_board_remembers_it() {
         .join("\n");
     let back = Save::load(&old).unwrap();
     assert_eq!(back.ice_sources[0].from, "");
+}
+
+#[test]
+fn a_window_counts_program_lines_and_never_shows_the_header() {
+    let d = data();
+    let mut s = owned(&d, "gutter");
+    let mut g = fight(&mut s, &d);
+    // Turn 1: the cursor on the IF. Three lines of program, the IF's remark after it.
+    let rows = ice_listing::rows(&g);
+    let w = btop_fight::ice_window(&rows, 3, true);
+    let code: Vec<u32> = w.iter().filter(|r| !r.rem).map(|r| r.no).collect();
+    assert_eq!(code, [10, 20, 30], "NEXT's line stays in view");
+    assert!(w[1].rem && w[1].text.contains("firewall"));
+    assert!(
+        !w.iter().any(|r| r.text.contains("NiGHTMOTHS")),
+        "no header"
+    );
+    // Without remarks, the program alone.
+    assert!(
+        btop_fight::ice_window(&rows, 3, false)
+            .iter()
+            .all(|r| !r.rem)
+    );
+    // The cursor on the last line: the window wraps to line 10, not into the header.
+    g.apply(Action::EndTurn);
+    let rows = ice_listing::rows(&g);
+    let w = btop_fight::ice_window(&rows, 3, false);
+    assert_eq!(w.iter().map(|r| r.no).collect::<Vec<_>>(), [40, 10, 20]);
+    // Spoofed: no cursor marked, so it starts at the first line of the program.
+    g.combat.as_mut().unwrap().spoofed = 2;
+    let rows = ice_listing::rows(&g);
+    assert!(!rows.iter().any(|r| r.cursor));
+    let w = btop_fight::ice_window(&rows, 3, false);
+    assert_eq!(w.iter().map(|r| r.no).collect::<Vec<_>>(), [10, 20, 30]);
+}
+
+#[test]
+fn a_remark_too_wide_for_the_ono_s_window_is_refused() {
+    let mut d = data();
+    let g = d.board("gutter").unwrap();
+    d.boards[g].sources.as_mut().unwrap().remarks[0].text = "x".repeat(data::REMARK_MAX + 1);
+    let e = d.validate().unwrap_err();
+    assert!(e.contains("wider"), "{e}");
 }
