@@ -2,7 +2,8 @@
 //! card, the Script pane's face, on screen for the whole run. The deck's program is a stack of
 //! operator blocks (RUN, IF, GOTO, STOP), each with fields for its parameters; a gutter mark on
 //! the line about to run, greyed when the turn won't execute it, and indented under the IFs that
-//! guard it; the CPU and RAM gauges; Step, Run and Pause, which only press with ICE in front.
+//! guard it; the CPU and RAM gauges; the transport (Step, Run, fast-forward and Pause), which
+//! only presses with ICE in front.
 //! Every edit is an `Action::Program` with one line rewritten, so the card never holds a
 //! program of its own. Reference: HyperCard 1.2's button script editor, 1-bit.
 

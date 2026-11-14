@@ -445,7 +445,8 @@ impl ChromeView for Stack {
         p.target(ui);
     }
 
-    /// The Script card, the whole run: Step, Run and Pause press only with ICE in front.
+    /// The Script card, the whole run: its transport (Step, Run, fast-forward, Pause) presses only
+    /// with ICE in front.
     fn script(&self, p: &mut Panes, ui: &mut Ui) {
         round(ui);
         script_card(p, ui);
