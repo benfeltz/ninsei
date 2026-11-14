@@ -541,7 +541,8 @@ impl Panes<'_> {
                 graph(ui, &p, "strength", &g.history.ice, c.strength_max, 2, &[]);
                 ui.add_space(4.0);
                 ui.columns(2, |cols| {
-                    // NEXT, then the ICE's program from where it carries on, as seen.
+                    // NEXT, then the ICE's program from where it carries on, from its source, or the
+                    // deck's words for none.
                     let next = g.next_move().map_or(String::new(), |m| m.text("(lagged)"));
                     cols[0].label(text(format!("NEXT {next}"), p.bright));
                     let rows = ninsei_core::ice_listing::rows(g);
