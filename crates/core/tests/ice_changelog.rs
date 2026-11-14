@@ -243,7 +243,7 @@ fn with_no_source_the_page_says_so_and_shows_no_code() {
         .filter(|l| l.muted)
         .map(|l| l.text)
         .collect();
-    assert_eq!(muted, ["source         none on disk"]);
+    assert_eq!(muted, ["source         none"]);
     for stmt in ["SHIELD", "TRACE 10", "ATTACK 4", "TRACE 4"] {
         assert!(!p.iter().any(|l| l.contains(stmt)), "{stmt}: {p:#?}");
     }
@@ -336,10 +336,7 @@ fn a_source_of_another_program_at_the_version_met_is_not_that_version_s() {
     let mut s = met_twice(&[]);
     s.ice_sources.push(source(v101(), V102));
     let p = page(&s, &d);
-    assert!(
-        p.contains(&"source         none on disk".to_string()),
-        "{p:#?}"
-    );
+    assert!(p.contains(&"source         none".to_string()), "{p:#?}");
     assert!(!p.iter().any(|l| l.contains("TRACE 5")), "{p:#?}");
     let rows = at(&p, "versions");
     assert_eq!(

@@ -279,17 +279,14 @@ fn each_deck_says_there_is_no_source_in_its_own_words() {
         ("hosaka", suite::ICE_WORDS),
         ("classic", ice_listing::CLASSIC),
     ];
-    assert_eq!(
-        stack_fight::ICE_WORDS.none,
-        "its program isn't on this disk."
-    );
+    assert_eq!(stack_fight::ICE_WORDS.none, "(none)");
     assert_eq!(btop_fight::ICE_WORDS.none, "[ no source available ]");
     assert_eq!(suite::ICE_WORDS.none, "PROGRAM HAS NO SYMBOL TABLE");
     for (deck, w) in decks {
         // What is there, never where to get one or that one can be got, never a count.
         let none = w.none.to_lowercase();
         for coach in [
-            "download", "board", "bbs", "buy", "get", "find", "line", "seen",
+            "download", "board", "bbs", "buy", "get", "find", "line", "seen", "disk",
         ] {
             assert!(!none.contains(coach), "{deck}: {:?}", w.none);
         }

@@ -105,7 +105,7 @@ fn a_fight_fills_in_its_entry() {
     let page = e.lines(&s, &d).join("\n");
     assert!(page.contains(e.def.class.label()));
     assert!(
-        page.contains("source         none on disk"),
+        page.contains("source         none"),
         "fighting it got no code: {page}"
     );
     // Fought again and lost: met twice, broken once.
