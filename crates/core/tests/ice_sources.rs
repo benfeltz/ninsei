@@ -148,13 +148,19 @@ fn a_run_owns_the_version_it_runs_and_no_other() {
     let mut g = fight(&mut s, &d, "enigma");
     assert_eq!(g.version_met(e), v);
     assert!(!g.owns_source(e, v), "1.0.0's source is not 1.0.1's");
-    assert!(g.learn_source(e, v));
+    let tick = g.history.tick;
+    g.apply(Action::GetSource { ice: e, version: v });
     assert!(g.owns_source(e, v));
-    assert!(!g.learn_source(e, v), "twice is once");
-    assert!(
-        !g.learn_source(e, v.bumped(Bump::Minor)),
-        "not a version this run runs"
-    );
+    assert_eq!(g.history.tick, tick + 1, "an action history hears");
+    let log = g.log.len();
+    g.apply(Action::GetSource { ice: e, version: v });
+    assert_eq!(g.sources_got.len(), 1, "twice is once");
+    assert_eq!(g.log.len(), log + 1, "and says so: {:?}", g.log.last());
+    g.apply(Action::GetSource {
+        ice: e,
+        version: v.bumped(Bump::Minor),
+    });
+    assert_eq!(g.sources_got.len(), 1, "not a version this run runs");
 }
 
 /// A run that got Enigma's 1.0.0 source, ended by `exit` (true) or a flatline.
@@ -163,7 +169,12 @@ fn got_one(exit: bool) -> Save {
     let mut s = fresh(&d);
     let mut g = fight(&mut s, &d, "enigma");
     let e = ix(&d, "enigma");
-    assert!(g.learn_source(e, Version::FIRST));
+    g.apply(Action::GetSource {
+        ice: e,
+        version: Version::FIRST,
+    });
+
+    assert!(g.owns_source(e, Version::FIRST));
     if exit {
         g.phase = Phase::JackedOut;
         g.combat = None;

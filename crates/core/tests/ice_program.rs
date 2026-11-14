@@ -174,7 +174,12 @@ fn a_two_line_ice_cycles_as_its_intents_did() {
     );
     // With its source the log names the line it ran.
     let ice = g.combat.as_ref().unwrap().ice;
-    assert!(g.learn_source(ice, ice_version::Version::FIRST));
+    g.apply(Action::GetSource {
+        ice,
+        version: ice_version::Version::FIRST,
+    });
+
+    assert!(g.owns_source(ice, ice_version::Version::FIRST));
     g.apply(Action::EndTurn);
     let said: Vec<&str> = g.log.iter().map(|l| l.text.as_str()).collect();
     assert!(
@@ -291,7 +296,12 @@ fn an_ice_that_goes_round_without_spending_stalls() {
     let mut g = fight_on(data, "probe", "");
     assert_eq!(g.ice_next(), None);
     let ice = g.combat.as_ref().unwrap().ice;
-    assert!(g.learn_source(ice, ice_version::Version::FIRST));
+    g.apply(Action::GetSource {
+        ice,
+        version: ice_version::Version::FIRST,
+    });
+
+    assert!(g.owns_source(ice, ice_version::Version::FIRST));
     let integ = g.deck.integrity;
     g.apply(Action::EndTurn);
     assert_eq!(g.deck.integrity, integ);

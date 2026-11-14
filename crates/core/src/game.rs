@@ -506,6 +506,13 @@ pub enum Action {
         steps: u32,
         drafts: u32,
     },
+    /// The source of version `version` of ICE `ice` (an index into `Data::ice`) arrives on the
+    /// deck: 1.0.0, or a version this run runs. It lists from then on and comes home with the
+    /// run, even on a flatline. Refused if the deck has it or the run has no such version.
+    GetSource {
+        ice: usize,
+        version: Version,
+    },
 }
 
 /// A bulletin or post on a board, by index.
@@ -1168,6 +1175,7 @@ impl Game {
             Action::Buy { area, file } => self.buy(area, file),
             Action::Patch { slot, bin } => self.patch(slot, bin),
             Action::Optimize { slot } => self.optimize(slot),
+            Action::GetSource { ice, version } => self.learn_source(ice, version),
             // `apply` hands the sysops their time before anything else.
             Action::Study { .. } => unreachable!("applied in `apply`"),
         }
@@ -1377,22 +1385,24 @@ impl Game {
             .is_some_and(|c| self.owns_source(c.ice, c.ice_version))
     }
 
-    /// Gets the source of version `v` of ICE `ice` (1.0.0, or the version in force this run):
-    /// it lists from now on and comes home with the run. False if the deck had it, or the run
-    /// has no such version.
-    pub fn learn_source(&mut self, ice: usize, v: Version) -> bool {
-        if ice >= self.data.ice.len() || self.owns_source(ice, v) {
-            return false;
+    /// [`Action::GetSource`]: the source of version `v` of ICE `ice` (1.0.0, or a version this
+    /// run runs) lists from now on and comes home with the run.
+    fn learn_source(&mut self, ice: usize, v: Version) -> Result<(), String> {
+        if ice >= self.data.ice.len() {
+            return Err("no such ICE.".into());
+        }
+        if self.owns_source(ice, v) {
+            return Err("you have that source.".into());
         }
         let Some(program) = self.version_program(ice, v) else {
-            return false;
+            return Err(format!("no {} {v} on this net.", self.data.ice[ice].name));
         };
         self.sources_got.push(crate::hub::IceSource {
             id: self.data.ice[ice].id.clone(),
             version: v,
             program,
         });
-        true
+        Ok(())
     }
 
     /// The version ICE `ice` (an index into `Data::ice`) runs this run: the kit's, or 1.0.0.

@@ -2426,7 +2426,12 @@ mod module_tests {
     fn the_incident_report_lists_the_procedure_before_its_chart() {
         let mut g = fight("");
         let ice = g.combat.as_ref().unwrap().ice;
-        assert!(g.learn_source(ice, ninsei_core::ice_version::Version::FIRST));
+        g.apply(ninsei_core::Action::GetSource {
+            ice,
+            version: ninsei_core::ice_version::Version::FIRST,
+        });
+
+        assert!(g.owns_source(ice, ninsei_core::ice_version::Version::FIRST));
         let h = report(&g);
         let words = ninsei_core::suite::ICE_WORDS;
         let procedure = h
