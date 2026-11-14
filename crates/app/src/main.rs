@@ -846,13 +846,10 @@ impl App {
                 }
                 Outcome::Closed => {
                     self.home_bbs = None;
-                    self.home.say("NO CARRIER");
+                    // What the line says once it's dropped (a modem's NO CARRIER).
+                    self.home
+                        .say(ninsei_core::bbs::Line::connect(&shown).dropped());
                     return;
-                }
-                // The connect was skipped: its sound goes with it.
-                Outcome::Cut => {
-                    self.speaker.stop();
-                    continue;
                 }
                 _ => continue,
             };
@@ -2641,6 +2638,26 @@ mod tests {
             assert!(!app.bbs.as_ref().unwrap().session.connecting(), "skipped");
             assert!(app.bbs_heard, "so sync_sound won't dial it now");
             assert_eq!(app.bbs_call().map(|c| c.skippable()), Some(true));
+        }
+
+        #[test]
+        fn a_home_call_still_hangs_up_with_no_carrier() {
+            let (mut h, mut app) = running("onosendai");
+            let rig = app.data.rig.clone();
+            let call = app.save.home_call(&app.data, &rig, 0);
+            let mut v = BbsView::new();
+            v.session.screen = ninsei_core::bbs::Screen::Hangup { t: 0.0 };
+            app.home_bbs = Some((v, call));
+            let ctx = h.ctx.clone();
+            let pal = app.pal;
+            for _ in 0..40 {
+                h.frame(Vec::new(), |_| app.home_bbs_ui(&ctx, &pal));
+                if app.home_bbs.is_none() {
+                    break;
+                }
+            }
+            assert!(app.home_bbs.is_none(), "it hung up");
+            assert!(app.home.shell_has("NO CARRIER"));
         }
 
         #[test]
