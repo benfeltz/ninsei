@@ -330,3 +330,26 @@ fn a_source_gone_from_the_nets_mid_run_cant_be_bought_and_costs_nothing() {
     assert_eq!(g.deck.credits, 500, "nothing charged");
     assert!(g.sources_got.is_empty());
 }
+
+#[test]
+fn from_home_what_is_bought_is_what_was_on_the_screen() {
+    let d = data();
+    let mut s = home(&d);
+    s.ice_versions.push(enigma_patch(&d));
+    let gutter = board(&d, "gutter");
+    // On screen: Enigma 1.0.0 at the 1.0.0 price, the crack still pending.
+    let shown = s.home_call(&d, &d.rig, gutter);
+    let (a, f) = enigma_file(&shown);
+    // The crack finishes while the window is open: the board lists 1.0.1 there now.
+    s.study(&std::sync::Arc::new(d.clone()), SOURCE_CRACK_STEPS, 0);
+    let bank = s.bank;
+    let why = s.home_buy_shown(&d, &d.rig, &shown, a, f).unwrap_err();
+    assert!(why.contains("changed"), "{why}");
+    assert_eq!(s.bank, bank, "nothing charged");
+    assert!(s.ice_sources.is_empty());
+    // Listed again, it buys what's shown.
+    let shown = s.home_call(&d, &d.rig, gutter);
+    s.home_buy_shown(&d, &d.rig, &shown, a, f).unwrap();
+    assert_eq!(s.bank, bank - SOURCE_PRICE[1]);
+    assert!(s.owns_source(&d, "enigma", s.ice_versions[0].version));
+}
