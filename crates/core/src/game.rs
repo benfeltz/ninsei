@@ -1361,18 +1361,14 @@ impl Game {
 
     /// The X.121 address of this network's board, as the net's PAD calls it: the DNIC from
     /// `hub/networks.ron`, the number the run was dialed on (a plain run, dialed on nothing,
-    /// uses its board's own) and the BBS node's place (the one the runner is on, else the
-    /// network's). Read from what the run has; never rolled.
+    /// uses its board's own) and the BBS node's place (one per network, in the main one). Read
+    /// from what the run has; never rolled.
     pub fn bbs_address(&self) -> String {
         let number = self
             .site
             .as_ref()
             .map_or(self.bbs().phone.as_str(), |s| s.number.as_str());
-        let node = if self.at_bbs() {
-            self.at
-        } else {
-            self.root().bbs().unwrap_or(0)
-        };
+        let node = self.root().bbs().unwrap_or(0);
         self.data.networks.x25.address(number, node)
     }
 
