@@ -117,9 +117,14 @@ fn a_source_whose_program_no_longer_reads_is_owned_by_nothing() {
         version: v,
         program: "10 SEGFAULT\n20 SEGFAULT".into(),
     });
-    assert!(s.ice_sources[0].text(&d).is_none());
+    assert!(!s.ice_sources[0].reads(&d));
+    // Never learned that way, and dropped as the save loads.
+    assert!(!s.learn_source(&d, "enigma", v));
+    assert!(s.ensure_sources(&d));
+    assert!(s.ice_sources.is_empty());
     assert!(!s.owns_source(&d, "enigma", v));
     assert!(s.kit(&d).ice_sources.is_empty(), "never into a run");
+    assert!(!s.ensure_sources(&d), "nothing more to drop");
 }
 
 #[test]
@@ -212,7 +217,7 @@ fn the_save_and_the_fight_agree_on_what_is_owned() {
             .program
             .replace("ATTACK 4", "ATTACK 5"),
     });
-    assert!(s.ice_sources[0].text(&d).is_some(), "it reads");
+    assert!(s.ice_sources[0].reads(&d), "it reads");
     assert!(!s.owns_source(&d, "enigma", v));
     let g = fight(&mut s, &d, "enigma");
     assert!(!g.owns_source(ix(&d, "enigma"), v));

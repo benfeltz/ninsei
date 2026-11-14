@@ -1273,17 +1273,28 @@ pub struct IceSource {
 }
 
 impl IceSource {
-    /// Its program, as the kind's row reads it: the row's own for 1.0.0. `None` for a kind no
-    /// longer in `ice.ron`, or a saved program that no longer passes the row's check (the row
-    /// changed under it): such a source is no longer anything's, and nothing shows it.
+    /// Its program: the row's own for 1.0.0. `None` for a kind no longer in `ice.ron`. Cheap:
+    /// whether a saved program still passes its row's check is asked once, when it's added
+    /// (`Save::add_source`) and when the save loads (`Save::ensure_sources`).
     pub fn text<'a>(&'a self, data: &'a Data) -> Option<&'a str> {
         let row = data.ice.iter().find(|r| r.id == self.id)?;
         if self.version == crate::ice_version::Version::FIRST {
             return Some(row.program.as_str());
         }
-        data.check_ice_program(row, &self.program)
-            .is_ok()
-            .then_some(self.program.as_str())
+        Some(self.program.as_str())
+    }
+
+    /// Whether it still reads as its kind: the kind is in `ice.ron`, and a program past 1.0.0
+    /// passes the row's check. One that doesn't (the row changed under it) is no longer
+    /// anything's.
+    pub fn reads(&self, data: &Data) -> bool {
+        data.ice
+            .iter()
+            .find(|r| r.id == self.id)
+            .is_some_and(|row| {
+                self.version == crate::ice_version::Version::FIRST
+                    || data.check_ice_program(row, &self.program).is_ok()
+            })
     }
 
     /// Whether it's the source of version `v` of kind `id` running `program` (as a fight books
@@ -1511,9 +1522,17 @@ impl Save {
         )
     }
 
+    /// Drops the sources that no longer read as their kind (`IceSource::reads`): the data
+    /// changed under the save. Called as a save loads. True if any went.
+    pub fn ensure_sources(&mut self, data: &Data) -> bool {
+        let was = self.ice_sources.len();
+        self.ice_sources.retain(|s| s.reads(data));
+        self.ice_sources.len() != was
+    }
+
     /// Keeps `src`, unless you own it or it no longer reads as its kind. True if it was new.
     fn add_source(&mut self, data: &Data, src: IceSource) -> bool {
-        if src.text(data).is_none()
+        if !src.reads(data)
             || self
                 .ice_sources
                 .iter()

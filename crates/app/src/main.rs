@@ -356,6 +356,8 @@ impl App {
         let keyed = save.ensure_phonebook(&data, fresh_seed()) || keyed;
         // Everyone starts with a deck and a monitor; a mono monitor picks the theme.
         let keyed = save.ensure_hardware(&data) || keyed;
+        // A source the data no longer takes is no longer anything's.
+        let keyed = save.ensure_sources(&data) || keyed;
         boot[0] = format!(
             "{} // {}",
             save.firmware_def(&data).desktop.name(),
