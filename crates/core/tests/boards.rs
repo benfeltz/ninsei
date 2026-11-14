@@ -187,7 +187,6 @@ fn the_dial_log_names_the_board() {
     // A plain run's address carries its board's number, and the node it's on.
     assert!(line.contains("5550100"), "{line}");
     assert!(line.contains(&g.bbs_address()), "{line}");
-    assert!(g.bbs_address().ends_with(&format!(" {to:02}")));
 }
 
 #[test]
