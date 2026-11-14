@@ -1859,13 +1859,28 @@ impl Data {
         {
             return Err(format!("no ICE of tier {t}"));
         }
-        let kinds = self
+        let kinds: Vec<&IceDef> = self
             .ice
             .iter()
             .filter(|i| s.tiers.contains(&i.tier))
-            .count();
-        if kinds > 9 {
-            return Err(format!("{kinds} kinds: an area lists nine at most"));
+            .collect();
+        if kinds.len() > 9 {
+            return Err(format!("{} kinds: an area lists nine at most", kinds.len()));
+        }
+        // Each kind's file has its own 8.3 name (the name's first eight letters and digits).
+        let stems: Vec<String> = kinds
+            .iter()
+            .map(|i| crate::bbs::source_file(&i.name, crate::ice_version::Version::FIRST))
+            .collect();
+        if let Some((k, _)) = stems
+            .iter()
+            .enumerate()
+            .find(|(k, n)| stems[..*k].contains(n))
+        {
+            return Err(format!(
+                "`{}` lists under the same file name as another kind ({})",
+                kinds[k].name, stems[k]
+            ));
         }
         let longest = self
             .ice
