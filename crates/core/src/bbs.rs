@@ -19,8 +19,9 @@ const MODEM_ANSI_AFTER: f32 = 0.15;
 
 /// How a session's line was made: what its connect screen prints, how long it takes and how it
 /// sounds (the app renders the same [`Handshake`] the session ticks against), and how it ends.
+/// It borrows the PAD's words from the line's data, so asking for it every frame copies none.
 #[derive(Clone, Debug, PartialEq)]
-pub enum Call {
+pub enum Call<'a> {
     /// Dialed by modem: the full handshake to the board's number. It can't be hurried, and it
     /// hangs up with `+++`, `ATH0` and `NO CARRIER`.
     Modem(Handshake),
@@ -29,11 +30,11 @@ pub enum Call {
     Packet {
         timeline: Handshake,
         address: String,
-        pad: X25Def,
+        pad: &'a X25Def,
     },
 }
 
-impl Call {
+impl Call<'_> {
     /// The timeline the screen and the sound both follow.
     pub fn timeline(&self) -> &Handshake {
         match self {
@@ -105,7 +106,7 @@ pub trait Line {
     /// it lists as yours, like a tool.
     fn has_source(&self, ice: &str, version: Version) -> bool;
     /// How the line was made. By default a modem call to the board's number, as from home.
-    fn connect(&self) -> Call {
+    fn connect(&self) -> Call<'_> {
         Call::Modem(Handshake::new(&self.board().phone))
     }
 
@@ -149,11 +150,11 @@ impl Line for Game {
     }
 
     /// In a run you're already on the net: the board is an X.25 call through its PAD.
-    fn connect(&self) -> Call {
+    fn connect(&self) -> Call<'_> {
         Call::Packet {
             timeline: Handshake::x25(),
             address: self.bbs_address(),
-            pad: self.data.networks.x25.clone(),
+            pad: &self.data.networks.x25,
         }
     }
 
