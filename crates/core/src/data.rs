@@ -524,7 +524,7 @@ pub const LONG_X25_ADDRESS: &str = "9999 99999999 99";
 impl X25Def {
     /// The X.121 address of the board on node `node` of the network whose number is `number`:
     /// the DNIC, then the network's number (its last [`X25_NUMBER_DIGITS`] digits) and the
-    /// node's place (its last [`X25_NODE_DIGITS`]), as `4409 55501990 07`. Nothing rolled: the
+    /// node's place (its last [`X25_NODE_DIGITS`]), as `4409 5550199 07` for 555-0199. Nothing rolled: the
     /// same network and node always have the same address.
     pub fn address(&self, number: &str, node: usize) -> String {
         let digits: Vec<char> = number.chars().filter(char::is_ascii_digit).collect();
