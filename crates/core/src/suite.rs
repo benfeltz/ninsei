@@ -395,15 +395,26 @@ pub struct ProcedureRow {
     pub statement: String,
     /// The step NEXT ACTION is on.
     pub next: bool,
+    /// A remark row its source carries, not a step.
+    pub rem: bool,
 }
 
 /// The ICE's program (`ice_listing::rows`), every step.
 pub fn procedure(rows: &[crate::ice_listing::IceRow]) -> Vec<ProcedureRow> {
     rows.iter()
         .map(|r| ProcedureRow {
-            step: format!("{}{:>4}", if r.cursor { ">" } else { " " }, r.no),
-            statement: r.text.clone(),
+            step: if r.rem {
+                String::new()
+            } else {
+                format!("{}{:>4}", if r.cursor { ">" } else { " " }, r.no)
+            },
+            statement: if r.rem {
+                format!("REM {}", r.text)
+            } else {
+                r.text.clone()
+            },
             next: r.next,
+            rem: r.rem,
         })
         .collect()
 }

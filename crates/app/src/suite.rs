@@ -860,10 +860,10 @@ impl Panes<'_> {
                             ui.end_row();
                             // The step NEXT is on is highlighted, as the agenda's current row was.
                             for r in ninsei_core::suite::procedure(&rows) {
-                                let (fg, bg) = if r.next {
-                                    (p.bg, Some(p.fg))
-                                } else {
-                                    (p.fg, None)
+                                let (fg, bg) = match (r.next, r.rem) {
+                                    (true, _) => (p.bg, Some(p.fg)),
+                                    (false, true) => (p.dim, None),
+                                    (false, false) => (p.fg, None),
                                 };
                                 for cell in [r.step, r.statement] {
                                     let text = t(cell, fg);

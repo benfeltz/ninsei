@@ -568,8 +568,11 @@ impl Panes<'_> {
         }
         for r in &rows {
             let text = RichText::new(ninsei_core::ice_listing::card_line(r)).monospace();
+            // The source's notes recede behind the program they annotate.
             let text = if r.next {
                 text.color(p.bg).background_color(p.fg)
+            } else if r.rem {
+                text.color(p.dim)
             } else {
                 text.color(p.fg)
             };

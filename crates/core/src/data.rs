@@ -430,9 +430,51 @@ pub struct SourcesDef {
     /// and `{version}` the version.
     pub first: String,
     pub patched: String,
+    /// The header a source from here carries, a line each, shown above its listing: `{ice}`,
+    /// `{version}` and `{board}` (the board's name) filled in.
+    #[serde(default)]
+    pub header: Vec<String>,
+    /// A remark on each read it knows, shown under the IF that reads it.
+    #[serde(default)]
+    pub remarks: Vec<RemarkDef>,
 }
 
+/// A remark a board's crew (or its office) puts on a kind of read in a source it passes on.
+#[derive(Deserialize, Clone, Debug)]
+pub struct RemarkDef {
+    /// The read's opening words, as an ICE's program writes them after `IF` (`TARGET SHIELD`).
+    pub read: String,
+    pub text: String,
+}
+
+/// The widest a header line or a remark may be: they print with the listing on every deck.
+pub const NOTE_MAX: usize = 40;
+
 impl SourcesDef {
+    /// Its header for kind `ice` at `version` (as printed), from board `board` (its name).
+    pub fn header_lines(&self, ice: &str, version: &str, board: &str) -> Vec<String> {
+        self.header
+            .iter()
+            .map(|l| {
+                l.replace("{ice}", ice)
+                    .replace("{version}", version)
+                    .replace("{board}", board)
+            })
+            .collect()
+    }
+
+    /// Its remark on a line of a program, if the line is an IF that opens with a read it knows.
+    pub fn remark(&self, line: &str) -> Option<&str> {
+        let cond = line.strip_prefix("IF ")?;
+        self.remarks
+            .iter()
+            .find(|r| {
+                cond.strip_prefix(r.read.as_str())
+                    .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
+            })
+            .map(|r| r.text.as_str())
+    }
+
     /// A file's description: kind `ice` at `version` (as printed), 1.0.0's or a later one's.
     pub fn desc(&self, first: bool, ice: &str, version: &str) -> String {
         let t = if first { &self.first } else { &self.patched };
@@ -1906,6 +1948,37 @@ impl Data {
             .map(|i| i.name.as_str())
             .max_by_key(|n| n.chars().count())
             .unwrap_or("");
+        for line in s.header_lines(longest, LONG_VERSION, &b.name) {
+            if line.contains('{') || line.contains('}') {
+                return Err(format!("header `{line}` has a word it can't fill"));
+            }
+            if line.chars().count() > NOTE_MAX {
+                return Err(format!("header `{line}` is wider than {NOTE_MAX}"));
+            }
+        }
+        // A remark's read is one an ICE reads: in the grammar, or in a program.
+        let reads: Vec<&str> = self
+            .ice_grammar
+            .classes
+            .iter()
+            .flat_map(|c| c.reads.iter().map(|r| r.read.as_str()))
+            .collect();
+        for r in &s.remarks {
+            let known = reads.iter().any(|g| {
+                g.strip_prefix(r.read.as_str())
+                    .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
+            }) || self.ice.iter().any(|i| {
+                i.program
+                    .lines()
+                    .any(|l| l.contains(&format!("IF {} ", r.read)))
+            });
+            if !known {
+                return Err(format!("a remark on `{}`, which no ICE reads", r.read));
+            }
+            if r.text.chars().count() > NOTE_MAX {
+                return Err(format!("remark `{}` is wider than {NOTE_MAX}", r.text));
+            }
+        }
         for first in [true, false] {
             let filled = s.desc(first, longest, LONG_VERSION);
             if filled.contains('{') || filled.contains('}') {

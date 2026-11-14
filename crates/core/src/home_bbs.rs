@@ -364,6 +364,10 @@ impl Save {
                 if !self.learn_source(data, ice, *version) {
                     return Err("corrupt download.".into());
                 }
+                // It carries this board's header and remarks.
+                if let Some(s) = self.ice_sources.last_mut() {
+                    s.from = call.def.id.clone();
+                }
                 let name = data
                     .ice_by_id(ice)
                     .map_or(ice.as_str(), |i| data.ice[i].name.as_str());
