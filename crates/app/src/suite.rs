@@ -849,35 +849,33 @@ impl Panes<'_> {
                 heading(ui, &p, words.heading);
                 if rows.is_empty() {
                     ui.label(t(words.none, p.dim));
-                }
-                egui::Grid::new("suite-procedure")
-                    .num_columns(2)
-                    .spacing([16.0, 2.0])
-                    .show(ui, |ui| {
-                        if rows.is_empty() {
-                            return;
-                        }
-                        let [step, statement] = ninsei_core::suite::PROCEDURE_COLUMNS;
-                        ui.label(t(step, p.dim));
-                        ui.label(t(statement, p.dim));
-                        ui.end_row();
-                        // The step NEXT is on is highlighted, as the agenda's current row was.
-                        for r in ninsei_core::suite::procedure(&rows) {
-                            let (fg, bg) = if r.next {
-                                (p.bg, Some(p.fg))
-                            } else {
-                                (p.fg, None)
-                            };
-                            for cell in [r.step, r.statement] {
-                                let text = t(cell, fg);
-                                ui.label(match bg {
-                                    Some(bg) => text.background_color(bg),
-                                    None => text,
-                                });
-                            }
+                } else {
+                    egui::Grid::new("suite-procedure")
+                        .num_columns(2)
+                        .spacing([16.0, 2.0])
+                        .show(ui, |ui| {
+                            let [step, statement] = ninsei_core::suite::PROCEDURE_COLUMNS;
+                            ui.label(t(step, p.dim));
+                            ui.label(t(statement, p.dim));
                             ui.end_row();
-                        }
-                    });
+                            // The step NEXT is on is highlighted, as the agenda's current row was.
+                            for r in ninsei_core::suite::procedure(&rows) {
+                                let (fg, bg) = if r.next {
+                                    (p.bg, Some(p.fg))
+                                } else {
+                                    (p.fg, None)
+                                };
+                                for cell in [r.step, r.statement] {
+                                    let text = t(cell, fg);
+                                    ui.label(match bg {
+                                        Some(bg) => text.background_color(bg),
+                                        None => text,
+                                    });
+                                }
+                                ui.end_row();
+                            }
+                        });
+                }
                 heading(ui, &p, "STRENGTH BY TURN");
                 let mut vals: Vec<f32> = vec![c.strength_max as f32];
                 vals.extend(
