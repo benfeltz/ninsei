@@ -1257,6 +1257,7 @@ pub fn ship(
         version: was.bumped(bump),
         program: next.program,
         bump: Some(bump),
+        crack: crate::tuning::SOURCE_CRACK_STEPS,
     });
 }
 
@@ -1314,6 +1315,10 @@ pub struct IceVer {
     /// How it was made from the version before.
     #[serde(default)]
     pub bump: Option<crate::ice_version::Bump>,
+    /// Steps of the sysops' clock left before the scene has cracked it and its source is on
+    /// the boards (`SOURCE_CRACK_STEPS` when it ships; 0 is cracked).
+    #[serde(default)]
+    pub crack: u32,
 }
 
 /// A textfile on your disk: which board it came from and its id in that board's `texts`.
@@ -2497,6 +2502,11 @@ impl Save {
                 .collect(),
             ice_study: self.ice_study.clone(),
             study_key: self.key,
+            ice_cracks: self
+                .patches(data)
+                .into_iter()
+                .map(|v| (v.id.clone(), v.version, v.crack))
+                .collect(),
             // The sysops' patches: every net runs a patched kind's version.
             ice_programs: self
                 .patches(data)
@@ -2523,6 +2533,10 @@ impl Save {
     /// worked ([`crate::ice_study::work`]). What ships is in force on every net from the next
     /// fight with that kind. Returns how many versions shipped.
     pub fn study(&mut self, data: &std::sync::Arc<Data>, steps: u32, drafts: u32) -> usize {
+        // The crackers work the same clock.
+        for v in &mut self.ice_versions {
+            v.crack = v.crack.saturating_sub(steps);
+        }
         let versions = &self.ice_versions;
         let shipped =
             crate::ice_study::work(&mut self.ice_study, data, self.key, steps, drafts, |id| {
@@ -2533,6 +2547,22 @@ impl Save {
             ship(&mut self.ice_versions, &id, was, next);
         }
         n
+    }
+
+    /// Whether the sysops' clock has anyone to run for: a study at work, or a version whose
+    /// source the scene is still cracking.
+    pub fn sysops_busy(&self) -> bool {
+        crate::ice_study::busy(&self.ice_study) || self.ice_versions.iter().any(|v| v.crack > 0)
+    }
+
+    /// Whether the source of version `version` of kind `id` is out: 1.0.0's always is; a later
+    /// one when it's the version in force and the scene has cracked it.
+    pub fn cracked(&self, data: &Data, id: &str, version: crate::ice_version::Version) -> bool {
+        version == crate::ice_version::Version::FIRST
+            || self
+                .patches(data)
+                .iter()
+                .any(|v| v.id == id && v.version == version && v.crack == 0)
     }
 
     /// Whether saved version `v` of `row` is in force: past 1.0.0 (which is always the row's
@@ -2713,6 +2743,19 @@ impl Save {
         }
         for (id, was, next) in &game.shipped {
             ship(&mut self.ice_versions, id, *was, next.clone());
+        }
+        // And the crackers, as far as they got.
+        for (ice, version, left) in &game.cracks {
+            let Some(def) = game.data.ice.get(*ice) else {
+                continue;
+            };
+            if let Some(v) = self
+                .ice_versions
+                .iter_mut()
+                .find(|v| v.id == def.id && v.version == *version)
+            {
+                v.crack = *left;
+            }
         }
         let mut boards = Vec::new();
         if game.bbs_seen {

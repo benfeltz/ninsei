@@ -500,6 +500,7 @@ fn patched(program: &str) -> Save {
             version: Version::default().bumped(Bump::Patch),
             program: program.into(),
             bump: None,
+            crack: 0,
         }],
         ..Save::default()
     }
@@ -627,6 +628,7 @@ fn a_saved_one_point_oh_is_always_the_rows() {
             version: Version::default(),
             program: "10 ATTACK 3".into(),
             bump: None,
+            crack: 0,
         }],
         ..Save::default()
     };

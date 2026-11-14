@@ -726,7 +726,7 @@ impl App {
     /// (`Save::study`), and at most `DRAFTS_PER_FRAME` owed drafts are worked a frame. Returns
     /// how long until the next is due, while any are at work.
     fn sysops_tick(&mut self, now: f64) -> Option<f64> {
-        use ninsei_core::ice_study::{busy, owed};
+        use ninsei_core::ice_study::owed;
         let in_run = self.booked.is_none() && self.screen != Screen::Hub;
         // A run that's over and not yet home (the keep picker, the crash screen) can't spend
         // the time, and its studies aren't the save's yet: the clock isn't read, so the time
@@ -739,24 +739,32 @@ impl App {
         } else {
             &self.save.ice_study
         };
-        let steps = self.sysops.steps(now, busy(studies));
+        let busy = if in_run {
+            self.game.sysops_busy()
+        } else {
+            self.save.sysops_busy()
+        };
+        let steps = self.sysops.steps(now, busy);
         if steps > 0 || owed(studies) {
             let drafts = sysops::DRAFTS_PER_FRAME;
             if in_run {
                 self.game.apply(Action::Study { steps, drafts });
-            } else if self.save.study(&self.data, steps, drafts) > 0 {
-                self.save_dirty = true;
+            } else {
+                let cracking = self.save.ice_versions.iter().any(|v| v.crack > 0);
+                if self.save.study(&self.data, steps, drafts) > 0 || (cracking && steps > 0) {
+                    self.save_dirty = true;
+                }
             }
         }
-        let studies = if in_run {
-            &self.game.ice_study
+        let (studies, busy) = if in_run {
+            (&self.game.ice_study, self.game.sysops_busy())
         } else {
-            &self.save.ice_study
+            (&self.save.ice_study, self.save.sysops_busy())
         };
         if owed(studies) {
             Some(0.0)
         } else {
-            busy(studies).then(|| self.sysops.wait())
+            busy.then(|| self.sysops.wait())
         }
     }
 
@@ -2318,7 +2326,20 @@ mod tests {
                 app.save.ice_study
             );
             assert!(app.save_dirty);
-            assert_eq!(app.sysops_tick(t + 1000.0), None, "resting: nothing due");
+            // The sysops rest; the scene is still cracking what they shipped, so the clock runs.
+            t += DRAFT;
+            assert!(app.sysops_tick(t).is_some(), "the crackers are at work");
+            assert!(app.save.ice_versions[0].crack > 0);
+            for _ in 0..ninsei_core::tuning::SOURCE_CRACK_STEPS {
+                t += DRAFT;
+                app.sysops_tick(t);
+            }
+            assert_eq!(app.save.ice_versions[0].crack, 0, "cracked");
+            assert_eq!(
+                app.sysops_tick(t + 1000.0),
+                None,
+                "nobody at work: nothing due"
+            );
         }
 
         #[test]

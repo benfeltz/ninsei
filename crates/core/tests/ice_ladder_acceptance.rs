@@ -81,13 +81,24 @@ fn career(save: &mut Save, d: &Data, runs: u64) -> Seen {
         // The kind that ended the run wasn't patched by it.
         if let Some(k) = g.killed_by() {
             let id = &d.ice[k].id;
+            // (The crackers' clock moves on; the version is what counts.)
+            let version = |vs: &[hub::IceVer]| {
+                vs.iter()
+                    .find(|v| &v.id == id)
+                    .map(|v| (v.version, v.program.clone()))
+            };
             assert_eq!(
-                save.ice_versions.iter().find(|v| &v.id == id),
-                before.iter().find(|v| &v.id == id),
+                version(&save.ice_versions),
+                version(&before),
                 "{id} killed the deck and evolved"
             );
         }
-        for v in save.ice_versions.iter().filter(|v| !before.contains(v)) {
+        let new = |v: &&hub::IceVer| {
+            !before
+                .iter()
+                .any(|b| b.id == v.id && b.version == v.version && b.program == v.program)
+        };
+        for v in save.ice_versions.iter().filter(new) {
             seen.shipped += 1;
             let row = d.ice.iter().find(|i| i.id == v.id).unwrap();
             // It fits its machine and stays a program the sysops can patch again.

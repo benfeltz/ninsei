@@ -352,7 +352,7 @@ fn play_paced(
     while steps < 5_000 {
         steps += 1;
         if let Some(p) = pace.as_deref_mut() {
-            let busy = crate::ice_study::busy(&g.ice_study);
+            let busy = g.sysops_busy();
             let steps = p.steps(u64::from(crate::tuning::PROBE_ACTION_MS), busy);
             if steps > 0 {
                 g.apply(Action::Study {
@@ -1284,7 +1284,7 @@ impl Probe {
             .collect();
         let report = save.record(&g, &keep, &data.rig);
         // The sysops' time at home, before the next run.
-        let busy = crate::ice_study::busy(&save.ice_study);
+        let busy = save.sysops_busy();
         let steps = self
             .pace
             .steps(u64::from(crate::tuning::PROBE_HOME_MS), busy);

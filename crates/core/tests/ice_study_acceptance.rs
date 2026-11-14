@@ -73,7 +73,14 @@ fn career(save: &mut Save, d: &Arc<Data>, runs: u64, slice: u32) -> Vec<Shipped>
             save.study(d, n, u32::MAX);
             left -= n;
         }
-        for v in save.ice_versions.iter().filter(|v| !before.contains(v)) {
+        // New: not a kind's version before this time at home (the crackers' clock moves on
+        // every version, so compare the versions, not their cracks).
+        let new = |v: &&IceVer| {
+            !before
+                .iter()
+                .any(|b| b.id == v.id && b.version == v.version && b.program == v.program)
+        };
+        for v in save.ice_versions.iter().filter(new) {
             let was = programs
                 .iter()
                 .find(|(id, _)| *id == v.id)
@@ -185,6 +192,10 @@ fn the_same_save_ships_the_same_versions_however_the_time_was_sliced() {
     let play = |key: u64, slice: u32| {
         let mut s = deck(key, 1);
         career(&mut s, &d, 30, slice);
+        // What ships is the save's; how far the crackers got is the clock's.
+        for v in &mut s.ice_versions {
+            v.crack = 0;
+        }
         s.ice_versions
     };
     let a = play(7, STUDY_PATIENCE);

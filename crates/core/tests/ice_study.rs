@@ -450,6 +450,11 @@ fn the_same_save_ships_the_same_versions() {
                 left = left.saturating_sub(batch);
             }
         }
+        // What ships is the save's; how far the crackers got is when, which is the clock's (a
+        // version shipped partway through a batch of steps starts its crack after it).
+        for v in &mut s.ice_versions {
+            v.crack = 0;
+        }
         s.ice_versions
     };
     let a = play(5, 1);
@@ -733,6 +738,7 @@ fn a_saved_version_its_row_no_longer_takes_still_books_the_fights_that_fall_back
         version: Version::FIRST.bumped(Bump::Patch),
         program: bad.into(),
         bump: Some(Bump::Patch),
+        crack: 0,
     });
     assert_eq!(s.ice_program("enigma", &d).unwrap().0, Version::FIRST);
     run(&mut s, &d, SAFE_PICK, &[("enigma", true)]);
@@ -754,6 +760,7 @@ fn a_version_number_met_before_with_another_program_is_met_unknown() {
         version: Version::FIRST.bumped(Bump::Patch),
         program: now.into(),
         bump: Some(Bump::Patch),
+        crack: 0,
     });
     // The source of 1.0.1 as it was is another program's: it doesn't list this one.
     let patch = Version::FIRST.bumped(Bump::Patch);
@@ -817,4 +824,105 @@ fn drafts_spread_over_frames_ship_what_working_them_at_once_does() {
     };
     assert_eq!(key(&out), key(&all));
     assert_eq!(framed, at_once);
+}
+
+// 141.11.2: the crackers' clock. A shipped version's source is out after `SOURCE_CRACK_STEPS`
+// of the sysops' time, which runs while the scene is still at work on it.
+
+fn shipped_at_home() -> (Arc<Data>, Save) {
+    let d = Arc::new(data());
+    let mut s = home(KEY);
+    let row = &d.ice[ix(&d, "enigma")];
+    hub::ship(
+        &mut s.ice_versions,
+        "enigma",
+        Version::FIRST,
+        ice_version::Next {
+            bump: Some(Bump::Patch),
+            program: row.program.replace("TRACE 10", "TRACE 9"),
+        },
+    );
+    (d, s)
+}
+
+#[test]
+fn a_shipped_version_is_cracked_after_the_crackers_delay() {
+    let (d, mut s) = shipped_at_home();
+    let v = Version::FIRST.bumped(Bump::Patch);
+    assert!(s.cracked(&d, "enigma", Version::FIRST), "1.0.0 always is");
+    assert!(!s.cracked(&d, "enigma", v));
+    assert!(s.sysops_busy(), "the crackers are at work, nobody studying");
+    s.study(&d, tuning::SOURCE_CRACK_STEPS - 1, u32::MAX);
+    assert!(!s.cracked(&d, "enigma", v), "a step short");
+    s.study(&d, 1, u32::MAX);
+    assert!(s.cracked(&d, "enigma", v));
+    assert!(!s.sysops_busy(), "nobody at work");
+    // A version nobody shipped is never out.
+    assert!(!s.cracked(&d, "enigma", v.bumped(Bump::Minor)));
+}
+
+#[test]
+fn a_save_from_before_cracks_loads_cracked() {
+    let (d, mut s) = shipped_at_home();
+    s.ice_versions[0].crack = 0;
+    let old: String = s
+        .to_text()
+        .lines()
+        .filter(|l| !l.trim_start().starts_with("crack:"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let back = Save::load(&old).unwrap();
+    assert!(back.cracked(&d, "enigma", back.ice_versions[0].version));
+}
+
+#[test]
+fn a_crack_runs_through_a_run_and_comes_home_with_what_is_left() {
+    for exit in [true, false] {
+        let (d, mut s) = shipped_at_home();
+        let v = Version::FIRST.bumped(Bump::Patch);
+        let mut g = s.jack_in(&d, 3);
+        let e = ix(&d, "enigma");
+        assert!(!g.cracked(e, v));
+        assert!(g.sysops_busy());
+        g.apply(Action::Study {
+            steps: 40,
+            drafts: 0,
+        });
+        if exit {
+            g.phase = Phase::JackedOut;
+        } else {
+            g.phase = Phase::Flatlined;
+        }
+        s.record(&g, &[], &d.rig).unwrap();
+        assert_eq!(
+            s.ice_versions[0].crack,
+            tuning::SOURCE_CRACK_STEPS - 40,
+            "exit {exit}"
+        );
+    }
+}
+
+#[test]
+fn a_version_shipped_mid_run_starts_its_crack_there() {
+    let mut g = studied_run(7);
+    rez(&mut g, "enigma");
+    g.apply(Action::Study {
+        steps: STUDY_PATIENCE,
+        drafts: u32::MAX,
+    });
+    let (_, was, next) = g.shipped.first().cloned().expect("it ships");
+    let v = was.bumped(next.bump.unwrap());
+    let e = ix(&g.data, "enigma");
+    assert!(!g.cracked(e, v));
+    g.apply(Action::Study {
+        steps: tuning::SOURCE_CRACK_STEPS,
+        drafts: 0,
+    });
+    assert!(g.cracked(e, v));
+    // Home books it cracked.
+    g.phase = Phase::JackedOut;
+    let mut save = home(KEY);
+    let rig = g.data.rig.clone();
+    save.record(&g, &[], &rig).unwrap();
+    assert!(save.cracked(&g.data, "enigma", v));
 }

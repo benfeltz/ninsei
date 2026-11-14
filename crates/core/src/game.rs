@@ -270,6 +270,9 @@ pub struct Kit {
     /// The sysops at work on each beaten kind (the save's `ice_study`): they keep working in
     /// the run ([`Action::Study`]).
     pub ice_study: Vec<crate::ice_study::Study>,
+    /// Each patched kind's version in force and the steps left before its source is cracked
+    /// (`IceVer::crack`): (ICE id, version, steps).
+    pub ice_cracks: Vec<(String, crate::ice_version::Version, u32)>,
     /// The save's key, which the sysops' drafts are drawn from (never the run's).
     pub study_key: u64,
     /// For each of `programs`, the stash id it came from (`None` for a free program). The run
@@ -306,6 +309,7 @@ impl Default for Kit {
             ice_sources: Vec::new(),
             ice_programs: Vec::new(),
             ice_study: Vec::new(),
+            ice_cracks: Vec::new(),
             study_key: 0,
             origins: Vec::new(),
             free: Vec::new(),
@@ -597,6 +601,11 @@ pub struct Game {
     pub news: Option<crate::data::BulletinDef>,
     /// The sysops at work on each beaten kind (from the kit; `Save::record` takes them home).
     pub ice_study: Vec<crate::ice_study::Study>,
+    /// The scene's cracks of each patched kind's version in force: (index into `Data::ice`,
+    /// version, steps left; 0 is cracked). From the kit, counted down by [`Action::Study`],
+    /// started for a version shipped mid-run; `Save::record` takes them home. Never read by
+    /// play.
+    pub cracks: Vec<(usize, Version, u32)>,
     /// The save's key, which their drafts are drawn from.
     pub study_key: u64,
     /// The sysops watch this game's fights: a fight the deck wins wakes them. Not in a duel
@@ -856,6 +865,11 @@ impl Game {
                 ))
             })
             .collect();
+        let cracks = kit
+            .ice_cracks
+            .iter()
+            .filter_map(|(id, v, left)| Some((data.ice_by_id(id)?, *v, *left)))
+            .collect();
         let news = crate::bbs::news_bulletin(
             &data.boards[board],
             &data,
@@ -891,6 +905,7 @@ impl Game {
             sources_got: Vec::new(),
             ice_versions,
             ice_study: kit.ice_study.clone(),
+            cracks,
             study_key: kit.study_key,
             watched: true,
             shipped: Vec::new(),
@@ -1459,6 +1474,10 @@ impl Game {
         if matches!(self.phase, Phase::Flatlined | Phase::JackedOut) {
             return;
         }
+        // The crackers work the same clock.
+        for (_, _, left) in &mut self.cracks {
+            *left = left.saturating_sub(steps);
+        }
         let (data, versions) = (&self.data, &self.ice_versions);
         let shipped = crate::ice_study::work(
             &mut self.ice_study,
@@ -1486,6 +1505,9 @@ impl Game {
             self.ice_versions.retain(|(i, ..)| *i != ice);
             self.ice_versions
                 .push((ice, was.bumped(bump), program, Some(bump)));
+            self.cracks.retain(|(i, ..)| *i != ice);
+            self.cracks
+                .push((ice, was.bumped(bump), crate::tuning::SOURCE_CRACK_STEPS));
         }
         self.shipped.extend(shipped);
         // The board hears of it.
@@ -1638,6 +1660,23 @@ impl Game {
             .iter()
             .chain(&self.sources_got)
             .any(|s| s.is(id, v, &program))
+    }
+
+    /// Whether the sysops' clock has anyone to run for in this run: a study at work, or a
+    /// version whose source the scene is still cracking.
+    pub fn sysops_busy(&self) -> bool {
+        crate::ice_study::busy(&self.ice_study) || self.cracks.iter().any(|c| c.2 > 0)
+    }
+
+    /// Whether the source of version `v` of ICE `ice` is out in this run: 1.0.0's always is; a
+    /// later one when it's the version in force and the scene has cracked it.
+    pub fn cracked(&self, ice: usize, v: Version) -> bool {
+        v == Version::FIRST
+            || (self.ice_version(ice) == v
+                && !self
+                    .cracks
+                    .iter()
+                    .any(|(i, w, left)| *i == ice && *w == v && *left > 0))
     }
 
     /// Whether the ICE in front lists: the deck owns the source of the version it's fighting
