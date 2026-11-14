@@ -1498,13 +1498,8 @@ impl Save {
         id: &str,
         version: crate::ice_version::Version,
     ) -> bool {
-        let Some(row) = data.ice.iter().find(|r| r.id == id) else {
+        let Some(program) = self.version_program(data, id, version) else {
             return false;
-        };
-        let program = match self.ice_program(id, data) {
-            _ if version == crate::ice_version::Version::FIRST => String::new(),
-            Some((v, p)) if v == version => as_met(row, v, p),
-            _ => return false,
         };
         self.add_source(
             data,
@@ -1530,11 +1525,34 @@ impl Save {
         true
     }
 
-    /// Whether you own the source of version `version` of ICE kind `id` (one that still reads).
+    /// The program version `version` of ICE kind `id` runs, as a fight books it (empty for
+    /// 1.0.0, the row's), when the save knows it: 1.0.0 or the version in force. `None` for any
+    /// other version, or a kind that isn't in `ice.ron`.
+    pub fn version_program(
+        &self,
+        data: &Data,
+        id: &str,
+        version: crate::ice_version::Version,
+    ) -> Option<String> {
+        let row = data.ice.iter().find(|r| r.id == id)?;
+        match self.ice_program(id, data) {
+            _ if version == crate::ice_version::Version::FIRST => Some(String::new()),
+            Some((v, p)) if v == version => Some(as_met(row, v, p)),
+            _ => None,
+        }
+    }
+
+    /// Whether you own the source of version `version` of ICE kind `id` (one that still reads):
+    /// for 1.0.0 or the version in force, the source of the program it runs, as a fight asks
+    /// (`Game::owns_source`); for any other version, a source of that number.
     pub fn owns_source(&self, data: &Data, id: &str, version: crate::ice_version::Version) -> bool {
-        self.ice_sources
-            .iter()
-            .any(|s| s.id == id && s.version == version && s.text(data).is_some())
+        let program = self.version_program(data, id, version);
+        self.ice_sources.iter().any(|s| {
+            s.id == id
+                && s.version == version
+                && program.as_ref().is_none_or(|p| *p == s.program)
+                && s.text(data).is_some()
+        })
     }
 
     /// Whether you own a game, in either copy (an id in `hub/games.ron`).

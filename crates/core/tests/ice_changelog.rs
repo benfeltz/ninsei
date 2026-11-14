@@ -327,3 +327,62 @@ fn a_source_of_a_kind_never_met_names_it_and_lists_it() {
     assert!(p.contains(&"No record. You haven't met this one yet.".to_string()));
     assert!(p.contains(&"   30 ATTACK 4".to_string()), "{p:#?}");
 }
+
+#[test]
+fn a_source_of_another_program_at_the_version_met_is_not_that_version_s() {
+    // 1.0.1 met running V101; the save holds a 1.0.1 source of another program (the row
+    // changed under it). The ICE DB lists nothing for it and doesn't claim the source.
+    let d = data();
+    let mut s = met_twice(&[]);
+    s.ice_sources.push(source(v101(), V102));
+    let p = page(&s, &d);
+    assert!(
+        p.contains(&"source         none on disk".to_string()),
+        "{p:#?}"
+    );
+    assert!(!p.iter().any(|l| l.contains("TRACE 5")), "{p:#?}");
+    let rows = at(&p, "versions");
+    assert_eq!(
+        p[rows + 1].split_whitespace().collect::<Vec<_>>(),
+        ["1.0.1", "patch", "1", "0", "-"]
+    );
+    // With the right one too, that's the one listed and claimed.
+    s.ice_sources.push(source(v101(), V101));
+    let p = page(&s, &d);
+    assert!(p.iter().any(|l| l == "source         1.0.1"), "{p:#?}");
+    assert!(p.iter().any(|l| l == "   10 ATTACK 4"), "{p:#?}");
+    let rows = at(&p, "versions");
+    assert_eq!(p[rows + 1].split_whitespace().last(), Some("yes"));
+}
+
+#[test]
+fn two_programs_met_at_one_number_keep_both_records() {
+    // `IceSeen::meet` keeps 1.0.1 running another program apart: both records are listed.
+    let d = data();
+    let mut s = met_twice(&[]);
+    s.ice_seen[0].past.push(SeenVersion {
+        version: v101(),
+        bump: Some(Bump::Patch),
+        program: V102.into(),
+        won: 4,
+        lost: 2,
+    });
+    let p = page(&s, &d);
+    let rows = at(&p, "versions");
+    let table: Vec<Vec<&str>> = p[rows + 1..rows + 4]
+        .iter()
+        .map(|l| l.split_whitespace().collect())
+        .collect();
+    assert!(
+        table.contains(&vec!["1.0.1", "patch", "1", "0", "-"]),
+        "{table:?}"
+    );
+    assert!(
+        table.contains(&vec!["1.0.1", "patch", "4", "2", "-"]),
+        "{table:?}"
+    );
+    assert!(
+        table.contains(&vec!["1.0.0", "-", "2", "1", "-"]),
+        "{table:?}"
+    );
+}

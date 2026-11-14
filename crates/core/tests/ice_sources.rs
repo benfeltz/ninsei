@@ -187,3 +187,27 @@ fn a_source_got_in_a_run_comes_home_on_an_exit_and_on_a_flatline() {
         assert_eq!(s.ice_sources.len(), 1);
     }
 }
+
+#[test]
+fn the_save_and_the_fight_agree_on_what_is_owned() {
+    // A 1.0.1 source of another program than the 1.0.1 in force is owned by neither.
+    let d = data();
+    let mut s = fresh(&d);
+    let v = ship(&mut s, &d);
+    s.ice_sources.push(IceSource {
+        id: "enigma".into(),
+        version: v,
+        program: d.ice[ix(&d, "enigma")]
+            .program
+            .replace("ATTACK 4", "ATTACK 5"),
+    });
+    assert!(s.ice_sources[0].text(&d).is_some(), "it reads");
+    assert!(!s.owns_source(&d, "enigma", v));
+    let g = fight(&mut s, &d, "enigma");
+    assert!(!g.owns_source(ix(&d, "enigma"), v));
+    // The one in force is.
+    assert!(s.learn_source(&d, "enigma", v));
+    assert!(s.owns_source(&d, "enigma", v));
+    let g = fight(&mut s, &d, "enigma");
+    assert!(g.owns_source(ix(&d, "enigma"), v));
+}

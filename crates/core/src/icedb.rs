@@ -13,7 +13,11 @@ use crate::ice_version::{Bump, Version};
 pub struct Entry<'a> {
     pub def: &'a IceDef,
     pub seen: Option<&'a IceSeen>,
-    /// The sources you own of it, newest version first, one per version: (version, program).
+    /// The sources you own of it that still read, as saved: (version, program as booked, its
+    /// text).
+    owned: Vec<(Version, &'a str, &'a str)>,
+    /// The sources the page lists, newest version first, one per version: (version, text). Only
+    /// the source of the program the save knows that version by (in force, else as last met).
     pub sources: Vec<(Version, &'a str)>,
 }
 
@@ -23,16 +27,37 @@ pub fn entries<'a>(save: &'a Save, data: &'a Data) -> Vec<Entry<'a>> {
         .iter()
         .map(|def| {
             let seen = save.ice_seen.iter().find(|s| s.id == def.id);
+            let owned: Vec<(Version, &str, &str)> = save
+                .ice_sources
+                .iter()
+                .filter(|s| s.id == def.id)
+                .filter_map(|s| Some((s.version, s.program.as_str(), s.text(data)?)))
+                .collect();
+            // The program the save knows each version by: in force, else as last met.
+            let known = |v: Version| -> Option<String> {
+                save.version_program(data, &def.id, v).or_else(|| {
+                    let s = seen?;
+                    std::iter::once((s.version, &s.program))
+                        .chain(s.past.iter().rev().map(|p| (p.version, &p.program)))
+                        .find(|(w, _)| *w == v)
+                        .map(|(_, p)| p.clone())
+                })
+            };
+            // A source of another program at that number is a version that's gone (the row
+            // changed under it): it lists nothing, as a fight against the number shows nothing.
             let mut sources: Vec<(Version, &str)> = Vec::new();
-            for src in save.ice_sources.iter().filter(|s| s.id == def.id) {
-                if let Some(text) = src.text(data)
-                    && !sources.iter().any(|(v, _)| *v == src.version)
-                {
-                    sources.push((src.version, text));
+            for &(v, program, text) in &owned {
+                if known(v).is_none_or(|p| p == program) && !sources.iter().any(|(w, _)| *w == v) {
+                    sources.push((v, text));
                 }
             }
             sources.sort_by_key(|s| std::cmp::Reverse(s.0));
-            Entry { def, seen, sources }
+            Entry {
+                def,
+                seen,
+                owned,
+                sources,
+            }
         })
         .collect()
 }
@@ -88,36 +113,44 @@ impl<'a> Entry<'a> {
         self.seen.is_some() || !self.sources.is_empty()
     }
 
-    /// Every version of it you've met or own the source of, newest first, one per version.
+    /// Every version of it you've met (each number and program once, as `IceSeen::meet` keeps
+    /// them) or own the source of, newest first.
     fn rows(&self) -> Vec<Row> {
         let mut out: Vec<Row> = Vec::new();
+        let mut met: Vec<(Version, &str)> = Vec::new();
         if let Some(s) = self.seen {
-            let met = std::iter::once((s.version, s.bump, s.won, s.lost)).chain(
-                s.past
-                    .iter()
-                    .rev()
-                    .map(|p| (p.version, p.bump, p.won, p.lost)),
-            );
-            for (version, bump, won, lost) in met {
-                if !out.iter().any(|r| r.version == version) {
-                    out.push(Row {
-                        version,
-                        bump,
-                        record: Some((won, lost)),
-                        source: false,
-                    });
+            let all = std::iter::once((s.version, s.bump, s.program.as_str(), s.won, s.lost))
+                .chain(
+                    s.past
+                        .iter()
+                        .rev()
+                        .map(|p| (p.version, p.bump, p.program.as_str(), p.won, p.lost)),
+                );
+            for (version, bump, program, won, lost) in all {
+                if met.contains(&(version, program)) {
+                    continue;
                 }
+                met.push((version, program));
+                out.push(Row {
+                    version,
+                    bump,
+                    record: Some((won, lost)),
+                    // Owned only if it's the source of the program met at that number.
+                    source: self
+                        .owned
+                        .iter()
+                        .any(|(v, p, _)| *v == version && *p == program),
+                });
             }
         }
         for (v, _) in &self.sources {
-            match out.iter_mut().find(|r| r.version == *v) {
-                Some(r) => r.source = true,
-                None => out.push(Row {
+            if !out.iter().any(|r| r.version == *v && r.source) && !met.iter().any(|m| m.0 == *v) {
+                out.push(Row {
                     version: *v,
                     bump: None,
                     record: None,
                     source: true,
-                }),
+                });
             }
         }
         out.sort_by_key(|r| std::cmp::Reverse(r.version));
