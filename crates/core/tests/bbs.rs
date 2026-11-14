@@ -147,6 +147,7 @@ fn every_screen_fits_the_terminal() {
     for board in 0..boards {
         let g = game_at_board(11, 500, board);
         let mut screens = vec![
+            Screen::Dialing { t: 0.0 },
             Screen::Dialing { t: 9.0 },
             Screen::Splash,
             Screen::Main,
@@ -256,7 +257,7 @@ fn bbs_screens_are_l33t_but_the_modem_and_splash_are_not() {
         status: None,
     }
     .render(&g);
-    assert!(dial.iter().any(|l| l.contains("CONNECT")));
+    assert!(dial.iter().any(|l| l.contains(" COM")), "{dial:?}");
 }
 
 #[test]
@@ -284,18 +285,160 @@ fn the_translator_is_for_everyone() {
     assert_eq!(g.encounter_title(), d.events[plain].title);
 }
 
+/// The words a modem call says, which an X.25 call never does.
+const MODEM_WORDS: [&str; 7] = [
+    "ATZ",
+    "ATDT",
+    "RING",
+    "CONNECT",
+    "+++",
+    "ATH0",
+    "NO CARRIER",
+];
+
 #[test]
-fn dialing_lasts_as_long_as_the_handshake() {
-    let g = Game::new(Data::builtin().unwrap(), 1);
-    let h = ninsei_core::modem::Handshake::new(&g.bbs().phone);
+fn a_run_connects_through_the_pad_in_under_a_second() {
+    use ninsei_core::bbs::{Call, Line};
+    let g = game_at_bbs(1, 100);
+    let h = ninsei_core::modem::Handshake::x25();
+    assert!(matches!(g.connect(), Call::Packet { .. }));
+    assert_eq!(
+        g.connect().timeline(),
+        &h,
+        "the session's line is the X.25 call"
+    );
+    assert!(h.end < 1.0);
+    let x25 = &g.data.networks.x25;
+    let addr = g.bbs_address();
     let mut s = Session::new();
-    s.tick(&g, h.end - 0.05);
-    assert!(matches!(s.screen, Screen::Dialing { .. }), "still dialing");
-    let lines = s.render(&g).join("\n");
-    assert_eq!(lines.matches("RING").count(), h.rings.len());
-    assert!(lines.contains("CONNECT"));
-    s.tick(&g, 0.1);
+    // The call goes out at once; nothing's dialed.
+    let first = s.render(&g);
+    assert_eq!(ansi::plain(&first[0]), x25.call.replace("{address}", &addr));
+    assert_eq!(first.len(), 1, "{first:?}");
+    s.tick(&g, h.connect + 0.01);
+    let lines = s.render(&g);
+    assert_eq!(
+        ansi::plain(&lines[1]),
+        x25.connected.replace("{address}", &addr),
+        "COM when the far end accepts"
+    );
+    s.tick(&g, h.end - h.connect - 0.02);
+    assert!(
+        matches!(s.screen, Screen::Dialing { .. }),
+        "not before its end"
+    );
+    let lines = s.render(&g);
+    assert!(
+        lines
+            .iter()
+            .any(|l| ansi::plain(l) == g.bbs().look.software),
+        "then the board: {lines:?}"
+    );
+    for l in &lines {
+        for w in MODEM_WORDS {
+            assert!(!ansi::plain(l).contains(w), "{w} in {l}");
+        }
+    }
+    s.tick(&g, 0.02);
     assert_eq!(s.screen, Screen::Splash);
+}
+
+#[test]
+fn any_key_skips_the_connect_and_the_splash_waits_for_its_own() {
+    let g = game_at_bbs(1, 100);
+    for key in ['x', ' ', '\n', '\x1b', 'G'] {
+        let mut s = Session::new();
+        s.tick(&g, 0.05);
+        assert_eq!(s.key(&g, key), Outcome::Cut, "{key:?} skips");
+        assert_eq!(s.screen, Screen::Splash, "{key:?}: at once");
+        // The same press didn't go on past the splash.
+        s.tick(&g, 5.0);
+        assert_eq!(s.screen, Screen::Splash);
+        s.key(&g, '\n');
+        assert_eq!(s.screen, Screen::Main);
+    }
+    // A click is the same skip.
+    let mut s = Session::new();
+    assert!(s.connecting());
+    assert_eq!(s.skip(&g), Outcome::Cut);
+    assert_eq!(s.screen, Screen::Splash);
+    assert!(!s.connecting());
+    assert_eq!(
+        s.skip(&g),
+        Outcome::None,
+        "the splash isn't hurried by a click"
+    );
+    assert_eq!(s.screen, Screen::Splash);
+}
+
+#[test]
+fn leaving_a_run_s_board_clears_the_call_at_once() {
+    let g = game_at_bbs(4, 100);
+    let x25 = &g.data.networks.x25;
+    let addr = g.bbs_address();
+    let mut s = Session::new();
+    s.key(&g, ' ');
+    s.key(&g, '\n');
+    s.key(&g, 'G');
+    assert!(matches!(s.screen, Screen::Hangup { .. }));
+    let bye = s.render(&g);
+    assert_eq!(bye.len(), 2, "{bye:?}");
+    assert_eq!(
+        ansi::plain(&bye[0]),
+        g.bbs().look.goodbye.replace("{board}", &g.bbs().name)
+    );
+    assert_eq!(ansi::plain(&bye[1]), x25.clear.replace("{address}", &addr));
+    for l in &bye {
+        for w in MODEM_WORDS {
+            assert!(!ansi::plain(l).contains(w), "{w} in {l}");
+        }
+    }
+    // A short beat, then it closes.
+    assert_eq!(s.tick(&g, tuning::X25_CLEAR_SECS - 0.01), Outcome::None);
+    assert_eq!(s.tick(&g, 0.02), Outcome::Closed);
+    // Sooner on a key.
+    let mut s = Session {
+        screen: Screen::Hangup { t: 0.0 },
+        status: None,
+    };
+    assert_eq!(s.key(&g, 'x'), Outcome::Closed);
+    const { assert!(tuning::X25_CLEAR_SECS < tuning::BBS_HANGUP_SECS) };
+}
+
+#[test]
+fn the_address_on_screen_is_the_address_in_the_log() {
+    let g = game_at_bbs(6, 100);
+    let addr = g.bbs_address();
+    let call = Session::new().render(&g);
+    assert!(ansi::plain(&call[0]).contains(&addr));
+    let x25 = &g.data.networks.x25;
+    let logged: Vec<&str> = g
+        .log
+        .iter()
+        .map(|l| l.text.as_str())
+        .filter(|t| t.contains(&addr))
+        .collect();
+    assert_eq!(
+        logged,
+        [x25.log_line(&addr, &g.bbs().name)],
+        "one line naming the address and the board"
+    );
+    assert!(!g.log.iter().any(|l| l.text.contains("ATDT")));
+    // The window says what line it is: the address, no baud.
+    let title = Session::title(&g);
+    assert!(title.contains(&addr), "{title}");
+    assert!(!title.contains("8N1") && !title.contains(&g.bbs().baud.to_string()));
+}
+
+#[test]
+fn the_phonebook_note_comes_once_as_before() {
+    let g = game_at_bbs(6, 100);
+    assert!(g.bbs_seen);
+    let note = format!(
+        "{} noted. it'll be in your phonebook at home.",
+        g.bbs().phone
+    );
+    assert_eq!(g.log.iter().filter(|l| l.text == note).count(), 1);
 }
 
 /// The Gutter's always-stocked area holding a tool.

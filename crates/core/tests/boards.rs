@@ -180,11 +180,14 @@ fn the_dial_log_names_the_board() {
     let line = &g
         .log
         .iter()
-        .find(|l| l.text.contains("CONNECT"))
+        .find(|l| l.text.contains(" COM to "))
         .unwrap()
         .text;
     assert!(line.contains("CORPLINK EMPLOYEE SERVICES"), "{line}");
-    assert!(line.contains("555-0100"), "{line}");
+    // A plain run's address carries its board's number, and the node it's on.
+    assert!(line.contains("5550100"), "{line}");
+    assert!(line.contains(&g.bbs_address()), "{line}");
+    assert!(g.bbs_address().ends_with(&format!(" {to:02}")));
 }
 
 #[test]
