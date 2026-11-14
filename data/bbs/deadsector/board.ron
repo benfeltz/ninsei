@@ -71,8 +71,8 @@
     sources: Some((
         name: "RIPPED SOURCE",
         tiers: [2, 0],
-        first: "{ice} {version}. old code.",
-        patched: "{ice} {version}. fresh rip.",
+        first: "{ice} {version}, old code.",
+        patched: "{ice} {version}, fresh rip.",
     )),
     users: [
         (handle: "d1rge",     location: "???",          doing: "Watching you"),
