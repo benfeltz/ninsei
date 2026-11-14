@@ -1526,6 +1526,18 @@ impl Save {
         id: &str,
         version: crate::ice_version::Version,
     ) -> bool {
+        self.learn_source_from(data, id, version, "")
+    }
+
+    /// [`Save::learn_source`], bought on board `from` (an id in `data/bbs/`): it carries that
+    /// board's header and remarks.
+    pub fn learn_source_from(
+        &mut self,
+        data: &Data,
+        id: &str,
+        version: crate::ice_version::Version,
+        from: &str,
+    ) -> bool {
         let Some(program) = self.version_program(data, id, version) else {
             return false;
         };
@@ -1535,7 +1547,7 @@ impl Save {
                 id: id.to_string(),
                 version,
                 program,
-                from: String::new(),
+                from: from.to_string(),
             },
         )
     }
