@@ -100,7 +100,7 @@ fn the_ice_db_shows_only_the_sources_you_own() {
             "{}",
             page[0]
         );
-        assert!(page.contains(&"source         none on disk".to_string()));
+        assert!(page.contains(&"source         none".to_string()));
         for (_, _, program) in met.iter().filter(|(id, ..)| *id == e.def.id) {
             for stmt in statements(&e.def.id, program) {
                 assert!(

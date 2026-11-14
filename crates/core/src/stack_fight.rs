@@ -37,11 +37,12 @@ impl BlockKind {
     }
 }
 
-/// The ICE card's words for the ICE's program, the stack's: everything labelled, in plain
-/// words.
+/// The ICE card's words for the ICE's program, the stack's: everything labelled, and a field
+/// with nothing in it says `(none)` under its label, as a Get Info window would. It names no
+/// disk: a source isn't a program the deck carries.
 pub const ICE_WORDS: crate::ice_listing::IceWords = crate::ice_listing::IceWords {
     heading: "its program",
-    none: "its program isn't on this disk.",
+    none: "(none)",
 };
 
 /// The palette row, in order.

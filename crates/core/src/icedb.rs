@@ -174,11 +174,11 @@ impl<'a> Entry<'a> {
     }
 
     /// The newest source you own, listed whole and marked against the one before it you own;
-    /// with none, a line saying there's none on disk.
+    /// with none, a line saying there's none.
     pub fn listing(&self) -> Vec<PageLine> {
         if self.sources.is_empty() {
             return vec![PageLine {
-                text: "source         none on disk".into(),
+                text: "source         none".into(),
                 muted: true,
             }];
         }
@@ -186,7 +186,7 @@ impl<'a> Entry<'a> {
     }
 
     /// The changelog under the listing: a row per version you've met or own the source of (its
-    /// number, how it was made, the fights it won and lost, whether its source is on disk),
+    /// number, how it was made, the fights it won and lost, whether you own its source),
     /// newest first, then each older source you own, marked against the one before it. Empty
     /// until there are two versions to list.
     pub fn changelog(&self) -> Vec<PageLine> {
