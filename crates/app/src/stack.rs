@@ -600,7 +600,8 @@ fn title_fit(
         })
         .unwrap_or((GAUGE_BLOCKS[GAUGE_BLOCKS.len() - 1], true));
     let w = widths(side);
-    let row = if stacked { w[0] } else { side_by(w) };
+    // Stacked, both gauges start under the wider one.
+    let row = if stacked { w[0].max(w[1]) } else { side_by(w) };
     let beside = broke_w.is_none_or(|b| b + BESIDE_GAP + row <= full);
     (side, stacked, beside)
 }
@@ -1761,6 +1762,21 @@ pub(crate) mod tests {
             }
             assert!(h.cut_text().is_empty(), "{w}: {:?}", h.cut_text());
         }
+    }
+
+    #[test]
+    fn a_hang_beside_stacked_gauges_clears_the_wider_one() {
+        // A narrow column and a big RAM: the gauges stack, flush right under the wider (RAM),
+        // so the hang only sits beside them if it clears that one, not just the CPU.
+        let (side, stacked, beside) = title_fit(130.0, [24.0, 24.0], [3, 12], Some(60.0));
+        assert!(stacked, "{side}");
+        assert!(
+            60.0 + BESIDE_GAP + gauge_width(24.0, 3, side) <= 130.0,
+            "it clears the CPU"
+        );
+        assert!(!beside, "but not the RAM: the hang takes a row of its own");
+        let (_, stacked, beside) = title_fit(400.0, [24.0, 24.0], [3, 12], Some(60.0));
+        assert!(!stacked && beside);
     }
 
     #[test]
