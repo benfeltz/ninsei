@@ -303,6 +303,14 @@ fn a_bad_sources_block_is_refused() {
     d.boards[g].sources.as_mut().unwrap().first =
         "{ice} {version}, the very classic of classics".into();
     assert!(d.validate().is_err(), "too wide");
+    // Two kinds whose names share their first eight letters would list under one file name.
+    let mut d = data();
+    let mut twin = d.ice.iter().find(|i| i.id == "rototurret").unwrap().clone();
+    twin.id = "rototurret2".into();
+    twin.name = "Rototurr".into();
+    d.ice.push(twin);
+    let e = d.validate().unwrap_err();
+    assert!(e.contains("same file name"), "{e}");
     let mut d = data();
     d.boards[g].areas[0].files[0].item = Drop::Source {
         ice: "enigma".into(),
