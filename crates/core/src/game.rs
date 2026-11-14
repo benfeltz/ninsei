@@ -736,6 +736,23 @@ impl StepWhat {
     }
 }
 
+/// The forecast's lines, less any the pass executes, in order, once each.
+fn finish(mut starved: Vec<u32>, went: Vec<u32>) -> Vec<u32> {
+    starved.retain(|n| !went.contains(n));
+    starved.sort_unstable();
+    starved.dedup();
+    starved
+}
+
+/// The line a step executed, if it did: a RUN that ran, an IF, a GOTO or a STOP.
+fn executed(s: &Step) -> Option<u32> {
+    matches!(
+        s.what,
+        StepWhat::Ran { .. } | StepWhat::If(_) | StepWhat::Goto(_) | StepWhat::Stop
+    )
+    .then_some(s.line)
+}
+
 impl Game {
     /// A run with the starter deck, the classic four programs (breakers too), and every tool.
     pub fn new(data: impl Into<std::sync::Arc<Data>>, seed: u64) -> Self {
@@ -1023,6 +1040,133 @@ impl Game {
                 _ => {}
             }
         }
+    }
+
+    /// The deck's lines this turn's pass won't execute: greyed on the Sense/Net's Script card
+    /// from the start of the turn. A forecast, like [`Game::ice_next`]: it changes nothing and
+    /// draws nothing from this game's RNG. It plays the rest of the pass on a copy of the game
+    /// with [`Game::line`], the only place a statement executes, so every RUN's cost and
+    /// refusal is the preview's, and a RUN that changes what a later IF reads changes it there
+    /// too. Starved are the RUNs that pass skips (no cycles left for one, or a refusal), the IF
+    /// it ends on for want of GB, and, when it ends for want of cycles or GB, the lines it
+    /// would have gone on to: walked from there with the IFs read as the fight stands now,
+    /// round to the first line it comes back to. A line the pass executes is never starved,
+    /// nor one behind an IF that is false. A pass that hangs, or a fight that ends, forecasts
+    /// nothing past it. Outside a fight, and in one too, a RUN that can never run on this
+    /// deck is starved: its program isn't on the disk, or it costs more than the deck's cycles
+    /// a turn.
+    pub fn starved(&self) -> Vec<u32> {
+        let mut starved = self.never_runs();
+        if self.phase != Phase::Combat || self.combat.is_none() {
+            return starved;
+        }
+        // What this pass already executed, if one is under way (or a hang holds it).
+        let mut went: Vec<u32> = Vec::new();
+        if self.exec.open || self.exec.broke.is_some() {
+            went.extend(self.exec.trace.iter().filter_map(executed));
+        }
+        let mut skipped: Vec<u32> = Vec::new();
+        // The copy plays as Step would; what it does never reaches this game.
+        let mut g = self.clone();
+        let mut ghost = None;
+        // The STOPs it carried on past, as a player pressing Step would: coming back to one
+        // goes round for ever, and the forecast ends there.
+        let mut stops: Vec<u32> = Vec::new();
+        'pass: loop {
+            let from = if g.exec.open { g.exec.trace.len() } else { 0 };
+            let fight = g.combat.as_ref().map(|c| c.node);
+            let how = g.line(Side::Deck);
+            let trace = &g.exec.trace;
+            // A RUN that broke this ICE starts the next one's fight with a fresh trace.
+            let new = if trace.len() < from || g.combat.as_ref().map(|c| c.node) != fight {
+                &trace[..]
+            } else {
+                &trace[from..]
+            };
+            for s in new {
+                match &s.what {
+                    StepWhat::Skipped(_) => {
+                        let run = self
+                            .program
+                            .line(s.line)
+                            .is_some_and(|l| matches!(l.stmt, Stmt::Run(_)));
+                        if run {
+                            skipped.push(s.line);
+                        }
+                    }
+                    // The cycles ran out after this line: the walk goes on from the next.
+                    StepWhat::OutOfCpu => {
+                        ghost = Some(self.program.after(s.line));
+                    }
+                    // No GB for this IF: it starves, and so does what it leads to.
+                    StepWhat::OutOfRam => ghost = Some(Some(s.line)),
+                    StepWhat::Stop if stops.contains(&s.line) => break 'pass,
+                    StepWhat::Stop => {
+                        stops.push(s.line);
+                        went.push(s.line);
+                    }
+                    _ => went.extend(executed(s)),
+                }
+            }
+            match how {
+                Line::Went | Line::Stopped => {}
+                Line::Hung | Line::Over | Line::Ended => break,
+            }
+            if g.phase != Phase::Combat {
+                break;
+            }
+        }
+        starved.extend(skipped);
+        if let Some(from) = ghost {
+            starved.extend(self.walk_from(from));
+        }
+        finish(starved, went)
+    }
+
+    /// The RUNs that can never run on this deck: no such program on the disk, or one that
+    /// costs more than the deck's cycles a turn.
+    fn never_runs(&self) -> Vec<u32> {
+        self.program
+            .lines
+            .iter()
+            .filter(|l| match &l.stmt {
+                Stmt::Run(name) => self.slot_named(name).is_none_or(|slot| {
+                    crate::fight::short_of(&self.hdd[slot].spec, self.deck.cpu_max).is_some()
+                }),
+                _ => false,
+            })
+            .map(|l| l.no)
+            .collect()
+    }
+
+    /// The deck's lines a pass comes to from line `from` on, with no budgets: its IFs read as
+    /// the fight stands now, round to the first line it comes back to or the program's end.
+    fn walk_from(&self, from: Option<u32>) -> Vec<u32> {
+        let p = &self.program;
+        let mut pc = from;
+        let mut seen = Vec::new();
+        while let Some(no) = pc {
+            if seen.contains(&no) {
+                break;
+            }
+            seen.push(no);
+            let next = p.after(no);
+            pc = next;
+            match p.line(no).map(|l| &l.stmt) {
+                Some(Stmt::If(cond)) if !self.test(cond) => pc = p.skip(next),
+                Some(Stmt::Goto(to)) if p.line(*to).is_some() => pc = Some(*to),
+                _ => {}
+            }
+        }
+        seen.retain(|&no| {
+            p.line(no).is_some_and(|l| {
+                matches!(
+                    l.stmt,
+                    Stmt::Run(_) | Stmt::If(_) | Stmt::Goto(_) | Stmt::Stop
+                )
+            })
+        });
+        seen
     }
 
     /// The main network, even while inside a subnet. Contracts point into it.
