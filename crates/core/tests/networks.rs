@@ -388,6 +388,10 @@ fn an_x25_address_is_written_the_x121_way() {
     };
     assert_eq!(x.address("555-0199", 7), "4409 5550199 07");
     assert_eq!(x.address("1-555-867-5309", 123), "4409 58675309 23");
+    // The longest the screens are checked at is the longest it builds.
+    let longest = x.address("1-999-999-9999", 99);
+    assert_eq!(longest.len(), data::LONG_X25_ADDRESS.len(), "{longest}");
+    assert_eq!(longest[4..], data::LONG_X25_ADDRESS[4..]);
     assert!(x.validate().is_ok());
     assert!(
         ansi::visible_len(&data::X25Def::say(&x.call, data::LONG_X25_ADDRESS))

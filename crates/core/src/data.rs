@@ -517,8 +517,9 @@ pub struct X25Def {
 pub const X25_NUMBER_DIGITS: usize = 8;
 pub const X25_NODE_DIGITS: usize = 2;
 
-/// The longest address an [`X25Def`] is checked to fit: a DNIC, then a full NTN.
-pub const LONG_X25_ADDRESS: &str = "9999 9999999999";
+/// The longest address an [`X25Def`] is checked to fit: what [`X25Def::address`] builds at its
+/// most digits (a DNIC, [`X25_NUMBER_DIGITS`] of number, [`X25_NODE_DIGITS`] of node).
+pub const LONG_X25_ADDRESS: &str = "9999 99999999 99";
 
 impl X25Def {
     /// The X.121 address of the board on node `node` of the network whose number is `number`:
