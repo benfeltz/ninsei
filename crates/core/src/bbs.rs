@@ -65,6 +65,15 @@ impl Call<'_> {
     }
 }
 
+/// How the line to the board is placed, in its own words: a modem's `ATDT <number>`, or the
+/// PAD's call line with the board's address. For a screen that offers to call it again.
+pub fn placing(line: &dyn Line) -> String {
+    match line.connect() {
+        Call::Modem(_) => format!("ATDT {}", line.board().phone),
+        Call::Packet { address, pad, .. } => X25Def::say(&pad.call, &address),
+    }
+}
+
 /// One post on a jobs board, wherever the board was reached from.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct JobPost {

@@ -2661,6 +2661,32 @@ mod tests {
         }
 
         #[test]
+        fn the_target_pane_offers_the_pad_s_call_not_a_modem_s() {
+            let (mut h, mut app) = running("onosendai");
+            let bbs = app.game.net.bbs().unwrap();
+            app.game.at = bbs;
+            app.last_at = bbs;
+            if let Some(path) = app.dock.find_tab(&Tab::Target) {
+                let _ = app.dock.set_active_tab(path);
+            }
+            for _ in 0..3 {
+                frame(&mut h, &mut app, Vec::new());
+            }
+            // Closed, the pane offers to call it again.
+            app.bbs = None;
+            frame(&mut h, &mut app, Vec::new());
+            app.bbs = None;
+            frame(&mut h, &mut app, Vec::new());
+            let call = format!("CALL {}", app.game.bbs_address());
+            assert!(h.find(&call).is_some(), "{:?}", h.texts());
+            assert!(
+                !h.texts().iter().any(|t| t.contains("ATDT")),
+                "{:?}",
+                h.texts()
+            );
+        }
+
+        #[test]
         fn leaving_a_run_s_board_logs_the_pad_s_clear() {
             let (mut h, mut app) = running("onosendai");
             let bbs = app.game.net.bbs().unwrap();
