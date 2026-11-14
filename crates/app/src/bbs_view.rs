@@ -27,6 +27,9 @@ pub struct BbsView {
     pub order: egui::Order,
     /// Real ANSI colours, or the phosphor in four intensities.
     pub color: bool,
+    /// No frame drawn yet: the frame it opens on, the keys and clicks are the ones that opened
+    /// it (a command's Enter, a node's click), never the board's.
+    fresh: bool,
 }
 
 fn cga(i: u8) -> Color32 {
@@ -53,6 +56,7 @@ impl BbsView {
             session: Session::new(),
             order: egui::Order::Middle,
             color: true,
+            fresh: true,
         }
     }
 
@@ -62,8 +66,10 @@ impl BbsView {
         let dt = ctx.input(|i| i.stable_dt).min(0.1);
         out.push(self.session.tick(game, dt));
 
-        // Every keystroke goes down the phone line while the window is up.
+        // Every keystroke goes down the phone line while the window is up, from the frame after
+        // it opens.
         ctx.memory_mut(|m| m.stop_text_input());
+        let fresh = std::mem::take(&mut self.fresh);
         let keys: Vec<char> = ctx.input(|i| {
             i.events
                 .iter()
@@ -83,6 +89,7 @@ impl BbsView {
                 })
                 .collect()
         });
+        let keys = if fresh { Vec::new() } else { keys };
         for k in keys {
             let o = self.session.key(game, k);
             // A key that hurried the line is the frame's last: the splash waits for its own.
@@ -93,12 +100,14 @@ impl BbsView {
             }
         }
         // While it connects, a click anywhere on the terminal hurries it too.
-        let click = ctx.input(|i| {
-            i.pointer
-                .primary_clicked()
-                .then(|| i.pointer.interact_pos())
-                .flatten()
-        });
+        let click = ctx
+            .input(|i| {
+                i.pointer
+                    .primary_clicked()
+                    .then(|| i.pointer.interact_pos())
+                    .flatten()
+            })
+            .filter(|_| !fresh);
 
         let blink = (ctx.input(|i| i.time) * 2.0) as i64 % 2 == 0;
         let mut clicked: Option<char> = None;
@@ -315,6 +324,19 @@ mod tests {
         assert_eq!(v.session.screen, Screen::Splash, "it waits for its own key");
         show(&mut h, &mut v, &g, text("\n"));
         assert_eq!(v.session.screen, Screen::Main);
+    }
+
+    #[test]
+    fn the_keys_and_clicks_that_opened_it_aren_t_the_board_s() {
+        let g = run();
+        let mut h = Harness::new(1280.0, 800.0);
+        let mut v = BbsView::new();
+        let mut ev = text("\n");
+        ev.extend(crate::uitest::key(Key::Enter));
+        ev.extend(click(egui::pos2(640.0, 400.0)));
+        assert!(show(&mut h, &mut v, &g, ev).is_empty());
+        assert!(v.session.connecting(), "the connect plays");
+        assert_eq!(show(&mut h, &mut v, &g, text("x")), [Outcome::Cut]);
     }
 
     #[test]

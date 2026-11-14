@@ -2602,6 +2602,29 @@ mod tests {
         }
 
         #[test]
+        fn the_enter_that_jacks_onto_the_board_doesn_t_skip_its_connect() {
+            let (mut h, mut app) = running("onosendai");
+            for _ in 0..3 {
+                frame(&mut h, &mut app, Vec::new());
+            }
+            // One hop short of the board.
+            let bbs = app.game.net.bbs().unwrap();
+            let from = (app.game.net.nodes.iter())
+                .find(|n| n.links.contains(&bbs))
+                .unwrap()
+                .id;
+            app.game.at = from;
+            app.last_at = from;
+            app.game.net.nodes[from].cleared = true;
+            let mut ev = text(&format!("jack {bbs}"));
+            ev.extend(key(egui::Key::Enter));
+            frame(&mut h, &mut app, ev);
+            assert_eq!(app.game.at, bbs, "jacked onto the board");
+            let view = app.bbs.as_ref().expect("its window opened");
+            assert!(view.session.connecting(), "and the call plays");
+        }
+
+        #[test]
         fn leaving_a_run_s_board_logs_the_pad_s_clear() {
             let (mut h, mut app) = running("onosendai");
             let bbs = app.game.net.bbs().unwrap();
@@ -2610,6 +2633,7 @@ mod tests {
             let mut v = BbsView::new();
             v.session.screen = ninsei_core::bbs::Screen::Hangup { t: 0.0 };
             app.bbs = Some(v);
+            frame(&mut h, &mut app, Vec::new());
             frame(&mut h, &mut app, text("x"));
             assert!(app.bbs.is_none(), "a key closes the clear");
             let last = &app.game.log.last().unwrap().text;
