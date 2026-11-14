@@ -551,8 +551,8 @@ fn hud(painter: &Painter, rect: Rect, p: &Palette, g: &Game, preview: Option<fig
         mono(14.0),
         p.bright,
     );
-    // Under it, the ICE's program from where it carries on, as the deck has seen it, clear of
-    // the preview line under the strength readout.
+    // Under it, the ICE's program from where it carries on, from its source (or gdb's words for
+    // none), clear of the preview line under the strength readout.
     let rows = ninsei_core::ice_listing::rows(g);
     if rows.is_empty() {
         painter.text(
