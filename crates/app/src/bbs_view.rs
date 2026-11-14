@@ -84,14 +84,27 @@ impl BbsView {
                 .collect()
         });
         for k in keys {
-            out.push(self.session.key(game, k));
+            let o = self.session.key(game, k);
+            // A key that hurried the line is the frame's last: the splash waits for its own.
+            let cut = o == Outcome::Cut;
+            out.push(o);
+            if cut {
+                break;
+            }
         }
+        // While it connects, a click anywhere on the terminal hurries it too.
+        let click = ctx.input(|i| {
+            i.pointer
+                .primary_clicked()
+                .then(|| i.pointer.interact_pos())
+                .flatten()
+        });
 
-        let b = game.board();
         let blink = (ctx.input(|i| i.time) * 2.0) as i64 % 2 == 0;
         let mut clicked: Option<char> = None;
 
-        egui::Window::new(format!("TELIX 3.51 — {}  {} 8N1  ANSI-BBS", b.name, b.baud))
+        let connecting = self.session.connecting();
+        let shown = egui::Window::new(Session::title(game))
             .id(egui::Id::new("bbs"))
             .order(self.order)
             .anchor(Align2::CENTER_CENTER, vec2(0.0, -20.0))
@@ -118,6 +131,11 @@ impl BbsView {
                     clicked = Some(k);
                 }
             });
+        let on_window =
+            |at: egui::Pos2| shown.as_ref().is_some_and(|w| w.response.rect.contains(at));
+        if connecting && click.is_some_and(on_window) {
+            out.push(self.session.skip(game));
+        }
         if let Some(k) = clicked {
             out.push(self.session.key(game, k));
         }
@@ -264,6 +282,94 @@ fn paint_screen_at(ui: &mut egui::Ui, lines: &[String], color: bool, p: &Palette
 mod tests {
     use super::*;
     use crate::uitest::Harness;
+
+    use crate::uitest::{click, text};
+    use ninsei_core::bbs::Screen;
+
+    /// One frame of the BBS window on `line`, with `events`; what it returned.
+    fn show(h: &mut Harness, v: &mut BbsView, line: &dyn Line, events: Vec<Event>) -> Vec<Outcome> {
+        let data = ninsei_core::Data::builtin().unwrap();
+        let p = Palette::from_def(&data.themes[0]);
+        let mut out = Vec::new();
+        h.frame(events, |ui| out = v.show(&ui.ctx().clone(), line, &p));
+        out
+    }
+
+    fn run() -> ninsei_core::Game {
+        ninsei_core::Game::new(ninsei_core::Data::builtin().unwrap(), 3)
+    }
+
+    #[test]
+    fn a_key_skips_a_run_s_connect_that_frame_and_only_that() {
+        let g = run();
+        let mut h = Harness::new(1280.0, 800.0);
+        let mut v = BbsView::new();
+        show(&mut h, &mut v, &g, Vec::new());
+        assert!(v.session.connecting());
+        // Two keys in one frame: the first hurries the line, the second isn't the splash's.
+        let mut ev = text("x");
+        ev.extend(text("\n"));
+        assert_eq!(show(&mut h, &mut v, &g, ev), [Outcome::Cut]);
+        assert_eq!(v.session.screen, Screen::Splash);
+        show(&mut h, &mut v, &g, Vec::new());
+        assert_eq!(v.session.screen, Screen::Splash, "it waits for its own key");
+        show(&mut h, &mut v, &g, text("\n"));
+        assert_eq!(v.session.screen, Screen::Main);
+    }
+
+    #[test]
+    fn a_click_on_the_terminal_skips_a_run_s_connect() {
+        let g = run();
+        let mut h = Harness::new(1280.0, 800.0);
+        let mut v = BbsView::new();
+        show(&mut h, &mut v, &g, Vec::new());
+        show(&mut h, &mut v, &g, Vec::new());
+        // On the terminal, under the title bar.
+        let middle = h.find(&Session::title(&g)).expect("the window").center() + vec2(0.0, 80.0);
+        // A click off the window does nothing.
+        show(&mut h, &mut v, &g, click(egui::pos2(5.0, 795.0)));
+        assert!(v.session.connecting());
+        assert_eq!(show(&mut h, &mut v, &g, click(middle)), [Outcome::Cut]);
+        assert_eq!(v.session.screen, Screen::Splash);
+        // Past the connect a click is only a click.
+        assert!(show(&mut h, &mut v, &g, click(middle)).is_empty());
+        assert_eq!(v.session.screen, Screen::Splash);
+    }
+
+    #[test]
+    fn the_run_s_window_names_its_address_and_the_screen_hints_nothing() {
+        let g = run();
+        let mut h = Harness::new(1280.0, 800.0);
+        let mut v = BbsView::new();
+        show(&mut h, &mut v, &g, Vec::new());
+        let title = Session::title(&g);
+        assert!(h.find(&title).is_some(), "{title}");
+        assert!(title.contains(&g.bbs_address()) && !title.contains("8N1"));
+        show(&mut h, &mut v, &g, Vec::new());
+        let words: Vec<String> = h.painted_text().into_iter().map(|(t, _)| t).collect();
+        assert!(
+            words.iter().any(|t| t.contains(&g.bbs_address())),
+            "the PAD's call is on screen: {words:?}"
+        );
+        for w in ["press", "Press", "key", "skip", "click", "ENTER"] {
+            assert!(!words.iter().any(|t| t.contains(w)), "{w} in {words:?}");
+        }
+    }
+
+    #[test]
+    fn a_home_call_can_t_be_hurried() {
+        let d = ninsei_core::Data::builtin().unwrap();
+        let mut save = ninsei_core::hub::Save::default();
+        save.ensure_key(1);
+        let call = save.home_call(&d, &d.rig, 0);
+        let mut h = Harness::new(1280.0, 800.0);
+        let mut v = BbsView::new();
+        show(&mut h, &mut v, &call, Vec::new());
+        assert!(show(&mut h, &mut v, &call, text("x")).is_empty());
+        let middle = h.find(&Session::title(&call)).unwrap().center() + egui::vec2(0.0, 80.0);
+        assert!(show(&mut h, &mut v, &call, click(middle)).is_empty());
+        assert!(v.session.connecting(), "the full handshake");
+    }
 
     #[test]
     fn the_key_bar_never_runs_into_the_display_switch() {

@@ -227,10 +227,11 @@ impl<O: Output> Speaker<O> {
         self.out.as_mut()
     }
 
-    /// Plays the call to `number` on the modem channel, cutting off any call still playing.
-    pub fn dial(&mut self, number: &str) {
+    /// Plays `call` on the modem channel, cutting off any call still playing: the dial-up
+    /// handshake, or a run's X.25 burst, rendered from the timeline its screen follows.
+    pub fn dial(&mut self, call: &Handshake) {
         if let Some(out) = self.out() {
-            let samples = Arc::new(Handshake::new(number).render(out.rate()));
+            let samples = Arc::new(call.render(out.rate()));
             out.dial(Arc::clone(&samples));
             self.heard_dial = Some((samples, self.clock));
         }
@@ -929,6 +930,8 @@ mod tests {
         refuse: u32,
         /// Every cue voice is busy: cues are dropped.
         full: bool,
+        /// The length of each clip the modem channel was given (0: it was stopped).
+        dialed: Vec<usize>,
     }
 
     impl Output for Log {
@@ -938,7 +941,9 @@ mod tests {
         fn rate(&self) -> u32 {
             8000
         }
-        fn dial(&mut self, _: Clip) {}
+        fn dial(&mut self, c: Clip) {
+            self.dialed.push(c.len());
+        }
         fn music(&mut self, s: Vec<f32>) {
             self.said
                 .push(if s.is_empty() { "stop" } else { "tune" }.into());
@@ -1004,6 +1009,31 @@ mod tests {
 
     fn said(s: &mut Speaker<Log>) -> Vec<String> {
         std::mem::take(&mut s.out.as_mut().unwrap().said)
+    }
+
+    #[test]
+    fn a_call_plays_as_long_as_its_timeline_and_a_cut_leaves_the_tune_playing() {
+        let t = tune();
+        let mut s = Speaker::<Log>::new(true);
+        settle(&mut s, &at(&t, false, 0));
+        said(&mut s);
+        // The run's X.25 call: a clip as long as the call, and no longer.
+        let x25 = Handshake::x25();
+        s.dial(&x25);
+        // A call from home: the whole handshake.
+        let home = Handshake::new("555-0199");
+        s.dial(&home);
+        // Skipped: the modem channel goes quiet, and nothing else does.
+        s.stop();
+        let out = s.out.as_mut().unwrap();
+        assert_eq!(
+            out.dialed,
+            [(x25.end * 8000.0) as usize, (home.end * 8000.0) as usize, 0]
+        );
+        assert!(x25.end < 1.0 && home.end > 4.0);
+        assert!(said(&mut s).is_empty(), "the run's tune plays on");
+        assert!(!s.run_music(&at(&t, false, 0)), "and isn't restarted");
+        assert!(said(&mut s).is_empty());
     }
 
     #[test]
@@ -1166,7 +1196,7 @@ mod tests {
         assert!(s.listen(64).iter().all(|v| *v == 0.0));
         // The modem is heard while it plays, from the very samples the output was given.
         s.tick(25.0);
-        s.dial("555-0001");
+        s.dial(&Handshake::new("555-0001"));
         s.tick(25.5);
         assert!(loud(&s.listen(256)) > 0.0, "the handshake");
         s.stop();
@@ -1308,7 +1338,7 @@ mod tests {
             settle(&mut s, &want(&d, "chroma", 0.0, 0));
             said(&mut s);
             s.tick(1.0);
-            s.dial("555-0199");
+            s.dial(&Handshake::new("555-0199"));
             assert!(!s.desktop(Some(&want(&d, "chroma", 0.0, 0))));
             s.stop();
             assert!(!s.desktop(Some(&want(&d, "chroma", 0.0, 0))));
