@@ -381,6 +381,29 @@ impl Save {
         Ok(format!("downloaded {} ({cost}): {what}.", f.file))
     }
 
+    /// [`Save::home_buy`] of the file a call on screen shows: refused if the board lists
+    /// something else there now (its source area moves on as the scene cracks a version, and
+    /// as the sysops ship one), so what's paid for is what was on the screen.
+    pub fn home_buy_shown(
+        &mut self,
+        data: &Data,
+        defs: &[UpgradeDef],
+        shown: &HomeCall,
+        area: usize,
+        file: usize,
+    ) -> Result<String, String> {
+        let now = self.home_call(data, defs, shown.board);
+        let at = |c: &HomeCall| {
+            let s = c.stock.get(area)?.get(file)?;
+            let f = c.def.areas.get(area)?.files.get(s.def)?;
+            Some((f.file.clone(), f.item.clone(), f.price))
+        };
+        if at(shown) != at(&now) {
+            return Err("that file's changed since you listed the area. list it again.".into());
+        }
+        self.home_buy(data, defs, shown.board, area, file)
+    }
+
     /// Reads a bulletin or post on a board at home: what it does, if anything, lands on the
     /// save. Returns the line to print: empty if it was already noted.
     pub fn home_read(

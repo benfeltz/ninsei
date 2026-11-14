@@ -817,12 +817,13 @@ impl App {
         };
         let outs = view.show(ctx, &*call, pal);
         let board = call.board;
+        let shown = call.clone();
         let rig = self.data.rig.clone();
         for o in outs {
             let result = match o {
-                Outcome::Act(ninsei_core::Action::Buy { area, file }) => {
-                    self.save.home_buy(&self.data, &rig, board, area, file)
-                }
+                Outcome::Act(ninsei_core::Action::Buy { area, file }) => self
+                    .save
+                    .home_buy_shown(&self.data, &rig, &shown, area, file),
                 Outcome::Act(ninsei_core::Action::TakeJob { job }) => {
                     self.save.home_take(&self.data, board, job)
                 }
