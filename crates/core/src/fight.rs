@@ -215,6 +215,22 @@ impl Game {
     /// ICE's steps are named for the ICE, since the OS is watching it run.
     pub fn step_text_of(&self, side: Side, s: &Step) -> String {
         let ice = self.combat.as_ref().filter(|_| side == Side::Ice);
+        // An ICE whose source the deck doesn't own: what it did, never the line that did it.
+        if let Some(c) = ice.filter(|_| !self.ice_listed()) {
+            let did = match &s.what {
+                StepWhat::Hit { dmg, blocked: 0 } => format!("hits for {dmg}."),
+                StepWhat::Hit { dmg, blocked } => format!("hits for {dmg} ({blocked} blocked)."),
+                StepWhat::Traced(n) => format!("traces +{n}."),
+                StepWhat::Fortified(n) => format!("fortifies +{n}."),
+                StepWhat::Lagged => "lagged. it does nothing.".to_string(),
+                StepWhat::Spoofed(n) => format!("its next moves are hidden for {n} turns."),
+                StepWhat::Segfaulted(Some(hit)) => format!("garbles your line {hit}."),
+                StepWhat::Segfaulted(None) => "finds nothing to garble.".to_string(),
+                StepWhat::Break => "stalls. it does nothing.".to_string(),
+                _ => "acts.".to_string(),
+            };
+            return format!("{} {did}", self.data.ice[c.ice].name);
+        }
         let prog = ice.map_or(&self.program, |c| &c.ice_prog);
         let text = prog.line(s.line).map_or("", |l| l.text.as_str());
         let no = s.line;

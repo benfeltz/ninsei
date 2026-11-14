@@ -171,7 +171,7 @@ pub fn guide(ui: &mut Ui, data: &Data, at: &mut ninsei_core::cards::Place) {
 /// page on the right. Read-only; the save fills it in after each run.
 pub fn icedb(ui: &mut Ui, data: &Data, save: &Save, sel: &mut Option<usize>) {
     let all = ninsei_core::icedb::entries(save, data);
-    let known = all.iter().filter(|e| e.seen.is_some()).count();
+    let known = all.iter().filter(|e| e.known()).count();
     ui.label(
         RichText::new(format!("ICE DB  {known}/{} on file", all.len()))
             .monospace()
@@ -186,7 +186,7 @@ pub fn icedb(ui: &mut Ui, data: &Data, save: &Save, sel: &mut Option<usize>) {
                 let on = *sel == Some(i);
                 // A picked row is filled with the accent, so its text takes the selection's
                 // own colour (as `wb_visuals` sets it), never the ink it would vanish into.
-                let colour = match (on, e.seen.is_some()) {
+                let colour = match (on, e.known()) {
                     (true, _) => shadow(),
                     (false, true) => ink(),
                     (false, false) => muted(),
@@ -204,7 +204,7 @@ pub fn icedb(ui: &mut Ui, data: &Data, save: &Save, sel: &mut Option<usize>) {
             Some(e) => {
                 for (n, l) in e.page(save, data).iter().enumerate() {
                     let t = RichText::new(&l.text).monospace();
-                    // The decompiled listing's unseen lines recede, as an unmet entry does.
+                    // What isn't on disk recedes, as an unmet entry does.
                     ui.label(if n == 0 {
                         t.strong().color(accent())
                     } else if l.muted {
@@ -989,31 +989,40 @@ pub fn wardial(
 mod icedb_tests {
     use super::*;
     use crate::uitest::Harness;
-    use ninsei_core::hub::{IceSeen, SeenVersion};
+    use ninsei_core::hub::{IceSeen, IceSource, SeenVersion};
     use ninsei_core::ice_version::{Bump, Version};
 
     #[test]
     fn the_ice_db_window_shows_a_kinds_changelog() {
         let data = Data::builtin().unwrap();
         let mut save = Save::default();
+        let v101 = "10 ATTACK 4\n20 IF TARGET SHIELD > 0\n30 TRACE 10\n40 TRACE 4";
         save.ice_seen.push(IceSeen {
             id: "enigma".into(),
             met: 3,
-            lines: vec![10, 20, 30, 40],
             version: Version::default().bumped(Bump::Patch),
             bump: Some(Bump::Patch),
-            program: "10 ATTACK 4\n20 IF TARGET SHIELD > 0\n30 TRACE 10\n40 TRACE 4".into(),
+            program: v101.into(),
             won: 1,
             past: vec![SeenVersion {
                 version: Version::default(),
                 bump: None,
                 program: String::new(),
-                lines: vec![10, 20, 30, 40],
                 won: 2,
                 lost: 0,
             }],
             ..Default::default()
         });
+        for (version, program) in [
+            (Version::default(), ""),
+            (Version::default().bumped(Bump::Patch), v101),
+        ] {
+            save.ice_sources.push(IceSource {
+                id: "enigma".into(),
+                version,
+                program: program.into(),
+            });
+        }
         let enigma = data.ice.iter().position(|i| i.id == "enigma");
         let mut sel = enigma;
         let mut h = Harness::new(900.0, 900.0);
@@ -1023,10 +1032,9 @@ mod icedb_tests {
         let texts = h.texts();
         for want in [
             "Enigma 1.0.1  [CODE GATE]  ICE",
-            "listing        1.0.1, decompiled, 4 of 4 lines seen",
+            "source         1.0.1, against 1.0.0",
             " ~ 10 ATTACK 4",
-            "versions       bump     won  lost",
-            "1.0.0, decompiled, 4 of 4 lines seen",
+            "versions       bump     won  lost  src",
         ] {
             assert!(
                 texts.iter().any(|t| t.contains(want)),

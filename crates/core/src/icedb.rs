@@ -1,19 +1,20 @@
 //! The ICE database: a bestiary that fills in as you fight. Every ICE in `data/ice.ron` has an
 //! entry; the ones you haven't met stay `????`. It reads `Save::ice_seen` (booked from each
-//! run's `History::met` by `Save::record`) and never changes play.
+//! run's fights by `Save::record`): the fight record is yours, whatever you fought. The code is
+//! only the sources you own (`Save::ice_sources`): a kind's page lists the newest one, and its
+//! changelog compares the ones you own. It never changes play.
 
 use crate::binary;
 use crate::data::{Data, Effect, IceClass, IceDef};
 use crate::hub::{IceSeen, Save};
+use crate::ice_version::{Bump, Version};
 
-/// One entry: the ICE and what you've seen of it.
+/// One entry: the ICE, what you've seen of it, and the sources of it you own.
 pub struct Entry<'a> {
     pub def: &'a IceDef,
     pub seen: Option<&'a IceSeen>,
-    /// The program of the version its seen lines belong to (`IceSeen::version`): the one it
-    /// ran (`IceSeen::program`), the row's at 1.0.0, or the version in force. `None` when the
-    /// save no longer holds it.
-    pub program: Option<&'a str>,
+    /// The sources you own of it, newest version first, one per version: (version, program).
+    pub sources: Vec<(Version, &'a str)>,
 }
 
 /// Every ICE, in data order, with what you know of it.
@@ -22,18 +23,16 @@ pub fn entries<'a>(save: &'a Save, data: &'a Data) -> Vec<Entry<'a>> {
         .iter()
         .map(|def| {
             let seen = save.ice_seen.iter().find(|s| s.id == def.id);
-            let program = seen.and_then(|s| {
-                if !s.program.is_empty() {
-                    return Some(s.program.as_str());
+            let mut sources: Vec<(Version, &str)> = Vec::new();
+            for src in save.ice_sources.iter().filter(|s| s.id == def.id) {
+                if let Some(text) = src.text(data)
+                    && !sources.iter().any(|(v, _)| *v == src.version)
+                {
+                    sources.push((src.version, text));
                 }
-                if s.version == crate::ice_version::Version::FIRST {
-                    return Some(def.program.as_str());
-                }
-                save.ice_program(&def.id, data)
-                    .filter(|(v, _)| *v == s.version)
-                    .map(|(_, p)| p)
-            });
-            Entry { def, seen, program }
+            }
+            sources.sort_by_key(|s| std::cmp::Reverse(s.0));
+            Entry { def, seen, sources }
         })
         .collect()
 }
@@ -60,18 +59,17 @@ pub fn matching(save: &Save, data: &Data, class: IceClass) -> Vec<String> {
     out
 }
 
-/// A version you met, as the ICE DB keeps it.
-struct Known<'a> {
-    version: crate::ice_version::Version,
-    bump: Option<crate::ice_version::Bump>,
-    program: &'a str,
-    lines: &'a [u32],
-    won: u32,
-    lost: u32,
+/// A version of a kind, as the ICE DB's table lists it: its record if you met it, and whether
+/// you own its source.
+struct Row {
+    version: Version,
+    bump: Option<Bump>,
+    /// Fights against it (won, lost); `None` if you never met it.
+    record: Option<(u32, u32)>,
+    source: bool,
 }
 
-/// A line of an entry's page, and whether the window mutes it (a listing line not yet seen
-/// run).
+/// A line of an entry's page, and whether the window mutes it (what isn't there).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PageLine {
     pub text: String,
@@ -85,150 +83,153 @@ impl PageLine {
 }
 
 impl<'a> Entry<'a> {
-    /// Every version of it you've met, as you knew each, newest first: the last one met, then
-    /// `IceSeen::past`. Empty until you've met it, or if the save no longer holds the last one's
-    /// program.
-    fn versions(&self) -> Vec<Known<'_>> {
-        let (Some(s), Some(program)) = (self.seen, self.program) else {
-            return Vec::new();
-        };
-        let row = |p: &'a str| {
-            if p.is_empty() {
-                self.def.program.as_str()
-            } else {
-                p
+    /// Whether you know it: you've met it or own a source of it.
+    pub fn known(&self) -> bool {
+        self.seen.is_some() || !self.sources.is_empty()
+    }
+
+    /// Every version of it you've met or own the source of, newest first, one per version.
+    fn rows(&self) -> Vec<Row> {
+        let mut out: Vec<Row> = Vec::new();
+        if let Some(s) = self.seen {
+            let met = std::iter::once((s.version, s.bump, s.won, s.lost)).chain(
+                s.past
+                    .iter()
+                    .rev()
+                    .map(|p| (p.version, p.bump, p.won, p.lost)),
+            );
+            for (version, bump, won, lost) in met {
+                if !out.iter().any(|r| r.version == version) {
+                    out.push(Row {
+                        version,
+                        bump,
+                        record: Some((won, lost)),
+                        source: false,
+                    });
+                }
             }
-        };
-        let mut out = vec![Known {
-            version: s.version,
-            bump: s.bump,
-            program,
-            lines: &s.lines,
-            won: s.won,
-            lost: s.lost,
-        }];
-        out.extend(s.past.iter().rev().map(|p| Known {
-            version: p.version,
-            bump: p.bump,
-            program: row(&p.program),
-            lines: &p.lines,
-            won: p.won,
-            lost: p.lost,
-        }));
-        out
-    }
-
-    /// Version `k` of `vs` (newest first) decompiled from what you saw it run, each seen line
-    /// marked against the version met before it (`ice_listing::changes`), under a heading saying
-    /// how much of it is known and which version the marks are against.
-    fn known_listing(&self, vs: &[Known<'_>], k: usize, heading: &str) -> Vec<PageLine> {
-        let v = &vs[k];
-        let prev = vs.get(k + 1).map(|p| (p.program, p.lines));
-        let rows = crate::ice_listing::changes(&self.def.verbs, prev, (v.program, v.lines));
-        let mine: Vec<_> = rows
-            .iter()
-            .filter(|r| r.mark != crate::ice_listing::Mark::Removed)
-            .collect();
-        let seen = mine.iter().filter(|r| r.text.is_some()).count();
-        // The marks are against the version met before, which needn't be the one it was made
-        // from (one may have come and gone between runs): say which.
-        let against = vs
-            .get(k + 1)
-            .map_or(String::new(), |p| format!(", against {}", p.version));
-        let mut out = vec![PageLine::plain(format!(
-            "{heading}{}, decompiled, {seen} of {} lines seen{against}",
-            v.version,
-            mine.len()
-        ))];
-        out.extend(rows.iter().map(|r| PageLine {
-            text: format!(" {}{:>3} {}", r.mark.glyph(), r.no, r.shown()),
-            muted: r.text.is_none(),
-        }));
-        out
-    }
-
-    /// Its program as you last met it, decompiled from the lines you've seen it run and marked
-    /// against the version before: a heading saying how much is known, then each line numbered,
-    /// the unseen ones `????` (and muted). Empty until you've met it.
-    pub fn listing(&self) -> Vec<PageLine> {
-        let vs = self.versions();
-        if vs.is_empty() {
-            return Vec::new();
         }
-        self.known_listing(&vs, 0, "listing        ")
+        for (v, _) in &self.sources {
+            match out.iter_mut().find(|r| r.version == *v) {
+                Some(r) => r.source = true,
+                None => out.push(Row {
+                    version: *v,
+                    bump: None,
+                    record: None,
+                    source: true,
+                }),
+            }
+        }
+        out.sort_by_key(|r| std::cmp::Reverse(r.version));
+        out
     }
 
-    /// The changelog under the listing: a row per version met (its number, how it was made,
-    /// the fights it won and lost), newest first, then each older version's listing as you
-    /// knew it, marked against the one before it. Empty until a second version is met.
+    /// Owned source `k` (newest first) listed whole, marked against the next older one you own
+    /// (`ice_listing::changes`), under a heading naming its version and what the marks are
+    /// against.
+    fn source_listing(&self, k: usize, heading: &str) -> Vec<PageLine> {
+        let (v, program) = self.sources[k];
+        let prev = self.sources.get(k + 1);
+        let rows = crate::ice_listing::changes(&self.def.verbs, prev.map(|p| p.1), program);
+        let against = prev.map_or(String::new(), |p| format!(", against {}", p.0));
+        let mut out = vec![PageLine::plain(format!("{heading}{v}{against}"))];
+        out.extend(
+            rows.iter()
+                .map(|r| PageLine::plain(format!(" {}{:>3} {}", r.mark.glyph(), r.no, r.text))),
+        );
+        out
+    }
+
+    /// The newest source you own, listed whole and marked against the one before it you own;
+    /// with none, a line saying there's none on disk.
+    pub fn listing(&self) -> Vec<PageLine> {
+        if self.sources.is_empty() {
+            return vec![PageLine {
+                text: "source         none on disk".into(),
+                muted: true,
+            }];
+        }
+        self.source_listing(0, "source         ")
+    }
+
+    /// The changelog under the listing: a row per version you've met or own the source of (its
+    /// number, how it was made, the fights it won and lost, whether its source is on disk),
+    /// newest first, then each older source you own, marked against the one before it. Empty
+    /// until there are two versions to list.
     pub fn changelog(&self) -> Vec<PageLine> {
-        let vs = self.versions();
-        if vs.len() < 2 {
+        let rows = self.rows();
+        if rows.len() < 2 {
             return Vec::new();
         }
         let mut out = vec![
             PageLine::plain(String::new()),
-            PageLine::plain("versions       bump     won  lost".into()),
+            PageLine::plain("versions       bump     won  lost  src".into()),
         ];
-        out.extend(vs.iter().map(|v| {
+        out.extend(rows.iter().map(|r| {
+            let (won, lost) = r
+                .record
+                .map_or(("-".to_string(), "-".to_string()), |(w, l)| {
+                    (w.to_string(), l.to_string())
+                });
             PageLine::plain(format!(
-                "  {:<12} {:<6} {:>5} {:>5}",
-                v.version.to_string(),
-                v.bump.map_or("-", |b| b.word()),
-                v.won,
-                v.lost
+                "  {:<12} {:<6} {won:>5} {lost:>5}  {}",
+                r.version.to_string(),
+                r.bump.map_or("-", |b| b.word()),
+                if r.source { "yes" } else { "-" }
             ))
         }));
-        for k in 1..vs.len() {
+        for k in 1..self.sources.len() {
             out.push(PageLine::plain(String::new()));
-            out.extend(self.known_listing(&vs, k, ""));
+            out.extend(self.source_listing(k, ""));
         }
         out
     }
 
-    /// The name to list it under: `????` until you've met it.
+    /// The name to list it under: `????` until you've met it or own its source.
     pub fn name(&self) -> &str {
-        if self.seen.is_some() {
-            &self.def.name
-        } else {
-            "????"
-        }
+        if self.known() { &self.def.name } else { "????" }
     }
 
-    /// The entry's page, plain text lines. Unmet ICE shows nothing but question marks.
+    /// The entry's page, plain text lines. Unknown ICE shows nothing but question marks.
     pub fn lines(&self, save: &Save, data: &Data) -> Vec<String> {
         self.page(save, data).into_iter().map(|l| l.text).collect()
     }
 
     /// The entry's page, each line with whether the window mutes it.
     pub fn page(&self, save: &Save, data: &Data) -> Vec<PageLine> {
-        let Some(s) = self.seen else {
-            return ["????", "", "No record. You haven't met this one yet."]
-                .map(|t| PageLine::plain(t.into()))
-                .into();
-        };
+        let none = "No record. You haven't met this one yet.";
+        if !self.known() {
+            return ["????", "", none].map(|t| PageLine::plain(t.into())).into();
+        }
         let d = self.def;
         let kind = match d.tier {
             2 => "black ICE",
             0 => "a rogue",
             _ => "ICE",
         };
-        let range = if s.lo == s.hi {
-            format!("{}", s.lo)
-        } else {
-            format!("{}-{}", s.lo, s.hi)
-        };
+        // The version last met, or the newest source when you've never met it.
+        let version = self.seen.map_or_else(|| self.sources[0].0, |s| s.version);
         let mut out = vec![
-            format!("{} {}  [{}]  {kind}", d.name, s.version, d.class.label()),
+            format!("{} {version}  [{}]  {kind}", d.name, d.class.label()),
             String::new(),
-            format!("strength seen  {range}"),
-            format!("met            {}", s.met),
-            format!("broken         {}", s.broken),
-            String::new(),
-        ]
-        .into_iter()
-        .map(PageLine::plain)
-        .collect::<Vec<_>>();
+        ];
+        match self.seen {
+            Some(s) => {
+                let range = if s.lo == s.hi {
+                    format!("{}", s.lo)
+                } else {
+                    format!("{}-{}", s.lo, s.hi)
+                };
+                out.extend([
+                    format!("strength seen  {range}"),
+                    format!("met            {}", s.met),
+                    format!("broken         {}", s.broken),
+                ]);
+            }
+            None => out.push(none.into()),
+        }
+        out.push(String::new());
+        let mut out: Vec<PageLine> = out.into_iter().map(PageLine::plain).collect();
         out.extend(self.listing());
         if d.yields.is_some() {
             out.push(PageLine::plain("  gives up when it's losing".into()));

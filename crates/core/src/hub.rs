@@ -1123,11 +1123,7 @@ pub struct IceSeen {
     /// The weakest and strongest you've met it at.
     pub lo: u32,
     pub hi: u32,
-    /// The lines of its program you've seen it run, sorted: what the ICE DB decompiles.
-    #[serde(default)]
-    pub lines: Vec<u32>,
-    /// The version of its kind `lines` were seen on: the last one met. Seen lines belong to a
-    /// version: a new one is met knowing nothing, since its line 20 is not the last one's.
+    /// The version of its kind last met: the fight record below is this version's.
     #[serde(default)]
     pub version: crate::ice_version::Version,
     /// How `version` was made from the one before (`None` for 1.0.0).
@@ -1141,19 +1137,18 @@ pub struct IceSeen {
     pub won: u32,
     #[serde(default)]
     pub lost: u32,
-    /// The versions met before `version`, oldest first, each kept as it was known.
+    /// The versions met before `version`, oldest first, each with its own record.
     #[serde(default)]
     pub past: Vec<SeenVersion>,
 }
 
-/// A version of an ICE met before the last one, as it was known when a newer one was met.
+/// A version of an ICE met before the last one, with its fight record.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct SeenVersion {
     pub version: crate::ice_version::Version,
     pub bump: Option<crate::ice_version::Bump>,
     /// Its program; empty for 1.0.0, the row's.
     pub program: String,
-    pub lines: Vec<u32>,
     pub won: u32,
     pub lost: u32,
 }
@@ -1167,8 +1162,8 @@ impl IceSeen {
     }
 
     /// Meets `version` (made by `bump`, running `program`): a version other than the last one
-    /// met (by number or program, older or newer) puts that one in `past` as it was known and
-    /// starts this one with nothing seen.
+    /// met (by number or program, older or newer) puts that one in `past` with its record and
+    /// starts this one's at nothing.
     pub fn meet(
         &mut self,
         version: crate::ice_version::Version,
@@ -1182,7 +1177,6 @@ impl IceSeen {
             version: self.version,
             bump: self.bump,
             program: std::mem::take(&mut self.program),
-            lines: std::mem::take(&mut self.lines),
             won: std::mem::take(&mut self.won),
             lost: std::mem::take(&mut self.lost),
         });
@@ -2457,20 +2451,6 @@ impl Save {
                 .iter()
                 .map(|k| (k.board.clone(), k.id.clone()))
                 .collect(),
-            // What earlier runs saw is the ICE DB's: without it the deck starts each fight blind.
-            // Only lines seen on the version in force: a new version starts blind.
-            ice_known: self
-                .ice_seen
-                .iter()
-                .filter(|s| self.has_tool("icedb") && !s.lines.is_empty())
-                .filter(|s| {
-                    let row = data.ice.iter().find(|r| r.id == s.id);
-                    let now = self.ice_program(&s.id, data);
-                    row.zip(now)
-                        .is_some_and(|(row, (v, p))| s.is(v, &as_met(row, v, p)))
-                })
-                .map(|s| (s.id.clone(), s.lines.clone()))
-                .collect(),
             // The sources you own go into the run as they are: the fight's listing is theirs.
             ice_sources: self
                 .ice_sources
@@ -2685,18 +2665,6 @@ impl Save {
             s.hi = s.hi.max(strength);
             s.won += u32::from(b.broken);
             s.lost += u32::from(killer == Some(b.ice) && k + 1 == game.bouts.len());
-            // What the deck saw this version run comes home with its entry, once, at its
-            // last fight on it. A save's own list may not be tidy (hand-edited, or older):
-            // tidy it first.
-            let later = game.bouts[k + 1..]
-                .iter()
-                .any(|x| x.ice == b.ice && x.version == b.version);
-            if !later {
-                s.lines = crate::ice_listing::tidy(std::mem::take(&mut s.lines));
-                for &no in game.ice_lines_of(b.ice, b.version) {
-                    crate::ice_listing::note_line(&mut s.lines, no);
-                }
-            }
         }
         // The sysops come home as the run left them, with what they shipped in it; the kind
         // that ended the run did its job, and they rest on it until it's beaten again.

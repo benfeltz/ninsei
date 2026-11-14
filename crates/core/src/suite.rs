@@ -379,10 +379,9 @@ impl Watch {
 /// The incident report's table of the ICE's procedure: step, statement.
 pub const PROCEDURE_COLUMNS: [&str; 2] = ["STEP", "STATEMENT"];
 
-/// The heading over it: the procedure as observed, and how much of it.
-pub fn procedure_title(rows: &[crate::ice_listing::IceRow]) -> String {
-    let (seen, all) = crate::ice_listing::known(rows);
-    format!("OBSERVED PROCEDURE ({seen} OF {all} STEPS)")
+/// The heading over it.
+pub fn procedure_title(_rows: &[crate::ice_listing::IceRow]) -> String {
+    "PROCEDURE".to_string()
 }
 
 /// A row of the ICE's procedure as the incident report lists it.
@@ -390,20 +389,18 @@ pub fn procedure_title(rows: &[crate::ice_listing::IceRow]) -> String {
 pub struct ProcedureRow {
     /// The step number, right-aligned in four cells, `>` on the step it resumes at.
     pub step: String,
-    /// The statement, or `????` until observed.
+    /// The statement.
     pub statement: String,
-    pub seen: bool,
     /// The step NEXT ACTION is on.
     pub next: bool,
 }
 
-/// The ICE's program (`ice_listing::rows`), every step, as the deck has observed it.
+/// The ICE's program (`ice_listing::rows`), every step.
 pub fn procedure(rows: &[crate::ice_listing::IceRow]) -> Vec<ProcedureRow> {
     rows.iter()
         .map(|r| ProcedureRow {
             step: format!("{}{:>4}", if r.cursor { ">" } else { " " }, r.no),
-            statement: r.shown().to_string(),
-            seen: r.text.is_some(),
+            statement: r.text.clone(),
             next: r.next,
         })
         .collect()

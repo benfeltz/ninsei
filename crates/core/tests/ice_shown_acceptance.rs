@@ -1,10 +1,9 @@
-//! 141.9.3 acceptance: what a career of real runs shows. Fights name the version they run, the
-//! ICE DB never shows or marks what wasn't seen, and the boards' news tells what shipped, in
-//! the words of who's telling it.
+//! 141.9.3 acceptance, made strict by 141.11.1: what a career of real runs shows. Fights name
+//! the version they run, the ICE DB shows the code only of the sources you own, and the boards'
+//! news tells what shipped, in the words of who's telling it.
 
 use ninsei_core::bbs::{COLS, Line, ROWS, Screen, Session};
 use ninsei_core::hub::{Entry, Save};
-use ninsei_core::ice_listing::Mark;
 use ninsei_core::probe::{self, Bot, SAFE_PICK};
 use ninsei_core::*;
 
@@ -60,76 +59,89 @@ fn career(d: &Data, runs: u64) -> Save {
 }
 
 #[test]
-fn the_ice_db_never_shows_or_marks_what_was_not_seen() {
+fn the_ice_db_shows_only_the_sources_you_own() {
     let d = Data::builtin().unwrap();
-    let s = career(&d, 90);
+    let mut s = career(&d, 90);
     assert!(!s.ice_versions.is_empty(), "the career shipped nothing");
-    let mut pages_with_history = 0;
-    for e in icedb::entries(&s, &d) {
-        let Some(seen) = e.seen else { continue };
-        // Every version as kept: its program and the lines seen on it.
-        let row_or = |p: &str| {
-            if p.is_empty() {
-                e.def.program.clone()
-            } else {
-                p.to_string()
-            }
-        };
-        let mut versions = vec![(seen.version, row_or(&seen.program), seen.lines.clone())];
-        versions.extend(
+    assert!(s.ice_sources.is_empty(), "fighting got it no source");
+    // Every version met of every kind: (kind, version, program as booked).
+    let mut met: Vec<(String, ice_version::Version, String)> = Vec::new();
+    for seen in &s.ice_seen {
+        met.push((seen.id.clone(), seen.version, seen.program.clone()));
+        met.extend(
             seen.past
                 .iter()
-                .rev()
-                .map(|p| (p.version, row_or(&p.program), p.lines.clone())),
+                .map(|p| (seen.id.clone(), p.version, p.program.clone())),
         );
-        pages_with_history += usize::from(versions.len() > 1);
-        for (k, (v, program, lines)) in versions.iter().enumerate() {
-            let prev = versions
-                .get(k + 1)
-                .map(|(_, p, l)| (p.as_str(), l.as_slice()));
-            let rows = ice_listing::changes(&e.def.verbs, prev, (program, lines));
-            let parsed = basic::parse_with(program, basic::Vocab::Ice(&e.def.verbs));
-            for r in &rows {
-                if r.mark == Mark::Removed {
-                    // A removed line was seen on the version before, as it reads.
-                    let (pp, pl) = prev.expect("a removal needs a version before");
-                    let before = basic::parse_with(pp, basic::Vocab::Ice(&e.def.verbs));
-                    assert!(
-                        pl.contains(&r.no),
-                        "{} {v}: removed {} unseen",
-                        e.def.id,
-                        r.no
-                    );
-                    assert_eq!(
-                        r.text.as_deref(),
-                        before.line(r.no).map(|l| l.text.as_str())
-                    );
-                    continue;
-                }
-                let is_seen = lines.contains(&r.no);
-                // In clear only if seen, and then as the line reads in that version.
-                assert_eq!(r.text.is_some(), is_seen, "{} {v} line {}", e.def.id, r.no);
-                if let Some(t) = &r.text {
-                    assert_eq!(Some(t.as_str()), parsed.line(r.no).map(|l| l.text.as_str()));
-                }
-                // Marked only if seen.
-                assert!(
-                    is_seen || r.mark == Mark::None,
-                    "{} {v} line {} marked unseen",
-                    e.def.id,
-                    r.no
-                );
-            }
-        }
-        // The page heads with the version last met.
+    }
+    assert!(
+        s.ice_seen.iter().any(|x| !x.past.is_empty()),
+        "no kind was met at two versions"
+    );
+    let statements = |id: &str, program: &str| -> Vec<String> {
+        let row = d.ice.iter().find(|i| i.id == id).unwrap();
+        let text = if program.is_empty() {
+            row.program.as_str()
+        } else {
+            program
+        };
+        basic::parse_with(text, basic::Vocab::Ice(&row.verbs))
+            .lines
+            .iter()
+            .map(|l| l.text.clone())
+            .collect()
+    };
+    // No source: the record of every version met, and none of any version's code.
+    for e in icedb::entries(&s, &d) {
+        let Some(seen) = e.seen else { continue };
         let page = e.lines(&s, &d);
         assert!(
             page[0].starts_with(&format!("{} {}", e.def.name, seen.version)),
             "{}",
             page[0]
         );
+        assert!(page.contains(&"source         none on disk".to_string()));
+        for (_, _, program) in met.iter().filter(|(id, ..)| *id == e.def.id) {
+            for stmt in statements(&e.def.id, program) {
+                assert!(
+                    !page.iter().any(|l| l.contains(stmt.as_str())),
+                    "{}: {stmt:?} on {page:#?}",
+                    e.def.id
+                );
+            }
+        }
     }
-    assert!(pages_with_history > 0, "no kind was met at two versions");
+    // Every version's source owned: each page lists the newest, whole, as it reads.
+    for (id, v, program) in &met {
+        s.ice_sources.push(hub::IceSource {
+            id: id.clone(),
+            version: *v,
+            program: program.clone(),
+        });
+    }
+    for e in icedb::entries(&s, &d) {
+        if e.seen.is_none() {
+            continue;
+        }
+        let (newest, _) = e.sources[0];
+        let (_, _, program) = met
+            .iter()
+            .find(|(id, v, _)| *id == e.def.id && *v == newest)
+            .unwrap();
+        let page = e.lines(&s, &d);
+        let top = page
+            .iter()
+            .position(|l| l.starts_with(&format!("source         {newest}")))
+            .unwrap_or_else(|| panic!("{page:#?}"));
+        let listed: Vec<&str> = page[top + 1..]
+            .iter()
+            .take_while(|l| l.starts_with(' ') && !l.contains("gives up"))
+            .filter(|l| !l.starts_with(" -"))
+            .map(|l| l[5..].trim_start())
+            .collect();
+        let want = statements(&e.def.id, program);
+        assert_eq!(listed, want, "{}: {page:#?}", e.def.id);
+    }
 }
 
 #[test]

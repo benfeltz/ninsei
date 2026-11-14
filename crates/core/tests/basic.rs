@@ -512,9 +512,7 @@ fn finish_from_the_shell_says_the_pass_as_it_happens() {
     let over = said
         .iter()
         .position(|l| l == "out of cycles. the turn is over.");
-    let ice = said
-        .iter()
-        .position(|l| l.contains("Bulwark 30 ATTACK 4: hits for 4."));
+    let ice = said.iter().position(|l| l == "Bulwark hits for 4.");
     assert!(over.is_some() && over < ice, "{said:?}");
     assert_eq!(combat(&g).turn, 2);
     // A STOP is said once, and carrying on says only what's new.

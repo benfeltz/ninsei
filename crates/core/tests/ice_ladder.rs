@@ -276,7 +276,7 @@ fn end_run(g: &mut Game) {
 }
 
 #[test]
-fn meeting_a_newer_version_keeps_the_last_one_as_it_was_known() {
+fn meeting_a_newer_version_keeps_the_last_one_s_record() {
     use ice_version::{Bump, Version};
     let d = data();
     let mut s = deck(&d);
@@ -286,7 +286,6 @@ fn meeting_a_newer_version_keeps_the_last_one_as_it_was_known() {
         broken: 2,
         lo: 12,
         hi: 12,
-        lines: vec![10, 30],
         won: 2,
         ..Default::default()
     });
@@ -307,24 +306,22 @@ fn meeting_a_newer_version_keeps_the_last_one_as_it_was_known() {
     assert_eq!((e.version, e.bump), (patch, Some(Bump::Patch)));
     assert_eq!(e.program, text);
     assert_eq!((e.won, e.lost, e.met), (1, 0, 3));
-    assert!(e.lines.contains(&10), "{e:?}");
     assert_eq!(
         e.past,
         vec![hub::SeenVersion {
             version: Version::default(),
             bump: None,
             program: String::new(),
-            lines: vec![10, 30],
             won: 2,
             lost: 0,
         }]
     );
-    // The ICE DB decompiles the version the lines were seen on.
+    // The ICE DB heads with the version last met.
     let entry = icedb::entries(&s, &d)
         .into_iter()
         .find(|x| x.def.id == "enigma")
         .unwrap();
-    assert_eq!(entry.program, Some(text));
+    assert!(entry.lines(&s, &d)[0].starts_with("Enigma 1.0.1"));
 }
 
 #[test]
@@ -346,7 +343,6 @@ fn a_save_from_before_versions_per_seen_line_loads() {
     s.ice_seen.push(hub::IceSeen {
         id: "enigma".into(),
         met: 1,
-        lines: vec![10],
         ..Default::default()
     });
     let text = s.to_text();
@@ -405,9 +401,7 @@ fn a_fight_names_its_ice_with_the_version_in_force() {
     let mut g = g;
     g.apply(Action::EndTurn);
     assert!(
-        g.log
-            .iter()
-            .any(|l| l.text.starts_with("Enigma 10 ATTACK 4")),
+        g.log.iter().any(|l| l.text == "Enigma hits for 4."),
         "{:?}",
         g.log
     );
