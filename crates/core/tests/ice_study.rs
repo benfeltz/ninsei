@@ -851,12 +851,15 @@ fn a_shipped_version_is_cracked_after_the_crackers_delay() {
     let v = Version::FIRST.bumped(Bump::Patch);
     assert!(s.cracked(&d, "enigma", Version::FIRST), "1.0.0 always is");
     assert!(!s.cracked(&d, "enigma", v));
-    assert!(s.sysops_busy(), "the crackers are at work, nobody studying");
+    assert!(
+        s.sysops_busy(&d),
+        "the crackers are at work, nobody studying"
+    );
     s.study(&d, tuning::SOURCE_CRACK_STEPS - 1, u32::MAX);
     assert!(!s.cracked(&d, "enigma", v), "a step short");
     s.study(&d, 1, u32::MAX);
     assert!(s.cracked(&d, "enigma", v));
-    assert!(!s.sysops_busy(), "nobody at work");
+    assert!(!s.sysops_busy(&d), "nobody at work");
     // A version nobody shipped is never out.
     assert!(!s.cracked(&d, "enigma", v.bumped(Bump::Minor)));
 }
@@ -925,4 +928,16 @@ fn a_version_shipped_mid_run_starts_its_crack_there() {
     let rig = g.data.rig.clone();
     save.record(&g, &[], &rig).unwrap();
     assert!(save.cracked(&g.data, "enigma", v));
+}
+
+#[test]
+fn a_crack_on_a_version_no_longer_in_force_keeps_no_clock_running() {
+    // The row changed under the save: its version past 1.0.0 no longer passes the check, so
+    // it isn't in force. Its crack is nobody's, at home as in a run.
+    let (d, mut s) = shipped_at_home();
+    s.ice_versions[0].program = "10 SEGFAULT\n20 SEGFAULT".into();
+    assert_eq!(s.cracks_pending(&d), 0);
+    assert!(!s.sysops_busy(&d));
+    let g = s.jack_in(&d, 3);
+    assert!(!g.sysops_busy());
 }

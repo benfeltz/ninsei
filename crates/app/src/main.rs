@@ -731,7 +731,7 @@ impl App {
         let busy = if in_run {
             self.game.sysops_busy()
         } else {
-            self.save.sysops_busy()
+            self.save.sysops_busy(&self.data)
         };
         let steps = self.sysops.steps(now, busy);
         if steps > 0 || owed(studies) {
@@ -739,8 +739,11 @@ impl App {
             if in_run {
                 self.game.apply(Action::Study { steps, drafts });
             } else {
-                let cracking = self.save.ice_versions.iter().any(|v| v.crack > 0);
-                if self.save.study(&self.data, steps, drafts) > 0 || (cracking && steps > 0) {
+                // Dirty when a version ships or a crack finishes, not on every step between.
+                let cracking = self.save.cracks_pending(&self.data);
+                if self.save.study(&self.data, steps, drafts) > 0
+                    || self.save.cracks_pending(&self.data) != cracking
+                {
                     self.save_dirty = true;
                 }
             }
@@ -748,7 +751,7 @@ impl App {
         let (studies, busy) = if in_run {
             (&self.game.ice_study, self.game.sysops_busy())
         } else {
-            (&self.save.ice_study, self.save.sysops_busy())
+            (&self.save.ice_study, self.save.sysops_busy(&self.data))
         };
         if owed(studies) {
             Some(0.0)
@@ -2238,15 +2241,19 @@ mod tests {
                 app.save.ice_study
             );
             assert!(app.save_dirty);
-            // The sysops rest; the scene is still cracking what they shipped, so the clock runs.
+            // The sysops rest; the scene is still cracking what they shipped, so the clock runs,
+            // and the save isn't written for every step of it.
             t += DRAFT;
+            app.save_dirty = false;
             assert!(app.sysops_tick(t).is_some(), "the crackers are at work");
             assert!(app.save.ice_versions[0].crack > 0);
+            assert!(!app.save_dirty, "a step of a crack is nothing to write");
             for _ in 0..ninsei_core::tuning::SOURCE_CRACK_STEPS {
                 t += DRAFT;
                 app.sysops_tick(t);
             }
             assert_eq!(app.save.ice_versions[0].crack, 0, "cracked");
+            assert!(app.save_dirty, "a crack finished");
             assert_eq!(
                 app.sysops_tick(t + 1000.0),
                 None,

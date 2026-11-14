@@ -2549,10 +2549,16 @@ impl Save {
         n
     }
 
-    /// Whether the sysops' clock has anyone to run for: a study at work, or a version whose
-    /// source the scene is still cracking.
-    pub fn sysops_busy(&self) -> bool {
-        crate::ice_study::busy(&self.ice_study) || self.ice_versions.iter().any(|v| v.crack > 0)
+    /// Whether the sysops' clock has anyone to run for: a study at work, or a version in
+    /// force whose source the scene is still cracking (as a run's clock reads it: the kit
+    /// carries only the versions in force).
+    pub fn sysops_busy(&self, data: &Data) -> bool {
+        crate::ice_study::busy(&self.ice_study) || self.cracks_pending(data) > 0
+    }
+
+    /// How many versions in force the scene is still cracking.
+    pub fn cracks_pending(&self, data: &Data) -> usize {
+        self.patches(data).iter().filter(|v| v.crack > 0).count()
     }
 
     /// Whether the source of version `version` of kind `id` is out: 1.0.0's always is; a later
