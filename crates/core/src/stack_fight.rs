@@ -97,12 +97,59 @@ pub struct Block {
     pub depth: u32,
 }
 
-/// Which of Step, Run and Pause can be pressed. Run is the default (Enter) while it can be.
+/// A button of the transport, a hi-fi's row: Step, Play, fast-forward, Pause.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Transport {
+    Step,
+    Play,
+    Fast,
+    Pause,
+}
+
+impl Transport {
+    /// The row, left to right.
+    pub const ALL: [Transport; 4] = [
+        Transport::Step,
+        Transport::Play,
+        Transport::Fast,
+        Transport::Pause,
+    ];
+
+    /// What it does, when pressed.
+    pub fn action(self) -> Action {
+        match self {
+            Transport::Step => Action::Step,
+            Transport::Play => Action::Play,
+            Transport::Fast => Action::FastForward,
+            Transport::Pause => Action::Pause,
+        }
+    }
+}
+
+/// Which of the transport's buttons can be pressed, and which one is held in. Run (Play) is the
+/// default (Enter) while it can be.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Buttons {
     pub step: bool,
     pub run: bool,
+    /// Fast-forward: in a fight it always presses (in, or back up).
+    pub ff: bool,
     pub pause: bool,
+    /// The button held in, as a hi-fi's stays down: Play while the program plays at pace, FF
+    /// while it plays fast, Pause while it's paused (or stopped) in a fight; none outside one.
+    pub latched: Option<Transport>,
+}
+
+impl Buttons {
+    /// Whether `t` can be pressed.
+    pub fn enabled(&self, t: Transport) -> bool {
+        match t {
+            Transport::Step => self.step,
+            Transport::Play => self.run,
+            Transport::Fast => self.ff,
+            Transport::Pause => self.pause,
+        }
+    }
 }
 
 /// The deck's limits this turn, and how the Sense/Net words them.
@@ -306,14 +353,25 @@ pub fn card(g: &Game) -> Card {
     }
 }
 
-/// Which of Step, Run and Pause can be pressed, without building the card.
+/// Which of the transport's buttons can be pressed and which is held in, without building the
+/// card.
 pub fn buttons(g: &Game) -> Buttons {
     let fighting = g.phase == Phase::Combat && g.combat.is_some();
     let running = g.exec.state == ExecState::Running;
+    let fast = g.fast_forward();
+    let latched = match (fighting, running, fast) {
+        (false, ..) => None,
+        (true, true, true) => Some(Transport::Fast),
+        (true, true, false) => Some(Transport::Play),
+        (true, false, _) => Some(Transport::Pause),
+    };
     Buttons {
         step: fighting && !running,
-        run: fighting && !running,
+        // Play presses from a pause, or while fast to drop back to the pace.
+        run: fighting && (!running || fast),
+        ff: fighting,
         pause: fighting && running,
+        latched,
     }
 }
 

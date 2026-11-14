@@ -481,6 +481,12 @@ pub enum Action {
     /// The deck's program: stop where it is, partway through a pass or not, and hand the turn
     /// to the hotbar. Step or Play carry on from there.
     Pause,
+    /// The deck's program: play, fast (a hi-fi's fast-forward, latched). From a pause or a
+    /// STOP it is Play with the button held in; while playing at pace it holds the button in;
+    /// pressed again it pops up and the program plays on at pace. Play, Step and Pause pop it
+    /// up too, and so does the program stopping (a STOP, a hang, the fight's end). It changes
+    /// only how fast the driver applies its `Step`s: the same lines, in the same order.
+    FastForward,
     /// Replace the deck's program with this text. Allowed any time, mid-fight too.
     Program(String),
     EndTurn,
@@ -655,6 +661,9 @@ pub struct Exec {
     /// A hang on this line (`?BREAK IN n`), the cursor held on it until the next Step, Play,
     /// edit or the turn's end.
     pub broke: Option<u32>,
+    /// Fast-forward is held in (`Action::FastForward`); it counts only while `Running`
+    /// ([`Game::fast_forward`]).
+    pub fast: bool,
 }
 
 /// Whose program a line is from: the deck's, or the ICE's it's fighting.
@@ -1249,7 +1258,10 @@ impl Game {
         }
         // A pass is made of actions (each RUN, then the end of the turn), applied one by one
         // so history and cues hear each of them; the pass itself adds nothing on top.
-        if matches!(action, Action::Step | Action::Play | Action::Finish) {
+        if matches!(
+            action,
+            Action::Step | Action::Play | Action::Finish | Action::FastForward
+        ) {
             if let Err(e) = self.try_apply(action) {
                 self.say(LogKind::Sys, format!("err: {e}"));
             }
@@ -1307,7 +1319,24 @@ impl Game {
             Action::Step => self.go(false).map(|()| {
                 self.line(Side::Deck);
             }),
+            // Play while fast-forwarding pops FF up: it plays on at pace, no line now.
+            Action::Play if self.fast_forward() => {
+                self.exec.fast = false;
+                Ok(())
+            }
             Action::Play => self.go(true).map(|()| {
+                self.line(Side::Deck);
+            }),
+            Action::FastForward if self.phase != Phase::Combat => {
+                Err("no fight in progress.".into())
+            }
+            // Playing already: FF goes in, or pops back up. The pace changes, nothing else.
+            Action::FastForward if self.exec.state == ExecState::Running => {
+                self.exec.fast = !self.exec.fast;
+                Ok(())
+            }
+            Action::FastForward => self.go(true).map(|()| {
+                self.exec.fast = true;
                 self.line(Side::Deck);
             }),
             Action::Finish => self.pass(false),
@@ -1315,6 +1344,7 @@ impl Game {
                 if self.exec.state == ExecState::Running {
                     self.exec.state = ExecState::Paused;
                 }
+                self.exec.fast = false;
                 Ok(())
             }
             Action::Program(text) => {
@@ -2064,12 +2094,24 @@ impl Game {
             return Err("no fight in progress.".into());
         }
         self.exec.broke = None;
-        self.exec.state = if play || self.exec.state == ExecState::Running {
+        let running = self.exec.state == ExecState::Running;
+        self.exec.state = if play || running {
             ExecState::Running
         } else {
             ExecState::Paused
         };
+        // Play pops fast-forward up, and so does starting again from a stop; the driver's
+        // Steps while playing keep it in.
+        if play || !running {
+            self.exec.fast = false;
+        }
         Ok(())
+    }
+
+    /// The deck's program is playing fast: FF held in, running, in a fight. The app's driver
+    /// applies its Steps at its fast pace; nothing else differs.
+    pub fn fast_forward(&self) -> bool {
+        self.phase == Phase::Combat && self.exec.state == ExecState::Running && self.exec.fast
     }
 
     /// One line of a side's program: the line about to run, and any REMs after it, so it

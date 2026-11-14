@@ -80,6 +80,76 @@ fn buttons_follow_the_state() {
 }
 
 #[test]
+fn fast_forward_latches_like_a_hi_fi() {
+    use stack_fight::Transport;
+    let mut g = fight("10 RUN icepick\n20 GOTO 10");
+    let b = stack_fight::buttons(&g);
+    assert_eq!(
+        b.latched,
+        Some(Transport::Pause),
+        "paused in a fight: Pause is down"
+    );
+    assert!(b.step && b.run && b.ff && !b.pause);
+    // From a pause FF plays, fast: it runs the first line as Play would.
+    g.apply(Action::FastForward);
+    assert!(g.fast_forward());
+    assert_eq!(g.exec.pc, Some(20));
+    let b = stack_fight::buttons(&g);
+    assert_eq!(b.latched, Some(Transport::Fast));
+    assert!(!b.step && b.run && b.ff && b.pause);
+    // The driver's Steps keep it in.
+    g.apply(Action::Step);
+    assert!(g.fast_forward());
+    // FF again pops it up: playing on at pace, no line run.
+    let pc = g.exec.pc;
+    g.apply(Action::FastForward);
+    assert!(!g.fast_forward());
+    assert_eq!(g.exec.state, ExecState::Running);
+    assert_eq!(g.exec.pc, pc);
+    let b = stack_fight::buttons(&g);
+    assert_eq!(b.latched, Some(Transport::Play));
+    assert!(!b.run, "Play is down: pressing it does nothing");
+    // In again while playing, then Play pops it up, no line run.
+    g.apply(Action::FastForward);
+    assert!(g.fast_forward());
+    g.apply(Action::Play);
+    assert!(!g.fast_forward());
+    assert_eq!((g.exec.state, g.exec.pc), (ExecState::Running, pc));
+    // Pause pops it up.
+    g.apply(Action::FastForward);
+    g.apply(Action::Pause);
+    assert!(!g.fast_forward());
+    assert_eq!(stack_fight::buttons(&g).latched, Some(Transport::Pause));
+    // Step from a pause: still up.
+    g.apply(Action::Step);
+    assert!(!g.fast_forward());
+    // A STOP pops it up, and so does a hang; Play after either plays at pace.
+    let mut g = fight("10 RUN icepick\n20 STOP\n30 RUN icepick");
+    g.apply(Action::FastForward);
+    g.apply(Action::Step);
+    assert_eq!(g.exec.state, ExecState::Stopped(20));
+    assert!(!g.fast_forward());
+    g.apply(Action::Play);
+    assert!(!g.fast_forward(), "Play after the STOP is at pace");
+    let mut g = fight("10 GOTO 20\n20 GOTO 10");
+    g.apply(Action::FastForward);
+    for _ in 0..3 {
+        if g.exec.broke.is_none() {
+            g.apply(Action::Step);
+        }
+    }
+    assert!(g.exec.broke.is_some(), "it hung");
+    assert!(!g.fast_forward());
+    // Outside a fight nothing presses and nothing is down.
+    let mut calm = Game::new(Data::builtin().unwrap(), 7);
+    let b = stack_fight::buttons(&calm);
+    assert_eq!(b.latched, None);
+    assert!(Transport::ALL.iter().all(|&t| !b.enabled(t)));
+    calm.apply(Action::FastForward);
+    assert!(!calm.fast_forward());
+}
+
+#[test]
 fn the_deck_card_words_the_limits() {
     let g = fight(SAMPLE);
     let b = stack_fight::card(&g).budgets;
