@@ -93,11 +93,7 @@ fn career(save: &mut Save, d: &Data, runs: u64) -> Seen {
                 "{id} killed the deck and evolved"
             );
         }
-        let new = |v: &&hub::IceVer| {
-            !before
-                .iter()
-                .any(|b| b.id == v.id && b.version == v.version && b.program == v.program)
-        };
+        let new = |v: &&hub::IceVer| !before.iter().any(|b| b.same_version(v));
         for v in save.ice_versions.iter().filter(new) {
             seen.shipped += 1;
             let row = d.ice.iter().find(|i| i.id == v.id).unwrap();

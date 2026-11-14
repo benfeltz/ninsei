@@ -1321,6 +1321,14 @@ pub struct IceVer {
     pub crack: u32,
 }
 
+impl IceVer {
+    /// Whether it's the same version as `other`: the same kind, number and program. How far
+    /// the crackers have got with it (`crack`) is the clock's, not the version's.
+    pub fn same_version(&self, other: &IceVer) -> bool {
+        self.id == other.id && self.version == other.version && self.program == other.program
+    }
+}
+
 /// A textfile on your disk: which board it came from and its id in that board's `texts`.
 #[derive(Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 pub struct KeptText {

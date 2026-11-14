@@ -450,17 +450,17 @@ fn the_same_save_ships_the_same_versions() {
                 left = left.saturating_sub(batch);
             }
         }
-        // What ships is the save's; how far the crackers got is when, which is the clock's (a
-        // version shipped partway through a batch of steps starts its crack after it).
-        for v in &mut s.ice_versions {
-            v.crack = 0;
-        }
         s.ice_versions
+    };
+    // What ships is the save's; how far the crackers got is when, which is the clock's (a
+    // version shipped partway through a batch of steps starts its crack after it).
+    let same = |a: &[hub::IceVer], b: &[hub::IceVer]| {
+        a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.same_version(y))
     };
     let a = play(5, 1);
     assert!(!a.is_empty());
-    assert_eq!(a, play(5, 7), "however the time was sliced");
-    assert_ne!(a, play(6, 1));
+    assert!(same(&a, &play(5, 7)), "however the time was sliced");
+    assert!(!same(&a, &play(6, 1)));
 }
 
 #[test]
