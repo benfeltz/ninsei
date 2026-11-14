@@ -113,30 +113,10 @@ impl BbsView {
                     .collect();
                 paint_screen(ui, &lines, self.color, p);
 
-                // Hotkeys as buttons, for mice and thumbs.
-                ui.horizontal(|ui| {
-                    for (k, label) in self.session.keys(game) {
-                        let cap = if k == '\n' {
-                            "ENTER".to_string()
-                        } else {
-                            k.to_string()
-                        };
-                        let txt = RichText::new(format!("[{cap}] {label}").trim_end().to_string())
-                            .color(p.fg);
-                        if ui.button(txt).clicked() {
-                            clicked = Some(k);
-                        }
-                    }
-                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                        let mode = if self.color { "ANSI color" } else { "phosphor" };
-                        if ui
-                            .button(RichText::new(format!("display: {mode}")).color(p.dim))
-                            .clicked()
-                        {
-                            self.color = !self.color;
-                        }
-                    });
-                });
+                let keys = self.session.keys(game);
+                if let Some(k) = key_bar(ui, &keys, &mut self.color, p) {
+                    clicked = Some(k);
+                }
             });
         if let Some(k) = clicked {
             out.push(self.session.key(game, k));
@@ -145,6 +125,57 @@ impl BbsView {
         out.retain(|o| *o != Outcome::None);
         out
     }
+}
+
+/// The hotkeys as buttons, for mice and thumbs, after the display switch has its place on the
+/// right: as many as fit whole, in order (every key still types). Returns the key clicked.
+fn key_bar(
+    ui: &mut egui::Ui,
+    keys: &[(char, String)],
+    color: &mut bool,
+    p: &Palette,
+) -> Option<char> {
+    let mut clicked = None;
+    ui.horizontal(|ui| {
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            let mode = if *color { "ANSI color" } else { "phosphor" };
+            if ui
+                .button(RichText::new(format!("display: {mode}")).color(p.dim))
+                .clicked()
+            {
+                *color = !*color;
+            }
+            ui.add_space(ui.spacing().item_spacing.x * 2.0);
+            ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
+                for (k, label) in keys {
+                    let cap = if *k == '\n' {
+                        "ENTER".to_string()
+                    } else {
+                        k.to_string()
+                    };
+                    let text = format!("[{cap}] {label}").trim_end().to_string();
+                    if button_width(ui, &text) > ui.available_width() {
+                        break;
+                    }
+                    if ui.button(RichText::new(text).color(p.fg)).clicked() {
+                        clicked = Some(*k);
+                    }
+                }
+            });
+        });
+    });
+    clicked
+}
+
+/// How wide a button labelled `text` lays out in `ui`, padding and all.
+fn button_width(ui: &egui::Ui, text: &str) -> f32 {
+    let font = egui::TextStyle::Button.resolve(ui.style());
+    let w = ui.fonts_mut(|f| {
+        f.layout_no_wrap(text.to_string(), font, Color32::WHITE)
+            .size()
+            .x
+    });
+    w + ui.spacing().button_padding.x * 2.0
 }
 
 /// Paints pipe-coded lines as an 80x24 ANSI terminal: true CGA colours, or the phosphor (`p`)
@@ -233,6 +264,38 @@ fn paint_screen_at(ui: &mut egui::Ui, lines: &[String], color: bool, p: &Palette
 mod tests {
     use super::*;
     use crate::uitest::Harness;
+
+    #[test]
+    fn the_key_bar_never_runs_into_the_display_switch() {
+        // Ten areas (the Gutter's, its source area the tenth) and the way back, in a bar
+        // narrower than they need.
+        let data = ninsei_core::Data::builtin().unwrap();
+        let p = Palette::from_def(&data.themes[0]);
+        let mut keys: Vec<(char, String)> =
+            "1234567890".chars().map(|c| (c, String::new())).collect();
+        keys.push(('Q', "back".into()));
+        let mut h = Harness::new(1280.0, 800.0);
+        let mut color = true;
+        for _ in 0..2 {
+            h.frame(Vec::new(), |ui| {
+                let rect = egui::Rect::from_min_size(egui::Pos2::ZERO, vec2(420.0, 40.0));
+                let mut bar = ui.new_child(egui::UiBuilder::new().max_rect(rect));
+                key_bar(&mut bar, &keys, &mut color, &p);
+            });
+        }
+        let switch = h.find("display: ANSI color").expect("the display switch");
+        let drawn: Vec<(String, egui::Rect)> = h
+            .painted_text()
+            .into_iter()
+            .filter(|(t, _)| t.starts_with('['))
+            .collect();
+        assert!(!drawn.is_empty() && drawn.len() < keys.len(), "{drawn:?}");
+        for (t, r) in &drawn {
+            assert!(r.right() < switch.left(), "{t} {r:?} runs into {switch:?}");
+        }
+        // The ones drawn are the first ones, in order.
+        assert!(drawn[0].0.starts_with("[1]"), "{drawn:?}");
+    }
 
     #[test]
     fn a_screen_paints_in_its_cells_with_block_art_solid() {
