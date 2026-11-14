@@ -14,8 +14,8 @@ pub struct Entry<'a> {
     pub def: &'a IceDef,
     pub seen: Option<&'a IceSeen>,
     /// The sources you own of it that still read, as saved: (version, program as booked, its
-    /// text).
-    owned: Vec<(Version, &'a str, &'a str)>,
+    /// text, the board it came from).
+    owned: Vec<(Version, &'a str, &'a str, &'a str)>,
     /// The sources the page lists, newest version first, one per version: (version, text). Only
     /// the source of the program the save knows that version by (in force, else as last met).
     pub sources: Vec<(Version, &'a str)>,
@@ -30,17 +30,19 @@ pub fn entries<'a>(save: &'a Save, data: &'a Data) -> Vec<Entry<'a>> {
         .iter()
         .map(|def| {
             let seen = save.ice_seen.iter().find(|s| s.id == def.id);
-            let owned: Vec<(Version, &str, &str)> = save
+            // (version, program as booked, its text, the board it came from)
+            let owned: Vec<(Version, &str, &str, &str)> = save
                 .ice_sources
                 .iter()
                 .filter(|s| s.id == def.id)
-                .filter_map(|s| Some((s.version, s.program.as_str(), s.text(data)?)))
-                .collect();
-            let boards: Vec<&str> = save
-                .ice_sources
-                .iter()
-                .filter(|s| s.id == def.id && s.text(data).is_some())
-                .map(|s| s.from.as_str())
+                .filter_map(|s| {
+                    Some((
+                        s.version,
+                        s.program.as_str(),
+                        s.text(data)?,
+                        s.from.as_str(),
+                    ))
+                })
                 .collect();
             // The program the save knows each version by: in force, else as last met.
             let known = |v: Version| -> Option<String> {
@@ -55,7 +57,7 @@ pub fn entries<'a>(save: &'a Save, data: &'a Data) -> Vec<Entry<'a>> {
             // A source of another program at that number is a version that's gone (the row
             // changed under it): it lists nothing, as a fight against the number shows nothing.
             let mut picked: Vec<(Version, &str, &str)> = Vec::new();
-            for (&(v, program, text), from) in owned.iter().zip(&boards) {
+            for &(v, program, text, from) in &owned {
                 if known(v).is_none_or(|p| p == program) && !picked.iter().any(|(w, ..)| *w == v) {
                     picked.push((v, text, from));
                 }
@@ -150,7 +152,7 @@ impl<'a> Entry<'a> {
                     source: self
                         .owned
                         .iter()
-                        .any(|(v, p, _)| *v == version && *p == program),
+                        .any(|(v, p, ..)| *v == version && *p == program),
                 });
             }
         }
@@ -177,25 +179,31 @@ impl<'a> Entry<'a> {
         let rows = crate::ice_listing::changes(&self.def.verbs, prev.map(|p| p.1), program);
         let against = prev.map_or(String::new(), |p| format!(", against {}", p.0));
         let mut out = vec![PageLine::plain(format!("{heading}{v}{against}"))];
-        // The board it came from puts its header above it and a remark under each read it knows.
+        // The board it came from puts its header above it and a remark under each read it
+        // knows: muted, as the fight's decks dim them. A removed line takes none.
+        let lines: Vec<(PageLine, Option<String>)> = rows
+            .iter()
+            .map(|r| {
+                let line = PageLine::plain(format!(" {}{:>3} {}", r.mark.glyph(), r.no, r.text));
+                let stmt = (r.mark != crate::ice_listing::Mark::Removed).then(|| r.text.clone());
+                (line, stmt)
+            })
+            .collect();
         let notes = crate::ice_listing::notes(self.data, self.from[k], &self.def.name, v);
-        let rem = |t: &str| PageLine::plain(format!("       REM {t}"));
-        if let Some((header, _)) = &notes {
-            out.extend(header.iter().map(|l| rem(l)));
-        }
-        for r in &rows {
-            out.push(PageLine::plain(format!(
-                " {}{:>3} {}",
-                r.mark.glyph(),
-                r.no,
-                r.text
-            )));
-            let remark = notes
-                .as_ref()
-                .filter(|_| r.mark != crate::ice_listing::Mark::Removed)
-                .and_then(|(_, s)| s.remark(&r.text));
-            out.extend(remark.map(rem));
-        }
+        let lines = match notes {
+            Some((header, sources)) => {
+                let rem = |t: String| {
+                    let line = PageLine {
+                        text: crate::ice_listing::rem_line(&t),
+                        muted: true,
+                    };
+                    (line, None)
+                };
+                crate::ice_listing::interleave(lines, header, sources, |l| l.1.as_deref(), rem)
+            }
+            None => lines,
+        };
+        out.extend(lines.into_iter().map(|(l, _)| l));
         out
     }
 

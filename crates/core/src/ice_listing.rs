@@ -49,20 +49,44 @@ pub fn notes<'a>(
     Some((s.header_lines(ice, &version.to_string(), &b.name), s))
 }
 
-/// `rows` with a source's notes: the header first, then each line, a remark after each IF its
-/// board's remarks know. The rows that aren't the program are `rem`.
+/// `rows` with a source's notes, whatever a row is: the header first, then each row, a remark
+/// after each whose statement (`text`; `None`: one that takes none) is an IF its board's
+/// remarks know. `rem` makes a note's row. The one place notes are placed.
+pub fn interleave<T>(
+    rows: Vec<T>,
+    header: Vec<String>,
+    sources: &crate::data::SourcesDef,
+    text: impl Fn(&T) -> Option<&str>,
+    rem: impl Fn(String) -> T,
+) -> Vec<T> {
+    let mut out: Vec<T> = header.into_iter().map(&rem).collect();
+    for r in rows {
+        let remark = text(&r).and_then(|t| sources.remark(t)).map(str::to_string);
+        out.push(r);
+        out.extend(remark.map(&rem));
+    }
+    out
+}
+
+/// A fight's rows with a source's notes ([`interleave`]): the rows that aren't the program
+/// are `rem`.
 pub fn annotate(
     rows: Vec<IceRow>,
     header: Vec<String>,
     sources: &crate::data::SourcesDef,
 ) -> Vec<IceRow> {
-    let mut out: Vec<IceRow> = header.into_iter().map(IceRow::remark).collect();
-    for r in rows {
-        let remark = sources.remark(&r.text).map(str::to_string);
-        out.push(r);
-        out.extend(remark.map(IceRow::remark));
-    }
-    out
+    interleave(
+        rows,
+        header,
+        sources,
+        |r| Some(r.text.as_str()),
+        IceRow::remark,
+    )
+}
+
+/// A note as the full listings print it (the ICE card, the ICE DB), under the statements.
+pub fn rem_line(text: &str) -> String {
+    format!("       REM {text}")
 }
 
 /// An ICE's program listed whole, every line numbered. No marks.
@@ -138,7 +162,7 @@ pub const CLASSIC: IceWords = IceWords {
 /// the statement.
 pub fn card_line(r: &IceRow) -> String {
     if r.rem {
-        return format!("       REM {}", r.text);
+        return rem_line(&r.text);
     }
     let mark = if r.cursor { "▶" } else { " " };
     format!("{mark}{:>5} {}", r.no, r.text)
