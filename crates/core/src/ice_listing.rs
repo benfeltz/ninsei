@@ -107,9 +107,12 @@ pub fn rows(g: &Game) -> Vec<IceRow> {
         r.next = Some(r.no) == next;
     }
     // The source's board's notes, if it came from one.
-    let notes = g
-        .fight_source()
-        .and_then(|s| notes(&g.data, &s.from, &g.data.ice[c.ice].name, c.ice_version));
+    let notes = notes(
+        &g.data,
+        &c.source_from,
+        &g.data.ice[c.ice].name,
+        c.ice_version,
+    );
     match notes {
         Some((header, sources)) => annotate(rows, header, sources),
         None => rows,
