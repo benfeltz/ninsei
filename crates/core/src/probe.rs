@@ -1288,7 +1288,7 @@ impl Probe {
             .collect();
         let report = save.record(&g, &keep, &data.rig);
         // The sysops' time at home, before the next run.
-        let busy = save.sysops_busy();
+        let busy = save.sysops_busy(&data);
         let steps = self
             .pace
             .steps(u64::from(crate::tuning::PROBE_HOME_MS), busy);
