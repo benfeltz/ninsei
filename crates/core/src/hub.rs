@@ -517,6 +517,8 @@ pub struct NetworksDef {
     pub tiers: Vec<TierDef>,
     pub traits: Vec<TraitDef>,
     pub companies: Vec<CompanyDef>,
+    /// The packet net they all sit on: a run reaches its board through its PAD.
+    pub x25: crate::data::X25Def,
 }
 
 impl NetworksDef {
@@ -554,7 +556,7 @@ impl NetworksDef {
         if self.companies.len() < PHONEBOOK_START.len() * 2 {
             return Err("too few companies for a phonebook".into());
         }
-        Ok(())
+        self.x25.validate()
     }
 }
 
@@ -2018,6 +2020,7 @@ impl Save {
             .collect();
         kit.site = Some(Site {
             entry: e.id,
+            number: e.number.clone(),
             name: e.name.clone(),
             tier: e.tier,
             traits: labels,

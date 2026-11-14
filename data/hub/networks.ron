@@ -23,6 +23,11 @@
 //            Each trait also has a `finding` and a `severity` (Info, Low, Medium, High): how
 //            Tiger Team Pro's assessment words it, in the security team's voice.
 // companies: names and lines of business for phonebook entries.
+// x25:       the packet net every network sits on. A board reached in a run is an X.25 call
+//            through its PAD, not a modem call. `dnic` is four digits and starts every address
+//            (then the network's number and the board node's place); the PAD's lines fill
+//            `{address}`: `call` as it goes out, `connected` when the board accepts, `clear`
+//            when it hangs up. `log` is the run's line for the call, with `{board}` too.
 (
     tiers: [
         (tier: 1, label: "LAN", mid_layers: 4, ice_bonus: 0, pay_pct: 80, traits: (0, 1), subnets: 0, choke: 0, black: 0, trace_pct: 100),
@@ -64,4 +69,11 @@
         (name: "Velvet Static",        business: "nightclub"),
         (name: "Ironbark Utilities",   business: "power grid"),
     ],
+    x25: (
+        dnic: "4409",
+        call: "CALL {address}",
+        connected: "{address} COM",
+        clear: "{address} CLR DTE",
+        log: "CALL {address} ... COM to {board}",
+    ),
 )

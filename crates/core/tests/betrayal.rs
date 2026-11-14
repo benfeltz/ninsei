@@ -31,6 +31,7 @@ fn run_on(data: Data, tier: u32, seed: u64, trust: &[(&str, u32)]) -> Game {
         &Kit {
             site: Some(Site {
                 entry: 0,
+                number: "555-0123".into(),
                 name: "test".into(),
                 tier,
                 traits: Vec::new(),
