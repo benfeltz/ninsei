@@ -86,7 +86,62 @@ fn the_deck_card_words_the_limits() {
     assert_eq!(b.cpu_words(), "3 cycles/turn");
     assert_eq!(b.ifs_words(), "6 IFs");
     assert_eq!(b.hdd_words(), "4 of 6");
-    assert_eq!(b.left_words(), "6 of 6 IFs, 3 cycles left");
+    assert_eq!(b.gauges(), [("CPU", 3, 3), ("RAM", 6, 6)]);
+}
+
+#[test]
+fn a_block_is_indented_under_the_ifs_that_guard_it() {
+    let g = fight(
+        "10 RUN icepick\n20 IF INTEG < 10\n30 RUN patch\n40 IF ICE BARRIER\n50 IF TURN > 2\n\
+         60 RUN firewall\n70 IF INTEG < 5\n80 GOTO 10\n90 STOP",
+    );
+    let depths: Vec<(u32, u32)> = stack_fight::card(&g)
+        .blocks
+        .iter()
+        .map(|b| (b.no, b.depth))
+        .collect();
+    assert_eq!(
+        depths,
+        [
+            (10, 0),
+            (20, 0),
+            (30, 1),
+            // Two IFs in a row are an AND: the second is guarded by the first, and the line
+            // they guard by both.
+            (40, 0),
+            (50, 1),
+            (60, 2),
+            (70, 0),
+            (80, 1),
+            (90, 0),
+        ]
+    );
+}
+
+#[test]
+fn the_gauges_drain_in_a_fight_and_are_full_outside_one() {
+    let mut g = fight("10 IF INTEG > 0\n20 RUN icepick\n30 STOP");
+    g.apply(Action::Finish);
+    assert_eq!(
+        stack_fight::card(&g).budgets.gauges(),
+        [("CPU", 2, 3), ("RAM", 5, 6)]
+    );
+    let calm = Game::new(Data::builtin().unwrap(), 7);
+    let b = stack_fight::card(&calm).budgets;
+    assert_eq!(b.gauges(), [("CPU", 3, 3), ("RAM", 6, 6)]);
+}
+
+#[test]
+fn a_starved_block_is_marked_on_the_card() {
+    // Three cycles: the fourth pick and the torch (not on the disk) won't run this turn.
+    let g = fight("10 RUN icepick\n20 RUN icepick\n30 RUN icepick\n40 RUN icepick\n50 RUN torch");
+    let starved: Vec<u32> = stack_fight::card(&g)
+        .blocks
+        .iter()
+        .filter(|b| b.starved)
+        .map(|b| b.no)
+        .collect();
+    assert_eq!(starved, [40, 50]);
 }
 
 #[test]

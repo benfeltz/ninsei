@@ -576,7 +576,7 @@ fn script_card(p: &mut Panes, ui: &mut Ui) {
     // its left while the ▶ is held, or on a row of its own above when the two don't fit.
     let line_h = ui.fonts_mut(|f| f.row_height(&look.font)).ceil() + 4.0;
     let full = ui.available_width().floor();
-    let budget = card.budget_words();
+    let budget = String::new();
     let broke = card.broke_words();
     let text_w = |ui: &Ui, t: &str| {
         ui.fonts_mut(|f| {
