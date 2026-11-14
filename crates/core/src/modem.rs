@@ -261,29 +261,72 @@ mod tests {
         assert!(samples[at(h.connect) + 1..].iter().all(|&s| s == 0.0));
     }
 
-    /// FNV-1a over the samples' bits: what the call sounds like, to the sample.
-    fn sound_hash(samples: &[f32]) -> u64 {
-        samples.iter().fold(0xcbf2_9ce4_8422_2325u64, |h, s| {
-            (h ^ u64::from(s.to_bits())).wrapping_mul(0x0100_0000_01b3)
-        })
+    /// What a call sounds like, as numbers that move smoothly with the samples: its energy and
+    /// three random ±1 projections of them. libm's last bit (macOS against CI's Linux) moves
+    /// them by millionths; any change to a tone, a timing or the noise moves them by whole units.
+    fn fingerprint(samples: &[f32]) -> [f64; 4] {
+        let mut f = [0.0f64; 4];
+        let mut rngs = [1u64, 2, 3].map(|k| Rng::new(0x5A5A_0000 + k));
+        for &s in samples {
+            let s = f64::from(s);
+            f[0] += s * s;
+            for (i, r) in rngs.iter_mut().enumerate() {
+                f[i + 1] += if r.below(2) == 0 { -s } else { s };
+            }
+        }
+        f
     }
+
+    /// The fingerprints of the home calls below, taken on main before the X.25 call came.
+    const PINS: [[f64; 4]; 3] = [
+        [456.148_671, -22.518_445, 0.651_385, 4.549_628],
+        [456.159_393, -16.051_906, -6.816_023, 7.737_968],
+        [488.405_961, -11.172_469, -0.213_174, 16.822_283],
+    ];
 
     #[test]
     fn the_home_call_is_what_it_was() {
-        // Pinned on main before the X.25 call came (140): the dial-up handshake, its timeline
-        // and every sample of it, unchanged.
-        for (n, hash, answer, connect, end) in [
-            ("555-0199", 0xb044_9e53_2b3f_9216u64, 2.74, 4.34, 4.69),
-            ("555-0142", 0x0518_3d7a_c6c5_4a54, 2.74, 4.34, 4.69),
-            ("1-555-867-5309", 0x736a_0ba4_1b96_901c, 3.22, 4.82, 5.17),
-        ] {
+        // Pinned on main before the X.25 call came (140): the dial-up handshake's timeline, its
+        // parts, and how it sounds, unchanged.
+        for (k, (n, answer, connect, end)) in [
+            ("555-0199", 2.74, 4.34, 4.69),
+            ("555-0142", 2.74, 4.34, 4.69),
+            ("1-555-867-5309", 3.22, 4.82, 5.17),
+        ]
+        .into_iter()
+        .enumerate()
+        {
             let h = Handshake::new(n);
-            assert_eq!(sound_hash(&h.render(8000)), hash, "{n} sounds as it did");
+            let got = fingerprint(&h.render(8000));
+            for (g, want) in got.iter().zip(PINS[k]) {
+                assert!((g - want).abs() < 1e-3, "{n} sounds as it did: {got:?}");
+            }
             assert!((h.offhook - 0.3).abs() < 1e-4, "{n}");
             assert!((h.answer - answer).abs() < 1e-4, "{n}");
             assert!((h.connect - connect).abs() < 1e-4, "{n}");
             assert!((h.end - end).abs() < 1e-4, "{n}");
             assert_eq!(h.rings.len(), 2, "{n}");
+            // Dial tone, a key per digit, two rings, the answer tone, the carrier: that long.
+            let digits: Vec<Tone> = n
+                .chars()
+                .filter(|c| c.is_ascii_digit())
+                .map(Tone::Digit)
+                .collect();
+            let mut tones = vec![Tone::DialTone];
+            tones.extend(digits);
+            tones.extend([Tone::Ringback, Tone::Ringback, Tone::Answer, Tone::Carrier]);
+            assert_eq!(h.parts.iter().map(|p| p.tone).collect::<Vec<_>>(), tones);
+            for p in &h.parts {
+                let secs = match p.tone {
+                    Tone::DialTone => 0.3,
+                    Tone::Digit(_) => 0.07,
+                    Tone::Ringback => 0.4,
+                    Tone::Answer => 0.7,
+                    Tone::Carrier => 0.9,
+                    Tone::Data => unreachable!("no data on a phone call"),
+                };
+                assert!((p.secs - secs).abs() < 1e-6, "{n} {p:?}");
+            }
         }
     }
 
