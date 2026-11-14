@@ -551,14 +551,24 @@ fn hud(painter: &Painter, rect: Rect, p: &Palette, g: &Game, preview: Option<fig
         mono(14.0),
         p.bright,
     );
-    // Under it, the ICE's program from where it carries on, as the deck has seen it, clear of
-    // the preview line under the strength readout.
+    // Under it, the ICE's program from where it carries on, from its source (or gdb's words for
+    // none), clear of the preview line under the strength readout.
     let rows = ninsei_core::ice_listing::rows(g);
-    for (k, r) in btop_fight::ice_window(&rows, 3).iter().enumerate() {
-        let col = match (r.next, r.text.is_some()) {
+    if rows.is_empty() {
+        painter.text(
+            pos2(rx + 42.0, y + 18.0),
+            Align2::LEFT_CENTER,
+            crate::kit::cells::cut(btop_fight::ICE_WORDS.none, room(11.0)),
+            mono(11.0),
+            p.dim,
+        );
+    }
+    // Three lines of the program in a narrow column: no room for its source's notes.
+    for (k, r) in btop_fight::ice_window(&rows, 3, false).iter().enumerate() {
+        let col = match (r.next, r.rem) {
             (true, _) => p.bright,
-            (false, true) => p.fg,
-            (false, false) => alpha(p.dim, 0.8),
+            (false, true) => p.dim,
+            (false, false) => p.fg,
         };
         painter.text(
             pos2(rx + 42.0, y + 18.0 + k as f32 * 14.0),

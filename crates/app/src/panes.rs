@@ -399,7 +399,13 @@ impl Panes<'_> {
         }
     }
 
+    /// The ICE pane in the classic panes' words.
     pub(crate) fn target(&mut self, ui: &mut Ui) {
+        self.target_with(ui, &ninsei_core::ice_listing::CLASSIC);
+    }
+
+    /// The ICE pane, its listing in a deck's `words`.
+    pub(crate) fn target_with(&mut self, ui: &mut Ui, words: &ninsei_core::ice_listing::IceWords) {
         let g = self.game;
         let p = self.pal;
         match g.phase {
@@ -546,26 +552,29 @@ impl Panes<'_> {
         {
             self.act(Action::EndTurn);
         }
-        self.ice_listing(ui);
+        self.ice_listing(ui, words);
     }
 
-    /// The ICE's program as the deck has seen it run (`ice_listing`): ▶ on the line it carries
-    /// on from, NEXT's line in inverse, the lines it hasn't watched run `????`.
-    fn ice_listing(&mut self, ui: &mut Ui) {
+    /// The ICE's program from the source the deck owns (`ice_listing`): ▶ on the line it carries
+    /// on from, NEXT's line in inverse; with no source, the deck's words for none.
+    fn ice_listing(&mut self, ui: &mut Ui, words: &ninsei_core::ice_listing::IceWords) {
         let p = self.pal;
         let rows = ninsei_core::ice_listing::rows(self.game);
-        if rows.is_empty() {
-            return;
-        }
         ui.add_space(6.0);
         ui.separator();
-        ui.label(RichText::new(ninsei_core::ice_listing::heading(&rows)).color(p.dim));
+        ui.label(RichText::new(words.heading).color(p.dim));
+        if rows.is_empty() {
+            ui.label(RichText::new(words.none).monospace().color(p.dim));
+        }
         for r in &rows {
             let text = RichText::new(ninsei_core::ice_listing::card_line(r)).monospace();
-            let text = match (r.next, r.text.is_some()) {
-                (true, _) => text.color(p.bg).background_color(p.fg),
-                (false, true) => text.color(p.fg),
-                (false, false) => text.color(p.dim),
+            // The source's notes recede behind the program they annotate.
+            let text = if r.next {
+                text.color(p.bg).background_color(p.fg)
+            } else if r.rem {
+                text.color(p.dim)
+            } else {
+                text.color(p.fg)
             };
             ui.label(text);
         }

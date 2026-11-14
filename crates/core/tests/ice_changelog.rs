@@ -1,7 +1,9 @@
-//! 141.9.3: the ICE DB is a changelog. Every version of a kind you've met, as you knew it, with
-//! changes marked only where you saw them, so a new version is totally unknown when met.
+//! 141.9.3, made strict by 141.11.1: the ICE DB is a changelog of the sources you own. A kind's
+//! page lists the newest source you own, marked against the one before it you own, and keeps the
+//! fight record of every version you met; a version you met without its source has its number
+//! and record and no code.
 
-use ninsei_core::hub::{IceSeen, Save, SeenVersion};
+use ninsei_core::hub::{IceSeen, IceSource, Save, SeenVersion};
 use ninsei_core::ice_listing::{Mark, changes};
 use ninsei_core::ice_version::{Bump, Version};
 use ninsei_core::*;
@@ -22,7 +24,7 @@ fn enigma(d: &Data) -> &IceDef {
 
 fn marks(rows: &[ice_listing::MarkedRow]) -> Vec<String> {
     rows.iter()
-        .map(|r| format!("{}{} {}", r.mark.glyph(), r.no, r.shown()))
+        .map(|r| format!("{}{} {}", r.mark.glyph(), r.no, r.text))
         .collect()
 }
 
@@ -30,8 +32,7 @@ fn marks(rows: &[ice_listing::MarkedRow]) -> Vec<String> {
 fn a_moved_block_is_marked_moved_and_only_it() {
     let d = data();
     let v = &enigma(&d).verbs;
-    let all = [10, 20, 30, 40];
-    let rows = changes(v, Some((V100, &all)), (V101, &all));
+    let rows = changes(v, Some(V100), V101);
     assert_eq!(
         marks(&rows),
         [
@@ -42,7 +43,7 @@ fn a_moved_block_is_marked_moved_and_only_it() {
         ]
     );
     // A number changed is a new line, and the old one is gone.
-    let rows = changes(v, Some((V101, &all)), (V102, &all));
+    let rows = changes(v, Some(V101), V102);
     assert_eq!(
         marks(&rows),
         [
@@ -53,45 +54,109 @@ fn a_moved_block_is_marked_moved_and_only_it() {
             "-40 TRACE 4"
         ]
     );
+    // The oldest source has nothing to be marked against.
+    let rows = changes(v, None, V100);
+    assert!(rows.iter().all(|r| r.mark == Mark::None));
+    assert_eq!(rows.len(), 4);
 }
 
 #[test]
-fn nothing_is_marked_or_shown_that_was_not_seen() {
+fn an_added_a_removed_and_a_replaced_read_are_marked() {
     let d = data();
     let v = &enigma(&d).verbs;
-    let all = [10, 20, 30, 40];
-    // Just met: every line ????, nothing marked, nothing removed.
-    let rows = changes(v, Some((V101, &all)), (V102, &[]));
+    // A minor adds a read and its response.
+    let added = "10 IF TARGET SHIELD > 0\n20 TRACE 10\n30 IF TARGET INTEG < 10\n40 ATTACK 5\n50 ATTACK 4\n60 TRACE 4";
     assert_eq!(
-        marks(&rows),
-        [" 10 ????", " 20 ????", " 30 ????", " 40 ????"]
-    );
-    // Seen up to its new line, but not all of it: the new line is marked, no removal yet.
-    let rows = changes(v, Some((V101, &all)), (V102, &[10, 40]));
-    assert_eq!(
-        marks(&rows),
-        [" 10 ATTACK 4", " 20 ????", " 30 ????", "+40 TRACE 5"]
-    );
-    // All of it seen, but the removed line was never seen in the version before: nothing is
-    // said about it, and the new line can't be called new (it may have been the unseen one).
-    let rows = changes(v, Some((V101, &[10, 20])), (V102, &all));
-    assert_eq!(
-        marks(&rows),
+        marks(&changes(v, Some(V100), added)),
         [
-            " 10 ATTACK 4",
-            " 20 IF TARGET SHIELD > 0",
-            " 30 TRACE 10",
-            " 40 TRACE 5"
+            " 10 IF TARGET SHIELD > 0",
+            " 20 TRACE 10",
+            "+30 IF TARGET INTEG < 10",
+            "+40 ATTACK 5",
+            " 50 ATTACK 4",
+            " 60 TRACE 4"
         ]
     );
-    // The first version met has no marks.
-    let rows = changes(v, None, (V100, &all));
-    assert!(rows.iter().all(|r| r.mark == Mark::None));
+    // Removing it again: its lines are gone, marked as they were.
+    assert_eq!(
+        marks(&changes(v, Some(added), V100)),
+        [
+            " 10 IF TARGET SHIELD > 0",
+            " 20 TRACE 10",
+            " 30 ATTACK 4",
+            " 40 TRACE 4",
+            "-30 IF TARGET INTEG < 10",
+            "-40 ATTACK 5"
+        ]
+    );
+    // A major replaces the read: the block is new, the old one gone.
+    let replaced = "10 IF TARGET RAN patch\n20 TRACE 10\n30 ATTACK 4\n40 TRACE 4";
+    assert_eq!(
+        marks(&changes(v, Some(V100), replaced)),
+        [
+            "+10 IF TARGET RAN patch",
+            "+20 TRACE 10",
+            " 30 ATTACK 4",
+            " 40 TRACE 4",
+            "-10 IF TARGET SHIELD > 0",
+            "-20 TRACE 10"
+        ]
+    );
 }
 
-/// A save that met Enigma at 1.0.0 (lines 10 and 30 seen, won 2, lost 1), then at 1.0.1, a
-/// patch, with `now` seen.
-fn met_twice(now: &[u32]) -> Save {
+#[test]
+fn a_changed_number_is_new_even_when_the_same_line_is_elsewhere() {
+    // 30 TRACE 10 became 30 TRACE 11; TRACE 11 was already at 10 and 40, and still is.
+    let d = data();
+    let v = &enigma(&d).verbs;
+    let before = "10 TRACE 11\n20 IF TARGET SHIELD > 0\n30 TRACE 10\n40 TRACE 11";
+    let after = "10 TRACE 11\n20 IF TARGET SHIELD > 0\n30 TRACE 11\n40 TRACE 11";
+    assert_eq!(
+        marks(&changes(v, Some(before), after)),
+        [
+            " 10 TRACE 11",
+            " 20 IF TARGET SHIELD > 0",
+            "+30 TRACE 11",
+            " 40 TRACE 11",
+            "-30 TRACE 10"
+        ]
+    );
+}
+
+#[test]
+fn a_moved_block_is_marked_whole() {
+    // IF A / X / IF B / X, then the second block moved to the top.
+    let d = data();
+    let v = &enigma(&d).verbs;
+    let before = "10 IF TARGET SHIELD > 0\n20 TRACE 4\n30 IF TURN > 2\n40 TRACE 4";
+    let after = "10 IF TURN > 2\n20 TRACE 4\n30 IF TARGET SHIELD > 0\n40 TRACE 4";
+    let rows = changes(v, Some(before), after);
+    let m: Vec<Mark> = rows.iter().map(|r| r.mark).collect();
+    // One block kept, the other moved, each whole: never an IF moved over a kept line.
+    assert!(
+        m == [Mark::Moved, Mark::Moved, Mark::None, Mark::None]
+            || m == [Mark::None, Mark::None, Mark::Moved, Mark::Moved],
+        "{:?}",
+        marks(&rows)
+    );
+}
+
+fn source(version: Version, program: &str) -> IceSource {
+    IceSource {
+        id: "enigma".into(),
+        version,
+        program: program.into(),
+        from: String::new(),
+    }
+}
+
+fn v101() -> Version {
+    Version::default().bumped(Bump::Patch)
+}
+
+/// A save that met Enigma at 1.0.0 (won 2, lost 1), then at 1.0.1, a patch (won 1), owning
+/// the sources of `owned`.
+fn met_twice(owned: &[Version]) -> Save {
     let mut s = Save::default();
     s.ice_seen.push(IceSeen {
         id: "enigma".into(),
@@ -99,8 +164,7 @@ fn met_twice(now: &[u32]) -> Save {
         broken: 3,
         lo: 12,
         hi: 12,
-        lines: now.to_vec(),
-        version: Version::default().bumped(Bump::Patch),
+        version: v101(),
         bump: Some(Bump::Patch),
         program: V101.into(),
         won: 1,
@@ -109,92 +173,136 @@ fn met_twice(now: &[u32]) -> Save {
             version: Version::default(),
             bump: None,
             program: String::new(),
-            lines: vec![10, 30],
             won: 2,
             lost: 1,
         }],
     });
+    for v in owned {
+        let program = if *v == Version::FIRST { "" } else { V101 };
+        s.ice_sources.push(source(*v, program));
+    }
     s
 }
 
-fn page(s: &Save, d: &Data) -> Vec<String> {
+fn entry<'a>(s: &'a Save, d: &'a Data) -> icedb::Entry<'a> {
     icedb::entries(s, d)
         .into_iter()
         .find(|e| e.def.id == "enigma")
         .unwrap()
-        .lines(s, d)
+}
+
+fn page(s: &Save, d: &Data) -> Vec<String> {
+    entry(s, d).lines(s, d)
+}
+
+fn at(p: &[String], t: &str) -> usize {
+    p.iter()
+        .position(|l| l.contains(t))
+        .unwrap_or_else(|| panic!("{t}: {p:#?}"))
 }
 
 #[test]
-fn a_new_version_is_met_unknown_and_the_old_one_kept_as_it_was() {
+fn a_version_met_without_its_source_has_its_record_and_no_code() {
     let d = data();
-    let s = met_twice(&[]);
+    let s = met_twice(&[Version::FIRST]);
     let p = page(&s, &d);
     assert!(p[0].starts_with("Enigma 1.0.1  [CODE GATE]"), "{p:#?}");
-    let at = |t: &str| {
-        p.iter()
-            .position(|l| l.contains(t))
-            .unwrap_or_else(|| panic!("{t}: {p:#?}"))
-    };
-    // The version last met: nothing seen, nothing marked.
-    let top = at("listing        1.0.1, decompiled, 0 of 4 lines seen");
+    // The newest source you own is 1.0.0's: listed whole, against nothing.
+    let top = at(&p, "source         1.0.0");
+    assert_eq!(p[top], "source         1.0.0");
     assert_eq!(
         p[top + 1..top + 5],
-        ["   10 ????", "   20 ????", "   30 ????", "   40 ????"]
+        [
+            "   10 IF TARGET SHIELD > 0",
+            "   20 TRACE 10",
+            "   30 ATTACK 4",
+            "   40 TRACE 4"
+        ]
     );
-    // A row per version, newest first.
-    let rows = at("versions       bump     won  lost");
+    // A row per version, newest first, with whether its source is on disk.
+    let rows = at(&p, "versions       bump     won  lost  src");
     assert_eq!(
         p[rows + 1].split_whitespace().collect::<Vec<_>>(),
-        ["1.0.1", "patch", "1", "0"]
+        ["1.0.1", "patch", "1", "0", "-"]
     );
     assert_eq!(
         p[rows + 2].split_whitespace().collect::<Vec<_>>(),
-        ["1.0.0", "-", "2", "1"]
+        ["1.0.0", "-", "2", "1", "yes"]
     );
-    // 1.0.0 as it was known: the lines seen there in clear, unmarked (it's the first met).
-    let old = at("1.0.0, decompiled, 2 of 4 lines seen");
-    assert_eq!(
-        p[old + 1..old + 5],
-        [
-            "   10 IF TARGET SHIELD > 0",
-            "   20 ????",
-            "   30 ATTACK 4",
-            "   40 ????"
-        ]
-    );
-    // Nothing of 1.0.0 shows on 1.0.1's lines: line 10 is ATTACK 4 now, still unseen.
-    assert!(!p[top..rows].iter().any(|l| l.contains("SHIELD")));
+    // Nothing of 1.0.1's code: its line 10 is ATTACK 4.
+    assert!(!p.iter().any(|l| l.contains("10 ATTACK 4")), "{p:#?}");
 }
 
 #[test]
-fn the_new_versions_changes_show_as_they_are_seen() {
+fn with_no_source_the_page_says_so_and_shows_no_code() {
     let d = data();
-    let p = page(&met_twice(&[10]), &d);
-    // Its first line seen; but of 1.0.0 only lines 10 and 30 were, and ATTACK 4 was among
-    // them: what's known doesn't say it moved, so it isn't marked. The rest stay ????.
-    assert!(p.iter().any(|l| l == "   10 ATTACK 4"), "{p:#?}");
-    assert!(p.iter().any(|l| l == "   20 ????"), "{p:#?}");
-    let muted: Vec<String> = icedb::entries(&met_twice(&[10]), &d)
-        .into_iter()
-        .find(|e| e.def.id == "enigma")
-        .unwrap()
-        .listing()
+    let s = met_twice(&[]);
+    let p = page(&s, &d);
+    let muted: Vec<String> = entry(&s, &d)
+        .page(&s, &d)
         .into_iter()
         .filter(|l| l.muted)
         .map(|l| l.text)
         .collect();
-    assert_eq!(muted, ["   20 ????", "   30 ????", "   40 ????"]);
+    assert_eq!(muted, ["source         none"]);
+    for stmt in ["SHIELD", "TRACE 10", "ATTACK 4", "TRACE 4"] {
+        assert!(!p.iter().any(|l| l.contains(stmt)), "{stmt}: {p:#?}");
+    }
+    // The record is still there, version by version.
+    assert!(p.iter().any(|l| l.contains("versions")), "{p:#?}");
 }
 
 #[test]
-fn one_version_met_has_no_changelog_and_an_unmet_kind_is_question_marks() {
+fn two_sources_owned_make_a_changelog() {
+    let d = data();
+    let s = met_twice(&[Version::FIRST, v101()]);
+    let p = page(&s, &d);
+    let top = at(&p, "source         1.0.1, against 1.0.0");
+    assert_eq!(
+        p[top + 1..top + 5],
+        [
+            " ~ 10 ATTACK 4",
+            "   20 IF TARGET SHIELD > 0",
+            "   30 TRACE 10",
+            "   40 TRACE 4"
+        ]
+    );
+    // Under the table, the older source as it is, against nothing older.
+    let old = p
+        .iter()
+        .rposition(|l| l == "1.0.0")
+        .expect("1.0.0's listing");
+    assert!(old > at(&p, "versions"));
+    assert_eq!(p[old + 1], "   10 IF TARGET SHIELD > 0");
+}
+
+#[test]
+fn a_listing_says_which_version_its_marks_are_against() {
+    // 1.0.0 and 1.1.0 owned, 1.0.1 never: 1.1.0's marks are against 1.0.0.
+    let d = data();
+    let mut s = met_twice(&[Version::FIRST]);
+    let minor = Version::default().bumped(Bump::Minor);
+    s.ice_sources.push(source(minor, V102));
+    let p = page(&s, &d);
+    assert!(
+        p.iter().any(|l| l == "source         1.1.0, against 1.0.0"),
+        "{p:#?}"
+    );
+    // A source of a version never met has a row, with no record.
+    let rows = at(&p, "versions");
+    assert_eq!(
+        p[rows + 1].split_whitespace().collect::<Vec<_>>(),
+        ["1.1.0", "-", "-", "-", "yes"]
+    );
+}
+
+#[test]
+fn one_version_has_no_changelog_and_an_unknown_kind_is_question_marks() {
     let d = data();
     let mut s = Save::default();
     s.ice_seen.push(IceSeen {
         id: "enigma".into(),
         met: 1,
-        lines: vec![10],
         ..Default::default()
     });
     let p = page(&s, &d);
@@ -209,93 +317,70 @@ fn one_version_met_has_no_changelog_and_an_unmet_kind_is_question_marks() {
 }
 
 #[test]
-fn a_changed_number_is_new_even_when_the_same_line_is_elsewhere() {
-    // 30 TRACE 10 became 30 TRACE 11; TRACE 11 was already at 10 and 50, and still is.
+fn a_source_of_a_kind_never_met_names_it_and_lists_it() {
     let d = data();
-    let v = &enigma(&d).verbs;
-    let before = "10 TRACE 11\n20 IF TARGET SHIELD > 0\n30 TRACE 10\n40 TRACE 11";
-    let after = "10 TRACE 11\n20 IF TARGET SHIELD > 0\n30 TRACE 11\n40 TRACE 11";
-    let all = [10, 20, 30, 40];
-    let rows = changes(v, Some((before, &all)), (after, &all));
-    assert_eq!(
-        marks(&rows),
-        [
-            " 10 TRACE 11",
-            " 20 IF TARGET SHIELD > 0",
-            "+30 TRACE 11",
-            " 40 TRACE 11",
-            "-30 TRACE 10"
-        ]
-    );
+    let mut s = Save::default();
+    s.ice_sources.push(source(Version::FIRST, ""));
+    let e = entry(&s, &d);
+    assert_eq!(e.name(), "Enigma");
+    let p = e.lines(&s, &d);
+    assert!(p[0].starts_with("Enigma 1.0.0"), "{p:#?}");
+    assert!(p.contains(&"No record. You haven't met this one yet.".to_string()));
+    assert!(p.contains(&"   30 ATTACK 4".to_string()), "{p:#?}");
 }
 
 #[test]
-fn nothing_about_an_unseen_version_before_leaks_into_the_marks() {
-    // 1.0.0 met and broken before it ran anything; 1.0.1's line 10 seen. Nothing of 1.0.0 was
-    // seen, so nothing can be said about how 1.0.1 differs from it.
-    let d = data();
-    let v = &enigma(&d).verbs;
-    let rows = changes(v, Some((V100, &[])), (V101, &[10]));
-    assert!(
-        rows.iter().all(|r| r.mark == Mark::None),
-        "{:?}",
-        marks(&rows)
-    );
-    // All of 1.0.1 seen: still nothing, and nothing removed.
-    let rows = changes(v, Some((V100, &[])), (V101, &[10, 20, 30, 40]));
-    assert_eq!(rows.len(), 4);
-    assert!(
-        rows.iter().all(|r| r.mark == Mark::None),
-        "{:?}",
-        marks(&rows)
-    );
-}
-
-#[test]
-fn a_moved_block_is_marked_whole() {
-    // IF A / X / IF B / X, then the second block moved to the top.
-    let d = data();
-    let v = &enigma(&d).verbs;
-    let before = "10 IF TARGET SHIELD > 0\n20 TRACE 4\n30 IF TURN > 2\n40 TRACE 4";
-    let after = "10 IF TURN > 2\n20 TRACE 4\n30 IF TARGET SHIELD > 0\n40 TRACE 4";
-    let all = [10, 20, 30, 40];
-    let rows = changes(v, Some((before, &all)), (after, &all));
-    let m: Vec<Mark> = rows.iter().map(|r| r.mark).collect();
-    // One block kept, the other moved, each whole: never an IF moved over a kept line.
-    assert!(
-        m == [Mark::Moved, Mark::Moved, Mark::None, Mark::None]
-            || m == [Mark::None, Mark::None, Mark::Moved, Mark::Moved],
-        "{:?}",
-        marks(&rows)
-    );
-    // A block seen in part isn't marked: its other line could be anything.
-    let rows = changes(v, Some((before, &all)), (after, &[10]));
-    assert!(
-        rows.iter().all(|r| r.mark == Mark::None),
-        "{:?}",
-        marks(&rows)
-    );
-}
-
-#[test]
-fn a_listing_says_which_version_its_marks_are_against() {
-    // 1.0.0 met, 1.0.1 never (it came and went between runs), 1.1.0 met: 1.1.0's marks are
-    // against 1.0.0, and the page says so beside the minor its row says it was.
+fn a_source_of_another_program_at_the_version_met_is_not_that_version_s() {
+    // 1.0.1 met running V101; the save holds a 1.0.1 source of another program (the row
+    // changed under it). The ICE DB lists nothing for it and doesn't claim the source.
     let d = data();
     let mut s = met_twice(&[]);
-    let e = &mut s.ice_seen[0];
-    e.version = Version::default().bumped(Bump::Minor);
-    e.bump = Some(Bump::Minor);
+    s.ice_sources.push(source(v101(), V102));
     let p = page(&s, &d);
-    assert!(
-        p.iter()
-            .any(|l| l == "listing        1.1.0, decompiled, 0 of 4 lines seen, against 1.0.0"),
-        "{p:#?}"
+    assert!(p.contains(&"source         none".to_string()), "{p:#?}");
+    assert!(!p.iter().any(|l| l.contains("TRACE 5")), "{p:#?}");
+    let rows = at(&p, "versions");
+    assert_eq!(
+        p[rows + 1].split_whitespace().collect::<Vec<_>>(),
+        ["1.0.1", "patch", "1", "0", "-"]
     );
-    // The first version met is against nothing.
+    // With the right one too, that's the one listed and claimed.
+    s.ice_sources.push(source(v101(), V101));
+    let p = page(&s, &d);
+    assert!(p.iter().any(|l| l == "source         1.0.1"), "{p:#?}");
+    assert!(p.iter().any(|l| l == "   10 ATTACK 4"), "{p:#?}");
+    let rows = at(&p, "versions");
+    assert_eq!(p[rows + 1].split_whitespace().last(), Some("yes"));
+}
+
+#[test]
+fn two_programs_met_at_one_number_keep_both_records() {
+    // `IceSeen::meet` keeps 1.0.1 running another program apart: both records are listed.
+    let d = data();
+    let mut s = met_twice(&[]);
+    s.ice_seen[0].past.push(SeenVersion {
+        version: v101(),
+        bump: Some(Bump::Patch),
+        program: V102.into(),
+        won: 4,
+        lost: 2,
+    });
+    let p = page(&s, &d);
+    let rows = at(&p, "versions");
+    let table: Vec<Vec<&str>> = p[rows + 1..rows + 4]
+        .iter()
+        .map(|l| l.split_whitespace().collect())
+        .collect();
     assert!(
-        p.iter()
-            .any(|l| l == "1.0.0, decompiled, 2 of 4 lines seen"),
-        "{p:#?}"
+        table.contains(&vec!["1.0.1", "patch", "1", "0", "-"]),
+        "{table:?}"
+    );
+    assert!(
+        table.contains(&vec!["1.0.1", "patch", "4", "2", "-"]),
+        "{table:?}"
+    );
+    assert!(
+        table.contains(&vec!["1.0.0", "-", "2", "1", "-"]),
+        "{table:?}"
     );
 }

@@ -379,32 +379,42 @@ impl Watch {
 /// The incident report's table of the ICE's procedure: step, statement.
 pub const PROCEDURE_COLUMNS: [&str; 2] = ["STEP", "STATEMENT"];
 
-/// The heading over it: the procedure as observed, and how much of it.
-pub fn procedure_title(rows: &[crate::ice_listing::IceRow]) -> String {
-    let (seen, all) = crate::ice_listing::known(rows);
-    format!("OBSERVED PROCEDURE ({seen} OF {all} STEPS)")
-}
+/// The procedure's words, Turbo Debugger's: a module loaded with no debug information says it
+/// has no symbol table.
+pub const ICE_WORDS: crate::ice_listing::IceWords = crate::ice_listing::IceWords {
+    heading: "PROCEDURE",
+    none: "PROGRAM HAS NO SYMBOL TABLE",
+};
 
 /// A row of the ICE's procedure as the incident report lists it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct ProcedureRow {
     /// The step number, right-aligned in four cells, `>` on the step it resumes at.
     pub step: String,
-    /// The statement, or `????` until observed.
+    /// The statement.
     pub statement: String,
-    pub seen: bool,
     /// The step NEXT ACTION is on.
     pub next: bool,
+    /// A remark row its source carries, not a step.
+    pub rem: bool,
 }
 
-/// The ICE's program (`ice_listing::rows`), every step, as the deck has observed it.
+/// The ICE's program (`ice_listing::rows`), every step.
 pub fn procedure(rows: &[crate::ice_listing::IceRow]) -> Vec<ProcedureRow> {
     rows.iter()
         .map(|r| ProcedureRow {
-            step: format!("{}{:>4}", if r.cursor { ">" } else { " " }, r.no),
-            statement: r.shown().to_string(),
-            seen: r.text.is_some(),
+            step: if r.rem {
+                String::new()
+            } else {
+                format!("{}{:>4}", if r.cursor { ">" } else { " " }, r.no)
+            },
+            statement: if r.rem {
+                format!("REM {}", r.text)
+            } else {
+                r.text.clone()
+            },
             next: r.next,
+            rem: r.rem,
         })
         .collect()
 }

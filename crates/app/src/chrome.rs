@@ -430,4 +430,145 @@ mod version_tests {
         let t = drawn(&g, Chrome::Suite, |v, p, ui| v.target(p, ui));
         assert!(has(&t), "incident report: {t:?}");
     }
+
+    /// Every pane that shows the ICE's program, per chrome: (what it is, its words, the draw).
+    type Draw = fn(&dyn ChromeView, &mut Panes, &mut Ui);
+    fn listings() -> Vec<(
+        &'static str,
+        Chrome,
+        ninsei_core::ice_listing::IceWords,
+        Draw,
+    )> {
+        use ninsei_core::{btop_fight, ice_listing, stack_fight, suite};
+        vec![
+            (
+                "stack card",
+                Chrome::Stack,
+                stack_fight::ICE_WORDS,
+                |v, p, ui| v.target(p, ui),
+            ),
+            (
+                "classic target",
+                Chrome::Classic,
+                ice_listing::CLASSIC,
+                |v, p, ui| v.target(p, ui),
+            ),
+            (
+                "target.ice",
+                Chrome::Btop,
+                btop_fight::ICE_WORDS,
+                |v, p, ui| v.target(p, ui),
+            ),
+            (
+                "fight view",
+                Chrome::Btop,
+                btop_fight::ICE_WORDS,
+                |v, p, ui| v.network(p, ui),
+            ),
+            (
+                "incident report",
+                Chrome::Suite,
+                suite::ICE_WORDS,
+                |v, p, ui| v.target(p, ui),
+            ),
+        ]
+    }
+
+    #[test]
+    fn every_deck_shows_none_of_the_ice_s_program_without_its_source() {
+        let mut g = crate::stack::tests::a_fight(&ninsei_core::Data::builtin().unwrap());
+        // Long enough for it to have run its program through.
+        for _ in 0..6 {
+            g.apply(ninsei_core::Action::EndTurn);
+        }
+        let c = g.combat.as_ref().expect("still fighting");
+        let row = &g.data.ice[c.ice];
+        // The telegraph is free: what NEXT says is the verb of the line it acts on.
+        let next = g.ice_next_at().map(|(no, _)| no);
+        let program: Vec<_> = ninsei_core::ice_listing::decompile_def(&row.program, &row.verbs)
+            .into_iter()
+            .filter(|r| Some(r.no) != next)
+            .collect();
+        assert!(program.len() >= 3);
+        let bare = |t: &str| t.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+        for (what, chrome, words, draw) in listings() {
+            let t = drawn(&g, chrome, draw);
+            assert!(
+                t.iter().any(|l| bare(l).contains(&bare(words.none))),
+                "{what}: {:?} in {t:?}",
+                words.none
+            );
+            for r in &program {
+                let stmt = bare(&r.text).to_lowercase();
+                assert!(
+                    !t.iter().any(|l| bare(l).to_lowercase().contains(&stmt)),
+                    "{what} shows {:?}: {t:?}",
+                    r.text
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_deck_lists_the_ice_s_program_from_its_source() {
+        let mut g = crate::stack::tests::a_fight(&ninsei_core::Data::builtin().unwrap());
+        let ice = g.combat.as_ref().unwrap().ice;
+        g.apply(ninsei_core::Action::GetSource {
+            ice,
+            version: ninsei_core::ice_version::Version::FIRST,
+        });
+
+        assert!(g.owns_source(ice, ninsei_core::ice_version::Version::FIRST));
+        let rows = ninsei_core::ice_listing::rows(&g);
+        let bare = |t: &str| t.chars().filter(|c| !c.is_whitespace()).collect::<String>();
+        for (what, chrome, words, draw) in listings() {
+            let t = drawn(&g, chrome, draw);
+            assert!(
+                !t.iter().any(|l| bare(l).contains(&bare(words.none))),
+                "{what}: {t:?}"
+            );
+            // The line it carries on from, at least, in every deck's window onto it.
+            let first = bare(&rows.iter().find(|r| r.cursor).unwrap().text).to_lowercase();
+            assert!(
+                t.iter().any(|l| bare(l).to_lowercase().contains(&first)),
+                "{what} lists {first:?}: {t:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn every_deck_shows_the_notes_its_source_came_with() {
+        // A source bought on the Gutter: the NiGHTMOTHS' remark sits under the IF it reads,
+        // the line Enigma carries on from as the fight opens, so every window shows it.
+        let d = ninsei_core::Data::builtin().unwrap();
+        let mut save = ninsei_core::hub::Save::default();
+        save.ensure_key(0x1411_3001);
+        save.ensure_phonebook(&d, 0);
+        save.ensure_hardware(&d);
+        save.ice_sources.push(ninsei_core::hub::IceSource {
+            id: "enigma".into(),
+            version: ninsei_core::ice_version::Version::FIRST,
+            program: String::new(),
+            from: "gutter".into(),
+        });
+        let mut g = save.jack_in(&d, 11);
+        let n = g.net.nodes[g.at].links[0];
+        g.net.nodes[n].kind = ninsei_core::NodeKind::Ice;
+        g.net.nodes[n].ice = Some(d.ice_by_id("enigma").unwrap());
+        g.net.nodes[n].cleared = false;
+        g.apply(ninsei_core::Action::Move(n));
+        let bare = |t: &str| {
+            t.chars()
+                .filter(|c| !c.is_whitespace())
+                .collect::<String>()
+                .to_lowercase()
+        };
+        let remark = bare("sees ur firewall. it adapts");
+        for (what, chrome, _, draw) in listings() {
+            let t = drawn(&g, chrome, draw);
+            let shown = t.iter().any(|l| bare(l).contains(&remark));
+            // The fight view's three lines have no room for notes; every other place shows them.
+            assert_eq!(shown, what != "fight view", "{what}: {t:?}");
+        }
+    }
 }

@@ -1,5 +1,5 @@
-//! 141.3.2 acceptance: the deck shows the ICE's program as it has seen it run, through the real
-//! save and run, and the ICE DB keeps it between runs.
+//! 141.3.2 acceptance, made strict by 141.11.1: through the real save and run, a fight shows an
+//! ICE's program only from the source the save owns, and the ICE DB prints the same.
 
 use ninsei_core::hub::Save;
 use ninsei_core::*;
@@ -27,65 +27,66 @@ fn fight_with(save: &mut Save, ice: &str) -> Game {
 fn shown(g: &Game) -> Vec<String> {
     ice_listing::rows(g)
         .iter()
-        .map(|r| r.shown().to_string())
+        .map(|r| r.text.clone())
         .collect()
 }
 
-#[test]
-fn a_fight_fills_in_the_listing_and_the_ice_db_carries_it_to_the_next() {
+fn deck(key: u64) -> Save {
     let d = data();
     let mut s = Save::default();
-    s.ensure_key(0x3132);
+    s.ensure_key(key);
     s.ensure_phonebook(&d, 0);
     s.ensure_hardware(&d);
-    s.tools.push("icedb".into());
-    // First meeting: nothing known.
-    let mut g = fight_with(&mut s, "tollbooth");
-    assert!(shown(&g).iter().all(|t| t == ice_listing::UNSEEN));
-    for _ in 0..4 {
-        g.apply(Action::EndTurn);
-    }
-    let after = shown(&g);
-    assert!(after.iter().any(|t| t != ice_listing::UNSEEN), "{after:?}");
-    g.phase = Phase::JackedOut;
-    s.record(&g, &[], &d.rig).unwrap();
-    // The ICE DB page shows the same lines.
-    let entry = icedb::entries(&s, &d)
-        .into_iter()
-        .find(|e| e.def.id == "tollbooth")
-        .unwrap();
-    let page = entry.lines(&s, &d).join("\n");
-    for t in after.iter().filter(|t| *t != ice_listing::UNSEEN) {
-        assert!(page.contains(t.as_str()), "{t} on {page}");
-    }
-    // Next run, the same ICE: known from its first turn.
-    let g = fight_with(&mut s, "tollbooth");
-    assert_eq!(shown(&g), after);
+    s
 }
 
 #[test]
-fn every_deck_says_the_same_listing_its_own_way() {
+fn a_fight_shows_nothing_and_a_source_shows_it_all_from_the_first_turn() {
     let d = data();
-    let mut s = Save::default();
-    s.ensure_key(0x3133);
-    s.ensure_phonebook(&d, 0);
-    s.ensure_hardware(&d);
+    let mut s = deck(0x3132);
+    s.tools.push("icedb".into());
+    // First meeting, no source: nothing, however long the fight.
+    let mut g = fight_with(&mut s, "tollbooth");
+    for _ in 0..4 {
+        assert!(shown(&g).is_empty());
+        g.apply(Action::EndTurn);
+    }
+    g.phase = Phase::JackedOut;
+    s.record(&g, &[], &d.rig).unwrap();
+    let page = |s: &Save| {
+        icedb::entries(s, &d)
+            .into_iter()
+            .find(|e| e.def.id == "tollbooth")
+            .unwrap()
+            .lines(s, &d)
+            .join("\n")
+    };
+    let row = d.ice.iter().find(|i| i.id == "tollbooth").unwrap();
+    let all: Vec<String> = ice_listing::decompile_def(&row.program, &row.verbs)
+        .into_iter()
+        .map(|r| r.text)
+        .collect();
+    let p = page(&s);
+    assert!(p.contains("met            1"), "the record is yours: {p}");
+    assert!(all.iter().all(|t| !p.contains(t.as_str())), "{p}");
+    // With its source, the next fight lists all of it from its first turn, and so does the DB.
+    assert!(s.learn_source(&d, "tollbooth", ice_version::Version::FIRST));
+    let g = fight_with(&mut s, "tollbooth");
+    assert_eq!(shown(&g), all);
+    let p = page(&s);
+    assert!(all.iter().all(|t| p.contains(t.as_str())), "{p}");
+}
+
+#[test]
+fn every_deck_marks_the_same_line_its_own_way() {
+    let mut s = deck(0x3133);
+    assert!(s.learn_source(&data(), "enigma", ice_version::Version::FIRST));
     let mut g = fight_with(&mut s, "enigma");
     g.apply(Action::EndTurn);
     let rows = ice_listing::rows(&g);
-    let seen = rows.iter().filter(|r| r.text.is_some()).count();
-    assert_eq!(
-        ice_listing::heading(&rows),
-        format!("its program: {seen} of 4 lines seen")
-    );
-    assert_eq!(btop_fight::ice_heading(&rows), format!("PROG {seen}/4"));
-    assert_eq!(
-        suite::procedure_title(&rows),
-        format!("OBSERVED PROCEDURE ({seen} OF 4 STEPS)")
-    );
     // Each marks the same line as the one the ICE carries on from.
     let cursor = rows.iter().find(|r| r.cursor).unwrap().no;
-    assert!(btop_fight::ice_window(&rows, 1)[0].cursor);
+    assert!(btop_fight::ice_window(&rows, 1, true)[0].cursor);
     let hosaka = suite::procedure(&rows);
     assert!(
         hosaka

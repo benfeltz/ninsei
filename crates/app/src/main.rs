@@ -356,6 +356,8 @@ impl App {
         let keyed = save.ensure_phonebook(&data, fresh_seed()) || keyed;
         // Everyone starts with a deck and a monitor; a mono monitor picks the theme.
         let keyed = save.ensure_hardware(&data) || keyed;
+        // A source the data no longer takes is no longer anything's.
+        let keyed = save.ensure_sources(&data) || keyed;
         boot[0] = format!(
             "{} // {}",
             save.firmware_def(&data).desktop.name(),
@@ -724,7 +726,7 @@ impl App {
     /// (`Save::study`), and at most `DRAFTS_PER_FRAME` owed drafts are worked a frame. Returns
     /// how long until the next is due, while any are at work.
     fn sysops_tick(&mut self, now: f64) -> Option<f64> {
-        use ninsei_core::ice_study::{busy, owed};
+        use ninsei_core::ice_study::owed;
         let in_run = self.booked.is_none() && self.screen != Screen::Hub;
         // A run that's over and not yet home (the keep picker, the crash screen) can't spend
         // the time, and its studies aren't the save's yet: the clock isn't read, so the time
@@ -737,24 +739,35 @@ impl App {
         } else {
             &self.save.ice_study
         };
-        let steps = self.sysops.steps(now, busy(studies));
+        let busy = if in_run {
+            self.game.sysops_busy()
+        } else {
+            self.save.sysops_busy(&self.data)
+        };
+        let steps = self.sysops.steps(now, busy);
         if steps > 0 || owed(studies) {
             let drafts = sysops::DRAFTS_PER_FRAME;
             if in_run {
                 self.game.apply(Action::Study { steps, drafts });
-            } else if self.save.study(&self.data, steps, drafts) > 0 {
-                self.save_dirty = true;
+            } else {
+                // Dirty when a version ships or a crack finishes, not on every step between.
+                let cracking = self.save.cracks_pending(&self.data);
+                if self.save.study(&self.data, steps, drafts) > 0
+                    || self.save.cracks_pending(&self.data) != cracking
+                {
+                    self.save_dirty = true;
+                }
             }
         }
-        let studies = if in_run {
-            &self.game.ice_study
+        let (studies, busy) = if in_run {
+            (&self.game.ice_study, self.game.sysops_busy())
         } else {
-            &self.save.ice_study
+            (&self.save.ice_study, self.save.sysops_busy(&self.data))
         };
         if owed(studies) {
             Some(0.0)
         } else {
-            busy(studies).then(|| self.sysops.wait())
+            busy.then(|| self.sysops.wait())
         }
     }
 
@@ -807,12 +820,13 @@ impl App {
         };
         let outs = view.show(ctx, &*call, pal);
         let board = call.board;
+        let shown = call.clone();
         let rig = self.data.rig.clone();
         for o in outs {
             let result = match o {
-                Outcome::Act(ninsei_core::Action::Buy { area, file }) => {
-                    self.save.home_buy(&self.data, &rig, board, area, file)
-                }
+                Outcome::Act(ninsei_core::Action::Buy { area, file }) => self
+                    .save
+                    .home_buy_shown(&self.data, &rig, &shown, area, file),
                 Outcome::Act(ninsei_core::Action::TakeJob { job }) => {
                     self.save.home_take(&self.data, board, job)
                 }
@@ -2316,7 +2330,24 @@ mod tests {
                 app.save.ice_study
             );
             assert!(app.save_dirty);
-            assert_eq!(app.sysops_tick(t + 1000.0), None, "resting: nothing due");
+            // The sysops rest; the scene is still cracking what they shipped, so the clock runs,
+            // and the save isn't written for every step of it.
+            t += DRAFT;
+            app.save_dirty = false;
+            assert!(app.sysops_tick(t).is_some(), "the crackers are at work");
+            assert!(app.save.ice_versions[0].crack > 0);
+            assert!(!app.save_dirty, "a step of a crack is nothing to write");
+            for _ in 0..ninsei_core::tuning::SOURCE_CRACK_STEPS {
+                t += DRAFT;
+                app.sysops_tick(t);
+            }
+            assert_eq!(app.save.ice_versions[0].crack, 0, "cracked");
+            assert!(app.save_dirty, "a crack finished");
+            assert_eq!(
+                app.sysops_tick(t + 1000.0),
+                None,
+                "nobody at work: nothing due"
+            );
         }
 
         #[test]

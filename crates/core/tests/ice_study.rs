@@ -452,10 +452,15 @@ fn the_same_save_ships_the_same_versions() {
         }
         s.ice_versions
     };
+    // What ships is the save's; how far the crackers got is when, which is the clock's (a
+    // version shipped partway through a batch of steps starts its crack after it).
+    let same = |a: &[hub::IceVer], b: &[hub::IceVer]| {
+        a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.same_version(y))
+    };
     let a = play(5, 1);
     assert!(!a.is_empty());
-    assert_eq!(a, play(5, 7), "however the time was sliced");
-    assert_ne!(a, play(6, 1));
+    assert!(same(&a, &play(5, 7)), "however the time was sliced");
+    assert!(!same(&a, &play(6, 1)));
 }
 
 #[test]
@@ -499,6 +504,13 @@ fn a_version_that_lands_mid_fight_is_the_next_fight_s_and_met_unknown() {
     rez(&mut g, "enigma");
     let e = ix(&g.data, "enigma");
     let prog = g.combat.as_ref().unwrap().ice_prog.clone();
+    // The deck owns 1.0.0's source: this fight lists, though a new version lands under it.
+    g.apply(Action::GetSource {
+        ice: e,
+        version: Version::FIRST,
+    });
+
+    assert!(g.owns_source(e, Version::FIRST));
     g.apply(Action::Study {
         steps: STUDY_PATIENCE,
         drafts: u32::MAX,
@@ -511,36 +523,38 @@ fn a_version_that_lands_mid_fight_is_the_next_fight_s_and_met_unknown() {
     assert_eq!((c.ice_version, &c.ice_prog), (Version::FIRST, &prog));
     assert_eq!(g.ice_label(e), "Enigma 1.0.0");
     assert_eq!(g.ice_version(e), new, "in force");
+    assert!(
+        !ice_listing::rows(&g).is_empty(),
+        "the fight's own version still lists"
+    );
     play_out(&mut g);
     assert_eq!(g.phase, Phase::Exploring, "SAFE_PICK beats it on this seed");
-    // The next opens on it, knowing none of its lines, whatever was seen of 1.0.0.
-    assert!(!g.ice_lines_of(e, Version::FIRST).is_empty());
+    // The next opens on it, knowing none of its lines, whatever source of 1.0.0 is owned.
     rez(&mut g, "enigma");
     let c = g.combat.as_ref().unwrap();
     assert_eq!(c.ice_version, new);
     assert_eq!(c.ice_prog.text(), next.program);
     assert_eq!(g.ice_label(e), format!("Enigma {new}"));
-    assert!(g.ice_seen_lines(e).is_empty());
-    assert!(ice_listing::rows(&g).iter().all(|r| r.text.is_none()));
+    assert!(!g.owns_source(e, new));
+    assert!(ice_listing::rows(&g).is_empty());
     assert!(
         g.log
             .iter()
             .any(|l| l.text.starts_with(&format!("!! Enigma {new} rezzed")))
     );
-    // Home books each version with its own lines: 1.0.0 as it was known, then the new one.
-    let old_lines = g.ice_lines_of(e, Version::FIRST).to_vec();
+    // Home books each version with its own record: 1.0.0, then the new one.
     play_out(&mut g);
-    let new_lines = g.ice_lines_of(e, new).to_vec();
     g.phase = Phase::JackedOut;
     let mut save = home(KEY);
     let rig = g.data.rig.clone();
     save.record(&g, &[], &rig).unwrap();
     let seen = save.ice_seen.iter().find(|x| x.id == "enigma").unwrap();
-    assert_eq!((seen.version, &seen.lines), (new, &new_lines));
+    assert_eq!(seen.version, new);
     assert_eq!(seen.past.len(), 1);
-    assert_eq!(
-        (seen.past[0].version, &seen.past[0].lines),
-        (Version::FIRST, &old_lines)
+    assert_eq!(seen.past[0].version, Version::FIRST);
+    assert!(
+        save.owns_source(&g.data, "enigma", Version::FIRST),
+        "and the source comes home"
     );
     assert_eq!(seen.met, 2);
 }
@@ -697,14 +711,13 @@ fn the_sysops_study_the_script_as_the_fight_opened_not_what_it_garbled() {
     assert_eq!(s.deck.script, SAFE_PICK);
 }
 
-/// Enigma's ICE DB entry for version 1.0.1 running `program`, its lines 10 and 20 seen.
+/// Enigma's ICE DB entry for version 1.0.1 running `program`, met once.
 fn seen_patch(program: &str) -> hub::IceSeen {
     hub::IceSeen {
         id: "enigma".into(),
         met: 1,
         lo: 12,
         hi: 12,
-        lines: vec![10, 20],
         version: Version::FIRST.bumped(Bump::Patch),
         bump: Some(Bump::Patch),
         program: program.into(),
@@ -725,13 +738,14 @@ fn a_saved_version_its_row_no_longer_takes_still_books_the_fights_that_fall_back
         version: Version::FIRST.bumped(Bump::Patch),
         program: bad.into(),
         bump: Some(Bump::Patch),
+        crack: 0,
     });
     assert_eq!(s.ice_program("enigma", &d).unwrap().0, Version::FIRST);
     run(&mut s, &d, SAFE_PICK, &[("enigma", true)]);
     let e = s.ice_seen.iter().find(|x| x.id == "enigma").unwrap();
     assert_eq!((e.version, e.won), (Version::FIRST, 1), "{e:?}");
-    assert_eq!(e.past.len(), 1, "1.0.1 kept as it was known");
-    assert_eq!(e.past[0].lines, [10, 20]);
+    assert_eq!(e.past.len(), 1, "1.0.1 kept with its record");
+    assert_eq!(e.past[0].won, 1);
 }
 
 #[test]
@@ -746,26 +760,27 @@ fn a_version_number_met_before_with_another_program_is_met_unknown() {
         version: Version::FIRST.bumped(Bump::Patch),
         program: now.into(),
         bump: Some(Bump::Patch),
+        crack: 0,
     });
-    assert!(
-        s.kit(&d).ice_known.iter().all(|(id, _)| id != "enigma"),
-        "those lines were another program's"
-    );
+    // The source of 1.0.1 as it was is another program's: it doesn't list this one.
+    let patch = Version::FIRST.bumped(Bump::Patch);
+    s.ice_sources.push(hub::IceSource {
+        id: "enigma".into(),
+        version: patch,
+        program: "10 TRACE 4\n20 ATTACK 3".into(),
+        from: String::new(),
+    });
+    let g = s.jack_in(&d, 1);
+    assert!(!g.owns_source(ix(&d, "enigma"), patch));
     run(&mut s, &d, SAFE_PICK, &[("enigma", true)]);
     let e = s.ice_seen.iter().find(|x| x.id == "enigma").unwrap();
     assert_eq!(e.program, now);
     assert_eq!(e.past.len(), 1);
     assert_eq!(e.past[0].program, "10 TRACE 4\n20 ATTACK 3");
-    // The same number and program is the same version: its lines come back in.
-    let mut known = e.clone();
-    known.lines = vec![10];
-    s.ice_seen = vec![known];
-    assert!(
-        s.kit(&d)
-            .ice_known
-            .iter()
-            .any(|(id, l)| id == "enigma" && l == &[10])
-    );
+    // The same number and program is the same version: its source lists it.
+    assert!(s.learn_source(&d, "enigma", patch));
+    let g = s.jack_in(&d, 1);
+    assert!(g.owns_source(ix(&d, "enigma"), patch));
 }
 
 #[test]
@@ -810,4 +825,120 @@ fn drafts_spread_over_frames_ship_what_working_them_at_once_does() {
     };
     assert_eq!(key(&out), key(&all));
     assert_eq!(framed, at_once);
+}
+
+// 141.11.2: the crackers' clock. A shipped version's source is out after `SOURCE_CRACK_STEPS`
+// of the sysops' time, which runs while the scene is still at work on it.
+
+fn shipped_at_home() -> (Arc<Data>, Save) {
+    let d = Arc::new(data());
+    let mut s = home(KEY);
+    let row = &d.ice[ix(&d, "enigma")];
+    hub::ship(
+        &mut s.ice_versions,
+        "enigma",
+        Version::FIRST,
+        ice_version::Next {
+            bump: Some(Bump::Patch),
+            program: row.program.replace("TRACE 10", "TRACE 9"),
+        },
+    );
+    (d, s)
+}
+
+#[test]
+fn a_shipped_version_is_cracked_after_the_crackers_delay() {
+    let (d, mut s) = shipped_at_home();
+    let v = Version::FIRST.bumped(Bump::Patch);
+    assert!(s.cracked(&d, "enigma", Version::FIRST), "1.0.0 always is");
+    assert!(!s.cracked(&d, "enigma", v));
+    assert!(
+        s.sysops_busy(&d),
+        "the crackers are at work, nobody studying"
+    );
+    s.study(&d, tuning::SOURCE_CRACK_STEPS - 1, u32::MAX);
+    assert!(!s.cracked(&d, "enigma", v), "a step short");
+    s.study(&d, 1, u32::MAX);
+    assert!(s.cracked(&d, "enigma", v));
+    assert!(!s.sysops_busy(&d), "nobody at work");
+    // A version nobody shipped is never out.
+    assert!(!s.cracked(&d, "enigma", v.bumped(Bump::Minor)));
+}
+
+#[test]
+fn a_save_from_before_cracks_loads_cracked() {
+    let (d, mut s) = shipped_at_home();
+    s.ice_versions[0].crack = 0;
+    let old: String = s
+        .to_text()
+        .lines()
+        .filter(|l| !l.trim_start().starts_with("crack:"))
+        .collect::<Vec<_>>()
+        .join("\n");
+    let back = Save::load(&old).unwrap();
+    assert!(back.cracked(&d, "enigma", back.ice_versions[0].version));
+}
+
+#[test]
+fn a_crack_runs_through_a_run_and_comes_home_with_what_is_left() {
+    for exit in [true, false] {
+        let (d, mut s) = shipped_at_home();
+        let v = Version::FIRST.bumped(Bump::Patch);
+        let mut g = s.jack_in(&d, 3);
+        let e = ix(&d, "enigma");
+        assert!(!g.cracked(e, v));
+        assert!(g.sysops_busy());
+        g.apply(Action::Study {
+            steps: 40,
+            drafts: 0,
+        });
+        if exit {
+            g.phase = Phase::JackedOut;
+        } else {
+            g.phase = Phase::Flatlined;
+        }
+        s.record(&g, &[], &d.rig).unwrap();
+        assert_eq!(
+            s.ice_versions[0].crack,
+            tuning::SOURCE_CRACK_STEPS - 40,
+            "exit {exit}"
+        );
+    }
+}
+
+#[test]
+fn a_version_shipped_mid_run_starts_its_crack_there() {
+    let mut g = studied_run(7);
+    rez(&mut g, "enigma");
+    g.apply(Action::Study {
+        steps: STUDY_PATIENCE,
+        drafts: u32::MAX,
+    });
+    let (_, was, next) = g.shipped.first().cloned().expect("it ships");
+    let v = was.bumped(next.bump.unwrap());
+    let e = ix(&g.data, "enigma");
+    assert!(!g.cracked(e, v));
+    g.apply(Action::Study {
+        steps: tuning::SOURCE_CRACK_STEPS,
+        drafts: 0,
+    });
+    assert!(g.cracked(e, v));
+    // Home books it cracked.
+    g.phase = Phase::JackedOut;
+    let mut save = home(KEY);
+    let rig = g.data.rig.clone();
+    save.record(&g, &[], &rig).unwrap();
+    assert!(save.cracked(&g.data, "enigma", v));
+}
+
+#[test]
+fn a_crack_on_a_version_no_longer_in_force_keeps_no_clock_running() {
+    // The row changed under the save: its version past 1.0.0 no longer passes the check, so
+    // it isn't in force. Its crack is nobody's, at home as in a run.
+    let (d, mut s) = shipped_at_home();
+    s.ice_versions[0].program = "10 SEGFAULT\n20 SEGFAULT".into();
+    assert_eq!(s.cracks_pending(&d), 0);
+    assert!(!s.sysops_busy(&d));
+    let g = s.jack_in(&d, 3);
+    assert!(!g.sysops_busy());
 }

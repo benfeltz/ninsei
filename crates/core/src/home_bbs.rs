@@ -36,8 +36,12 @@ pub struct HomeCall {
     cracks: Vec<(String, String)>,
     /// Each tune's id and its title, for "you already have".
     tune_titles: Vec<(String, String)>,
+    /// Each ICE kind's id and its name, for "you already have".
+    ice_names: Vec<(String, String)>,
     /// The board's news of new ICE versions, as it stands today.
     news: Option<crate::data::BulletinDef>,
+    /// The ICE sources you own that its source area lists: (ICE id, version).
+    sources: Vec<(String, crate::ice_version::Version)>,
 }
 
 impl Line for HomeCall {
@@ -81,6 +85,10 @@ impl Line for HomeCall {
         self.tunes.iter().any(|t| t == id)
     }
 
+    fn has_source(&self, ice: &str, version: crate::ice_version::Version) -> bool {
+        self.sources.iter().any(|(i, v)| i == ice && *v == version)
+    }
+
     fn buy_blocker(&self, area: usize, file: usize) -> Option<String> {
         let s = self.stock.get(area).and_then(|a| a.get(file))?;
         let f = &self.def.areas[area].files[s.def];
@@ -100,6 +108,7 @@ impl Line for HomeCall {
             &self.tool_defs,
             &self.cracks,
             &self.tune_titles,
+            &self.ice_names,
             &f.item,
             self,
         ) {
@@ -188,8 +197,32 @@ impl Save {
 
     /// The line to a board as it stands now. Free: [`Save::call_board`] is what charges.
     pub fn home_call(&self, data: &Data, defs: &[UpgradeDef], board: usize) -> HomeCall {
-        let def = data.boards[board].clone();
+        let mut def = data.boards[board].clone();
         let mut stock = roll_stock(&def, &mut self.home_rng(data, board, 0x5700C));
+        // Its source area, as the scene has cracked them today: never rolled.
+        let area = crate::bbs::source_area(&def, data, |i| {
+            let id = &data.ice[i].id;
+            match self.ice_program(id, data) {
+                Some((v, _)) if self.cracked(data, id, v) => v,
+                _ => crate::ice_version::Version::FIRST,
+            }
+        });
+        let mut sources = Vec::new();
+        if let Some(area) = area {
+            for f in &area.files {
+                if let Drop::Source { ice, version } = &f.item
+                    && self.owns_source(data, ice, *version)
+                {
+                    sources.push((ice.clone(), *version));
+                }
+            }
+            stock.push(
+                (0..area.files.len())
+                    .map(|def| StockFile { def, bought: false })
+                    .collect(),
+            );
+            def.areas.push(area);
+        }
         for &(ref b, area, file) in &self.home_bought {
             if *b == def.id
                 && let Some(s) = stock.get_mut(area).and_then(|a| a.get_mut(file))
@@ -217,10 +250,12 @@ impl Save {
             tool_defs: data.tools.clone(),
             cracks: data.crack_labels(),
             tune_titles: data.tune_titles(),
+            ice_names: data.ice_names(),
             // Only a board that hears news reads the versions in force.
             news: data.boards[board].ice_news.as_ref().and_then(|_| {
                 crate::bbs::news_bulletin(&data.boards[board], data, &self.shipped(data))
             }),
+            sources,
         }
     }
 
@@ -325,16 +360,53 @@ impl Save {
                 let name = data.game_label(id, crate::hub::GameCopy::Cracked);
                 format!("{name} is on your disk")
             }
+            Drop::Source { ice, version } => {
+                // It carries this board's header and remarks.
+                if !self.learn_source_from(data, ice, *version, &call.def.id) {
+                    return Err("corrupt download.".into());
+                }
+                let name = data
+                    .ice_by_id(ice)
+                    .map_or(ice.as_str(), |i| data.ice[i].name.as_str());
+                format!("{name} {version}'s source is in your ICE DB")
+            }
             _ => return Err("deck mods go on a live deck. download it in a run.".into()),
         };
         self.bank -= f.price;
-        self.home_bought.push((call.def.id.clone(), area, file));
+        // A source lists as yours from now on; the area is rebuilt as the scene cracks more,
+        // so its files are never marked by number.
+        if !matches!(f.item, Drop::Source { .. }) {
+            self.home_bought.push((call.def.id.clone(), area, file));
+        }
         let cost = if f.price == 0 {
             "free".to_string()
         } else {
             format!("-{}¢", f.price)
         };
         Ok(format!("downloaded {} ({cost}): {what}.", f.file))
+    }
+
+    /// [`Save::home_buy`] of the file a call on screen shows: refused if the board lists
+    /// something else there now (its source area moves on as the scene cracks a version, and
+    /// as the sysops ship one), so what's paid for is what was on the screen.
+    pub fn home_buy_shown(
+        &mut self,
+        data: &Data,
+        defs: &[UpgradeDef],
+        shown: &HomeCall,
+        area: usize,
+        file: usize,
+    ) -> Result<String, String> {
+        let now = self.home_call(data, defs, shown.board);
+        let at = |c: &HomeCall| {
+            let s = c.stock.get(area)?.get(file)?;
+            let f = c.def.areas.get(area)?.files.get(s.def)?;
+            Some((f.file.clone(), f.item.clone(), f.price))
+        };
+        if at(shown) != at(&now) {
+            return Err("that file's changed since you listed the area. list it again.".into());
+        }
+        self.home_buy(data, defs, shown.board, area, file)
     }
 
     /// Reads a bulletin or post on a board at home: what it does, if anything, lands on the

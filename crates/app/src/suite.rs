@@ -845,32 +845,37 @@ impl Panes<'_> {
                 // What the ICE runs comes straight after the form, before the chart, so a
                 // fight's report needs no scrolling for it.
                 let rows = ninsei_core::ice_listing::rows(g);
-                heading(ui, &p, &ninsei_core::suite::procedure_title(&rows));
-                egui::Grid::new("suite-procedure")
-                    .num_columns(2)
-                    .spacing([16.0, 2.0])
-                    .show(ui, |ui| {
-                        let [step, statement] = ninsei_core::suite::PROCEDURE_COLUMNS;
-                        ui.label(t(step, p.dim));
-                        ui.label(t(statement, p.dim));
-                        ui.end_row();
-                        // The step NEXT is on is highlighted, as the agenda's current row was.
-                        for r in ninsei_core::suite::procedure(&rows) {
-                            let (fg, bg) = match (r.next, r.seen) {
-                                (true, _) => (p.bg, Some(p.fg)),
-                                (false, true) => (p.fg, None),
-                                (false, false) => (p.dim, None),
-                            };
-                            for cell in [r.step, r.statement] {
-                                let text = t(cell, fg);
-                                ui.label(match bg {
-                                    Some(bg) => text.background_color(bg),
-                                    None => text,
-                                });
-                            }
+                let words = ninsei_core::suite::ICE_WORDS;
+                heading(ui, &p, words.heading);
+                if rows.is_empty() {
+                    ui.label(t(words.none, p.dim));
+                } else {
+                    egui::Grid::new("suite-procedure")
+                        .num_columns(2)
+                        .spacing([16.0, 2.0])
+                        .show(ui, |ui| {
+                            let [step, statement] = ninsei_core::suite::PROCEDURE_COLUMNS;
+                            ui.label(t(step, p.dim));
+                            ui.label(t(statement, p.dim));
                             ui.end_row();
-                        }
-                    });
+                            // The step NEXT is on is highlighted, as the agenda's current row was.
+                            for r in ninsei_core::suite::procedure(&rows) {
+                                let (fg, bg) = match (r.next, r.rem) {
+                                    (true, _) => (p.bg, Some(p.fg)),
+                                    (false, true) => (p.dim, None),
+                                    (false, false) => (p.fg, None),
+                                };
+                                for cell in [r.step, r.statement] {
+                                    let text = t(cell, fg);
+                                    ui.label(match bg {
+                                        Some(bg) => text.background_color(bg),
+                                        None => text,
+                                    });
+                                }
+                                ui.end_row();
+                            }
+                        });
+                }
                 heading(ui, &p, "STRENGTH BY TURN");
                 let mut vals: Vec<f32> = vec![c.strength_max as f32];
                 vals.extend(
@@ -2382,9 +2387,8 @@ mod module_tests {
         out
     }
 
-    #[test]
-    fn the_incident_report_lists_the_procedure_before_its_chart() {
-        let g = fight("");
+    /// Two frames of the incident report for `g` in a 520x700 pane.
+    fn report(g: &Game) -> Harness {
         let mut h = Harness::new(1280.0, 900.0);
         for _ in 0..2 {
             let (mut term, mut focus, mut hex, mut keep) =
@@ -2392,8 +2396,8 @@ mod module_tests {
             let mut suite = State::default();
             h.frame(vec![], |ui| {
                 let mut panes = Panes {
-                    game: &g,
-                    pal: pal(&g),
+                    game: g,
+                    pal: pal(g),
                     map: ninsei_core::netview::MapView::Draft,
                     deck: String::new(),
                     chrome: ninsei_core::hardware::Chrome::Suite,
@@ -2413,19 +2417,57 @@ mod module_tests {
                 Suite.target(&mut panes, &mut w);
             });
         }
-        let rows = ninsei_core::ice_listing::rows(&g);
-        let title = ninsei_core::suite::procedure_title(&rows);
-        let procedure = h.find(&title).unwrap_or_else(|| panic!("{:?}", h.texts()));
+        h
+    }
+
+    #[test]
+    fn the_incident_report_lists_the_procedure_before_its_chart() {
+        let mut g = fight("");
+        let ice = g.combat.as_ref().unwrap().ice;
+        g.apply(ninsei_core::Action::GetSource {
+            ice,
+            version: ninsei_core::ice_version::Version::FIRST,
+        });
+
+        assert!(g.owns_source(ice, ninsei_core::ice_version::Version::FIRST));
+        let h = report(&g);
+        let words = ninsei_core::suite::ICE_WORDS;
+        let procedure = h
+            .find(words.heading)
+            .unwrap_or_else(|| panic!("{:?}", h.texts()));
         let chart = h.find("STRENGTH BY TURN").expect("the chart's heading");
         assert!(
             procedure.top() < chart.top(),
             "{procedure:?} above {chart:?}"
         );
+        assert!(h.find(words.none).is_none());
+        let rows = ninsei_core::ice_listing::rows(&g);
+        assert!(!rows.is_empty());
         for r in ninsei_core::suite::procedure(&rows) {
             assert!(
                 h.find(&r.statement).is_some(),
                 "{:?} in {:?}",
                 r.statement,
+                h.texts()
+            );
+        }
+    }
+
+    #[test]
+    fn with_no_source_the_incident_report_has_no_symbol_table() {
+        let mut g = fight("");
+        g.apply(Action::EndTurn);
+        let h = report(&g);
+        let words = ninsei_core::suite::ICE_WORDS;
+        assert!(h.find(words.heading).is_some(), "{:?}", h.texts());
+        assert!(h.find(words.none).is_some(), "{:?}", h.texts());
+        assert!(h.find("STATEMENT").is_none(), "no table to head");
+        let row = &g.data.ice[g.combat.as_ref().unwrap().ice];
+        for r in ninsei_core::ice_listing::decompile_def(&row.program, &row.verbs) {
+            assert!(
+                !h.texts().iter().any(|t| t.contains(&r.text)),
+                "{:?} in {:?}",
+                r.text,
                 h.texts()
             );
         }

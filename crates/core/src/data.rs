@@ -245,6 +245,13 @@ pub enum Drop {
     Fragment(u32),
     /// Lowers trace.
     Scrub(u32),
+    /// The source of version `version` of ICE kind `ice` (an id in `ice.ron`): the ICE DB's
+    /// and the IDE's data, yours for good, even on a flatline. Never in data: a board's
+    /// `sources` area is generated ([`crate::bbs::source_area`]).
+    Source {
+        ice: String,
+        version: crate::ice_version::Version,
+    },
     /// A number range for the wardialer (id in `hub/exchanges.ron`). Comes home even on a flatline.
     Hint(String),
     /// A desktop tool (id in `hub/tools.ron`): yours for good once downloaded, even on a flatline.
@@ -377,6 +384,10 @@ pub struct BbsDef {
     /// The news of new ICE versions it hears, as a bulletin after its own (none: it doesn't).
     #[serde(default)]
     pub ice_news: Option<IceNewsDef>,
+    /// The ICE sources it sells, as one more file area after its own, generated from the
+    /// kinds and versions (none: it sells none).
+    #[serde(default)]
+    pub sources: Option<SourcesDef>,
     /// Pipe-coded splash art, from the board's `splash.txt`.
     #[serde(skip)]
     pub splash: String,
@@ -399,7 +410,85 @@ pub struct IceNewsDef {
     pub patch: String,
     pub minor: String,
     pub major: String,
+    /// The caller who posts it: a handle from the board's own `users`. Its news is theirs, not
+    /// the sysop's: the scene's word that a version is in the wild.
+    pub by: String,
+    /// Their sign-off under the news, with `{by}` for the handle.
+    pub sign: String,
 }
+
+/// A board's ICE source area, in its own voice: one file per kind of the ICE tiers it carries,
+/// the newest version the scene has cracked (1.0.0 from the start), priced by tier in
+/// `tuning.rs`. The area and its files are generated ([`crate::bbs::source_area`]).
+#[derive(Deserialize, Clone, Debug)]
+pub struct SourcesDef {
+    /// The area's name.
+    pub name: String,
+    /// The ICE tiers (`ice.ron`'s `tier`) whose sources it carries.
+    pub tiers: Vec<u32>,
+    /// A file's description for 1.0.0, and for a later version: `{ice}` is the kind's name
+    /// and `{version}` the version.
+    pub first: String,
+    pub patched: String,
+    /// The header a source from here carries, a line each, shown above its listing: `{ice}`,
+    /// `{version}` and `{board}` (the board's name) filled in.
+    #[serde(default)]
+    pub header: Vec<String>,
+    /// A remark on each read it knows, shown under the IF that reads it.
+    #[serde(default)]
+    pub remarks: Vec<RemarkDef>,
+}
+
+/// A remark a board's crew (or its office) puts on a kind of read in a source it passes on.
+#[derive(Deserialize, Clone, Debug)]
+pub struct RemarkDef {
+    /// The read's opening words, as an ICE's program writes them after `IF` (`TARGET SHIELD`).
+    pub read: String,
+    pub text: String,
+}
+
+/// The widest a source's header line may be. It prints on the full listings (the ICE card, the
+/// incident report, the ICE DB) after an 11-cell `       REM `.
+pub const NOTE_MAX: usize = 40;
+/// The widest a remark may be: it also prints in `target.ice`'s window, after btop's 10-cell
+/// `·     rem `, in a column of 40 cells.
+pub const REMARK_MAX: usize = 30;
+
+impl SourcesDef {
+    /// Its header for kind `ice` at `version` (as printed), from board `board` (its name).
+    pub fn header_lines(&self, ice: &str, version: &str, board: &str) -> Vec<String> {
+        self.header
+            .iter()
+            .map(|l| {
+                l.replace("{ice}", ice)
+                    .replace("{version}", version)
+                    .replace("{board}", board)
+            })
+            .collect()
+    }
+
+    /// Its remark on a line of a program, if the line is an IF that opens with a read it knows.
+    pub fn remark(&self, line: &str) -> Option<&str> {
+        let cond = line.strip_prefix("IF ")?;
+        self.remarks
+            .iter()
+            .find(|r| {
+                cond.strip_prefix(r.read.as_str())
+                    .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
+            })
+            .map(|r| r.text.as_str())
+    }
+
+    /// A file's description: kind `ice` at `version` (as printed), 1.0.0's or a later one's.
+    pub fn desc(&self, first: bool, ice: &str, version: &str) -> String {
+        let t = if first { &self.first } else { &self.patched };
+        t.replace("{ice}", ice).replace("{version}", version)
+    }
+}
+
+/// The widest a board's file description may print: the area screen's columns take the rest
+/// of the 78 cells, and a tag follows it.
+pub const FILE_DESC_MAX: usize = 35;
 
 /// The words an ICE news line may fill in.
 pub const NEWS_SLOTS: [&str; 2] = ["{ice}", "{version}"];
@@ -666,8 +755,10 @@ impl BbsDef {
         if self.bulletins.is_empty() || self.areas.is_empty() {
             return Err("needs at least one bulletin and one file area".into());
         }
-        if self.areas.len() > 9 || self.bulletins.len() > 9 {
-            return Err("at most 9 areas and 9 bulletins (one keypress each)".into());
+        // Areas go to ten (`0` is the tenth), a source area included.
+        let areas = self.areas.len() + usize::from(self.sources.is_some());
+        if areas > 10 || self.bulletins.len() > 9 {
+            return Err("at most 10 areas and 9 bulletins (one keypress each)".into());
         }
         if self.messages.len() > 9 || self.messages.iter().any(|b| b.posts.len() > 9) {
             return Err("at most 9 message bases of 9 posts (one keypress each)".into());
@@ -1250,6 +1341,8 @@ impl Data {
         for b in &self.boards {
             self.validate_ice_news(b)
                 .map_err(|e| format!("bbs/{}/board.ron ice_news: {e}", b.id))?;
+            self.validate_sources(b)
+                .map_err(|e| format!("bbs/{}/board.ron sources: {e}", b.id))?;
         }
         for ice in &self.ice {
             self.validate_ice_program(ice)
@@ -1401,6 +1494,12 @@ impl Data {
         if let Some((place, _)) = drops.iter().find(|(_, d)| matches!(d, Drop::Tune(_))) {
             return Err(format!(
                 "{place} drops a tune: music disks only come from a board's files"
+            ));
+        }
+        // An ICE's source is a board's generated file: it never drops anywhere else.
+        if let Some((place, _)) = drops.iter().find(|(_, d)| matches!(d, Drop::Source { .. })) {
+            return Err(format!(
+                "{place} drops an ICE source: sources only come from a board's source area"
             ));
         }
         for b in &self.boards {
@@ -1749,6 +1848,15 @@ impl Data {
         if n.none.is_empty() {
             return Err("nothing to say when there's no news".into());
         }
+        if !b.users.iter().any(|u| u.handle == n.by) {
+            return Err(format!(
+                "posted by `{}`, who isn't one of its callers",
+                n.by
+            ));
+        }
+        if !n.sign.contains("{by}") {
+            return Err(format!("`{}` doesn't name {{by}}", n.sign));
+        }
         let longest = self
             .ice
             .iter()
@@ -1760,6 +1868,13 @@ impl Data {
         let fits = |line: &str| crate::ansi::visible_len(line) <= crate::bbs::COLS - 3;
         if let Some(l) = n.none.iter().find(|l| !fits(l)) {
             return Err(format!("`{l}` is wider than the terminal"));
+        }
+        let signed = n.sign.replace("{by}", &n.by);
+        if signed.contains('{') || signed.contains('}') {
+            return Err(format!("`{signed}` has a word it can't fill ({{by}} only)"));
+        }
+        if !fits(&signed) {
+            return Err(format!("`{signed}` is wider than the terminal"));
         }
         for bump in crate::ice_version::Bump::ALL {
             let t = n.template(bump);
@@ -1774,6 +1889,114 @@ impl Data {
             }
             if !fits(&filled) {
                 return Err(format!("`{filled}` is wider than the terminal"));
+            }
+        }
+        Ok(())
+    }
+
+    /// A board's source area: a name, tiers that have ICE, at most nine
+    /// kinds (an area's files are picked by one digit), and descriptions that name only `{ice}`
+    /// and `{version}` and fit at the longest name and a `LONG_VERSION`. No board's own files
+    /// are sources: those are generated.
+    fn validate_sources(&self, b: &BbsDef) -> Result<(), String> {
+        if let Some(f) = b
+            .areas
+            .iter()
+            .flat_map(|a| &a.files)
+            .find(|f| matches!(f.item, Drop::Source { .. }))
+        {
+            return Err(format!(
+                "file `{}` is a source: those are generated",
+                f.file
+            ));
+        }
+        let Some(s) = &b.sources else {
+            return Ok(());
+        };
+        if s.name.trim().is_empty() {
+            return Err("an area with no name".into());
+        }
+        if s.tiers.is_empty() {
+            return Err("carries no tiers".into());
+        }
+        if let Some(t) = s
+            .tiers
+            .iter()
+            .find(|t| !self.ice.iter().any(|i| i.tier == **t))
+        {
+            return Err(format!("no ICE of tier {t}"));
+        }
+        let kinds: Vec<&IceDef> = self
+            .ice
+            .iter()
+            .filter(|i| s.tiers.contains(&i.tier))
+            .collect();
+        if kinds.len() > 9 {
+            return Err(format!("{} kinds: an area lists nine at most", kinds.len()));
+        }
+        // Each kind's file has its own 8.3 name (the name's first eight letters and digits).
+        let stems: Vec<String> = kinds
+            .iter()
+            .map(|i| crate::bbs::source_file(&i.name, crate::ice_version::Version::FIRST))
+            .collect();
+        if let Some((k, _)) = stems
+            .iter()
+            .enumerate()
+            .find(|(k, n)| stems[..*k].contains(n))
+        {
+            return Err(format!(
+                "`{}` lists under the same file name as another kind ({})",
+                kinds[k].name, stems[k]
+            ));
+        }
+        let longest = self
+            .ice
+            .iter()
+            .map(|i| i.name.as_str())
+            .max_by_key(|n| n.chars().count())
+            .unwrap_or("");
+        for line in s.header_lines(longest, LONG_VERSION, &b.name) {
+            if line.contains('{') || line.contains('}') {
+                return Err(format!("header `{line}` has a word it can't fill"));
+            }
+            if line.chars().count() > NOTE_MAX {
+                return Err(format!("header `{line}` is wider than {NOTE_MAX}"));
+            }
+        }
+        // A remark's read is one an ICE reads: in the grammar, or in a program.
+        let reads: Vec<&str> = self
+            .ice_grammar
+            .classes
+            .iter()
+            .flat_map(|c| c.reads.iter().map(|r| r.read.as_str()))
+            .collect();
+        for r in &s.remarks {
+            let known = reads.iter().any(|g| {
+                g.strip_prefix(r.read.as_str())
+                    .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
+            }) || self.ice.iter().any(|i| {
+                i.program
+                    .lines()
+                    .any(|l| l.contains(&format!("IF {} ", r.read)))
+            });
+            if !known {
+                return Err(format!("a remark on `{}`, which no ICE reads", r.read));
+            }
+            if r.text.chars().count() > REMARK_MAX {
+                return Err(format!("remark `{}` is wider than {REMARK_MAX}", r.text));
+            }
+        }
+        for first in [true, false] {
+            let filled = s.desc(first, longest, LONG_VERSION);
+            if filled.contains('{') || filled.contains('}') {
+                return Err(format!(
+                    "`{filled}` has a word it can't fill ({NEWS_SLOTS:?})"
+                ));
+            }
+            if crate::ansi::visible_len(&filled) > FILE_DESC_MAX {
+                return Err(format!(
+                    "`{filled}` is wider than its column ({FILE_DESC_MAX})"
+                ));
             }
         }
         Ok(())
@@ -2157,6 +2380,14 @@ impl Data {
         self.tunes
             .iter()
             .map(|t| (t.id.clone(), t.title.clone()))
+            .collect()
+    }
+
+    /// Every ICE kind's id with its name.
+    pub fn ice_names(&self) -> Vec<(String, String)> {
+        self.ice
+            .iter()
+            .map(|i| (i.id.clone(), i.name.clone()))
             .collect()
     }
 

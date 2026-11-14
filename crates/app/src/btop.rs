@@ -541,16 +541,21 @@ impl Panes<'_> {
                 graph(ui, &p, "strength", &g.history.ice, c.strength_max, 2, &[]);
                 ui.add_space(4.0);
                 ui.columns(2, |cols| {
-                    // NEXT, then the ICE's program from where it carries on, as seen.
+                    // NEXT, then the ICE's program from where it carries on, from its source, or the
+                    // deck's words for none.
                     let next = g.next_move().map_or(String::new(), |m| m.text("(lagged)"));
                     cols[0].label(text(format!("NEXT {next}"), p.bright));
                     let rows = ninsei_core::ice_listing::rows(g);
-                    cols[0].label(text(ninsei_core::btop_fight::ice_heading(&rows), p.dim));
-                    for r in ninsei_core::btop_fight::ice_window(&rows, anim::INTENTS_AHEAD) {
-                        let col = match (r.next, r.text.is_some()) {
+                    let words = ninsei_core::btop_fight::ICE_WORDS;
+                    cols[0].label(text(words.heading, p.dim));
+                    if rows.is_empty() {
+                        cols[0].label(text(words.none, p.dim));
+                    }
+                    for r in ninsei_core::btop_fight::ice_window(&rows, anim::INTENTS_AHEAD, true) {
+                        let col = match (r.next, r.rem) {
                             (true, _) => p.bright,
-                            (false, true) => p.fg,
-                            (false, false) => p.dim,
+                            (false, true) => p.dim,
+                            (false, false) => p.fg,
                         };
                         cols[0].label(text(ninsei_core::btop_fight::ice_line(&r), col));
                     }

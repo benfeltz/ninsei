@@ -54,6 +54,29 @@
         patch: "|15{ice} {version}|07: patched. Somebody leaned on the old one too hard.",
         minor: "|15{ice} {version}|07: learned a new trick, word is. Watch it.",
         major: "|12!! |15{ice} {version}|07: rewritten from scratch. Throw out your notes.",
+        by: "c4se",
+        sign: "|08-- {by}, who heard it first",
+    )),
+    // m0th's hacked ICE: tier-1 source, cracked by the scene, the newest each kind has had
+    // cracked (1.0.0 from the start). Generated from ice.ron; prices are tuning.rs's.
+    sources: Some((
+        name: "HACKED ICE",
+        tiers: [1],
+        first: "{ice} {version}, the classic",
+        patched: "{ice} {version} src, cracked",
+        header: [
+            "{ice} {version} // NiGHTMOTHS",
+            "spread it free on {board}",
+            "greetz c4se ratz zero_kool + kr4ken",
+        ],
+        remarks: [
+            (read: "TARGET SHIELD", text: "sees ur firewall. it adapts"),
+            (read: "TARGET INTEG",  text: "smells blood. patch early"),
+            (read: "TARGET RAN",    text: "watches what u ran"),
+            (read: "TARGET CPU",    text: "waits till ur outta cycles"),
+            (read: "SELF STR",      text: "digs in when it's hurtin"),
+            (read: "TURN",          text: "gets mean if u dawdle"),
+        ],
     )),
     users: [
         (handle: "m0th",      location: "Ninsei",       doing: "Sysop chat"),

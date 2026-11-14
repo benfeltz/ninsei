@@ -116,6 +116,7 @@ fn a_version_in_the_save_is_in_force_from_jack_in_on_every_net() {
         version: v,
         program: next.program.clone(),
         bump: None,
+        crack: 0,
     });
     let want = basic::parse_with(&next.program, basic::Vocab::Ice(&row.verbs));
     for site in 0..3 {
@@ -132,6 +133,7 @@ fn a_version_in_the_save_is_in_force_from_jack_in_on_every_net() {
             version: v,
             program: next.program.clone(),
             bump: None,
+            crack: 0,
         });
     }
 }
@@ -194,22 +196,17 @@ fn nothing_patches_itself_yet() {
 }
 
 #[test]
-fn a_patched_kind_is_met_blind_and_learned_on_its_own_version() {
+fn a_patched_kind_is_met_blind_though_the_last_version_s_source_is_owned() {
     let d = data();
     let mut s = deck(&d);
-    s.tools.push("icedb".into());
     let row = d.ice.iter().find(|i| i.id == "enigma").unwrap();
-    // A run on 1.0.0 teaches some of its lines.
-    let mut g = fight(&mut s, &d, "enigma");
-    g.apply(Action::Program(String::new()));
-    g.apply(Action::EndTurn);
-    g.apply(Action::EndTurn);
-    g.deck.integrity = 1;
-    while g.phase == Phase::Combat {
-        g.apply(Action::EndTurn);
-    }
-    s.record(&g, &[], &d.rig).unwrap();
-    assert!(!s.kit(&d).ice_known.is_empty());
+    assert!(s.learn_source(&d, "enigma", Version::default()));
+    let g = fight(&mut s, &d, "enigma");
+    assert_eq!(
+        ice_listing::rows(&g).len(),
+        4,
+        "1.0.0 lists from its source"
+    );
     // The sysops patch it. The next fight shows none of its lines.
     let next = next_version(
         &d,
@@ -224,8 +221,8 @@ fn a_patched_kind_is_met_blind_and_learned_on_its_own_version() {
         version: Version::default().bumped(next.bump.unwrap()),
         program: next.program,
         bump: None,
+        crack: 0,
     });
-    assert!(s.kit(&d).ice_known.is_empty());
     let g = fight(&mut s, &d, "enigma");
-    assert!(ice_listing::rows(&g).iter().all(|r| r.text.is_none()));
+    assert!(ice_listing::rows(&g).is_empty());
 }

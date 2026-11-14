@@ -73,7 +73,9 @@ fn career(save: &mut Save, d: &Arc<Data>, runs: u64, slice: u32) -> Vec<Shipped>
             save.study(d, n, u32::MAX);
             left -= n;
         }
-        for v in save.ice_versions.iter().filter(|v| !before.contains(v)) {
+        // New: not a kind's version before this time at home.
+        let new = |v: &&IceVer| !before.iter().any(|b| b.same_version(v));
+        for v in save.ice_versions.iter().filter(new) {
             let was = programs
                 .iter()
                 .find(|(id, _)| *id == v.id)
@@ -187,11 +189,18 @@ fn the_same_save_ships_the_same_versions_however_the_time_was_sliced() {
         career(&mut s, &d, 30, slice);
         s.ice_versions
     };
+    // What ships is the save's; how far the crackers got is the clock's.
+    let same = |a: &[IceVer], b: &[IceVer]| {
+        a.len() == b.len() && a.iter().zip(b).all(|(x, y)| x.same_version(y))
+    };
     let a = play(7, STUDY_PATIENCE);
     assert!(!a.is_empty());
-    assert_eq!(a, play(7, 1), "a draft at a time");
-    assert_eq!(a, play(7, 5));
-    assert_ne!(a, play(8, STUDY_PATIENCE), "another save, other versions");
+    assert!(same(&a, &play(7, 1)), "a draft at a time");
+    assert!(same(&a, &play(7, 5)));
+    assert!(
+        !same(&a, &play(8, STUDY_PATIENCE)),
+        "another save, other versions"
+    );
 }
 
 /// Plays a run as a bot with no hands, the sysops given a step of time before every action:

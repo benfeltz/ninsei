@@ -122,7 +122,7 @@ pub fn duel(
     start: Start,
     seed: u64,
 ) -> Duel {
-    let mut g = Game::start(std::sync::Arc::clone(data), seed, kit);
+    let mut g = Game::start_with(std::sync::Arc::clone(data), seed, kit, false);
     g.watched = false;
     // A deck with nothing on its HDD, not the classic four a bare kit is given.
     if kit.programs.is_empty() {
@@ -180,6 +180,12 @@ pub struct Combat {
     pub ice: usize,
     /// The version of its kind it runs (1.0.0 is its row's program).
     pub ice_version: Version,
+    /// The deck owns the source of that version (`Game::owns_source`, as the fight opened or
+    /// since): every screen and the log list its program. Never read by play.
+    pub listed: bool,
+    /// The board that source came from (`IceSource::from`; empty: none): its header and
+    /// remarks list with the program. Never read by play.
+    pub source_from: String,
     pub strength: u32,
     pub strength_max: u32,
     /// The ICE's program, parsed in its own vocabulary.
@@ -252,9 +258,9 @@ pub struct Kit {
     pub tunes: Vec<String>,
     /// Textfiles already on your disk, as (board id, text id).
     pub texts: Vec<(String, String)>,
-    /// The ICE lines the deck has seen run before (from the save's ICE DB): (ICE id, line
-    /// numbers). A fight shows these in clear from its first turn.
-    pub ice_known: Vec<(String, Vec<u32>)>,
+    /// The ICE sources the save owns (`Save::ice_sources`): a fight against a version whose
+    /// source is here lists its program.
+    pub ice_sources: Vec<crate::hub::IceSource>,
     /// The ICE kinds whose version in force isn't 1.0.0 (from the save's `ice_versions`, in
     /// the order they shipped): (ICE id, version, program, how it was made). A fight against
     /// one runs this program in place of its row's, and a board's news reads them.
@@ -267,6 +273,9 @@ pub struct Kit {
     /// The sysops at work on each beaten kind (the save's `ice_study`): they keep working in
     /// the run ([`Action::Study`]).
     pub ice_study: Vec<crate::ice_study::Study>,
+    /// Each patched kind's version in force and the steps left before its source is cracked
+    /// (`IceVer::crack`): (ICE id, version, steps).
+    pub ice_cracks: Vec<(String, crate::ice_version::Version, u32)>,
     /// The save's key, which the sysops' drafts are drawn from (never the run's).
     pub study_key: u64,
     /// For each of `programs`, the stash id it came from (`None` for a free program). The run
@@ -300,9 +309,10 @@ impl Default for Kit {
             games: Vec::new(),
             tunes: Vec::new(),
             texts: Vec::new(),
-            ice_known: Vec::new(),
+            ice_sources: Vec::new(),
             ice_programs: Vec::new(),
             ice_study: Vec::new(),
+            ice_cracks: Vec::new(),
             study_key: 0,
             origins: Vec::new(),
             free: Vec::new(),
@@ -512,6 +522,13 @@ pub enum Action {
         steps: u32,
         drafts: u32,
     },
+    /// The source of version `version` of ICE `ice` (an index into `Data::ice`) arrives on the
+    /// deck: 1.0.0, or a version this run runs. It lists from then on and comes home with the
+    /// run, even on a flatline. Refused if the deck has it or the run has no such version.
+    GetSource {
+        ice: usize,
+        version: Version,
+    },
 }
 
 /// A bulletin or post on a board, by index.
@@ -557,6 +574,9 @@ pub struct Game {
     pub bbs_stock: Vec<Vec<StockFile>>,
     /// This network's BBS: an index into `Data::boards`. Read it through [`Game::bbs`].
     pub board: usize,
+    /// That board as this run found it, when it has an ICE source area: its own areas and
+    /// that one. `None`: the board as it is in data.
+    bbs_def: Option<Box<crate::data::BbsDef>>,
     /// Whether the runner connected to the BBS: its number goes in the phonebook at home.
     pub bbs_seen: bool,
     /// Contracts posted on the BBS jobs board, rolled when you connect.
@@ -575,11 +595,10 @@ pub struct Game {
     pub boards_read: Vec<String>,
     /// You read a partner directory this run: the starter networks come home with you.
     pub starters_read: bool,
-    /// The lines of each ICE's program the deck has seen it run, as (index into `Data::ice`,
-    /// the version they were seen on, line numbers, sorted): what the save knew of the version
-    /// in force at the start, plus every line an ICE's pass executes in this run. They come home
-    /// even on a flatline. Never read by play.
-    pub ice_lines: Vec<(usize, Version, Vec<u32>)>,
+    /// The ICE sources the save owned at jack-in (the kit's). Never read by play.
+    pub sources: Vec<crate::hub::IceSource>,
+    /// The ICE sources got this run, in order. They come home even on a flatline.
+    pub sources_got: Vec<crate::hub::IceSource>,
     /// The ICE kinds running a version past 1.0.0, in the order they shipped: (index into
     /// `Data::ice`, version, its program parsed once, how it was made). From the kit, and
     /// replaced as the sysops ship mid-run: a fight runs the version in force as it opens.
@@ -588,6 +607,11 @@ pub struct Game {
     pub news: Option<crate::data::BulletinDef>,
     /// The sysops at work on each beaten kind (from the kit; `Save::record` takes them home).
     pub ice_study: Vec<crate::ice_study::Study>,
+    /// The scene's cracks of each patched kind's version in force: (index into `Data::ice`,
+    /// version, steps left; 0 is cracked). From the kit, counted down by [`Action::Study`],
+    /// started for a version shipped mid-run; `Save::record` takes them home. Never read by
+    /// play.
+    pub cracks: Vec<(usize, Version, u32)>,
     /// The save's key, which their drafts are drawn from.
     pub study_key: u64,
     /// The sysops watch this game's fights: a fight the deck wins wakes them. Not in a duel
@@ -813,7 +837,12 @@ impl Game {
 
     /// A run with a kit from home: the deck's numbers and the chosen loadout.
     pub fn start(data: impl Into<std::sync::Arc<Data>>, seed: u64, kit: &Kit) -> Self {
-        let data: std::sync::Arc<Data> = data.into();
+        Self::start_with(data.into(), seed, kit, true)
+    }
+
+    /// [`Game::start`]; `board_area` false for a game nobody calls a board in (a sysops'
+    /// duel), which never builds its board's source area.
+    fn start_with(data: std::sync::Arc<Data>, seed: u64, kit: &Kit, board_area: bool) -> Self {
         let mut rng = Rng::new(seed);
         let net = Network::generate_with(&mut rng, &data, &kit.net);
         let board = if kit.board < data.boards.len() {
@@ -833,19 +862,6 @@ impl Game {
             fragments: 0,
             caps: kit.caps,
         };
-        let ice_lines = kit
-            .ice_known
-            .iter()
-            .filter_map(|(id, lines)| {
-                let ice = data.ice.iter().position(|i| &i.id == id)?;
-                let v = kit
-                    .ice_programs
-                    .iter()
-                    .find(|(k, ..)| k == id)
-                    .map_or(Version::default(), |(_, v, ..)| *v);
-                Some((ice, v, crate::ice_listing::tidy(lines.clone())))
-            })
-            .collect();
         let ice_versions: Vec<(usize, Version, Program, Option<crate::ice_version::Bump>)> = kit
             .ice_programs
             .iter()
@@ -859,6 +875,11 @@ impl Game {
                     *bump,
                 ))
             })
+            .collect();
+        let cracks = kit
+            .ice_cracks
+            .iter()
+            .filter_map(|(id, v, left)| Some((data.ice_by_id(id)?, *v, *left)))
             .collect();
         let news = crate::bbs::news_bulletin(
             &data.boards[board],
@@ -881,6 +902,7 @@ impl Game {
             hops: 0,
             bbs_stock,
             board,
+            bbs_def: None,
             bbs_seen: false,
             bbs_jobs: Vec::new(),
             contracts: Vec::new(),
@@ -891,9 +913,11 @@ impl Game {
             hints: Vec::new(),
             boards_read: Vec::new(),
             starters_read: false,
-            ice_lines,
+            sources: kit.ice_sources.clone(),
+            sources_got: Vec::new(),
             ice_versions,
             ice_study: kit.ice_study.clone(),
+            cracks,
             study_key: kit.study_key,
             watched: true,
             shipped: Vec::new(),
@@ -946,6 +970,29 @@ impl Game {
                     game.from_stash.push((slot.uid, id));
                 }
             }
+        }
+        // The board's source area, after its own were rolled: it's never rolled itself.
+        let area = board_area
+            .then(|| {
+                crate::bbs::source_area(&game.data.boards[board], &game.data, |i| {
+                    let v = game.ice_version(i);
+                    if game.cracked(i, v) {
+                        v
+                    } else {
+                        Version::FIRST
+                    }
+                })
+            })
+            .flatten();
+        if let Some(area) = area {
+            game.bbs_stock.push(
+                (0..area.files.len())
+                    .map(|def| StockFile { def, bought: false })
+                    .collect(),
+            );
+            let mut def = game.data.boards[board].clone();
+            def.areas.push(area);
+            game.bbs_def = Some(Box::new(def));
         }
         game.say(LogKind::Sys, format!("ninsei v0.0.1 // seed {seed:016x}"));
         game.say(LogKind::Sys, "carrier detected. handshake ok.");
@@ -1274,8 +1321,12 @@ impl Game {
 
     /// The main network, even while inside a subnet. Contracts point into it.
     /// The BBS on this network.
+    /// The network's board as this run found it: its own areas, then its ICE source area
+    /// (`bbs::source_area`) as the scene had cracked them at jack-in.
     pub fn bbs(&self) -> &crate::data::BbsDef {
-        &self.data.boards[self.board]
+        self.bbs_def
+            .as_deref()
+            .unwrap_or(&self.data.boards[self.board])
     }
 
     pub fn root(&self) -> &Network {
@@ -1449,6 +1500,7 @@ impl Game {
             Action::Buy { area, file } => self.buy(area, file),
             Action::Patch { slot, bin } => self.patch(slot, bin),
             Action::Optimize { slot } => self.optimize(slot),
+            Action::GetSource { ice, version } => self.learn_source(ice, version, ""),
             // `apply` hands the sysops their time before anything else.
             Action::Study { .. } => unreachable!("applied in `apply`"),
         }
@@ -1460,6 +1512,10 @@ impl Game {
     fn study(&mut self, steps: u32, drafts: u32) {
         if matches!(self.phase, Phase::Flatlined | Phase::JackedOut) {
             return;
+        }
+        // The crackers work the same clock.
+        for (_, _, left) in &mut self.cracks {
+            *left = left.saturating_sub(steps);
         }
         let (data, versions) = (&self.data, &self.ice_versions);
         let shipped = crate::ice_study::work(
@@ -1488,6 +1544,9 @@ impl Game {
             self.ice_versions.retain(|(i, ..)| *i != ice);
             self.ice_versions
                 .push((ice, was.bumped(bump), program, Some(bump)));
+            self.cracks.retain(|(i, ..)| *i != ice);
+            self.cracks
+                .push((ice, was.bumped(bump), crate::tuning::SOURCE_CRACK_STEPS));
         }
         self.shipped.extend(shipped);
         // The board hears of it.
@@ -1616,6 +1675,88 @@ impl Game {
         }
     }
 
+    /// The program version `v` of ICE `ice` runs, as a fight books it (`Bout::program`: empty
+    /// for 1.0.0, the row's): `None` for a version past 1.0.0 that isn't in force this run.
+    fn version_program(&self, ice: usize, v: Version) -> Option<String> {
+        if v == Version::FIRST {
+            return Some(String::new());
+        }
+        self.ice_versions
+            .iter()
+            .find(|(i, w, ..)| *i == ice && *w == v)
+            .map(|(_, _, p, _)| p.text())
+    }
+
+    /// Whether the deck owns the source of version `v` of ICE `ice`: from the save, or got this
+    /// run. A version the run doesn't run (one replaced since, or never shipped) is never owned
+    /// here. Never read by play.
+    pub fn owns_source(&self, ice: usize, v: Version) -> bool {
+        self.owned_source(ice, v).is_some()
+    }
+
+    /// The source the deck owns of version `v` of ICE `ice` ([`Game::owns_source`]).
+    fn owned_source(&self, ice: usize, v: Version) -> Option<&crate::hub::IceSource> {
+        let program = self.version_program(ice, v)?;
+        let id = &self.data.ice[ice].id;
+        self.sources
+            .iter()
+            .chain(&self.sources_got)
+            .find(|s| s.is(id, v, &program))
+    }
+
+    /// Whether the sysops' clock has anyone to run for in this run: a study at work, or a
+    /// version whose source the scene is still cracking.
+    pub fn sysops_busy(&self) -> bool {
+        crate::ice_study::busy(&self.ice_study) || self.cracks.iter().any(|c| c.2 > 0)
+    }
+
+    /// Whether the source of version `v` of ICE `ice` is out in this run: 1.0.0's always is; a
+    /// later one when it's the version in force and the scene has cracked it.
+    pub fn cracked(&self, ice: usize, v: Version) -> bool {
+        v == Version::FIRST
+            || (self.ice_version(ice) == v
+                && !self
+                    .cracks
+                    .iter()
+                    .any(|(i, w, left)| *i == ice && *w == v && *left > 0))
+    }
+
+    /// Whether the ICE in front lists: the deck owns the source of the version it's fighting
+    /// (`Combat::listed`).
+    pub fn ice_listed(&self) -> bool {
+        self.combat.as_ref().is_some_and(|c| c.listed)
+    }
+
+    /// [`Action::GetSource`], or a board's download: the source of version `v` of ICE `ice`
+    /// (1.0.0, or a version this run runs) lists from now on and comes home with the run,
+    /// carrying the header and remarks of board `from` (empty: none).
+    fn learn_source(&mut self, ice: usize, v: Version, from: &str) -> Result<(), String> {
+        if ice >= self.data.ice.len() {
+            return Err("no such ICE.".into());
+        }
+        if self.owns_source(ice, v) {
+            return Err("you have that source.".into());
+        }
+        let Some(program) = self.version_program(ice, v) else {
+            return Err(format!("no {} {v} on this net.", self.data.ice[ice].name));
+        };
+        self.sources_got.push(crate::hub::IceSource {
+            id: self.data.ice[ice].id.clone(),
+            version: v,
+            program,
+            from: from.to_string(),
+        });
+        if let Some(c) = self
+            .combat
+            .as_mut()
+            .filter(|c| c.ice == ice && c.ice_version == v)
+        {
+            c.listed = true;
+            c.source_from = from.to_string();
+        }
+        Ok(())
+    }
+
     /// The version ICE `ice` (an index into `Data::ice`) runs this run: the kit's, or 1.0.0.
     pub fn ice_version(&self, ice: usize) -> Version {
         self.ice_versions
@@ -1654,10 +1795,17 @@ impl Game {
             broken: false,
             tells: Vec::new(),
         });
+        let source = self.owned_source(ice, ice_version);
+        let (listed, source_from) = (
+            source.is_some(),
+            source.map(|s| s.from.clone()).unwrap_or_default(),
+        );
         self.combat = Some(Combat {
             node,
             ice,
             ice_version,
+            listed,
+            source_from,
             strength,
             strength_max: strength,
             ice_prog,
@@ -1967,39 +2115,6 @@ impl Game {
             })
     }
 
-    /// Notes that the deck saw the current ICE run line `no` (`Game::ice_lines`).
-    fn saw_ice_line(&mut self, no: u32) {
-        let Some((ice, v)) = self.combat.as_ref().map(|c| (c.ice, c.ice_version)) else {
-            return;
-        };
-        let lines = match self
-            .ice_lines
-            .iter()
-            .position(|(i, w, _)| *i == ice && *w == v)
-        {
-            Some(k) => &mut self.ice_lines[k].2,
-            None => {
-                self.ice_lines.push((ice, v, Vec::new()));
-                &mut self.ice_lines.last_mut().expect("just pushed").2
-            }
-        };
-        crate::ice_listing::note_line(lines, no);
-    }
-
-    /// The lines of ICE `ice`'s program the deck has seen run (sorted), on the version it meets
-    /// ([`Game::version_met`]): what was seen of another version says nothing of this one.
-    pub fn ice_seen_lines(&self, ice: usize) -> &[u32] {
-        self.ice_lines_of(ice, self.version_met(ice))
-    }
-
-    /// The lines of version `v` of ICE `ice` the deck has seen run (sorted).
-    pub fn ice_lines_of(&self, ice: usize, v: Version) -> &[u32] {
-        self.ice_lines
-            .iter()
-            .find(|(i, w, _)| *i == ice && *w == v)
-            .map_or(&[], |(.., l)| l.as_slice())
-    }
-
     /// What an ICE's verb does, as `end_turn` used to do its intent: a hit less the shield
     /// (which the hit uses up), a trace, or strength. A lagged ICE does nothing.
     fn act(&mut self, act: Intent) -> StepWhat {
@@ -2164,6 +2279,17 @@ impl Game {
         let step = Step { line, what };
         let said = match side {
             Side::Deck => !matches!(step.what, StepWhat::Ran { .. }),
+            // Without its source the deck sees what the ICE does, never which line did it or
+            // what it read on the way (`step_text_of` says it with no line).
+            Side::Ice if !self.ice_listed() => matches!(
+                step.what,
+                StepWhat::Hit { .. }
+                    | StepWhat::Traced(_)
+                    | StepWhat::Fortified(_)
+                    | StepWhat::Spoofed(_)
+                    | StepWhat::Segfaulted(_)
+                    | StepWhat::Break
+            ),
             Side::Ice => !step.what.ends_turn() && step.what != StepWhat::Lagged,
         };
         if said {
@@ -2293,9 +2419,6 @@ impl Game {
             let next = self.prog(side).after(no);
             self.ex_mut(side).pc = next;
             ran |= !matches!(stmt, Stmt::Rem);
-            if side == Side::Ice && !matches!(stmt, Stmt::Rem) {
-                self.saw_ice_line(no);
-            }
             match stmt {
                 Stmt::Rem => {}
                 Stmt::Bad(why) => {
@@ -2997,10 +3120,24 @@ impl Game {
         if matches!(def.item, Drop::Warez(_)) && self.hdd.len() as u32 >= self.deck.hdd_max {
             return Some("hdd full. free a slot before downloading warez.".into());
         }
+        // A source of a version that's gone from the nets since the board was listed (one
+        // shipped over it mid-run) is nothing the deck could use: the board's file is stale.
+        if let Drop::Source { ice, version } = &def.item
+            && self
+                .data
+                .ice_by_id(ice)
+                .is_none_or(|i| self.version_program(i, *version).is_none())
+        {
+            return Some(format!(
+                "{} is out of date. nothing on the net runs it.",
+                def.file
+            ));
+        }
         if let Some(why) = tool_blocker(
             &self.data.tools,
             &self.data.crack_labels(),
             &self.data.tune_titles(),
+            &self.data.ice_names(),
             &def.item,
             self,
         ) {
@@ -3251,6 +3388,18 @@ impl Game {
                 }
                 self.say(LogKind::Loot, "+ textfile, for your mail reader");
             }
+            Drop::Source { ice, version } => {
+                let Some(i) = self.data.ice_by_id(&ice) else {
+                    return;
+                };
+                let name = self.data.ice[i].name.clone();
+                // A source the deck has already is no news; `learn_source` says nothing. One
+                // bought here carries this board's header and remarks.
+                let board = self.bbs().id.clone();
+                if self.learn_source(i, version, &board).is_ok() {
+                    self.say(LogKind::Loot, format!("+ ICE source: {name} {version}"));
+                }
+            }
             Drop::Nothing => self.say(LogKind::Sys, "nothing worth taking."),
         }
     }
@@ -3262,6 +3411,7 @@ pub fn tool_blocker(
     tools: &[crate::data::ToolDef],
     cracks: &[(String, String)],
     tunes: &[(String, String)],
+    ice: &[(String, String)],
     item: &Drop,
     line: &dyn crate::bbs::Line,
 ) -> Option<String> {
@@ -3270,12 +3420,19 @@ pub fn tool_blocker(
             return Some("that textfile's already on your disk.".into());
         }
         _ if !line.owns(item) => return None,
-        Drop::Tool(id) => tools.iter().find(|t| t.id == *id).map(|t| &t.name),
-        Drop::Game(id) => cracks.iter().find(|(g, _)| g == id).map(|(_, l)| l),
-        Drop::Tune(id) => tunes.iter().find(|(t, _)| t == id).map(|(_, l)| l),
+        Drop::Tool(id) => tools.iter().find(|t| t.id == *id).map(|t| t.name.clone()),
+        Drop::Game(id) => cracks.iter().find(|(g, _)| g == id).map(|(_, l)| l.clone()),
+        Drop::Tune(id) => tunes.iter().find(|(t, _)| t == id).map(|(_, l)| l.clone()),
+        Drop::Source { ice: id, version } => ice
+            .iter()
+            .find(|(i, _)| i == id)
+            .map(|(_, n)| format!("{n} {version}'s source")),
         _ => None,
     };
-    Some(format!("you already have {}.", name.map_or("that", |n| n)))
+    Some(format!(
+        "you already have {}.",
+        name.as_deref().unwrap_or("that")
+    ))
 }
 
 /// A board's listing for one visit: per area, `stock` files picked at random.

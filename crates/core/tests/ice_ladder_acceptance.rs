@@ -81,13 +81,20 @@ fn career(save: &mut Save, d: &Data, runs: u64) -> Seen {
         // The kind that ended the run wasn't patched by it.
         if let Some(k) = g.killed_by() {
             let id = &d.ice[k].id;
+            // (The crackers' clock moves on; the version is what counts.)
+            let version = |vs: &[hub::IceVer]| {
+                vs.iter()
+                    .find(|v| &v.id == id)
+                    .map(|v| (v.version, v.program.clone()))
+            };
             assert_eq!(
-                save.ice_versions.iter().find(|v| &v.id == id),
-                before.iter().find(|v| &v.id == id),
+                version(&save.ice_versions),
+                version(&before),
                 "{id} killed the deck and evolved"
             );
         }
-        for v in save.ice_versions.iter().filter(|v| !before.contains(v)) {
+        let new = |v: &&hub::IceVer| !before.iter().any(|b| b.same_version(v));
+        for v in save.ice_versions.iter().filter(new) {
             seen.shipped += 1;
             let row = d.ice.iter().find(|i| i.id == v.id).unwrap();
             // It fits its machine and stays a program the sysops can patch again.
@@ -137,8 +144,9 @@ fn a_new_version_is_met_unknown_and_the_last_one_is_kept() {
     let mut s = deck(0x51, 1);
     s.tools.push("icedb".into());
     career(&mut s, &d, 80);
-    // Every kind past 1.0.0 that a run has met since: its seen lines are that version's, and
-    // the versions it was met at before are kept, oldest first.
+    // Every kind past 1.0.0 that a run has met since: its record is that version's, and the
+    // versions it was met at before are kept, oldest first. Fighting got it no source.
+    assert!(s.ice_sources.is_empty());
     for seen in &s.ice_seen {
         let (now, _) = s.ice_program(&seen.id, &d).unwrap();
         assert!(seen.version <= now, "{}", seen.id);
@@ -148,13 +156,5 @@ fn a_new_version_is_met_unknown_and_the_last_one_is_kept() {
             assert!(last.is_none_or(|l| l < p.version), "{}", seen.id);
             last = Some(p.version);
         }
-        let kit = s.kit(&d);
-        let known = kit.ice_known.iter().any(|(id, _)| id == &seen.id);
-        assert_eq!(
-            known,
-            seen.version == now && !seen.lines.is_empty(),
-            "{}",
-            seen.id
-        );
     }
 }

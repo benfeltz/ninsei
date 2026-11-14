@@ -442,7 +442,7 @@ impl ChromeView for Stack {
     fn target(&self, p: &mut Panes, ui: &mut Ui) {
         round(ui);
         ui.visuals_mut().widgets.noninteractive.bg_stroke.color = p.pal.fg;
-        p.target(ui);
+        p.target_with(ui, &stack_fight::ICE_WORDS);
     }
 
     /// The Script card, the whole run: its transport (Step, Run, fast-forward, Pause) presses only
@@ -1648,28 +1648,40 @@ pub(crate) mod tests {
     }
 
     #[test]
-    fn the_ice_card_lists_the_ice_program_as_the_deck_has_seen_it() {
+    fn the_ice_card_lists_the_ice_program_only_from_its_source() {
         let mut g = fight("");
-        let id = g.data.ice[g.combat.as_ref().unwrap().ice].id.clone();
-        let rows = ninsei_core::ice_listing::rows(&g);
-        assert!(!rows.is_empty(), "{id} has a program");
+        let ice = g.combat.as_ref().unwrap().ice;
+        // No source: no listing, however long the fight.
+        g.apply(Action::EndTurn);
+        assert!(ninsei_core::ice_listing::rows(&g).is_empty());
         let mut h = crate::uitest::Harness::new(1280.0, 800.0);
         ice_card(&mut h, &g, (600.0, 500.0), vec![]);
         ice_card(&mut h, &g, (600.0, 500.0), vec![]);
-        let heading = ninsei_core::ice_listing::heading(&rows);
-        assert!(heading.starts_with("its program: 0 of"), "{heading}");
-        assert!(h.find(&heading).is_some(), "{:?}", h.texts());
-        let first = ninsei_core::ice_listing::card_line(&rows[0]);
-        assert!(first.starts_with('▶') && first.ends_with("????"), "{first}");
-        assert!(h.find(&first).is_some(), "{:?}", h.texts());
-        // A turn later the deck has seen it run its first line: in clear on the card.
-        g.apply(Action::EndTurn);
+        let row = &g.data.ice[ice];
+        let prog = ninsei_core::ice_listing::decompile_def(&row.program, &row.verbs);
+        for r in &prog {
+            assert!(
+                !h.texts().iter().any(|t| t.contains(&r.text)),
+                "{:?} in {:?}",
+                r.text,
+                h.texts()
+            );
+        }
+        // With its source, every line in clear.
+        g.apply(ninsei_core::Action::GetSource {
+            ice,
+            version: ninsei_core::ice_version::Version::FIRST,
+        });
+
+        assert!(g.owns_source(ice, ninsei_core::ice_version::Version::FIRST));
         let rows = ninsei_core::ice_listing::rows(&g);
-        let seen = rows.iter().find(|r| r.text.is_some()).expect("a line seen");
+        assert_eq!(rows.len(), prog.len());
         ice_card(&mut h, &g, (600.0, 500.0), vec![]);
         ice_card(&mut h, &g, (600.0, 500.0), vec![]);
-        let line = ninsei_core::ice_listing::card_line(seen);
-        assert!(h.find(line.trim()).is_some(), "{line:?} in {:?}", h.texts());
+        for r in &rows {
+            let line = ninsei_core::ice_listing::card_line(r);
+            assert!(h.find(line.trim()).is_some(), "{line:?} in {:?}", h.texts());
+        }
     }
 
     #[test]
