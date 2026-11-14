@@ -427,6 +427,11 @@ fn the_address_on_screen_is_the_address_in_the_log() {
         "one line naming the address and the board"
     );
     assert!(!g.log.iter().any(|l| l.text.contains("ATDT")));
+    // A screen that offers to call it again says the same call.
+    assert_eq!(
+        ninsei_core::bbs::placing(&g),
+        x25.call.replace("{address}", &addr)
+    );
     // The window says what line it is: the address, no baud.
     let title = Session::title(&g);
     assert!(title.contains(&addr), "{title}");

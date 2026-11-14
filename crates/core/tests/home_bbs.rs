@@ -455,6 +455,10 @@ fn a_home_call_is_a_modem_call_and_can_t_be_hurried() {
         assert!(!call.connect().skippable());
         assert_eq!(call.connect().dropped(), "NO CARRIER");
         assert_eq!(
+            ninsei_core::bbs::placing(&call),
+            format!("ATDT {}", b.phone)
+        );
+        assert_eq!(
             Session::title(&call),
             format!("TELIX 3.51 — {}  {} 8N1  ANSI-BBS", b.name, b.baud),
             "the title as it was"
