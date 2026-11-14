@@ -551,7 +551,7 @@ impl Panes<'_> {
                     if rows.is_empty() {
                         cols[0].label(text(words.none, p.dim));
                     }
-                    for r in ninsei_core::btop_fight::ice_window(&rows, anim::INTENTS_AHEAD) {
+                    for r in ninsei_core::btop_fight::ice_window(&rows, anim::INTENTS_AHEAD, true) {
                         let col = match (r.next, r.rem) {
                             (true, _) => p.bright,
                             (false, true) => p.dim,

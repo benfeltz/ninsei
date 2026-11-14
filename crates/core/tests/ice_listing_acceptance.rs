@@ -86,7 +86,7 @@ fn every_deck_marks_the_same_line_its_own_way() {
     let rows = ice_listing::rows(&g);
     // Each marks the same line as the one the ICE carries on from.
     let cursor = rows.iter().find(|r| r.cursor).unwrap().no;
-    assert!(btop_fight::ice_window(&rows, 1)[0].cursor);
+    assert!(btop_fight::ice_window(&rows, 1, true)[0].cursor);
     let hosaka = suite::procedure(&rows);
     assert!(
         hosaka

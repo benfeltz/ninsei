@@ -447,8 +447,12 @@ pub struct RemarkDef {
     pub text: String,
 }
 
-/// The widest a header line or a remark may be: they print with the listing on every deck.
+/// The widest a source's header line may be. It prints on the full listings (the ICE card, the
+/// incident report, the ICE DB) after an 11-cell `       REM `.
 pub const NOTE_MAX: usize = 40;
+/// The widest a remark may be: it also prints in `target.ice`'s window, after btop's 10-cell
+/// `·     rem `, in a column of 40 cells.
+pub const REMARK_MAX: usize = 30;
 
 impl SourcesDef {
     /// Its header for kind `ice` at `version` (as printed), from board `board` (its name).
@@ -1975,8 +1979,8 @@ impl Data {
             if !known {
                 return Err(format!("a remark on `{}`, which no ICE reads", r.read));
             }
-            if r.text.chars().count() > NOTE_MAX {
-                return Err(format!("remark `{}` is wider than {NOTE_MAX}", r.text));
+            if r.text.chars().count() > REMARK_MAX {
+                return Err(format!("remark `{}` is wider than {REMARK_MAX}", r.text));
             }
         }
         for first in [true, false] {

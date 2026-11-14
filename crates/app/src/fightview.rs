@@ -563,7 +563,8 @@ fn hud(painter: &Painter, rect: Rect, p: &Palette, g: &Game, preview: Option<fig
             p.dim,
         );
     }
-    for (k, r) in btop_fight::ice_window(&rows, 3).iter().enumerate() {
+    // Three lines of the program in a narrow column: no room for its source's notes.
+    for (k, r) in btop_fight::ice_window(&rows, 3, false).iter().enumerate() {
         let col = match (r.next, r.rem) {
             (true, _) => p.bright,
             (false, true) => p.dim,
