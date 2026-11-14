@@ -306,3 +306,27 @@ fn a_bad_sources_block_is_refused() {
     };
     assert!(d.validate().is_err(), "sources are generated");
 }
+
+#[test]
+fn a_source_gone_from_the_nets_mid_run_cant_be_bought_and_costs_nothing() {
+    let d = data();
+    let mut s = home(&d);
+    let mut v = enigma_patch(&d);
+    v.crack = 0;
+    s.ice_versions.push(v.clone());
+    let gutter = board(&d, "gutter");
+    let mut g = at_board(&d, &s.kit(&d), gutter, 500);
+    let (a, f) = enigma_file(&g);
+    assert!(listed(&sources(&g)).contains(&("enigma".into(), v.version, SOURCE_PRICE[1])));
+    // The sysops ship over it mid-run: the listing, fixed at jack-in, still offers 1.0.1.
+    let e = d.ice_by_id("enigma").unwrap();
+    let newer = v.version.bumped(Bump::Patch);
+    let prog = g.ice_versions.iter().find(|x| x.0 == e).unwrap().2.clone();
+    g.ice_versions.retain(|x| x.0 != e);
+    g.ice_versions.push((e, newer, prog, Some(Bump::Patch)));
+    let why = g.buy_blocker(a, f).expect("refused");
+    assert!(why.contains("out of date"), "{why}");
+    g.apply(Action::Buy { area: a, file: f });
+    assert_eq!(g.deck.credits, 500, "nothing charged");
+    assert!(g.sources_got.is_empty());
+}

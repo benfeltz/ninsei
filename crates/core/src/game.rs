@@ -2796,6 +2796,19 @@ impl Game {
         if matches!(def.item, Drop::Warez(_)) && self.hdd.len() as u32 >= self.deck.hdd_max {
             return Some("hdd full. free a slot before downloading warez.".into());
         }
+        // A source of a version that's gone from the nets since the board was listed (one
+        // shipped over it mid-run) is nothing the deck could use: the board's file is stale.
+        if let Drop::Source { ice, version } = &def.item
+            && self
+                .data
+                .ice_by_id(ice)
+                .is_none_or(|i| self.version_program(i, *version).is_none())
+        {
+            return Some(format!(
+                "{} is out of date. nothing on the net runs it.",
+                def.file
+            ));
+        }
         if let Some(why) = tool_blocker(
             &self.data.tools,
             &self.data.crack_labels(),
