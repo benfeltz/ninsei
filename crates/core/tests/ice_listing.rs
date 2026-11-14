@@ -269,3 +269,34 @@ fn a_fight_that_rezzes_on_the_node_that_just_fell_is_booked() {
         .expect("hunter booked");
     assert_eq!(seen.met, 1);
 }
+
+#[test]
+fn each_deck_says_there_is_no_source_in_its_own_words() {
+    use ice_listing::IceWords;
+    let decks: [(&str, IceWords); 4] = [
+        ("sense/net", stack_fight::ICE_WORDS),
+        ("ono-sendai", btop_fight::ICE_WORDS),
+        ("hosaka", suite::ICE_WORDS),
+        ("classic", ice_listing::CLASSIC),
+    ];
+    assert_eq!(
+        stack_fight::ICE_WORDS.none,
+        "its program isn't on this disk."
+    );
+    assert_eq!(btop_fight::ICE_WORDS.none, "[ no source available ]");
+    assert_eq!(suite::ICE_WORDS.none, "PROGRAM HAS NO SYMBOL TABLE");
+    for (deck, w) in decks {
+        // What is there, never where to get one or that one can be got, never a count.
+        let none = w.none.to_lowercase();
+        for coach in [
+            "download", "board", "bbs", "buy", "get", "find", "line", "seen",
+        ] {
+            assert!(!none.contains(coach), "{deck}: {:?}", w.none);
+        }
+        assert!(!none.chars().any(|c| c.is_ascii_digit()), "{deck}");
+        assert!(!w.heading.chars().any(|c| c.is_ascii_digit()), "{deck}");
+    }
+    // Each its own.
+    let all: std::collections::HashSet<&str> = decks.iter().map(|(_, w)| w.none).collect();
+    assert_eq!(all.len(), decks.len());
+}

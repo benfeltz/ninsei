@@ -80,7 +80,9 @@ pub fn ice_line(r: &IceRow) -> String {
     format!("{mark} {:>3} {}", r.no, r.text.to_lowercase())
 }
 
-/// The heading over the ICE's listing.
-pub fn ice_heading(_rows: &[IceRow]) -> String {
-    "PROG".to_string()
-}
+/// The listing's words, gdb's: its TUI's source window with nothing to show says so in brackets,
+/// in btop's lowercase.
+pub const ICE_WORDS: crate::ice_listing::IceWords = crate::ice_listing::IceWords {
+    heading: "PROG",
+    none: "[ no source available ]",
+};

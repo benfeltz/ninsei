@@ -545,7 +545,11 @@ impl Panes<'_> {
                     let next = g.next_move().map_or(String::new(), |m| m.text("(lagged)"));
                     cols[0].label(text(format!("NEXT {next}"), p.bright));
                     let rows = ninsei_core::ice_listing::rows(g);
-                    cols[0].label(text(ninsei_core::btop_fight::ice_heading(&rows), p.dim));
+                    let words = ninsei_core::btop_fight::ICE_WORDS;
+                    cols[0].label(text(words.heading, p.dim));
+                    if rows.is_empty() {
+                        cols[0].label(text(words.none, p.dim));
+                    }
                     for r in ninsei_core::btop_fight::ice_window(&rows, anim::INTENTS_AHEAD) {
                         let col = if r.next { p.bright } else { p.fg };
                         cols[0].label(text(ninsei_core::btop_fight::ice_line(&r), col));

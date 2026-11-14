@@ -37,6 +37,13 @@ impl BlockKind {
     }
 }
 
+/// The ICE card's words for the ICE's program, the stack's: everything labelled, in plain
+/// words.
+pub const ICE_WORDS: crate::ice_listing::IceWords = crate::ice_listing::IceWords {
+    heading: "its program",
+    none: "its program isn't on this disk.",
+};
+
 /// The palette row, in order.
 pub const PALETTE: [BlockKind; 4] = [
     BlockKind::Run,
