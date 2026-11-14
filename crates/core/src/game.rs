@@ -183,6 +183,9 @@ pub struct Combat {
     /// The deck owns the source of that version (`Game::owns_source`, as the fight opened or
     /// since): every screen and the log list its program. Never read by play.
     pub listed: bool,
+    /// The board that source came from (`IceSource::from`; empty: none): its header and
+    /// remarks list with the program. Never read by play.
+    pub source_from: String,
     pub strength: u32,
     pub strength_max: u32,
     /// The ICE's program, parsed in its own vocabulary.
@@ -1420,14 +1423,17 @@ impl Game {
     /// run. A version the run doesn't run (one replaced since, or never shipped) is never owned
     /// here. Never read by play.
     pub fn owns_source(&self, ice: usize, v: Version) -> bool {
-        let Some(program) = self.version_program(ice, v) else {
-            return false;
-        };
+        self.owned_source(ice, v).is_some()
+    }
+
+    /// The source the deck owns of version `v` of ICE `ice` ([`Game::owns_source`]).
+    fn owned_source(&self, ice: usize, v: Version) -> Option<&crate::hub::IceSource> {
+        let program = self.version_program(ice, v)?;
         let id = &self.data.ice[ice].id;
         self.sources
             .iter()
             .chain(&self.sources_got)
-            .any(|s| s.is(id, v, &program))
+            .find(|s| s.is(id, v, &program))
     }
 
     /// Whether the sysops' clock has anyone to run for in this run: a study at work, or a
@@ -1445,22 +1451,6 @@ impl Game {
                     .cracks
                     .iter()
                     .any(|(i, w, left)| *i == ice && *w == v && *left > 0))
-    }
-
-    /// The source the deck owns of the version the ICE in front runs (its board's header and
-    /// remarks list with it), if it does.
-    pub fn fight_source(&self) -> Option<&crate::hub::IceSource> {
-        let c = self.combat.as_ref().filter(|c| c.listed)?;
-        let program = if c.ice_version == Version::FIRST {
-            String::new()
-        } else {
-            c.ice_prog.text()
-        };
-        let id = &self.data.ice[c.ice].id;
-        self.sources
-            .iter()
-            .chain(&self.sources_got)
-            .find(|s| s.is(id, c.ice_version, &program))
     }
 
     /// Whether the ICE in front lists: the deck owns the source of the version it's fighting
@@ -1494,6 +1484,7 @@ impl Game {
             .filter(|c| c.ice == ice && c.ice_version == v)
         {
             c.listed = true;
+            c.source_from = from.to_string();
         }
         Ok(())
     }
@@ -1536,12 +1527,17 @@ impl Game {
             broken: false,
             tells: Vec::new(),
         });
-        let listed = self.owns_source(ice, ice_version);
+        let source = self.owned_source(ice, ice_version);
+        let (listed, source_from) = (
+            source.is_some(),
+            source.map(|s| s.from.clone()).unwrap_or_default(),
+        );
         self.combat = Some(Combat {
             node,
             ice,
             ice_version,
             listed,
+            source_from,
             strength,
             strength_max: strength,
             ice_prog,
