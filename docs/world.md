@@ -29,7 +29,7 @@ Three boards turn up on networks, one per tier, and one customer line you call f
 
 **The scene board.** The hangout on tier-1 LANs and the default board everywhere. Sysop **m0th**, who runs it from Ninsei on a 14400 line and writes the bulletins in l33t. The regulars are **c4se** (Chiba, wrote HexEd's checksum), **ratz** (Night City, never reads her mail), **zero_kool** (Hamburg, always in a door game), and whoever's new.
 
-What it's for: games, demos, cracks, the starter tools and the first breakers. WAREZ TOOLS is free and always stocked (the wardialer, the hex editor, the QWK reader, the ICE bestiary: m0th's own and his friends'). FREEWARE gives a new deck its first breaker. G-FILES teach the craft. TEXTFILES sell leaked phone lists, OPTIMIZERS sell fragments, and the ICEBREAKERS and DECK MODS areas carry the basics at honest prices. GAMES carries the crews' cracks, cheap, two a call, the file named in 8.3 with the crew's tag (`NIBB-2K4.ZIP`, `BLOX-PHS.ZIP`, `MINE-PHS.ZIP`) and described the way m0th would ("PHOSPHOR, the real one"); the bulletin says so ("Kids, keep it clean"), and c4se is usually playing NIBBLER.
+What it's for: games, demos, cracks, the starter tools and the first breakers. WAREZ TOOLS is free and always stocked (the wardialer, the hex editor, the QWK reader, the ICE bestiary: m0th's own and his friends'). FREEWARE gives a new deck its first breaker. G-FILES teach the craft. TEXTFILES sell leaked phone lists, OPTIMIZERS sell fragments, and the ICEBREAKERS and DECK MODS areas carry the basics at honest prices. GAMES carries the crews' cracks, cheap, two a call, the file named in 8.3 with the crew's tag (`NIBB-2K4.ZIP`, `BLOX-PHS.ZIP`, `MINE-PHS.ZIP`) and described the way m0th would ("PHOSPHOR, the real one"); the bulletin says so ("Kids, keep it clean"), and c4se is usually playing NIBBLER. HACKED ICE is m0th's: the source of every tier-1 ICE the scene has cracked, a file per kind (`ENIGMA.100`), 1.0.0 from the start and a new version once somebody's cracked it; "the classic", "src, cracked".
 
 The overlap is on purpose: the wardialer is a hacker's tool, and every kid on the Gutter starts with it. The Gutter is where you learn; Dead Sector is where you go once you have.
 
@@ -39,7 +39,7 @@ Voice: friendly, cocky, rules in three lines. "Don't leech. Upload or pay creds.
 
 **The hackers' and phreaks' board.** An anarchy board at 2400 baud on tier-2 corp nets, and anywhere a pirate runs it off a backbone (the *pirate board* trait). Sysop **d1rge**, location `???`, who is "Watching you". Regulars: **lag** (Sprawl, upload stalled since forever), **acid_burn** (Chiba), and ghosts.
 
-What it's for: hot breakers (used, ripped, modded: wyrm, scrubber, lagspike), hot hardware that fell off a truck, the first core prefixes, and NiGHTCOMM, the terminal the scene runs. Its textfiles are phreaking, not tutorials. No games, no kids, no freeware: if it's free here, it's bait.
+What it's for: hot breakers (used, ripped, modded: wyrm, scrubber, lagspike), hot hardware that fell off a truck, the first core prefixes, and NiGHTCOMM, the terminal the scene runs. Its textfiles are phreaking, not tutorials. No games, no kids, no freeware: if it's free here, it's bait. RIPPED SOURCE carries black ICE and kr4ken's code, ripped off the backbones: "old code.", "fresh rip.".
 
 Voice: paranoid, short, red on black, box-drawn rules. "No names. No faces. No real numbers." It knows the Gutter and tolerates it. It would never run a door game, never explain anything twice, and never admit it exists ("We never met").
 
@@ -47,7 +47,7 @@ Voice: paranoid, short, red on black, box-drawn rules. "No names. No faces. No r
 
 **The office.** The staff intranet on tier-3 megacorp backbones, PCBoard Corporate Edition, 28800 baud, and you're a guest login (`GUEST-0451`, billed). The sysop is the **IT Help Desk**; the Office of Information Security writes the memos. Staff online: **J.TANAKA** in Accounts, **R.OKONKWO** in Security, a nightly backup job.
 
-What it's for: licensed software (TORCH, Mirror Enterprise, log maintenance, a process freezer, a QA worm nobody should run), hardware requisitions on forms, internal directories that are really core ranges, and a site licence for Tiger Team Pro. Priced like an expense report.
+What it's for: licensed software (TORCH, Mirror Enterprise, log maintenance, a process freezer, a QA worm nobody should run), hardware requisitions on forms, internal directories that are really core ranges, and a site licence for Tiger Team Pro. Priced like an expense report. VENDOR DOCUMENTATION is the same black ICE source as approved reference material for the perimeter software ("reference", "revised ref."): IT never says hacked and never says who supplied it.
 
 Voice: policy. Inverse blue headers, no l33t, a cafeteria menu. It would never call a breaker a breaker, never use a handle, and never acknowledge that its guest accounts are how it gets robbed.
 
