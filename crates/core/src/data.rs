@@ -1445,6 +1445,12 @@ impl Data {
                 "{place} drops a tune: music disks only come from a board's files"
             ));
         }
+        // An ICE's source is a board's generated file: it never drops anywhere else.
+        if let Some((place, _)) = drops.iter().find(|(_, d)| matches!(d, Drop::Source { .. })) {
+            return Err(format!(
+                "{place} drops an ICE source: sources only come from a board's source area"
+            ));
+        }
         for b in &self.boards {
             for a in &b.areas {
                 drops.extend(
