@@ -2,7 +2,7 @@
 //! Pure navigation logic. [`Session::render`] returns pipe-coded lines for the app to paint,
 //! [`Session::key`] takes single keypresses like a real board, [`Session::tick`] runs the modem clock.
 
-use crate::data::{BbsDef, Drop, HeaderStyle, Look};
+use crate::data::{BbsDef, BulletinDef, Drop, HeaderStyle, Look};
 use crate::game::{Action, ContractStatus, Game, Reading, StockFile};
 use crate::modem::Handshake;
 use crate::tuning::{BBS_CPS, BBS_HANGUP_SECS};
@@ -51,6 +51,24 @@ pub trait Line {
     fn has_crack(&self, id: &str) -> bool;
     /// Whether you own a tune: it lists as yours, like a tool.
     fn has_tune(&self, id: &str) -> bool;
+    /// The board's news of new ICE versions, if it hears any ([`news_bulletin`]): none by
+    /// default.
+    fn news(&self) -> Option<&BulletinDef> {
+        None
+    }
+
+    /// How many bulletins it posts: its own, then the news.
+    fn bulletin_count(&self) -> usize {
+        self.board().bulletins.len() + usize::from(self.news().is_some())
+    }
+
+    /// Bulletin `i`: the board's own keep their numbers, and the news comes after them.
+    fn bulletin(&self, i: usize) -> Option<&BulletinDef> {
+        let own = &self.board().bulletins;
+        own.get(i)
+            .or_else(|| self.news().filter(|_| i == own.len()))
+    }
+
     /// Whether a file's tool or game crack is already yours: it lists as yours, not for sale.
     fn owns(&self, item: &Drop) -> bool {
         match item {
@@ -65,6 +83,10 @@ pub trait Line {
 impl Line for Game {
     fn board(&self) -> &BbsDef {
         self.bbs()
+    }
+
+    fn news(&self) -> Option<&BulletinDef> {
+        self.news.as_ref()
     }
 
     fn stock(&self) -> &[Vec<StockFile>] {
@@ -247,7 +269,7 @@ impl Session {
             Screen::Messages => numbered(b.messages.len(), "Q"),
             Screen::Base(i) => numbered(b.messages.get(i).map_or(0, |m| m.posts.len()), "Q"),
             Screen::Post { .. } => vec![('Q', "back".into())],
-            Screen::Bulletins => numbered(b.bulletins.len(), "Q"),
+            Screen::Bulletins => numbered(game.bulletin_count(), "Q"),
             Screen::Jobs => numbered(game.jobs().len(), "Q"),
             Screen::Areas => numbered(b.areas.len(), "Q"),
             Screen::Area(a) => numbered(game.stock()[a].len(), "Q"),
@@ -281,7 +303,7 @@ impl Session {
                 _ => self.status = Some(format!("|12Unknown command '{}'.", printable(key))),
             },
             Screen::Bulletins => match digit {
-                Some(n) if (1..=game.board().bulletins.len()).contains(&n) => {
+                Some(n) if (1..=game.bulletin_count()).contains(&n) => {
                     self.go(Screen::Bulletin(n - 1));
                     return read(game, Reading::Bulletin(n - 1));
                 }
@@ -445,18 +467,21 @@ impl Session {
             Screen::Bulletins => {
                 header(&mut out, b, "BULLETINS");
                 out.push(String::new());
-                for (i, bl) in b.bulletins.iter().enumerate() {
-                    out.push(format!("   {} {tx}{}", hot(&(i + 1).to_string()), bl.title));
+                for i in 0..game.bulletin_count() {
+                    if let Some(bl) = game.bulletin(i) {
+                        out.push(format!("   {} {tx}{}", hot(&(i + 1).to_string()), bl.title));
+                    }
                 }
                 out.push(String::new());
                 out.push(pick("Read which?"));
             }
             Screen::Bulletin(i) => {
-                let bl = &b.bulletins[i];
                 header(&mut out, b, &format!("BULLETIN #{}", i + 1));
-                out.push(format!("   {mo}{}", bl.title));
-                out.push(format!("   {dm}{}", "─".repeat(bl.title.chars().count())));
-                out.extend(bl.body.iter().map(|line| format!("   {tx}{line}")));
+                if let Some(bl) = game.bulletin(i) {
+                    out.push(format!("   {mo}{}", bl.title));
+                    out.push(format!("   {dm}{}", "─".repeat(bl.title.chars().count())));
+                    out.extend(bl.body.iter().map(|line| format!("   {tx}{line}")));
+                }
                 out.push(String::new());
                 out.push(format!("   {} {tx}back", hot("Q")));
             }
@@ -806,4 +831,54 @@ fn drop_tag(item: &Drop, l: &Look) -> String {
         Drop::Tune(_) => format!(" {}[MUS]", pipe(l.key)),
         _ => format!(" {}[MOD]", pipe(l.aside)),
     }
+}
+
+/// Board `board`'s news of new ICE versions, from `shipped` (each kind's version in force, as
+/// (index into `Data::ice`, version, how it was made), in the order they shipped): its
+/// `ice_news` bulletin, the latest of the tiers it hears about first, or its `none` body when
+/// there are none. `None` for a board that hears no news.
+pub fn news_bulletin(
+    board: &BbsDef,
+    data: &crate::data::Data,
+    shipped: &[(usize, crate::ice_version::Version, crate::ice_version::Bump)],
+) -> Option<BulletinDef> {
+    let n = board.ice_news.as_ref()?;
+    let lines: Vec<String> = shipped
+        .iter()
+        .rev()
+        .filter_map(|(ice, v, bump)| {
+            let row = data.ice.get(*ice)?;
+            // Checked to fit at `LONG_VERSION`; a version past it is cut at the screen's edge.
+            n.tiers
+                .contains(&row.tier)
+                .then(|| crate::ansi::clip(&n.line(*bump, &row.name, &v.to_string()), COLS - 3))
+        })
+        .take(n.count)
+        .collect();
+    Some(BulletinDef {
+        title: n.title.clone(),
+        body: if lines.is_empty() {
+            n.none.clone()
+        } else {
+            lines
+        },
+        on_read: None,
+    })
+}
+
+/// The versions in force a board's news reads, from a run's `Game::ice_versions`: (index into
+/// `Data::ice`, version, how it was made), in the order they shipped. A version with no bump
+/// (set by hand) isn't news.
+pub fn shipped(
+    versions: &[(
+        usize,
+        crate::ice_version::Version,
+        crate::basic::Program,
+        Option<crate::ice_version::Bump>,
+    )],
+) -> Vec<(usize, crate::ice_version::Version, crate::ice_version::Bump)> {
+    versions
+        .iter()
+        .filter_map(|(i, v, _, b)| Some((*i, *v, (*b)?)))
+        .collect()
 }

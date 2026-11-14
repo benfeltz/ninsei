@@ -1,5 +1,7 @@
 //! 141.3.3: ICE verbs that attack the deck's program, SPOOF and SEGFAULT, and the sniffer.
 
+mod common;
+
 use ninsei_core::Data;
 use ninsei_core::basic::{self, Stmt, Verb, Vocab};
 use ninsei_core::data::Intent;
@@ -30,19 +32,14 @@ fn spoof_and_segfault_are_an_ices_words() {
     assert_eq!(Intent::Segfault.describe(), "SEGFAULT");
 }
 
-/// The builtin ICE with one more row, `probe`, that has this program and verbs.
+/// The builtin ICE with one more row, `probe`, that has this program and verbs. It is tier 0, the
+/// rival's, which may hold two lines that attack the program (`ice_grammar.ron`'s `fair`).
 fn with_row(program: &str, verbs: &str) -> Data {
-    let ice = include_str!("../../../data/ice.ron");
-    let end = ice.rfind(']').unwrap();
-    let row = format!(
-        "    (id: \"probe\", name: \"Probe\", class: Sentry, tier: 1, strength: 10, \
-         cpu: 1, ram: 2, verbs: [{verbs}], program: \"{program}\"),\n"
-    );
-    let ice = format!("{}{row}{}", &ice[..end], &ice[end..]);
-    Data::parse(ninsei_core::Sources {
-        ice: &ice,
-        ..ninsei_core::Sources::builtin()
-    })
+    common::with_probe_row(
+        "class: Sentry, tier: 0, strength: 10, cpu: 1, ram: 2",
+        verbs,
+        program,
+    )
     .unwrap()
 }
 

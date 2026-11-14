@@ -984,3 +984,54 @@ pub fn wardial(
         });
     });
 }
+
+#[cfg(test)]
+mod icedb_tests {
+    use super::*;
+    use crate::uitest::Harness;
+    use ninsei_core::hub::{IceSeen, SeenVersion};
+    use ninsei_core::ice_version::{Bump, Version};
+
+    #[test]
+    fn the_ice_db_window_shows_a_kinds_changelog() {
+        let data = Data::builtin().unwrap();
+        let mut save = Save::default();
+        save.ice_seen.push(IceSeen {
+            id: "enigma".into(),
+            met: 3,
+            lines: vec![10, 20, 30, 40],
+            version: Version::default().bumped(Bump::Patch),
+            bump: Some(Bump::Patch),
+            program: "10 ATTACK 4\n20 IF TARGET SHIELD > 0\n30 TRACE 10\n40 TRACE 4".into(),
+            won: 1,
+            past: vec![SeenVersion {
+                version: Version::default(),
+                bump: None,
+                program: String::new(),
+                lines: vec![10, 20, 30, 40],
+                won: 2,
+                lost: 0,
+            }],
+            ..Default::default()
+        });
+        let enigma = data.ice.iter().position(|i| i.id == "enigma");
+        let mut sel = enigma;
+        let mut h = Harness::new(900.0, 900.0);
+        for _ in 0..2 {
+            h.frame(vec![], |ui| icedb(ui, &data, &save, &mut sel));
+        }
+        let texts = h.texts();
+        for want in [
+            "Enigma 1.0.1  [CODE GATE]  ICE",
+            "listing        1.0.1, decompiled, 4 of 4 lines seen",
+            " ~ 10 ATTACK 4",
+            "versions       bump     won  lost",
+            "1.0.0, decompiled, 4 of 4 lines seen",
+        ] {
+            assert!(
+                texts.iter().any(|t| t.contains(want)),
+                "{want:?} in {texts:#?}"
+            );
+        }
+    }
+}

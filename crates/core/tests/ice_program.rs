@@ -1,22 +1,18 @@
 //! ICE run their own programs: the data that holds them, the turn that runs them and the dry
 //! run that telegraphs them.
 
+mod common;
+
 use ninsei_core::game::StepWhat;
 use ninsei_core::*;
 
 /// The builtin ICE with one more row, `probe`, that has this program, budgets and verbs.
 fn with_row(program: &str, cpu: u32, ram: u32, verbs: &str) -> Result<Data, String> {
-    let ice = include_str!("../../../data/ice.ron");
-    let end = ice.rfind(']').unwrap();
-    let row = format!(
-        "    (id: \"probe\", name: \"Probe\", class: Sentry, tier: 1, strength: 10, \
-         cpu: {cpu}, ram: {ram}, verbs: [{verbs}], program: \"{program}\"),\n"
-    );
-    let ice = format!("{}{row}{}", &ice[..end], &ice[end..]);
-    Data::parse(Sources {
-        ice: &ice,
-        ..Sources::builtin()
-    })
+    common::with_probe_row(
+        &format!("class: Sentry, tier: 1, strength: 10, cpu: {cpu}, ram: {ram}"),
+        verbs,
+        program,
+    )
 }
 
 #[test]

@@ -1,8 +1,9 @@
 //! Run state and the rules that change it. The app only ever calls [`Game::apply`].
 
-use crate::basic::{Cond, Program, Stmt, Target, Var, Vocab};
+use crate::basic::{Cond, Program, Stmt, Var, Vocab};
 use crate::binary::{self, Bin, Spec};
 use crate::data::{BetrayalEffect, ChoiceEffect, Data, Drop, Intent, LootTable, Penalty};
+use crate::ice_version::Version;
 use crate::network::{NetParams, Network, NodeKind};
 use crate::rng::Rng;
 use crate::tuning::*;
@@ -62,11 +63,123 @@ pub struct Slot {
     pub spec: Spec,
 }
 
+/// One fight, booked by the rules as it goes: which ICE, how it opened, whether it fell, and
+/// the deck as the ICE's conditions read it at the start of each of its turns.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Bout {
+    /// Index into `Data::ice`.
+    pub ice: usize,
+    /// The version of its kind it ran, how that was made, and its program (empty for 1.0.0,
+    /// the row's): a version may land mid-run, so a run can meet a kind at two.
+    pub version: Version,
+    pub bump: Option<crate::ice_version::Bump>,
+    pub program: String,
+    pub start: Start,
+    /// The deck's script as the fight opened: what the sysops study if the deck wins, not
+    /// what the fight's SEGFAULTs left of it.
+    pub script: String,
+    pub broken: bool,
+    pub tells: Vec<crate::ice_version::Tell>,
+}
+
+/// How a fight opened: the deck's integrity and trace, and the ICE's strength. What the sysops'
+/// simulator stages a duel from.
+#[derive(serde::Serialize, serde::Deserialize, Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct Start {
+    pub integrity: u32,
+    pub trace: u32,
+    pub strength: u32,
+}
+
+/// How a duel ended ([`duel`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Duel {
+    /// The deck broke the ICE.
+    pub broken: bool,
+    pub integrity_lost: u32,
+    pub trace_gained: u32,
+    /// Turns it lasted, the last one included.
+    pub turns: u32,
+    /// The deck as the ICE's conditions read it at the start of each of its turns.
+    pub tells: Vec<crate::ice_version::Tell>,
+}
+
+/// Turns a duel may run before it's called off. A real fight always ends, since trace climbs
+/// every turn; this is a backstop, never a rule of the fight.
+const DUEL_TURNS: u32 = 200;
+
+/// One fight staged in the real game, as the sysops' simulator stages it: deck `kit` (its
+/// numbers, its programs and its script, `Kit::program`) against ICE `ice` (an index into
+/// `Data::ice`) running `program`, opened at `start`. It's a [`Game`] of its own, seeded from
+/// `seed`: it never touches a run's RNG, history, cues or log. The script plays every turn as a
+/// bot with no hands does: it plays, and when it hands the turn over (a STOP, a hang) the turn
+/// ends.
+pub fn duel(
+    data: &std::sync::Arc<Data>,
+    ice: usize,
+    program: &str,
+    kit: &Kit,
+    start: Start,
+    seed: u64,
+) -> Duel {
+    let mut g = Game::start(std::sync::Arc::clone(data), seed, kit);
+    g.watched = false;
+    // A deck with nothing on its HDD, not the classic four a bare kit is given.
+    if kit.programs.is_empty() {
+        g.hdd.clear();
+    }
+    let verbs = &data.ice[ice].verbs;
+    g.ice_versions = vec![(
+        ice,
+        Version::default(),
+        crate::basic::parse_with(program, Vocab::Ice(verbs)),
+        None,
+    )];
+    // A save's study may say anything (hand-edited, or older): never a panic.
+    g.deck.integrity_max = g.deck.integrity_max.max(1);
+    g.deck.integrity = start.integrity.min(g.deck.integrity_max).max(1);
+    g.deck.trace = start.trace;
+    g.start_combat(g.at, ice);
+    if let Some(c) = g.combat.as_mut() {
+        c.strength = start.strength.max(1);
+        c.strength_max = c.strength;
+    }
+    let (integrity, trace) = (g.deck.integrity, g.deck.trace);
+    let mut turns = 1;
+    for _ in 0..DUEL_TURNS * 2 {
+        if g.phase != Phase::Combat || turns > DUEL_TURNS {
+            break;
+        }
+        // Play sets it running and runs a line; the rest of the turn is Finish's.
+        let carry_on = g.exec.state == ExecState::Running || {
+            g.apply(Action::Play);
+            g.pass_open()
+        };
+        if carry_on {
+            g.apply(Action::Finish);
+        }
+        if g.phase == Phase::Combat && g.exec.state != ExecState::Running {
+            g.apply(Action::EndTurn);
+        }
+        turns = g.combat.as_ref().map_or(turns, |c| c.turn);
+    }
+    let bout = g.bouts.pop();
+    Duel {
+        broken: bout.as_ref().is_some_and(|b| b.broken),
+        integrity_lost: integrity.saturating_sub(g.deck.integrity),
+        trace_gained: g.deck.trace.saturating_sub(trace),
+        turns,
+        tells: bout.map(|b| b.tells).unwrap_or_default(),
+    }
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Combat {
     pub node: usize,
     /// Index into `Data::ice`.
     pub ice: usize,
+    /// The version of its kind it runs (1.0.0 is its row's program).
+    pub ice_version: Version,
     pub strength: u32,
     pub strength_max: u32,
     /// The ICE's program, parsed in its own vocabulary.
@@ -142,6 +255,20 @@ pub struct Kit {
     /// The ICE lines the deck has seen run before (from the save's ICE DB): (ICE id, line
     /// numbers). A fight shows these in clear from its first turn.
     pub ice_known: Vec<(String, Vec<u32>)>,
+    /// The ICE kinds whose version in force isn't 1.0.0 (from the save's `ice_versions`, in
+    /// the order they shipped): (ICE id, version, program, how it was made). A fight against
+    /// one runs this program in place of its row's, and a board's news reads them.
+    pub ice_programs: Vec<(
+        String,
+        crate::ice_version::Version,
+        String,
+        Option<crate::ice_version::Bump>,
+    )>,
+    /// The sysops at work on each beaten kind (the save's `ice_study`): they keep working in
+    /// the run ([`Action::Study`]).
+    pub ice_study: Vec<crate::ice_study::Study>,
+    /// The save's key, which the sysops' drafts are drawn from (never the run's).
+    pub study_key: u64,
     /// For each of `programs`, the stash id it came from (`None` for a free program). The run
     /// remembers them so the loadout comes home in its place.
     pub origins: Vec<Option<u32>>,
@@ -174,6 +301,9 @@ impl Default for Kit {
             tunes: Vec::new(),
             texts: Vec::new(),
             ice_known: Vec::new(),
+            ice_programs: Vec::new(),
+            ice_study: Vec::new(),
+            study_key: 0,
             origins: Vec::new(),
             free: Vec::new(),
         }
@@ -368,6 +498,14 @@ pub enum Action {
     },
     /// Read a bulletin or a post on the board you're connected to: some open doors.
     Read(Reading),
+    /// The sysops' time ([`crate::ice_study::work`]): `steps` steps of it pass (each study at
+    /// work is owed that many more drafts), and at most `drafts` of what's owed are worked now.
+    /// The app sends it as running time passes. It touches nothing the run plays from (its RNG,
+    /// history, cues and log): a version it ships is met at the next fight with that kind.
+    Study {
+        steps: u32,
+        drafts: u32,
+    },
 }
 
 /// A bulletin or post on a board, by index.
@@ -391,7 +529,8 @@ impl Reading {
 
 #[derive(Clone, Debug)]
 pub struct Game {
-    pub data: Data,
+    /// The game's content, shared: a duel the sysops stage (`duel`) reads the same copy.
+    pub data: std::sync::Arc<Data>,
     pub seed: u64,
     pub rng: Rng,
     pub deck: Deck,
@@ -431,9 +570,31 @@ pub struct Game {
     /// You read a partner directory this run: the starter networks come home with you.
     pub starters_read: bool,
     /// The lines of each ICE's program the deck has seen it run, as (index into `Data::ice`,
-    /// line numbers, sorted): what the save knew at the start, plus every line an ICE's pass
-    /// executes in this run. They come home even on a flatline. Never read by play.
-    pub ice_lines: Vec<(usize, Vec<u32>)>,
+    /// the version they were seen on, line numbers, sorted): what the save knew of the version
+    /// in force at the start, plus every line an ICE's pass executes in this run. They come home
+    /// even on a flatline. Never read by play.
+    pub ice_lines: Vec<(usize, Version, Vec<u32>)>,
+    /// The ICE kinds running a version past 1.0.0, in the order they shipped: (index into
+    /// `Data::ice`, version, its program parsed once, how it was made). From the kit, and
+    /// replaced as the sysops ship mid-run: a fight runs the version in force as it opens.
+    pub ice_versions: Vec<(usize, Version, Program, Option<crate::ice_version::Bump>)>,
+    /// The network's board's news of those versions (`bbs::news_bulletin`).
+    pub news: Option<crate::data::BulletinDef>,
+    /// The sysops at work on each beaten kind (from the kit; `Save::record` takes them home).
+    pub ice_study: Vec<crate::ice_study::Study>,
+    /// The save's key, which their drafts are drawn from.
+    pub study_key: u64,
+    /// The sysops watch this game's fights: a fight the deck wins wakes them. Not in a duel
+    /// they stage themselves.
+    pub watched: bool,
+    /// What they shipped this run, in order: (kind's id, the version it replaced, the new one).
+    /// `Save::record` puts them in force at home.
+    pub shipped: Vec<(String, Version, crate::ice_version::Next)>,
+    /// Every fight this run, in order, as the rules saw it: what its ICE's sysops read in their
+    /// logs. `Save::record` writes the next versions from it.
+    pub bouts: Vec<Bout>,
+    /// The ICE whose fight ended the run in a flatline (an index into `Data::ice`).
+    pub killer: Option<usize>,
     /// What the run has been doing, for the graphs. Watches the rules, never changes them.
     pub history: crate::history::History,
     /// Sound cues waiting to be played. The app drains them each frame.
@@ -577,7 +738,7 @@ impl StepWhat {
 
 impl Game {
     /// A run with the starter deck, the classic four programs (breakers too), and every tool.
-    pub fn new(data: Data, seed: u64) -> Self {
+    pub fn new(data: impl Into<std::sync::Arc<Data>>, seed: u64) -> Self {
         let kit = Kit {
             tools: crate::data::TOOLS.iter().map(|t| t.to_string()).collect(),
             free: CLASSIC_WAREZ.iter().map(|t| t.to_string()).collect(),
@@ -587,7 +748,8 @@ impl Game {
     }
 
     /// A run with a kit from home: the deck's numbers and the chosen loadout.
-    pub fn start(data: Data, seed: u64, kit: &Kit) -> Self {
+    pub fn start(data: impl Into<std::sync::Arc<Data>>, seed: u64, kit: &Kit) -> Self {
+        let data: std::sync::Arc<Data> = data.into();
         let mut rng = Rng::new(seed);
         let net = Network::generate_with(&mut rng, &data, &kit.net);
         let board = if kit.board < data.boards.len() {
@@ -612,9 +774,33 @@ impl Game {
             .iter()
             .filter_map(|(id, lines)| {
                 let ice = data.ice.iter().position(|i| &i.id == id)?;
-                Some((ice, crate::ice_listing::tidy(lines.clone())))
+                let v = kit
+                    .ice_programs
+                    .iter()
+                    .find(|(k, ..)| k == id)
+                    .map_or(Version::default(), |(_, v, ..)| *v);
+                Some((ice, v, crate::ice_listing::tidy(lines.clone())))
             })
             .collect();
+        let ice_versions: Vec<(usize, Version, Program, Option<crate::ice_version::Bump>)> = kit
+            .ice_programs
+            .iter()
+            .filter_map(|(id, v, program, bump)| {
+                let ice = data.ice.iter().position(|i| &i.id == id)?;
+                let verbs = &data.ice[ice].verbs;
+                Some((
+                    ice,
+                    *v,
+                    crate::basic::parse_with(program, Vocab::Ice(verbs)),
+                    *bump,
+                ))
+            })
+            .collect();
+        let news = crate::bbs::news_bulletin(
+            &data.boards[board],
+            &data,
+            &crate::bbs::shipped(&ice_versions),
+        );
         let mut game = Self {
             at: net.entry(),
             outer: None,
@@ -642,6 +828,14 @@ impl Game {
             boards_read: Vec::new(),
             starters_read: false,
             ice_lines,
+            ice_versions,
+            ice_study: kit.ice_study.clone(),
+            study_key: kit.study_key,
+            watched: true,
+            shipped: Vec::new(),
+            bouts: Vec::new(),
+            killer: None,
+            news,
             history: crate::history::History::default(),
             cues: Vec::new(),
             site: kit.site.clone(),
@@ -726,6 +920,22 @@ impl Game {
                 format!("contract from home: {}", self.contract_line(&k)),
             );
             self.contracts.push(k);
+        }
+    }
+
+    /// The deck as it stands, as a [`Kit`]: its numbers, the programs on its HDD and its
+    /// script. What the sysops log of a deck that beat their ICE, to stage duels against.
+    pub fn deck_kit(&self) -> Kit {
+        Kit {
+            ram: self.deck.ram_max,
+            cpu: self.deck.cpu_max,
+            hdd: self.deck.hdd_max,
+            integrity: self.deck.integrity_max,
+            caps: self.deck.caps,
+            programs: self.hdd.iter().map(|s| (s.warez, s.bin)).collect(),
+            program: self.program.text(),
+            mods: self.mods,
+            ..Kit::default()
         }
     }
 
@@ -888,6 +1098,11 @@ impl Game {
 
     /// Applies one player action. Illegal actions change nothing but a log line.
     pub fn apply(&mut self, action: Action) {
+        // The sysops' time: nothing the run plays from hears it.
+        if let Action::Study { steps, drafts } = action {
+            self.study(steps, drafts);
+            return;
+        }
         // A pass is made of actions (each RUN, then the end of the turn), applied one by one
         // so history and cues hear each of them; the pass itself adds nothing on top.
         if matches!(action, Action::Step | Action::Play | Action::Finish) {
@@ -966,7 +1181,53 @@ impl Game {
             Action::Buy { area, file } => self.buy(area, file),
             Action::Patch { slot, bin } => self.patch(slot, bin),
             Action::Optimize { slot } => self.optimize(slot),
+            // `apply` hands the sysops their time before anything else.
+            Action::Study { .. } => unreachable!("applied in `apply`"),
         }
+    }
+
+    /// The sysops' time while the run goes on ([`Action::Study`], [`crate::ice_study::work`]).
+    /// What ships is in force from the next fight with its kind, never in one under way, and is
+    /// met knowing none of its lines. A run that's over is home's to book.
+    fn study(&mut self, steps: u32, drafts: u32) {
+        if matches!(self.phase, Phase::Flatlined | Phase::JackedOut) {
+            return;
+        }
+        let (data, versions) = (&self.data, &self.ice_versions);
+        let shipped = crate::ice_study::work(
+            &mut self.ice_study,
+            data,
+            self.study_key,
+            steps,
+            drafts,
+            |id| {
+                let ice = data.ice_by_id(id)?;
+                Some(match versions.iter().find(|(i, ..)| *i == ice) {
+                    Some((_, v, p, _)) => (*v, p.text()),
+                    None => (Version::default(), data.ice[ice].program.clone()),
+                })
+            },
+        );
+        if shipped.is_empty() {
+            return;
+        }
+        for (id, was, next) in &shipped {
+            let (Some(ice), Some(bump)) = (self.data.ice_by_id(id), next.bump) else {
+                continue;
+            };
+            let verbs = &self.data.ice[ice].verbs;
+            let program = crate::basic::parse_with(&next.program, Vocab::Ice(verbs));
+            self.ice_versions.retain(|(i, ..)| *i != ice);
+            self.ice_versions
+                .push((ice, was.bumped(bump), program, Some(bump)));
+        }
+        self.shipped.extend(shipped);
+        // The board hears of it.
+        self.news = crate::bbs::news_bulletin(
+            self.bbs(),
+            &self.data,
+            &crate::bbs::shipped(&self.ice_versions),
+        );
     }
 
     fn move_to(&mut self, to: usize) -> Result<(), String> {
@@ -1071,16 +1332,64 @@ impl Game {
         self.say(LogKind::Good, format!("uplink: back out at {name}."));
     }
 
+    /// ICE `ice` (an index into `Data::ice`) as a fight screen names it: its name and the version
+    /// of its kind in force this run (`Enigma 1.3.0`). The version is the player's to read, so
+    /// 1.0.0 shows too.
+    pub fn ice_label(&self, ice: usize) -> String {
+        format!("{} {}", self.data.ice[ice].name, self.version_met(ice))
+    }
+
+    /// The version of ICE `ice` the deck meets: the fight's, if it's the one under way (a
+    /// version that landed since opens at the next), else the one in force.
+    pub fn version_met(&self, ice: usize) -> Version {
+        match &self.combat {
+            Some(c) if c.ice == ice => c.ice_version,
+            _ => self.ice_version(ice),
+        }
+    }
+
+    /// The version ICE `ice` (an index into `Data::ice`) runs this run: the kit's, or 1.0.0.
+    pub fn ice_version(&self, ice: usize) -> Version {
+        self.ice_versions
+            .iter()
+            .find(|(i, ..)| *i == ice)
+            .map_or(Version::default(), |(_, v, ..)| *v)
+    }
+
     fn start_combat(&mut self, node: usize, ice: usize) {
         let strength = self.data.ice[ice].strength
             + ICE_STRENGTH_PER_LAYER * self.depth(node)
             + self.mods.ice_bonus;
         let def = &self.data.ice[ice];
-        let (name, class) = (def.name.clone(), def.class.label());
-        let ice_prog = crate::basic::parse_with(&def.program, Vocab::Ice(&def.verbs));
+        let class = def.class.label();
+        // The kind's version in force: the kit's, or 1.0.0, its row's.
+        let ice_version = self.ice_version(ice);
+        let (ice_prog, bump, program) = match self.ice_versions.iter().find(|(i, ..)| *i == ice) {
+            Some((_, _, p, b)) => (p.clone(), *b, p.text()),
+            None => (
+                crate::basic::parse_with(&def.program, Vocab::Ice(&def.verbs)),
+                None,
+                String::new(),
+            ),
+        };
+        self.bouts.push(Bout {
+            ice,
+            version: ice_version,
+            bump,
+            program,
+            start: Start {
+                integrity: self.deck.integrity,
+                trace: self.deck.trace,
+                strength,
+            },
+            script: self.program.text(),
+            broken: false,
+            tells: Vec::new(),
+        });
         self.combat = Some(Combat {
             node,
             ice,
+            ice_version,
             strength,
             strength_max: strength,
             ice_prog,
@@ -1106,9 +1415,10 @@ impl Game {
             pc: self.top(Side::Deck),
             ..Exec::default()
         };
+        let label = self.ice_label(ice);
         self.say(
             LogKind::Bad,
-            format!("!! {name} rezzed [{class}] strength {strength}"),
+            format!("!! {label} rezzed [{class}] strength {strength}"),
         );
     }
 
@@ -1201,6 +1511,10 @@ impl Game {
 
     fn win_combat(&mut self) {
         let Some(c) = self.combat.take() else { return };
+        if let Some(b) = self.bouts.last_mut() {
+            b.broken = true;
+        }
+        self.wake_study(c.ice, c.ice_version);
         self.end_pass();
         self.phase = Phase::Exploring;
         self.net.nodes[c.node].cleared = true;
@@ -1227,6 +1541,31 @@ impl Game {
         }
     }
 
+    /// The deck beat ICE `ice` running `version`: if that's still its kind's version in force,
+    /// its sysops study the deck as it stands, with its script and how the fight opened.
+    fn wake_study(&mut self, ice: usize, version: Version) {
+        if !self.watched {
+            return;
+        }
+        let Some((start, script)) = self.bouts.last().map(|b| (b.start, b.script.clone())) else {
+            return;
+        };
+        if self.ice_version(ice) != version {
+            return;
+        }
+        let id = self.data.ice[ice].id.clone();
+        let mut deck = crate::ice_study::DeckLog::of(&self.deck_kit(), &self.data);
+        deck.script = script;
+        let i = match self.ice_study.iter().position(|s| s.id == id) {
+            Some(i) => i,
+            None => {
+                self.ice_study.push(crate::ice_study::Study::new(&id));
+                self.ice_study.len() - 1
+            }
+        };
+        self.ice_study[i].beaten(version, deck, start);
+    }
+
     /// The end of the deck's turn: the ICE takes its turn, running its program (`Game::line`
     /// from its side) until its cycles, its RAM or its program run out, or it stalls; then the
     /// next turn starts.
@@ -1241,6 +1580,15 @@ impl Game {
         c.marked = None;
         c.ice_cpu = def.cpu;
         c.ice_ifs = def.ram;
+        // What the ICE sees as its turn begins goes in its sysop's logs.
+        let tell = self.tell();
+        if let Some(b) = self.bouts.last_mut() {
+            b.tells.push(tell);
+        }
+        let Some(c) = self.combat.as_mut() else {
+            return Err("no fight in progress.".into());
+        };
+        let def = &self.data.ice[c.ice];
         // A lagged ICE runs its program and does nothing it says: it loses this turn's moves.
         // Said once, however its pass goes.
         if c.stunned {
@@ -1271,7 +1619,7 @@ impl Game {
         self.deck.trace += mods.trace(TRACE_PER_COMBAT_TURN);
         if self.deck.integrity == 0 {
             self.phase = Phase::Flatlined;
-            self.combat = None;
+            self.killer = self.combat.take().map(|c| c.ice);
             self.end_pass();
             self.say(LogKind::Bad, "!! deck integrity zero. FLATLINE.");
             return Ok(());
@@ -1345,25 +1693,35 @@ impl Game {
 
     /// Notes that the deck saw the current ICE run line `no` (`Game::ice_lines`).
     fn saw_ice_line(&mut self, no: u32) {
-        let Some(ice) = self.combat.as_ref().map(|c| c.ice) else {
+        let Some((ice, v)) = self.combat.as_ref().map(|c| (c.ice, c.ice_version)) else {
             return;
         };
-        let lines = match self.ice_lines.iter().position(|(i, _)| *i == ice) {
-            Some(k) => &mut self.ice_lines[k].1,
+        let lines = match self
+            .ice_lines
+            .iter()
+            .position(|(i, w, _)| *i == ice && *w == v)
+        {
+            Some(k) => &mut self.ice_lines[k].2,
             None => {
-                self.ice_lines.push((ice, Vec::new()));
-                &mut self.ice_lines.last_mut().expect("just pushed").1
+                self.ice_lines.push((ice, v, Vec::new()));
+                &mut self.ice_lines.last_mut().expect("just pushed").2
             }
         };
         crate::ice_listing::note_line(lines, no);
     }
 
-    /// The lines of ICE `ice`'s program the deck has seen run (sorted).
+    /// The lines of ICE `ice`'s program the deck has seen run (sorted), on the version it meets
+    /// ([`Game::version_met`]): what was seen of another version says nothing of this one.
     pub fn ice_seen_lines(&self, ice: usize) -> &[u32] {
+        self.ice_lines_of(ice, self.version_met(ice))
+    }
+
+    /// The lines of version `v` of ICE `ice` the deck has seen run (sorted).
+    pub fn ice_lines_of(&self, ice: usize, v: Version) -> &[u32] {
         self.ice_lines
             .iter()
-            .find(|(i, _)| *i == ice)
-            .map_or(&[], |(_, l)| l.as_slice())
+            .find(|(i, w, _)| *i == ice && *w == v)
+            .map_or(&[], |(.., l)| l.as_slice())
     }
 
     /// What an ICE's verb does, as `end_turn` used to do its intent: a hit less the shield
@@ -1431,22 +1789,38 @@ impl Game {
             // Spoofed or lagged, NEXT names no move: the IF is false (and still spent its GB).
             Cond::Next(m) => self.ice_next().is_some_and(|i| m.is(i)),
             Cond::Have(name) => self.slot_named(name).is_some(),
-            Cond::Target(t, op, n) => {
-                let v = match t {
-                    Target::Integ => self.deck.integrity,
-                    Target::Shield => c.map_or(0, |c| c.shield),
-                    Target::Cpu => c.map_or(0, |c| c.cpu),
-                };
-                op.test(v, *n)
+            // An ICE's: read as its sysop will read the logs.
+            Cond::Target(..) | Cond::TargetRan(_) | Cond::SelfStr(..) => {
+                crate::ice_version::holds(cond, self)
             }
-            Cond::TargetRan(name) => c.is_some_and(|c| {
-                self.hdd.iter().any(|s| {
-                    c.ran.contains(&s.uid)
-                        && crate::basic::names(name, &s.spec.name, &self.data.warez[s.warez].id)
-                })
-            }),
-            Cond::SelfStr(op, n) => op.test(c.map_or(0, |c| c.strength), *n),
         }
+    }
+
+    /// The deck as the ICE's conditions read it right now, kept for the logs
+    /// ([`crate::ice_version::Tell`]); a fight reads it in place ([`crate::ice_version::Reads`]).
+    pub fn tell(&self) -> crate::ice_version::Tell {
+        let c = self.combat.as_ref();
+        crate::ice_version::Tell {
+            integ: self.deck.integrity,
+            shield: c.map_or(0, |c| c.shield),
+            cpu: c.map_or(0, |c| c.cpu),
+            ran: c.map_or(Vec::new(), |c| {
+                self.hdd
+                    .iter()
+                    .filter(|s| c.ran.contains(&s.uid))
+                    .map(|s| (s.spec.name.clone(), self.data.warez[s.warez].id.clone()))
+                    .collect()
+            }),
+            strength: c.map_or(0, |c| c.strength),
+            turn: c.map_or(0, |c| c.turn),
+        }
+    }
+
+    /// The ICE whose fight ended the run in a flatline (an index into `Data::ice`): its
+    /// integrity or its trace ran out with that ICE in front. `None` for an exit, or a flatline
+    /// out of a fight (a trace on a hop, an encounter's damage).
+    pub fn killed_by(&self) -> Option<usize> {
+        self.killer.filter(|_| self.phase == Phase::Flatlined)
     }
 
     /// Replaces the deck's program. Stopped partway through a turn, it carries on from the
@@ -2279,7 +2653,8 @@ impl Game {
         if self.deck.trace >= TRACE_MAX {
             self.deck.trace = TRACE_MAX;
             self.phase = Phase::Flatlined;
-            self.combat = None;
+            // Traced out in a fight: that ICE kept you there.
+            self.killer = self.combat.take().map(|c| c.ice);
             self.end_pass();
             self.say(LogKind::Bad, "!! trace complete. they found you. FLATLINE.");
             return true;
@@ -2629,4 +3004,30 @@ pub fn roll_stock(def: &crate::data::BbsDef, rng: &mut Rng) -> Vec<Vec<StockFile
                 .collect()
         })
         .collect()
+}
+
+/// A fight as its ICE's conditions read it, in place: what [`Game::tell`] copies for the logs.
+impl crate::ice_version::Reads for Game {
+    fn target(&self, t: crate::basic::Target) -> u32 {
+        let c = self.combat.as_ref();
+        match t {
+            crate::basic::Target::Integ => self.deck.integrity,
+            crate::basic::Target::Shield => c.map_or(0, |c| c.shield),
+            crate::basic::Target::Cpu => c.map_or(0, |c| c.cpu),
+        }
+    }
+    fn ran(&self, name: &str) -> bool {
+        self.combat.as_ref().is_some_and(|c| {
+            self.hdd.iter().any(|s| {
+                c.ran.contains(&s.uid)
+                    && crate::basic::names(name, &s.spec.name, &self.data.warez[s.warez].id)
+            })
+        })
+    }
+    fn strength(&self) -> u32 {
+        self.combat.as_ref().map_or(0, |c| c.strength)
+    }
+    fn turn(&self) -> u32 {
+        self.combat.as_ref().map_or(0, |c| c.turn)
+    }
 }

@@ -24,6 +24,7 @@ use crate::data::{ChoiceEffect, Data, Drop, Effect, Penalty};
 use crate::fight::Outcome;
 use crate::game::{Action, ContractStatus, ExecState, Game, Phase, StepWhat};
 use crate::hub::{Entry, RunEnd, Save, Upgrade};
+use crate::ice_study::Pace;
 use crate::network::NodeKind;
 use crate::rng::Rng;
 use crate::tuning::{BETRAY_PCT, TRACE_MAX};
@@ -107,6 +108,82 @@ pub const CAREFUL: &str = "\
 610 RUN wyrm
 620 RUN icepick
 630 GOTO 600";
+
+/// The careful bot's second program, for when the ICE have been patched against the first: it
+/// drops the firewall (ICE written against a shielded deck read it) and patches earlier and
+/// harder instead.
+pub const CAREFUL_B: &str = "\
+10 IF INTEG < 10
+20 RUN patch
+30 IF TRACE > 69
+40 RUN scrubber
+50 IF ICE CODEGATE
+60 GOTO 300
+70 IF ICE SENTRY
+80 GOTO 400
+90 GOTO 500
+300 RUN decoder
+310 RUN decoder
+320 RUN decoder
+330 RUN decoder
+340 RUN decoder
+350 RUN decoder
+360 GOTO 600
+400 RUN garrote
+410 RUN garrote
+420 RUN garrote
+430 RUN garrote
+440 RUN garrote
+450 RUN garrote
+460 GOTO 600
+500 RUN crowbar
+510 RUN crowbar
+520 RUN crowbar
+530 RUN crowbar
+540 RUN crowbar
+550 RUN crowbar
+600 RUN torch
+610 RUN wyrm
+620 RUN icepick
+630 GOTO 600";
+
+/// The careful bot's third program: breakers first, every cycle into the ICE, and a firewall or
+/// a patch only once the deck is low, so a read on its defence finds it rarely.
+pub const CAREFUL_C: &str = "\
+10 IF ICE CODEGATE
+20 GOTO 300
+30 IF ICE SENTRY
+40 GOTO 400
+50 GOTO 500
+300 RUN decoder
+310 RUN decoder
+320 RUN decoder
+330 RUN decoder
+340 RUN decoder
+350 GOTO 600
+400 RUN garrote
+410 RUN garrote
+420 RUN garrote
+430 RUN garrote
+440 RUN garrote
+450 GOTO 600
+500 RUN crowbar
+510 RUN crowbar
+520 RUN crowbar
+530 RUN crowbar
+540 RUN crowbar
+600 IF INTEG < 8
+610 RUN patch
+620 IF INTEG < 12
+630 RUN firewall
+640 RUN torch
+650 RUN wyrm
+660 RUN icepick
+670 GOTO 640";
+
+/// The career bot's programs, in the order it rotates through them: when the sysops ship a new
+/// version of a kind it met, or ICE killed it, it writes its next one.
+pub const ROTATION: [&str; 3] = [CAREFUL, CAREFUL_B, CAREFUL_C];
 
 /// The starter kit's `SAFE` (`data/hub/starts.ron`) with `55 RUN icepick` typed in: patch when
 /// low, firewall before an attack, and pick at the ICE. The first edit a player makes, and the
@@ -249,7 +326,20 @@ pub fn play(g: Game, bot: Bot) -> (Game, RunLog) {
 
 /// [`play`], for a runner who already knows the phone ranges in `known` (so it won't buy them
 /// again at a BBS).
-pub fn play_knowing(mut g: Game, bot: Bot, known: &[String]) -> (Game, RunLog) {
+pub fn play_knowing(g: Game, bot: Bot, known: &[String]) -> (Game, RunLog) {
+    play_paced(g, bot, known, None)
+}
+
+/// [`play_knowing`], with the sysops at work in the run at `pace` (none: they aren't). There is
+/// no clock: each bot action is taken to last [`crate::tuning::PROBE_ACTION_MS`] (and a stretch
+/// at home [`crate::tuning::PROBE_HOME_MS`]), paced as the game paces them, every owed draft
+/// worked at once.
+fn play_paced(
+    mut g: Game,
+    bot: Bot,
+    known: &[String],
+    mut pace: Option<&mut Pace>,
+) -> (Game, RunLog) {
     let mut log = RunLog::default();
     let mut shopped: Vec<(bool, usize)> = Vec::new();
     let mut steps = 0;
@@ -261,6 +351,16 @@ pub fn play_knowing(mut g: Game, bot: Bot, known: &[String]) -> (Game, RunLog) {
     let mut clock = FightClock::default();
     while steps < 5_000 {
         steps += 1;
+        if let Some(p) = pace.as_deref_mut() {
+            let busy = crate::ice_study::busy(&g.ice_study);
+            let steps = p.steps(u64::from(crate::tuning::PROBE_ACTION_MS), busy);
+            if steps > 0 {
+                g.apply(Action::Study {
+                    steps,
+                    drafts: u32::MAX,
+                });
+            }
+        }
         match g.phase {
             Phase::Exploring => {
                 if bot != Bot::Dumb {
@@ -866,6 +966,32 @@ pub struct Stats {
     /// Run (1-based) each career first had every deck line at the most any deck takes; 0 if
     /// never.
     pub maxed: Vec<u32>,
+    /// Versions the sysops shipped, per kind (its id) and bump (patch, minor, major), in the
+    /// careful careers and in the SAFE_PICK ones.
+    pub shipped: Vec<(String, [u32; 3])>,
+    pub pick_shipped: Vec<(String, [u32; 3])>,
+    /// Careful career runs by how many kinds were past 1.0.0 when they dialed (none, 1-3,
+    /// 4-6, 7 or more): (runs, exits).
+    pub by_patched: [(u32, u32); 4],
+    /// SAFE_PICK's single runs on a plain network of each tier, as the spot checks play them,
+    /// but against the versions its careers shipped (each career's last, in turn): the same
+    /// program and deck as the spot row, so the difference is the versions.
+    pub versus: [TierStats; 3],
+    /// Drafts the sysops tried, in the careful careers and in the SAFE_PICK ones.
+    pub drafts: [u64; 2],
+}
+
+/// Adds one shipped version of kind `id`, made by `bump`, to a tally.
+fn ship(tally: &mut Vec<(String, [u32; 3])>, id: &str, bump: crate::ice_version::Bump) {
+    let i = bump as usize;
+    match tally.iter_mut().find(|(k, _)| k == id) {
+        Some((_, n)) => n[i] += 1,
+        None => {
+            let mut n = [0; 3];
+            n[i] = 1;
+            tally.push((id.to_string(), n));
+        }
+    }
 }
 
 /// A deck's name cut to `n` characters, so a report line fits the Shell whatever the data
@@ -884,13 +1010,15 @@ fn short(name: &str, n: usize) -> String {
 #[derive(Clone)]
 pub struct Probe {
     cfg: Config,
-    data: Data,
+    data: std::sync::Arc<Data>,
     stats: Stats,
     /// Spot-check runs played (both bots, every tier).
     spot_done: u32,
     career: u32,
     run: u32,
     save: Option<Save>,
+    /// The sysops' time owed in this career.
+    pace: Pace,
     /// The tier this career is playing, and how its recent runs there went (true = exit).
     tier: u32,
     recent: Vec<bool>,
@@ -902,6 +1030,12 @@ pub struct Probe {
     /// The deck careers climb to (an id in `hub/hardware.ron`; empty: the cheapest that takes a
     /// full line further).
     deck: String,
+    /// Which of [`ROTATION`] the careful career is fighting with.
+    rotation: usize,
+    /// The versions each SAFE_PICK career had shipped by its end, and the runs played against
+    /// them so far (`Stats::versus`).
+    finals: Vec<Vec<crate::hub::IceVer>>,
+    versus_done: u32,
 }
 
 impl Probe {
@@ -927,12 +1061,13 @@ impl Probe {
     pub fn new(data: &Data, cfg: Config) -> Probe {
         Probe {
             cfg,
-            data: data.clone(),
+            data: std::sync::Arc::new(data.clone()),
             stats: Stats::default(),
             spot_done: 0,
             career: 0,
             run: 0,
             save: None,
+            pace: Pace::default(),
             tier: 1,
             recent: Vec::new(),
             first: [0, 0],
@@ -940,6 +1075,9 @@ impl Probe {
             maxed: 0,
             kit: String::new(),
             deck: String::new(),
+            rotation: 0,
+            finals: Vec::new(),
+            versus_done: 0,
         }
     }
 
@@ -960,10 +1098,17 @@ impl Probe {
         self.cfg.careers * 2
     }
 
+    /// SAFE_PICK's runs against the careers' versions: a spot check's worth at each tier.
+    fn versus_total(&self) -> u32 {
+        self.cfg.spot_runs * 3
+    }
+
     /// Runs played and runs in all.
     pub fn progress(&self) -> (u32, u32) {
-        let total = self.spot_total() + self.careers_total() * self.cfg.career_runs;
-        let done = self.spot_done + self.career * self.cfg.career_runs + self.run;
+        let total =
+            self.spot_total() + self.careers_total() * self.cfg.career_runs + self.versus_total();
+        let done =
+            self.spot_done + self.career * self.cfg.career_runs + self.run + self.versus_done;
         (done.min(total), total)
     }
 
@@ -979,6 +1124,8 @@ impl Probe {
                 self.spot_run();
             } else if self.career < self.careers_total() {
                 self.career_run();
+            } else if self.versus_done < self.versus_total() {
+                self.versus_run();
             } else {
                 return true;
             }
@@ -991,8 +1138,39 @@ impl Probe {
         let per = self.cfg.spot_runs;
         let (bot_ix, tier, seed) = (k / (per * 3), (k / per) % 3 + 1, u64::from(k % per));
         let bot = Bot::ALL[bot_ix as usize];
+        if let Some((f, banked, log)) = self.single(bot, tier, seed, Vec::new()) {
+            self.stats.spot[bot_ix as usize][tier as usize - 1].add(f, banked, &log);
+        }
+        self.spot_done += 1;
+    }
+
+    /// A SAFE_PICK spot run (same seeds as the spot checks') against the versions a SAFE_PICK
+    /// career shipped.
+    fn versus_run(&mut self) {
+        let k = self.versus_done;
+        let per = self.cfg.spot_runs;
+        let (tier, seed) = (k / per + 1, u64::from(k % per));
+        let versions = match self.finals.len() {
+            0 => Vec::new(),
+            n => self.finals[k as usize % n].clone(),
+        };
+        if let Some((f, banked, log)) = self.single(Bot::SafePick, tier, seed, versions) {
+            self.stats.versus[tier as usize - 1].add(f, banked, &log);
+        }
+        self.versus_done += 1;
+    }
+
+    /// One run by `bot` on a plain network of `tier` from a fresh save running `versions`.
+    fn single(
+        &self,
+        bot: Bot,
+        tier: u32,
+        seed: u64,
+        versions: Vec<crate::hub::IceVer>,
+    ) -> Option<(Fate, u32, RunLog)> {
         let mut save = Save {
             program: Some(bot.program().to_string()),
+            ice_versions: versions,
             ..Save::default()
         };
         save.phonebook.push(Entry {
@@ -1006,13 +1184,13 @@ impl Probe {
             runs: 0,
             last: Vec::new(),
         });
-        if let Ok(g) = save.dial(&self.data, 0, self.cfg.seed ^ seed.wrapping_mul(0x9E37)) {
-            let (g, log) = play(g, bot);
-            let f = fate(&g);
-            let banked = if f == Fate::Exit { g.deck.credits } else { 0 };
-            self.stats.spot[bot_ix as usize][tier as usize - 1].add(f, banked, &log);
-        }
-        self.spot_done += 1;
+        let g = save
+            .dial(&self.data, 0, self.cfg.seed ^ seed.wrapping_mul(0x9E37))
+            .ok()?;
+        let (g, log) = play(g, bot);
+        let f = fate(&g);
+        let banked = if f == Fate::Exit { g.deck.credits } else { 0 };
+        Some((f, banked, log))
     }
 
     /// Whether this career fights with [`SAFE_PICK`]: the second round of careers, on the same
@@ -1024,17 +1202,23 @@ impl Probe {
     fn career_run(&mut self) {
         let picking = self.picking();
         let bot = if picking { Bot::SafePick } else { Bot::Smart };
+        // The careful bot fights with the program it rotated to; SAFE_PICK never changes.
+        let program = if picking {
+            SAFE_PICK
+        } else {
+            ROTATION[self.rotation % ROTATION.len()]
+        };
         let mut rng = Rng::new(
             self.cfg.seed
                 ^ u64::from(self.career % self.cfg.careers.max(1)).wrapping_mul(0xC0FF_EE11)
                 ^ u64::from(self.run).wrapping_mul(0x9E37_79B9),
         );
-        let data = self.data.clone();
+        let data = std::sync::Arc::clone(&self.data);
         let kit = self.kit.clone();
         let save = self.save.get_or_insert_with(|| {
             let mut s = Save {
                 kit,
-                program: Some(bot.program().to_string()),
+                program: Some(program.to_string()),
                 ..Save::default()
             };
             let seed = rng.next_u64();
@@ -1045,7 +1229,7 @@ impl Probe {
         });
         // A garbled line came home from the last run: the bot retypes its program, as a player
         // would at home.
-        save.program = Some(bot.program().to_string());
+        save.program = Some(program.to_string());
         // Call the boards you know first: they're where numbers, tools and breakers come from.
         errands(save, &data);
         // Bring everything stashed that fits.
@@ -1089,14 +1273,56 @@ impl Probe {
             return;
         };
         let known: Vec<String> = save.ranges.iter().map(|r| r.id.clone()).collect();
-        let (g, log) = play_knowing(g, bot, &known);
+        let patched = save.ice_versions.len();
+        let before = save.ice_versions.clone();
+        let tried = |s: &Save| -> u64 { s.ice_study.iter().map(|x| u64::from(x.tried)).sum() };
+        let drafts_before = tried(save);
+        let (g, log) = play_paced(g, bot, &known, Some(&mut self.pace));
         // Take home every program that isn't a starter, while the stash has room.
         let keep: Vec<usize> = (0..g.hdd.len())
             .filter(|&i| !save.free(&data).contains(&g.data.warez[g.hdd[i].warez].id))
             .collect();
         let report = save.record(&g, &keep, &data.rig);
+        // The sysops' time at home, before the next run.
+        let busy = crate::ice_study::busy(&save.ice_study);
+        let steps = self
+            .pace
+            .steps(u64::from(crate::tuning::PROBE_HOME_MS), busy);
+        save.study(&data, steps, u32::MAX);
+        let drafts = tried(save) - drafts_before;
         let banked = report.as_ref().map_or(0, |r| r.banked);
         let f = fate(&g);
+        // What the sysops shipped at this run's end.
+        let new: Vec<(String, crate::ice_version::Bump)> = save
+            .ice_versions
+            .iter()
+            .filter(|v| !before.contains(v))
+            .filter_map(|v| v.bump.map(|b| (v.id.clone(), b)))
+            .collect();
+        self.stats.drafts[usize::from(picking)] += drafts;
+        let tally = if picking {
+            &mut self.stats.pick_shipped
+        } else {
+            &mut self.stats.shipped
+        };
+        for (id, b) in &new {
+            ship(tally, id, *b);
+        }
+        if !picking {
+            let bucket = match patched {
+                0 => 0,
+                1..=3 => 1,
+                4..=6 => 2,
+                _ => 3,
+            };
+            self.stats.by_patched[bucket].0 += 1;
+            self.stats.by_patched[bucket].1 += u32::from(f == Fate::Exit);
+            // A kind it met was patched, or ICE killed it: the careful bot writes its next
+            // program, as a player would.
+            if !new.is_empty() || matches!(f, Fate::Ice | Fate::BlackIce) {
+                self.rotation += 1;
+            }
+        }
         if picking {
             // The second round only says how its runs ended.
             self.stats.career_pick[tier as usize - 1].add(f, banked, &log);
@@ -1358,16 +1584,112 @@ impl Probe {
                 self.stats.first_exit.push(self.first);
                 self.stats.t3_range.push(self.t3_range);
                 self.stats.maxed.push(self.maxed);
+            } else if let Some(s) = &self.save {
+                self.finals.push(s.ice_versions.clone());
             }
             self.t3_range = 0;
             self.maxed = 0;
             self.career += 1;
             self.run = 0;
             self.save = None;
+            self.pace = Pace::default();
+            self.rotation = 0;
             self.tier = 1;
             self.recent.clear();
             self.first = [0, 0];
         }
+    }
+
+    /// What the sysops did: versions shipped per kind, careful careers' exits as more
+    /// kinds are patched, how tier-1 ICE did against the lazy program before and after, and a
+    /// met/unmet line per target: evolved ICE beat SAFE_PICK more than 1.0.0 does, and every
+    /// tier-1 kind ships a version. The careful careers are reported, never judged. Spot runs
+    /// dial from a fresh save, so they stay on 1.0.0.
+    fn versions_report(&self) -> Vec<String> {
+        let s = &self.stats;
+        let careers = u64::from(self.cfg.careers.max(1));
+        let per = |n: u32| n as f32 / careers as f32;
+        let mut out = vec![
+            String::new(),
+            "ICE versions (spot runs stay on 1.0.0)".into(),
+            "  shipped a career   careful: patch minor major  SAFE_PICK: same".into(),
+        ];
+        let tally = |t: &[(String, [u32; 3])], id: &str| {
+            t.iter().find(|(k, _)| k == id).map_or([0; 3], |(_, n)| *n)
+        };
+        for row in &self.data.ice {
+            let (a, b) = (tally(&s.shipped, &row.id), tally(&s.pick_shipped, &row.id));
+            if a == [0; 3] && b == [0; 3] {
+                continue;
+            }
+            out.push(format!(
+                "  {:<12} {:>5.1} {:>5.1} {:>5.1}    {:>5.1} {:>5.1} {:>5.1}",
+                short(&row.name, 12),
+                per(a[0]),
+                per(a[1]),
+                per(a[2]),
+                per(b[0]),
+                per(b[1]),
+                per(b[2])
+            ));
+        }
+        let made = |t: &[(String, [u32; 3])]| t.iter().flat_map(|(_, n)| n).sum::<u32>();
+        let each = |d: u64, n: u32| d as f32 / n.max(1) as f32;
+        out.push(format!(
+            "  drafts tried a version shipped: careful {:.1}, SAFE_PICK {:.1}",
+            each(s.drafts[0], made(&s.shipped)),
+            each(s.drafts[1], made(&s.pick_shipped))
+        ));
+        out.push(format!(
+            "  pace: a draft every {}s; a bot action {}s, home {}s a run",
+            crate::tuning::STUDY_DRAFT_MS / 1000,
+            crate::tuning::PROBE_ACTION_MS / 1000,
+            crate::tuning::PROBE_HOME_MS / 1000
+        ));
+        out.push("  careful runs by kinds patched when dialed   runs  out".into());
+        for (label, (runs, exits)) in ["none", "1-3", "4-6", "7+"].iter().zip(s.by_patched) {
+            out.push(format!("  {label:<44}{runs:>5} {:>3}%", pct(exits, runs)));
+        }
+        out.push("  single runs of SAFE_PICK against the versions its".into());
+        out.push("  careers shipped:      out 1.0.0 / versions   ice+black".into());
+        let pick = Bot::ALL
+            .iter()
+            .position(|b| *b == Bot::SafePick)
+            .expect("SAFE_PICK is a bot");
+        let died = |t: &TierStats| pct(t.ice + t.black_ice, t.runs);
+        for (t, (a, b)) in s.spot[pick].iter().zip(&s.versus).enumerate() {
+            out.push(format!(
+                "    tier {}  {:>21}% / {:>3}%  {:>5}% / {:>3}%",
+                t + 1,
+                a.win_pct(),
+                b.win_pct(),
+                died(a),
+                died(b)
+            ));
+        }
+        let mark = |ok: bool| if ok { "met" } else { "unmet" };
+        let (one, vs) = (&s.spot[pick][0], &s.versus[0]);
+        out.push(format!(
+            "  target: evolved tier-1 ICE beat SAFE_PICK more .... {}",
+            mark(vs.runs > 0 && died(vs) > died(one))
+        ));
+        let tier1: Vec<&str> = self
+            .data
+            .ice
+            .iter()
+            .filter(|i| i.tier == 1)
+            .map(|i| i.id.as_str())
+            .collect();
+        let shipped = tier1
+            .iter()
+            .filter(|id| tally(&s.shipped, id) != [0; 3] || tally(&s.pick_shipped, id) != [0; 3])
+            .count();
+        out.push(format!(
+            "  target: every tier-1 kind ships a version ({shipped} of {}) .. {}",
+            tier1.len(),
+            mark(shipped == tier1.len())
+        ));
+        out
     }
 
     /// The report, as lines that fit the Shell (under 70 characters).
@@ -1464,6 +1786,7 @@ impl Probe {
         out.push("the same careers fighting with SAFE_PICK".into());
         out.push("  tier  runs  out   traced  ice  black  turns/fight".into());
         out.extend(pick_rows);
+        out.extend(self.versions_report());
         out.push(String::new());
         out.push("money".into());
         for (i, c) in CHECKPOINTS.iter().enumerate() {

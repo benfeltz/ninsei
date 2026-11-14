@@ -58,7 +58,16 @@ pub enum Verb {
 }
 
 impl Verb {
-    /// The move it makes, with its number.
+    /// Every verb an ICE may have, in the order `ice.ron`'s header lists them.
+    pub const ALL: [Verb; 5] = [
+        Verb::Attack,
+        Verb::Trace,
+        Verb::Fortify,
+        Verb::Spoof,
+        Verb::Segfault,
+    ];
+
+    /// The move it makes, with its number (the inverse of [`Intent::verb`]).
     pub fn with(self, n: u32) -> Intent {
         match self {
             Verb::Attack => Intent::Attack(n),

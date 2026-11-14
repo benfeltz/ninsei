@@ -161,7 +161,8 @@ fn every_screen_fits_the_terminal() {
             },
             Screen::Hangup { t: 9.0 },
         ];
-        screens.extend((0..g.bbs().bulletins.len()).map(Screen::Bulletin));
+        // Its own bulletins and its ICE news, if it hears any.
+        screens.extend((0..ninsei_core::bbs::Line::bulletin_count(&g)).map(Screen::Bulletin));
         screens.extend((0..g.bbs().areas.len()).map(Screen::Area));
         screens.push(Screen::Messages);
         for (base, m) in g.bbs().messages.iter().enumerate() {
@@ -444,4 +445,186 @@ fn loot_past_the_cap_is_wasted() {
     let last = g.log.iter().rev().find(|l| l.text.contains("cpu")).unwrap();
     assert_eq!(last.kind, LogKind::Sys);
     assert!(last.text.contains("chassis is full"), "{}", last.text);
+}
+
+/// A save whose sysops have shipped, in this order, Rototurret 1.0.1 (a patch), Archer 1.1.0
+/// (a minor) and Enigma 2.0.0 (a major).
+fn shipped_save(d: &Data) -> hub::Save {
+    use ice_version::{Bump, Version};
+    let mut s = hub::Save::default();
+    s.ensure_key(0x93);
+    let v = Version::default();
+    for (id, bump) in [
+        ("rototurret", Bump::Patch),
+        ("archer", Bump::Minor),
+        ("enigma", Bump::Major),
+    ] {
+        let row = d.ice.iter().find(|i| i.id == id).unwrap();
+        s.ice_versions.push(hub::IceVer {
+            id: id.into(),
+            version: v.bumped(bump),
+            program: row.program.clone(),
+            bump: Some(bump),
+        });
+    }
+    s
+}
+
+fn board(d: &Data, id: &str) -> usize {
+    d.boards.iter().position(|b| b.id == id).unwrap()
+}
+
+#[test]
+fn a_new_version_is_news_on_the_boards_that_would_hear_of_it() {
+    use ninsei_core::bbs::Line;
+    let d = Data::builtin().unwrap();
+    let s = shipped_save(&d);
+    let news = |id: &str| s.home_call(&d, &d.rig, board(&d, id)).news().cloned();
+    // The Gutter hears tier 1 and black ICE, newest first, each in its bump's words.
+    let g = news("gutter").expect("the Gutter hears news");
+    assert_eq!(g.title, "ICE WATCH");
+    assert_eq!(g.body.len(), 3, "{:?}", g.body);
+    assert!(g.body[0].contains("Enigma 2.0.0") && g.body[0].contains("rewritten"));
+    assert!(g.body[1].contains("Archer 1.1.0") && g.body[1].contains("trick"));
+    assert!(g.body[2].contains("Rototurret 1.0.1") && g.body[2].contains("patched"));
+    // Dead Sector hears only the black builds.
+    let ds = news("deadsector").expect("Dead Sector hears news");
+    assert_eq!(ds.body.len(), 1, "{:?}", ds.body);
+    assert!(ds.body[0].contains("Archer 1.1.0"));
+    // CorpLink posts a memo, and never says ICE.
+    let c = news("corplink").expect("CorpLink posts its updates");
+    assert_eq!(c.body.len(), 3);
+    for l in std::iter::once(&c.title).chain(&c.body) {
+        assert!(!l.contains("ICE"), "{l}");
+    }
+    // Sense/Net's customer line knows nothing of it.
+    assert!(news("sensenet").is_none());
+    // A rumour never tells what the new version does: no line of any program is quoted.
+    for b in [&g, &ds, &c] {
+        for l in &b.body {
+            for row in &d.ice {
+                for line in row.program.lines().map(str::trim).filter(|l| !l.is_empty()) {
+                    let stmt = line.split_once(' ').map_or(line, |(_, t)| t);
+                    assert!(!l.contains(stmt), "{l} quotes `{stmt}`");
+                }
+            }
+        }
+    }
+}
+
+#[test]
+fn the_news_comes_after_the_boards_own_bulletins_and_says_so_when_quiet() {
+    use ninsei_core::bbs::Line;
+    let d = Data::builtin().unwrap();
+    let gutter = board(&d, "gutter");
+    let quiet = hub::Save::default().home_call(&d, &d.rig, gutter);
+    let all: Vec<_> = (0..quiet.bulletin_count())
+        .map(|i| quiet.bulletin(i).unwrap())
+        .collect();
+    let own = &d.boards[gutter].bulletins;
+    assert_eq!(all.len(), own.len() + 1);
+    for (a, b) in all.iter().zip(own) {
+        assert_eq!((&a.title, &a.body), (&b.title, &b.body));
+    }
+    let news = all.last().unwrap();
+    assert_eq!(news.body, d.boards[gutter].ice_news.as_ref().unwrap().none);
+    assert!(news.on_read.is_none());
+    // In a run the board reads the kit's versions, as at home.
+    let s = shipped_save(&d);
+    let mut kit = s.kit(&d);
+    kit.board = gutter;
+    let g = Game::start(d.clone(), 3, &kit);
+    assert_eq!(
+        g.news().unwrap().body,
+        s.home_call(&d, &d.rig, gutter).news().unwrap().body
+    );
+}
+
+#[test]
+fn a_full_news_bulletin_fits_the_terminal() {
+    use ice_version::{Bump, Version};
+    use ninsei_core::bbs::Line;
+    let d = Data::builtin().unwrap();
+    // Every kind shipped as a major at a long version.
+    let mut s = hub::Save::default();
+    for row in &d.ice {
+        s.ice_versions.push(hub::IceVer {
+            id: row.id.clone(),
+            // Past what the data is checked at: the line is cut at the screen's edge.
+            version: Version {
+                major: 12345,
+                minor: 999,
+                patch: 1000,
+            },
+            program: row.program.clone(),
+            bump: Some(Bump::Major),
+        });
+    }
+    for (i, b) in d.boards.iter().enumerate() {
+        let call = s.home_call(&d, &d.rig, i);
+        let n = call.bulletin_count();
+        let sess = Session {
+            screen: Screen::Bulletin(n - 1),
+            status: None,
+        };
+        let lines = sess.render(&call);
+        assert!(lines.len() <= ROWS, "{}", b.id);
+        for l in &lines {
+            assert!(ansi::visible_len(l) <= COLS, "{}: {}", b.id, ansi::plain(l));
+        }
+    }
+}
+
+#[test]
+fn bad_ice_news_is_rejected() {
+    let src = include_str!("../../../data/bbs/deadsector/board.ron");
+    let parse = |find: &str, replace: &str| {
+        assert!(src.contains(find), "{find}");
+        let board = src.replacen(find, replace, 1);
+        let boards: Vec<BoardSrc> = Sources::builtin()
+            .boards
+            .iter()
+            .map(|b| {
+                if b.id == "deadsector" {
+                    BoardSrc {
+                        board: Box::leak(board.clone().into_boxed_str()),
+                        ..*b
+                    }
+                } else {
+                    *b
+                }
+            })
+            .collect();
+        Data::parse(Sources {
+            boards: Box::leak(boards.into_boxed_slice()),
+            ..Sources::builtin()
+        })
+    };
+    for (find, replace, why) in [
+        ("count: 5,", "count: 0,", "count 0"),
+        ("tiers: [2, 0],", "tiers: [7],", "no ICE of tier 7"),
+        ("tiers: [2, 0],", "tiers: [],", "hears no tiers"),
+        ("new trick. don't", "{who} new trick. don't", "can't fill"),
+        (
+            "minor: \"|12{ice} {version}|08. new trick.",
+            "minor: \"|12{ice}|08. new trick.",
+            "doesn't name {version}",
+        ),
+        (
+            "major: \"|12{ice} {version}|08.",
+            "major: \"|12something {version}|08.",
+            "doesn't name {ice}",
+        ),
+        (
+            "patched. they read their logs.",
+            "patched. they read their logs. they read their logs. they read their logs.",
+            "wider than the terminal",
+        ),
+    ] {
+        let err = parse(find, replace).expect_err(why);
+        assert!(
+            err.contains("deadsector") && err.contains(why),
+            "{why}: {err}"
+        );
+    }
 }

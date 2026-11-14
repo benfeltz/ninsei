@@ -53,6 +53,20 @@
             "|07Core prefixes are worth it. The telco watches those.",
         ]),
     ],
+    // What Dead Sector hears: d1rge on the black builds and the one handle nobody's met.
+    // Short, and never what the new build does.
+    ice_news: Some((
+        title: "NEW BUILDS",
+        tiers: [2, 0],
+        count: 5,
+        none: [
+            "|08Nothing new on the backbones.",
+            "|08Doesn't mean they're not reading their logs.",
+        ],
+        patch: "|12{ice} {version}|08. patched. they read their logs.",
+        minor: "|12{ice} {version}|08. new trick. don't run what you ran.",
+        major: "|12{ice} {version}|08. new code. whatever worked, didn't.",
+    )),
     users: [
         (handle: "d1rge",     location: "???",          doing: "Watching you"),
         (handle: "lag",       location: "Sprawl",       doing: "Uploading (stalled)"),

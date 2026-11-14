@@ -824,7 +824,7 @@ impl Panes<'_> {
                             "",
                             false,
                         ),
-                        ("SUBJECT     ", ice.name.to_uppercase(), "", false),
+                        ("SUBJECT     ", g.ice_label(c.ice).to_uppercase(), "", false),
                         ("CLASS       ", ice.class.label().to_string(), "", false),
                         (
                             "STRENGTH    ",

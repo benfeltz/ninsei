@@ -177,3 +177,31 @@ pub const BLOX_SOFT_POINTS: u32 = 1;
 pub const BLOX_HARD_POINTS: u32 = 2;
 /// MINEFIELD: share of the squares that hide a mine, in percent (at least one mine).
 pub const MINEFIELD_MINE_PCT: usize = 15;
+
+// ICE that patch themselves (141.9).
+
+/// The most weight a read the deck's script kept walking into adds to the grammar's own when
+/// the sysops draft a kind's next version. A read true on every turn of the script's duels
+/// against the version in force gets all of it; one never true, none.
+pub const BIAS_WEIGHT: u32 = 6;
+
+// The sysops' simulator (141.9.4, `ice_study.rs`): how a kind's next version is found.
+
+/// The bar: how much more a draft must cost the deck than the version in force, in points a
+/// fight (integrity lost as a percent of the deck's most, plus trace gained), summed over the
+/// starts it's fought from. The first draft over it ships.
+pub const STUDY_BAR: u32 = 5;
+/// The patience: drafts tried of a version before its sysops rest without shipping, until the
+/// deck beats it again. The first third are patches, the next minors, the last majors.
+pub const STUDY_PATIENCE: u32 = 24;
+/// The pace: milliseconds of running time a draft takes, at work or idle alike. Each kind
+/// under study gets one draft per this many, so a version that ships in its first few dozen
+/// drafts lands within a few minutes of the deck beating it.
+pub const STUDY_DRAFT_MS: u32 = 5_000;
+/// The fights a study keeps to stage its duels from: the latest this many it lost.
+pub const STUDY_STARTS: usize = 6;
+/// The probe has no clock, so it assumes how long its bots take: milliseconds of play an
+/// action takes (a move, a turn of a fight, a choice), and the time spent at home between two
+/// runs. Each becomes the sysops' drafts at `STUDY_DRAFT_MS`, and the report prints both.
+pub const PROBE_ACTION_MS: u32 = 3_000;
+pub const PROBE_HOME_MS: u32 = 60_000;

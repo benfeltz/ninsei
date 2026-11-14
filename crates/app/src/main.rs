@@ -30,6 +30,7 @@ mod shopper;
 mod sound;
 mod stack;
 mod suite;
+mod sysops;
 mod system;
 mod system_tui;
 mod theme;
@@ -249,7 +250,10 @@ fn drive_program(game: &mut Game, now: f64, next: &mut Option<f64>) -> Option<f6
 struct App {
     /// When a running program's next line is due (`drive_program`).
     next_line: Option<f64>,
-    data: Data,
+    /// The game's content, shared with every run and every duel the sysops stage.
+    data: std::sync::Arc<Data>,
+    /// The sysops' clock: running time turned into drafts.
+    sysops: sysops::Clock,
     save: Save,
     /// The save changed and should be written this frame.
     save_dirty: bool,
@@ -304,6 +308,8 @@ struct App {
 
 impl App {
     fn new(cc: &eframe::CreationContext<'_>, data: Data, first_seed: Option<u64>) -> Self {
+        // Shared with every run from here on, never copied.
+        let data = std::sync::Arc::new(data);
         let mut boot = vec![
             String::new(),
             String::new(),
@@ -363,6 +369,7 @@ impl App {
             },
             bbs_heard: false,
             data,
+            sysops: sysops::Clock::default(),
             save,
             save_dirty: keyed,
             keep: Vec::new(),
@@ -699,6 +706,45 @@ impl App {
             let _ = self.dock.set_active_tab(path);
         }
         self.screen = Screen::JackIn { t: 0.0 };
+    }
+
+    /// The sysops' time at running time `now` (seconds): its steps go to the run's studies
+    /// while a run is on (`Action::Study`, through the rules), else to the save's
+    /// (`Save::study`), and at most `DRAFTS_PER_FRAME` owed drafts are worked a frame. Returns
+    /// how long until the next is due, while any are at work.
+    fn sysops_tick(&mut self, now: f64) -> Option<f64> {
+        use ninsei_core::ice_study::{busy, owed};
+        let in_run = self.booked.is_none() && self.screen != Screen::Hub;
+        // A run that's over and not yet home (the keep picker, the crash screen) can't spend
+        // the time, and its studies aren't the save's yet: the clock isn't read, so the time
+        // goes to the save's once it's booked.
+        if in_run && matches!(self.game.phase, Phase::JackedOut | Phase::Flatlined) {
+            return None;
+        }
+        let studies = if in_run {
+            &self.game.ice_study
+        } else {
+            &self.save.ice_study
+        };
+        let steps = self.sysops.steps(now, busy(studies));
+        if steps > 0 || owed(studies) {
+            let drafts = sysops::DRAFTS_PER_FRAME;
+            if in_run {
+                self.game.apply(Action::Study { steps, drafts });
+            } else if self.save.study(&self.data, steps, drafts) > 0 {
+                self.save_dirty = true;
+            }
+        }
+        let studies = if in_run {
+            &self.game.ice_study
+        } else {
+            &self.save.ice_study
+        };
+        if owed(studies) {
+            Some(0.0)
+        } else {
+            busy(studies).then(|| self.sysops.wait())
+        }
     }
 
     /// Books the run in the save once it's over (exit or flatline).
@@ -1335,6 +1381,10 @@ impl eframe::App for App {
             && let Some(wait) =
                 drive_program(&mut self.game, ctx.input(|i| i.time), &mut self.next_line)
         {
+            ctx.request_repaint_after(std::time::Duration::from_secs_f64(wait));
+        }
+        // The sysops work on running time, whatever the player is doing.
+        if let Some(wait) = self.sysops_tick(ctx.input(|i| i.time)) {
             ctx.request_repaint_after(std::time::Duration::from_secs_f64(wait));
         }
         self.glitch = glitch::Glitch::frame(&ctx, &self.game, self.save.glitches, live);
@@ -2120,6 +2170,131 @@ mod tests {
             unpacked(&r).as_deref(),
             Some("Unpacked: HexEd, BLOX [PHS], CHROMA")
         );
+    }
+
+    mod sysops_clock {
+        use super::*;
+        use ninsei_core::ice_study::{DeckLog, Study};
+        use ninsei_core::ice_version::Version;
+        use ninsei_core::tuning::{STUDY_DRAFT_MS, STUDY_PATIENCE};
+
+        const DRAFT: f64 = STUDY_DRAFT_MS as f64 / 1000.0;
+
+        fn app() -> App {
+            let h = crate::uitest::Harness::new(1280.0, 800.0);
+            let cc = eframe::CreationContext::_new_kittest(h.ctx.clone());
+            App::new(&cc, Data::builtin().unwrap(), Some(7))
+        }
+
+        /// Sysops at work on Enigma 1.0.0, woken by SAFE_PICK beating it on three seeds.
+        fn enigma_study(d: &std::sync::Arc<Data>) -> Study {
+            let mut s = Study::new("enigma");
+            for seed in 1..=3 {
+                let mut g = Game::new(std::sync::Arc::clone(d), seed);
+                g.apply(Action::Program(ninsei_core::probe::SAFE_PICK.into()));
+                let to = g.net.nodes[g.at].links[0];
+                g.net.nodes[to].kind = ninsei_core::NodeKind::Ice;
+                g.net.nodes[to].ice = d.ice_by_id("enigma");
+                g.net.nodes[to].cleared = false;
+                g.apply(Action::Move(to));
+                let start = g.bouts.last().unwrap().start;
+                s.beaten(Version::FIRST, DeckLog::of(&g.deck_kit(), d), start);
+            }
+            s
+        }
+
+        #[test]
+        fn time_at_home_ships_a_version_for_a_studied_kind_idle_or_not() {
+            let mut app = app();
+            // A fresh save's key is random; on this one Enigma finds a counter in its patience.
+            app.save.key = 0x9_1494;
+            app.save.ice_study = vec![enigma_study(&app.data)];
+            app.save_dirty = false;
+            let mut t = 100.0;
+            assert!(
+                app.sysops_tick(t).is_some(),
+                "at work: the next draft is due"
+            );
+            // No input at all: the player is away. Time still passes.
+            for _ in 0..STUDY_PATIENCE * 2 {
+                t += DRAFT;
+                app.sysops_tick(t);
+            }
+            assert!(app.save.ice_study[0].rest);
+            assert!(
+                !app.save.ice_versions.is_empty(),
+                "{:?}",
+                app.save.ice_study
+            );
+            assert!(app.save_dirty);
+            assert_eq!(app.sysops_tick(t + 1000.0), None, "resting: nothing due");
+        }
+
+        #[test]
+        fn time_with_nothing_studied_does_nothing() {
+            let mut app = app();
+            let before = app.save.clone();
+            assert_eq!(app.sysops_tick(1.0), None);
+            assert_eq!(app.sysops_tick(10_000.0), None);
+            assert_eq!(app.save.ice_versions, before.ice_versions);
+            assert_eq!(app.save.ice_study, before.ice_study);
+        }
+
+        #[test]
+        fn a_hitch_is_worked_off_a_few_drafts_a_frame_however_many_are_at_work() {
+            let mut app = app();
+            let mut other = enigma_study(&app.data);
+            other.id = "tollbooth".into();
+            app.save.ice_study = vec![enigma_study(&app.data), other];
+            app.sysops_tick(0.0);
+            app.sysops_tick(DRAFT * 1000.0);
+            let tried = |app: &App| app.save.ice_study.iter().map(|s| s.tried).sum::<u32>();
+            assert_eq!(
+                tried(&app),
+                sysops::DRAFTS_PER_FRAME,
+                "a frame's worth, not a step's"
+            );
+            assert_eq!(
+                app.sysops_tick(DRAFT * 1000.0),
+                Some(0.0),
+                "more owed: next frame"
+            );
+            assert_eq!(tried(&app), 2 * sysops::DRAFTS_PER_FRAME);
+        }
+
+        #[test]
+        fn time_at_the_exit_is_the_save_s_once_the_run_is_booked() {
+            let mut app = app();
+            app.save.ice_study = vec![enigma_study(&app.data)];
+            let entry = app.save.phonebook[0].id;
+            app.dial(entry, Some(7));
+            app.screen = Screen::Run;
+            app.sysops_tick(0.0);
+            app.game.phase = Phase::JackedOut;
+            // Sitting on the keep picker: nothing the run can spend, nothing lost.
+            assert_eq!(app.sysops_tick(DRAFT * 1.5), None);
+            assert_eq!(app.game.ice_study[0].tried, 0);
+            app.book();
+            app.sysops_tick(DRAFT * 1.5);
+            assert_eq!(app.save.ice_study[0].tried, 1, "the exit's time, at home");
+        }
+
+        #[test]
+        fn in_a_run_the_time_goes_to_the_run_s_sysops() {
+            let mut app = app();
+            app.save.ice_study = vec![enigma_study(&app.data)];
+            let entry = app.save.phonebook[0].id;
+            app.dial(entry, Some(7));
+            app.screen = Screen::Run;
+            assert_eq!(app.game.ice_study.len(), 1, "the kit carried them in");
+            app.sysops_tick(0.0);
+            app.sysops_tick(DRAFT * 1.5);
+            assert_eq!(app.game.ice_study[0].tried, 1);
+            assert_eq!(
+                app.save.ice_study[0].tried, 0,
+                "home's copy waits for the run"
+            );
+        }
     }
 
     mod sound_pop_out {
