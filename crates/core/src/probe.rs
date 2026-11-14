@@ -1300,12 +1300,7 @@ impl Probe {
         let new: Vec<(String, crate::ice_version::Bump)> = save
             .ice_versions
             .iter()
-            // A version, not its crack, which the clock moves on every one.
-            .filter(|v| {
-                !before
-                    .iter()
-                    .any(|b| b.id == v.id && b.version == v.version && b.program == v.program)
-            })
+            .filter(|v| !before.iter().any(|b| b.same_version(v)))
             .filter_map(|v| v.bump.map(|b| (v.id.clone(), b)))
             .collect();
         self.stats.drafts[usize::from(picking)] += drafts;
