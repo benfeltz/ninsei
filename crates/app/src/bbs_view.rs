@@ -113,7 +113,8 @@ impl BbsView {
         let mut clicked: Option<char> = None;
 
         let connecting = self.session.connecting();
-        let shown = egui::Window::new(Session::title(game))
+        let mut terminal = egui::Rect::NOTHING;
+        egui::Window::new(Session::title(game))
             .id(egui::Id::new("bbs"))
             .order(self.order)
             .anchor(Align2::CENTER_CENTER, vec2(0.0, -20.0))
@@ -133,16 +134,15 @@ impl BbsView {
                     .into_iter()
                     .map(|l| if blink { l } else { l.replace("|15_", "|15 ") })
                     .collect();
-                paint_screen(ui, &lines, self.color, p);
+                terminal = paint_screen(ui, &lines, self.color, p);
 
                 let keys = self.session.keys(game);
                 if let Some(k) = key_bar(ui, &keys, &mut self.color, p) {
                     clicked = Some(k);
                 }
             });
-        let on_window =
-            |at: egui::Pos2| shown.as_ref().is_some_and(|w| w.response.rect.contains(at));
-        if connecting && click.is_some_and(on_window) {
+        // Only the terminal itself: the key bar's display switch is still just a switch.
+        if connecting && click.is_some_and(|at| terminal.contains(at)) {
             out.push(self.session.skip(game));
         }
         if let Some(k) = clicked {
@@ -206,9 +206,10 @@ fn button_width(ui: &egui::Ui, text: &str) -> f32 {
 }
 
 /// Paints pipe-coded lines as an 80x24 ANSI terminal: true CGA colours, or the phosphor (`p`)
-/// in four intensities. The BBS window and the QWK reader both draw through it.
-pub fn paint_screen(ui: &mut egui::Ui, lines: &[String], color: bool, p: &Palette) {
-    paint_screen_at(ui, lines, color, p, 1.0);
+/// in four intensities. The BBS window and the QWK reader both draw through it. Returns where
+/// the terminal is.
+pub fn paint_screen(ui: &mut egui::Ui, lines: &[String], color: bool, p: &Palette) -> egui::Rect {
+    paint_screen_at(ui, lines, color, p, 1.0)
 }
 
 /// The room the 80x24 terminal takes at its own size, padding and all.
@@ -230,7 +231,13 @@ pub fn paint_screen_fit(ui: &mut egui::Ui, lines: &[String], color: bool, p: &Pa
     paint_screen_at(ui, lines, color, p, scale);
 }
 
-fn paint_screen_at(ui: &mut egui::Ui, lines: &[String], color: bool, p: &Palette, scale: f32) {
+fn paint_screen_at(
+    ui: &mut egui::Ui,
+    lines: &[String],
+    color: bool,
+    p: &Palette,
+    scale: f32,
+) -> egui::Rect {
     let font = FontId::new(FONT_SIZE * scale, FontFamily::Monospace);
     let fgc = |i: u8| if color { cga(i) } else { mono(i, p) };
     let bgc_of = |i: u8| {
@@ -285,6 +292,7 @@ fn paint_screen_at(ui: &mut egui::Ui, lines: &[String], color: bool, p: &Palette
             g.run(&painter, from, row, &run, fg);
         }
     }
+    rect
 }
 
 #[cfg(test)]
@@ -337,6 +345,19 @@ mod tests {
         assert!(show(&mut h, &mut v, &g, ev).is_empty());
         assert!(v.session.connecting(), "the connect plays");
         assert_eq!(show(&mut h, &mut v, &g, text("x")), [Outcome::Cut]);
+    }
+
+    #[test]
+    fn the_display_switch_is_only_a_switch_while_it_connects() {
+        let g = run();
+        let mut h = Harness::new(1280.0, 800.0);
+        let mut v = BbsView::new();
+        show(&mut h, &mut v, &g, Vec::new());
+        show(&mut h, &mut v, &g, Vec::new());
+        let switch = h.find("display: ANSI color").expect("the switch").center();
+        assert!(show(&mut h, &mut v, &g, click(switch)).is_empty());
+        assert!(!v.color, "it switched");
+        assert!(v.session.connecting(), "and didn't skip");
     }
 
     #[test]
