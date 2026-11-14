@@ -163,6 +163,22 @@ fn the_ice_db_lists_the_notes_with_the_source() {
         .position(|l| l.ends_with("IF TARGET SHIELD > 0"))
         .unwrap();
     assert!(page[at + 1].contains("Reviewer"));
+    // The notes are muted, as every deck dims them; the program isn't.
+    let muted: Vec<String> = e
+        .page(&s, &d)
+        .into_iter()
+        .filter(|l| l.muted)
+        .map(|l| l.text)
+        .collect();
+    assert!(
+        muted.iter().all(|l| l.trim_start().starts_with("REM")),
+        "{muted:?}"
+    );
+    assert_eq!(
+        muted.len(),
+        4,
+        "the three header lines and the remark: {muted:?}"
+    );
 }
 
 #[test]
