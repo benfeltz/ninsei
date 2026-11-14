@@ -8,6 +8,7 @@
 //! theme colours (lit ink on dark paper); anything it doesn't draw is Classic.
 
 use egui::{Align2, Color32, Id, Rect, RichText, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
+use ninsei_core::game::ForecastKey;
 use ninsei_core::stack_fight::{self, Block, BlockKind, Field};
 use ninsei_core::{Action, Game, LogKind, Phase, tuning};
 
@@ -562,6 +563,23 @@ fn palette_fit(width: f32, gap: f32) -> (f32, bool) {
     (alone.clamp(look::CHIP_MIN, look::CHIP_W), true)
 }
 
+/// The turn's forecast of starved lines (`Game::starved`), kept in egui memory and taken
+/// again only when what it reads has changed (`Game::forecast_key`): the card is drawn every
+/// frame, the forecast plays a pass on a copy of the game.
+fn forecast(ui: &Ui, g: &Game) -> Vec<u32> {
+    let id = Id::new("stack-forecast");
+    let key = g.forecast_key();
+    let kept = ui.data(|d| d.get_temp::<(ForecastKey, Vec<u32>)>(id));
+    if let Some((k, starved)) = kept
+        && k == key
+    {
+        return starved;
+    }
+    let starved = g.starved();
+    ui.data_mut(|d| d.insert_temp(id, (key, starved.clone())));
+    starved
+}
+
 /// The least room between a hang and the gauges on the Script card's title line, and between
 /// the two gauges.
 const BESIDE_GAP: f32 = 12.0;
@@ -696,7 +714,7 @@ fn title_line(ui: &mut Ui, card: &stack_fight::Card, look: &liza::Look) {
 /// presses become actions; nothing here changes the game.
 fn script_card(p: &mut Panes, ui: &mut Ui) {
     let g = p.game;
-    let card = stack_fight::card(g);
+    let card = stack_fight::card_with(g, &forecast(ui, g));
     let look = card_look(p, ui);
     let ink = look.ink;
     let mut acts: Vec<Action> = Vec::new();
@@ -2234,6 +2252,29 @@ pub(crate) mod tests {
         let out = script(&mut h, &g, (340.0, 700.0), ev);
         apply(&mut g, out);
         assert_eq!(g.program.line(last - 10).unwrap().text, "RUN torch");
+    }
+
+    #[test]
+    fn the_kept_forecast_follows_the_game() {
+        let mut g = fight("10 IF INTEG > 0\n20 RUN icepick\n30 RUN icepick");
+        let c = g.combat.as_mut().unwrap();
+        (c.strength, c.strength_max) = (500, 500);
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        script(&mut h, &g, PANE, vec![]);
+        script(&mut h, &g, PANE, vec![]);
+        let row = |h: &crate::uitest::Harness| h.find("line 30").unwrap();
+        assert!(!greyed(&h, row(&h)), "two cycles for two picks");
+        // The hotbar spends two cycles: the last pick starves, and the card says so.
+        g.apply(Action::Step);
+        let pick = g.slot_named("icepick").unwrap();
+        g.apply(Action::Run(pick));
+        g.apply(Action::Run(pick));
+        script(&mut h, &g, PANE, vec![]);
+        assert!(greyed(&h, row(&h)));
+        // The next turn has the cycles again: the grey goes.
+        g.apply(Action::EndTurn);
+        script(&mut h, &g, PANE, vec![]);
+        assert!(!greyed(&h, row(&h)));
     }
 
     #[test]

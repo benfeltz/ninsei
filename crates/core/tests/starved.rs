@@ -199,6 +199,51 @@ fn the_forecast_never_reads_a_next_its_own_runs_may_have_changed() {
     assert_eq!(g.starved(), [60]);
 }
 
+/// A screen keeps the forecast while `forecast_key` holds: through real play (Steps, hotbar
+/// runs, edits), an unchanged key never hides a changed forecast.
+#[test]
+fn the_forecast_key_moves_whenever_the_forecast_could() {
+    let data = Data::builtin().unwrap();
+    let mut seen: Vec<(game::ForecastKey, Vec<u32>)> = Vec::new();
+    let mut check = |g: &Game| {
+        let (key, starved) = (g.forecast_key(), g.starved());
+        if let Some((_, was)) = seen.iter().find(|(k, _)| *k == key) {
+            assert_eq!(*was, starved, "same key, another forecast");
+        } else {
+            seen.push((key, starved));
+        }
+    };
+    for program in probe::ROTATION {
+        for seed in 0..3u64 {
+            for ice in 0..data.ice.len() {
+                let mut g = run_with(
+                    seed + ice as u64,
+                    3,
+                    6,
+                    &["icepick", "patch", "firewall", "torch"],
+                );
+                g.apply(Action::Program(program.to_string()));
+                into_fight(&mut g, ice, None);
+                for i in 0..40 {
+                    if g.phase != Phase::Combat {
+                        break;
+                    }
+                    check(&g);
+                    match i % 7 {
+                        3 => {
+                            let pick = g.slot_named("icepick").unwrap();
+                            g.apply(Action::Run(pick));
+                        }
+                        5 => g.apply(Action::Program(format!("{program}\n9 RUN torch"))),
+                        _ => g.apply(Action::Step),
+                    }
+                }
+            }
+        }
+    }
+    assert!(seen.len() > 200, "{} keys", seen.len());
+}
+
 #[test]
 fn the_forecast_changes_nothing() {
     let mut g = run_with(11, 3, 6, &["icepick", "patch", "firewall", "torch"]);

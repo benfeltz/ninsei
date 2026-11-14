@@ -768,6 +768,19 @@ fn finish(mut starved: Vec<u32>, went: Vec<u32>) -> Vec<u32> {
     starved
 }
 
+/// What the forecast of starved lines reads ([`Game::forecast_key`]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ForecastKey {
+    tick: u32,
+    phase: Phase,
+    place: (usize, u32),
+    fight: Option<[u32; 7]>,
+    deck: (u32, u32, u32),
+    disk: Vec<u32>,
+    exec: Exec,
+    program: String,
+}
+
 /// Where the deck's pass stood before a line ([`Game::deck_mark`]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct DeckMark {
@@ -1157,6 +1170,32 @@ impl Game {
             starved.extend(g.walk_from(from));
         }
         finish(starved, went)
+    }
+
+    /// What [`Game::starved`] reads, cheap to take and compare: a screen that keeps the forecast
+    /// asks again only when this changes. Every action that changes the fight moves the
+    /// history's clock; Steps that execute no RUN move the pass; edits change the program.
+    pub fn forecast_key(&self) -> ForecastKey {
+        ForecastKey {
+            tick: self.history.tick,
+            phase: self.phase,
+            place: (self.at, self.hops),
+            fight: self.combat.as_ref().map(|c| {
+                [
+                    c.node as u32,
+                    c.turn,
+                    c.cpu,
+                    c.ifs,
+                    c.strength,
+                    c.spoofed,
+                    c.stunned as u32,
+                ]
+            }),
+            deck: (self.deck.integrity, self.deck.trace, self.deck.cpu_max),
+            disk: self.hdd.iter().map(|s| s.uid).collect(),
+            exec: self.exec.clone(),
+            program: self.program.text(),
+        }
     }
 
     /// Where the deck's pass stands, to read the steps a line adds after it

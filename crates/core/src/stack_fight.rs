@@ -328,13 +328,18 @@ fn block(g: &Game, l: &basic::Line, pc: Option<u32>, fighting: bool, starved: &[
 
 /// The card, as the game stands.
 pub fn card(g: &Game) -> Card {
+    card_with(g, &g.starved())
+}
+
+/// The card, with the turn's forecast of starved lines already taken (`Game::starved`): a
+/// screen that draws every frame keeps it until `Game::forecast_key` changes.
+pub fn card_with(g: &Game, starved: &[u32]) -> Card {
     let fighting = g.phase == Phase::Combat && g.combat.is_some();
-    let starved = g.starved();
     let blocks = g
         .program
         .lines
         .iter()
-        .map(|l| block(g, l, g.exec.pc, fighting, &starved))
+        .map(|l| block(g, l, g.exec.pc, fighting, starved))
         .collect();
     let stray = g
         .program
