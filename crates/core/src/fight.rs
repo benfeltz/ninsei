@@ -60,8 +60,8 @@ impl Game {
         let Some(c) = self.combat.as_ref() else {
             return Err("nothing to run against.".into());
         };
-        if c.cpu < w.cpu {
-            return Err(format!("{} needs {} cpu, {} left.", w.name, w.cpu, c.cpu));
+        if let Some(why) = short_of(w, c.cpu) {
+            return Err(why);
         }
         if w.effect == Effect::Stun && c.stun_immune {
             return Err("the ICE has adapted to lag. a stun won't land this turn.".into());
@@ -91,6 +91,12 @@ impl Game {
             outcome,
         })
     }
+}
+
+/// Why program `w` can't run on `cpu` cycles, if it can't: the preview's words. Outside a fight
+/// the forecast asks it of the deck's cycles a turn (`Game::starved`).
+pub(crate) fn short_of(w: &crate::binary::Spec, cpu: u32) -> Option<String> {
+    (cpu < w.cpu).then(|| format!("{} needs {} cpu, {} left.", w.name, w.cpu, cpu))
 }
 
 /// What the ICE's NEXT shows, the same on every screen: its next move, lagged, or nothing this

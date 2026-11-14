@@ -146,11 +146,7 @@ fn the_deck_card_words_the_limits_from_the_deck() {
     g.apply(Action::Finish);
     let b = stack_fight::budgets(&g);
     assert_eq!(b.ifs.0, g.deck.ram_max - 1, "the IF spent a GB");
-    assert!(b.left_words().starts_with(&format!(
-        "{} of {} IFs",
-        g.deck.ram_max - 1,
-        g.deck.ram_max
-    )));
+    assert_eq!(b.gauges()[1], ("RAM", g.deck.ram_max - 1, g.deck.ram_max));
 }
 
 #[test]
@@ -175,12 +171,11 @@ fn outside_a_fight_the_card_shows_the_program_and_wont_play() {
         card.blocks.iter().all(|b| !b.current),
         "no line about to run"
     );
-    // The deck's limits a turn, not a countdown.
-    assert_eq!(card.budget_words(), "6 IFs, 3 cycles/turn");
+    // The gauges full: the deck's limits a turn, not a countdown.
+    assert_eq!(card.budgets.gauges(), [("CPU", 3, 3), ("RAM", 6, 6)]);
     let (_, g) = fight();
     let card = stack_fight::card(&g);
     assert!(card.fighting);
-    assert_eq!(card.budget_words(), card.budgets.left_words());
 }
 
 #[test]

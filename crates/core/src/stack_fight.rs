@@ -1,7 +1,9 @@
 //! The Sense/Net's fight screen, decided here and drawn by the app's Stack chrome: the Script
 //! card, the Script pane's face, on screen for the whole run. The deck's program is a stack of
 //! operator blocks (RUN, IF, GOTO, STOP), each with fields for its parameters; a gutter mark on
-//! the line about to run; Step, Run and Pause, which only press with ICE in front.
+//! the line about to run, greyed when the turn won't execute it, and indented under the IFs that
+//! guard it; the CPU and RAM gauges; the transport (Step, Run, fast-forward and Pause), which
+//! only presses with ICE in front.
 //! Every edit is an `Action::Program` with one line rewritten, so the card never holds a
 //! program of its own. Reference: HyperCard 1.2's button script editor, 1-bit.
 
@@ -89,14 +91,66 @@ pub struct Block {
     pub current: bool,
     /// Why it won't run as written, in the interpreter's words.
     pub fault: Option<String>,
+    /// The turn won't execute it (`Game::starved`): drawn grey, with no words to say why.
+    pub starved: bool,
+    /// How many IFs directly above guard it: 0, or one more for each IF in a row above it
+    /// (two IFs in a row are an AND, `basic::Program::skip`). Drawn as an indent.
+    pub depth: u32,
 }
 
-/// Which of Step, Run and Pause can be pressed. Run is the default (Enter) while it can be.
+/// A button of the transport, a hi-fi's row: Step, Play, fast-forward, Pause.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Transport {
+    Step,
+    Play,
+    Fast,
+    Pause,
+}
+
+impl Transport {
+    /// The row, left to right.
+    pub const ALL: [Transport; 4] = [
+        Transport::Step,
+        Transport::Play,
+        Transport::Fast,
+        Transport::Pause,
+    ];
+
+    /// What it does, when pressed.
+    pub fn action(self) -> Action {
+        match self {
+            Transport::Step => Action::Step,
+            Transport::Play => Action::Play,
+            Transport::Fast => Action::FastForward,
+            Transport::Pause => Action::Pause,
+        }
+    }
+}
+
+/// Which of the transport's buttons can be pressed, and which one is held in. Run (Play) is the
+/// default (Enter) while it can be.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Buttons {
     pub step: bool,
     pub run: bool,
+    /// Fast-forward: in a fight it always presses (in, or back up).
+    pub ff: bool,
     pub pause: bool,
+    /// The button held in, as a hi-fi's stays down: Play while the program plays at pace, FF
+    /// while it plays fast, Pause while it's paused (or stopped) in a fight; none outside one.
+    pub latched: Option<Transport>,
+}
+
+impl Buttons {
+    /// Whether `t` can be pressed.
+    pub fn enabled(&self, t: Transport) -> bool {
+        match t {
+            Transport::Step => self.step,
+            Transport::Play => self.run,
+            Transport::Fast => self.ff,
+            Transport::Pause => self.pause,
+        }
+    }
 }
 
 /// The deck's limits this turn, and how the Sense/Net words them.
@@ -126,16 +180,14 @@ impl Budgets {
         format!("{} of {}", self.hdd.0, self.hdd.1)
     }
 
-    /// The Script card's title line: what's left this turn.
-    pub fn left_words(&self) -> String {
-        let cycles = self.cpu.0;
-        format!(
-            "{} of {} IFs, {} cycle{} left",
-            self.ifs.0,
-            self.ifs.1,
-            cycles,
-            if cycles == 1 { "" } else { "s" }
-        )
+    /// The Script card's title line: two labelled gauges, `CPU` a block per cycle and `RAM` a
+    /// block per IF, as (label, left, most). Filled for what's left this turn in a fight, full
+    /// outside one. The blocks are the count: no numbers beside them.
+    pub fn gauges(&self) -> [(&'static str, u32, u32); 2] {
+        [
+            ("CPU", self.cpu.0, self.cpu.1),
+            ("RAM", self.ifs.0, self.ifs.1),
+        ]
     }
 }
 
@@ -158,16 +210,6 @@ impl Card {
     /// The title line's left side while a hang holds the ▶: the interpreter's words.
     pub fn broke_words(&self) -> Option<String> {
         self.broke.map(|n| format!("?BREAK IN {n}"))
-    }
-
-    /// The title line's right side: what's left this turn in a fight, the deck's limits a
-    /// turn outside one.
-    pub fn budget_words(&self) -> String {
-        if self.fighting {
-            self.budgets.left_words()
-        } else {
-            format!("{}, {}", self.budgets.ifs_words(), self.budgets.cpu_words())
-        }
     }
 }
 
@@ -238,8 +280,18 @@ fn if_fields(g: &Game, cond: &basic::Cond) -> Vec<Field> {
     }
 }
 
+/// How many IFs directly above line `no` guard it: the IFs in a row just before it.
+fn depth(p: &basic::Program, no: u32) -> u32 {
+    p.lines
+        .iter()
+        .rev()
+        .skip_while(|l| l.no >= no)
+        .take_while(|l| matches!(l.stmt, Stmt::If(_)))
+        .count() as u32
+}
+
 /// A line as a block.
-fn block(g: &Game, l: &basic::Line, pc: Option<u32>, fighting: bool) -> Block {
+fn block(g: &Game, l: &basic::Line, pc: Option<u32>, fighting: bool, starved: &[u32]) -> Block {
     let (kind, caption, fields, text) = match &l.stmt {
         Stmt::Run(name) => (
             BlockKind::Run,
@@ -270,17 +322,25 @@ fn block(g: &Game, l: &basic::Line, pc: Option<u32>, fighting: bool) -> Block {
         text,
         current: fighting && pc == Some(l.no),
         fault: g.program.fault(l.no),
+        starved: starved.contains(&l.no),
+        depth: depth(&g.program, l.no),
     }
 }
 
 /// The card, as the game stands.
 pub fn card(g: &Game) -> Card {
+    card_with(g, &g.starved())
+}
+
+/// The card, with the turn's forecast of starved lines already taken (`Game::starved`): a
+/// screen that draws every frame keeps it until `Game::forecast_key` changes.
+pub fn card_with(g: &Game, starved: &[u32]) -> Card {
     let fighting = g.phase == Phase::Combat && g.combat.is_some();
     let blocks = g
         .program
         .lines
         .iter()
-        .map(|l| block(g, l, g.exec.pc, fighting))
+        .map(|l| block(g, l, g.exec.pc, fighting, starved))
         .collect();
     let stray = g
         .program
@@ -299,14 +359,25 @@ pub fn card(g: &Game) -> Card {
     }
 }
 
-/// Which of Step, Run and Pause can be pressed, without building the card.
+/// Which of the transport's buttons can be pressed and which is held in, without building the
+/// card.
 pub fn buttons(g: &Game) -> Buttons {
     let fighting = g.phase == Phase::Combat && g.combat.is_some();
     let running = g.exec.state == ExecState::Running;
+    let fast = g.fast_forward();
+    let latched = match (fighting, running, fast) {
+        (false, ..) => None,
+        (true, true, true) => Some(Transport::Fast),
+        (true, true, false) => Some(Transport::Play),
+        (true, false, _) => Some(Transport::Pause),
+    };
     Buttons {
         step: fighting && !running,
-        run: fighting && !running,
+        // Play presses from a pause, or while fast to drop back to the pace.
+        run: fighting && (!running || fast),
+        ff: fighting,
         pause: fighting && running,
+        latched,
     }
 }
 

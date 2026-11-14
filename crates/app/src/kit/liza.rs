@@ -1,7 +1,7 @@
 //! The Liza kit: the widgets of a 1-bit desktop after the first Mac's System 1. Windows with a
 //! striped title bar and a close box, the menu bar and its menus, the scroll bar and the list
-//! box, push buttons, check boxes and radio buttons, and HyperCard's text field,
-//! pop-up menu and dotted drop slot. It draws and reports clicks and picks; what the menus hold, what
+//! box, push buttons, check boxes and radio buttons, a transport's icon buttons, and HyperCard's
+//! text field, pop-up menu and dotted drop slot, and the 50% grey a disabled item is drawn in. It draws and reports clicks and picks; what the menus hold, what
 //! a window shows and what a button does are the caller's. The numbers are the
 //! spec sheet's (`docs/refs/liza.md`). Nothing here names a tool or a deck.
 
@@ -648,6 +648,127 @@ pub fn push_button(ui: &mut Ui, label: &str, default: bool, look: &Look) -> Resp
     let id = ui.id().with(("push", label));
     let enabled = ui.is_enabled();
     button(ui, ui.painter(), face, id, label, default, enabled, look)
+}
+
+/// A transport's icon: the hi-fi's glyphs, painted as shapes in the ink (never font glyphs).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Icon {
+    /// ▶| : one step.
+    Step,
+    /// ▶
+    Play,
+    /// ▶▶
+    FastForward,
+    /// ‖
+    Pause,
+}
+
+/// An icon button's width.
+pub const ICON_BUTTON_W: f32 = 40.0;
+
+/// Paints `icon` centred in `r`, in `ink`, on whole pixels: a glyph 10px high.
+fn paint_icon(p: &Painter, r: Rect, icon: Icon, ink: Color32) {
+    let h = 10.0;
+    let c = r.center().round();
+    let (top, bottom) = (c.y - h / 2.0, c.y + h / 2.0);
+    // A triangle pointing right, `w` wide from `x`.
+    let tri = |x: f32, w: f32| {
+        p.add(egui::Shape::convex_polygon(
+            vec![pos2(x, top), pos2(x + w, c.y), pos2(x, bottom)],
+            ink,
+            Stroke::NONE,
+        ));
+    };
+    let bar = |x: f32, w: f32| {
+        p.rect_filled(
+            Rect::from_min_max(pos2(x, top), pos2(x + w, bottom)),
+            0.0,
+            ink,
+        );
+    };
+    match icon {
+        Icon::Play => tri(c.x - 4.0, 9.0),
+        Icon::FastForward => {
+            tri(c.x - 8.0, 8.0);
+            tri(c.x, 8.0);
+        }
+        Icon::Step => {
+            tri(c.x - 6.0, 8.0);
+            bar(c.x + 3.0, 2.0);
+        }
+        Icon::Pause => {
+            bar(c.x - 4.0, 3.0);
+            bar(c.x + 1.0, 3.0);
+        }
+    }
+}
+
+/// A transport button laid out in `ui`: a push button's round-rect, `ICON_BUTTON_W` wide, with
+/// `icon` painted on it, and the heavy ring when it's the `default`. `held` draws it pressed in
+/// (inverted, as a hi-fi's key stays down) whether or not it can be pressed now; disabled and
+/// not held, its icon is at half strength. `name` is what it's called to a screen reader and
+/// to the headless tests, and `held` is reported as its toggled state.
+pub fn icon_button(
+    ui: &mut Ui,
+    name: &str,
+    icon: Icon,
+    default: bool,
+    enabled: bool,
+    held: bool,
+    look: &Look,
+) -> Response {
+    let ring = size::RING_OUT;
+    let (r, _) = ui.allocate_exact_size(
+        vec2(ICON_BUTTON_W + 2.0 * ring, size::BUTTON_H + 2.0 * ring),
+        Sense::hover(),
+    );
+    let face = snap(Rect::from_min_size(
+        r.min + Vec2::splat(ring),
+        vec2(ICON_BUTTON_W, size::BUTTON_H),
+    ));
+    let id = ui.id().with(("icon-button", name));
+    let resp = ui.interact(
+        face,
+        id,
+        if enabled {
+            Sense::click()
+        } else {
+            Sense::hover()
+        },
+    );
+    resp.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Button, enabled, held, name));
+    let down = held || (enabled && resp.is_pointer_button_down_on());
+    let (fg, bg) = if down {
+        (look.paper, look.ink)
+    } else {
+        (look.ink, look.paper)
+    };
+    let p = ui.painter();
+    p.rect_filled(face, size::BUTTON_R, bg);
+    p.rect_stroke(
+        face,
+        size::BUTTON_R,
+        Stroke::new(1.0, look.ink),
+        StrokeKind::Inside,
+    );
+    if default {
+        default_ring(p, face, size::BUTTON_R, look.ink);
+    }
+    let dim = !enabled && !held;
+    paint_icon(p, face, icon, if dim { fg.gamma_multiply(0.5) } else { fg });
+    resp
+}
+
+/// Greys what's drawn in `r` as the Mac greyed a disabled item: the 50% pattern laid over it
+/// in paper, so every other pixel of the ink goes. Without the pattern, half-strength paper.
+pub fn grey_out(p: &Painter, r: Rect, look: &Look) {
+    let r = snap(r);
+    match look.gray {
+        Some(g) => patterns::fill(p, g, r, look.paper, Color32::TRANSPARENT),
+        None => {
+            p.rect_filled(r, 0.0, look.paper.gamma_multiply(0.5));
+        }
+    }
 }
 
 /// A text field in `r`: paper in a 1px ink frame, the text in Liza's type and an insertion

@@ -230,20 +230,31 @@ const LAYOUT_CHECK_SECS: f64 = 2.0;
 /// and paused anywhere. A display number: it changes nothing in play.
 const LINE_SECS: f64 = 0.45;
 
-/// Plays the deck's program while it's `Running`: a line every `LINE_SECS` (`Action::Play` ran
-/// the first), turn after turn. `next` is when the next one is due. Returns the seconds until
-/// then, or `None` once the program has stopped running.
+/// Seconds between a running program's lines while fast-forward is held in
+/// (`Game::fast_forward`). A display number too: the same lines run, only sooner.
+const FF_LINE_SECS: f64 = 0.1;
+
+/// Plays the deck's program while it's `Running`: a line every `LINE_SECS`, or every
+/// `FF_LINE_SECS` on fast-forward (`Action::Play` or `Action::FastForward` ran the first), turn
+/// after turn. `next` is when the next one is due; pressing FF brings it forward. Returns the
+/// seconds until then, or `None` once the program has stopped running.
 fn drive_program(game: &mut Game, now: f64, next: &mut Option<f64>) -> Option<f64> {
     if game.exec.state != ExecState::Running || game.phase != Phase::Combat {
         *next = None;
         return None;
     }
-    let due = *next.get_or_insert(now + LINE_SECS);
+    let beat = if game.fast_forward() {
+        FF_LINE_SECS
+    } else {
+        LINE_SECS
+    };
+    let due = next.map_or(now + beat, |d| d.min(now + beat));
+    *next = Some(due);
     if now < due {
         return Some(due - now);
     }
     game.apply(Action::Step);
-    *next = Some(now + LINE_SECS);
+    *next = Some(now + beat);
     drive_program(game, now, next)
 }
 
@@ -1923,6 +1934,84 @@ mod tests {
             now += LINE_SECS;
         }
         assert_eq!(g.exec.state, ExecState::Running);
+    }
+
+    /// A fight with ICE that falls in a few turns, running a loop on the pick.
+    fn breakable_fight(seed: u64) -> Game {
+        let mut g = Game::new(Data::builtin().unwrap(), seed);
+        let target = g.net.nodes[g.at].links[0];
+        g.net.nodes[target].kind = ninsei_core::NodeKind::Ice;
+        g.net.nodes[target].ice = Some(1);
+        g.net.nodes[target].cleared = false;
+        g.apply(Action::Move(target));
+        g.apply(Action::Program(
+            "10 IF INTEG < 7\n20 RUN patch\n30 RUN icepick\n40 GOTO 10".into(),
+        ));
+        g
+    }
+
+    /// Drives the program from `now` a frame at a time until it stops running; returns when.
+    fn drive_out(g: &mut Game, mut now: f64, frame: f64) -> f64 {
+        let mut next = None;
+        for _ in 0..100_000 {
+            if drive_program(g, now, &mut next).is_none() {
+                return now;
+            }
+            now += frame;
+        }
+        panic!("the program never stopped");
+    }
+
+    #[test]
+    fn fast_forward_steps_at_its_own_pace() {
+        let mut g = breakable_fight(7);
+        let c = g.combat.as_mut().unwrap();
+        (c.strength, c.strength_max) = (500, 500);
+        g.apply(Action::FastForward);
+        assert!(g.fast_forward());
+        let mut next = None;
+        let pc = g.exec.pc;
+        drive_program(&mut g, 0.0, &mut next);
+        assert_eq!(
+            next,
+            Some(FF_LINE_SECS),
+            "the next line is due a fast beat on"
+        );
+        drive_program(&mut g, FF_LINE_SECS, &mut next);
+        assert_ne!(g.exec.pc, pc, "a line ran on the fast beat");
+        // FF again pops it up: the next beat is at the pace.
+        g.apply(Action::FastForward);
+        assert!(!g.fast_forward());
+        let at = FF_LINE_SECS * 1.5;
+        drive_program(&mut g, at, &mut next);
+        assert_eq!(
+            next,
+            Some(FF_LINE_SECS * 2.0),
+            "one already due keeps its time"
+        );
+        drive_program(&mut g, FF_LINE_SECS * 2.0, &mut next);
+        assert_eq!(next, Some(FF_LINE_SECS * 2.0 + LINE_SECS), "then the pace");
+        // Pressing FF brings a slow beat forward.
+        g.apply(Action::FastForward);
+        drive_program(&mut g, FF_LINE_SECS * 2.0 + 0.01, &mut next);
+        assert_eq!(next, Some(FF_LINE_SECS * 2.0 + 0.01 + FF_LINE_SECS));
+    }
+
+    #[test]
+    fn a_fight_played_fast_ends_as_the_fight_played_at_pace() {
+        for seed in [3, 7, 11, 19] {
+            let mut slow = breakable_fight(seed);
+            let mut fast = slow.clone();
+            slow.apply(Action::Play);
+            fast.apply(Action::FastForward);
+            let t_slow = drive_out(&mut slow, 0.0, 1.0 / 60.0);
+            let t_fast = drive_out(&mut fast, 0.0, 1.0 / 60.0);
+            assert!(t_fast < t_slow, "seed {seed}: fast is sooner");
+            assert_ne!(slow.phase, Phase::Combat, "seed {seed}: the fight is over");
+            // The latch is the only difference, and it's a button, not play.
+            fast.exec.fast = slow.exec.fast;
+            assert_eq!(format!("{fast:?}"), format!("{slow:?}"), "seed {seed}");
+        }
     }
 
     #[test]

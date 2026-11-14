@@ -80,13 +80,138 @@ fn buttons_follow_the_state() {
 }
 
 #[test]
+fn fast_forward_latches_like_a_hi_fi() {
+    use stack_fight::Transport;
+    let mut g = fight("10 RUN icepick\n20 GOTO 10");
+    let b = stack_fight::buttons(&g);
+    assert_eq!(
+        b.latched,
+        Some(Transport::Pause),
+        "paused in a fight: Pause is down"
+    );
+    assert!(b.step && b.run && b.ff && !b.pause);
+    // From a pause FF plays, fast: it runs the first line as Play would.
+    g.apply(Action::FastForward);
+    assert!(g.fast_forward());
+    assert_eq!(g.exec.pc, Some(20));
+    let b = stack_fight::buttons(&g);
+    assert_eq!(b.latched, Some(Transport::Fast));
+    assert!(!b.step && b.run && b.ff && b.pause);
+    // The driver's Steps keep it in.
+    g.apply(Action::Step);
+    assert!(g.fast_forward());
+    // FF again pops it up: playing on at pace, no line run.
+    let pc = g.exec.pc;
+    g.apply(Action::FastForward);
+    assert!(!g.fast_forward());
+    assert_eq!(g.exec.state, ExecState::Running);
+    assert_eq!(g.exec.pc, pc);
+    let b = stack_fight::buttons(&g);
+    assert_eq!(b.latched, Some(Transport::Play));
+    assert!(!b.run, "Play is down: pressing it does nothing");
+    // In again while playing, then Play pops it up, no line run.
+    g.apply(Action::FastForward);
+    assert!(g.fast_forward());
+    g.apply(Action::Play);
+    assert!(!g.fast_forward());
+    assert_eq!((g.exec.state, g.exec.pc), (ExecState::Running, pc));
+    // Pause pops it up.
+    g.apply(Action::FastForward);
+    g.apply(Action::Pause);
+    assert!(!g.fast_forward());
+    assert_eq!(stack_fight::buttons(&g).latched, Some(Transport::Pause));
+    // Step from a pause: still up.
+    g.apply(Action::Step);
+    assert!(!g.fast_forward());
+    // A STOP pops it up, and so does a hang; Play after either plays at pace.
+    let mut g = fight("10 RUN icepick\n20 STOP\n30 RUN icepick");
+    g.apply(Action::FastForward);
+    g.apply(Action::Step);
+    assert_eq!(g.exec.state, ExecState::Stopped(20));
+    assert!(!g.fast_forward());
+    g.apply(Action::Play);
+    assert!(!g.fast_forward(), "Play after the STOP is at pace");
+    let mut g = fight("10 GOTO 20\n20 GOTO 10");
+    g.apply(Action::FastForward);
+    for _ in 0..3 {
+        if g.exec.broke.is_none() {
+            g.apply(Action::Step);
+        }
+    }
+    assert!(g.exec.broke.is_some(), "it hung");
+    assert!(!g.fast_forward());
+    // Outside a fight nothing presses and nothing is down.
+    let mut calm = Game::new(Data::builtin().unwrap(), 7);
+    let b = stack_fight::buttons(&calm);
+    assert_eq!(b.latched, None);
+    assert!(Transport::ALL.iter().all(|&t| !b.enabled(t)));
+    calm.apply(Action::FastForward);
+    assert!(!calm.fast_forward());
+}
+
+#[test]
 fn the_deck_card_words_the_limits() {
     let g = fight(SAMPLE);
     let b = stack_fight::card(&g).budgets;
     assert_eq!(b.cpu_words(), "3 cycles/turn");
     assert_eq!(b.ifs_words(), "6 IFs");
     assert_eq!(b.hdd_words(), "4 of 6");
-    assert_eq!(b.left_words(), "6 of 6 IFs, 3 cycles left");
+    assert_eq!(b.gauges(), [("CPU", 3, 3), ("RAM", 6, 6)]);
+}
+
+#[test]
+fn a_block_is_indented_under_the_ifs_that_guard_it() {
+    let g = fight(
+        "10 RUN icepick\n20 IF INTEG < 10\n30 RUN patch\n40 IF ICE BARRIER\n50 IF TURN > 2\n\
+         60 RUN firewall\n70 IF INTEG < 5\n80 GOTO 10\n90 STOP",
+    );
+    let depths: Vec<(u32, u32)> = stack_fight::card(&g)
+        .blocks
+        .iter()
+        .map(|b| (b.no, b.depth))
+        .collect();
+    assert_eq!(
+        depths,
+        [
+            (10, 0),
+            (20, 0),
+            (30, 1),
+            // Two IFs in a row are an AND: the second is guarded by the first, and the line
+            // they guard by both.
+            (40, 0),
+            (50, 1),
+            (60, 2),
+            (70, 0),
+            (80, 1),
+            (90, 0),
+        ]
+    );
+}
+
+#[test]
+fn the_gauges_drain_in_a_fight_and_are_full_outside_one() {
+    let mut g = fight("10 IF INTEG > 0\n20 RUN icepick\n30 STOP");
+    g.apply(Action::Finish);
+    assert_eq!(
+        stack_fight::card(&g).budgets.gauges(),
+        [("CPU", 2, 3), ("RAM", 5, 6)]
+    );
+    let calm = Game::new(Data::builtin().unwrap(), 7);
+    let b = stack_fight::card(&calm).budgets;
+    assert_eq!(b.gauges(), [("CPU", 3, 3), ("RAM", 6, 6)]);
+}
+
+#[test]
+fn a_starved_block_is_marked_on_the_card() {
+    // Three cycles: the fourth pick and the torch (not on the disk) won't run this turn.
+    let g = fight("10 RUN icepick\n20 RUN icepick\n30 RUN icepick\n40 RUN icepick\n50 RUN torch");
+    let starved: Vec<u32> = stack_fight::card(&g)
+        .blocks
+        .iter()
+        .filter(|b| b.starved)
+        .map(|b| b.no)
+        .collect();
+    assert_eq!(starved, [40, 50]);
 }
 
 #[test]

@@ -2,11 +2,13 @@
 //! field of meters that fill with darker patterns as they rise, programs are rounded buttons
 //! with a hatched shadow, the terminal is the Message box under a scrolling log field, and a
 //! fight puts the Script card under the ICE: the deck's program as a stack of operator blocks
-//! with fields, after HyperCard 1.2's button script editor, and Step, Run and Pause. What the
+//! with fields, after HyperCard 1.2's button script editor, under its CPU and RAM gauges, and a
+//! hi-fi's transport (Step, Play, fast-forward, Pause). What the
 //! card shows is core's (`ninsei_core::stack_fight`); this only draws it and routes edits. Two
 //! theme colours (lit ink on dark paper); anything it doesn't draw is Classic.
 
 use egui::{Align2, Color32, Id, Rect, RichText, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
+use ninsei_core::game::ForecastKey;
 use ninsei_core::stack_fight::{self, Block, BlockKind, Field};
 use ninsei_core::{Action, Game, LogKind, Phase, tuning};
 
@@ -35,6 +37,8 @@ mod look {
     pub const BLOCK_ROW: f32 = BLOCK_H + BLOCK_GAP;
     pub const NOTE_ROW: f32 = 24.0;
     pub const GUTTER: f32 = 18.0;
+    /// How far a block guarded by an IF sits in from the one above, per IF.
+    pub const INDENT: f32 = 16.0;
     pub const BLOCK_W: f32 = 900.0;
     pub const BLOCK_PAD: f32 = 8.0;
     pub const NUMBER_W: f32 = 44.0;
@@ -441,7 +445,8 @@ impl ChromeView for Stack {
         p.target(ui);
     }
 
-    /// The Script card, the whole run: Step, Run and Pause press only with ICE in front.
+    /// The Script card, the whole run: its transport (Step, Run, fast-forward, Pause) presses only
+    /// with ICE in front.
     fn script(&self, p: &mut Panes, ui: &mut Ui) {
         round(ui);
         script_card(p, ui);
@@ -559,67 +564,165 @@ fn palette_fit(width: f32, gap: f32) -> (f32, bool) {
     (alone.clamp(look::CHIP_MIN, look::CHIP_W), true)
 }
 
-/// The least room between a hang and the budgets on the Script card's title line.
+/// The turn's forecast of starved lines (`Game::starved`), kept in egui memory and taken
+/// again only when what it reads has changed (`Game::forecast_key`): the card is drawn every
+/// frame, the forecast plays a pass on a copy of the game.
+fn forecast(ui: &Ui, g: &Game) -> Vec<u32> {
+    let id = Id::new("stack-forecast");
+    let key = g.forecast_key();
+    let kept = ui.data(|d| d.get_temp::<(ForecastKey, Vec<u32>)>(id));
+    if let Some((k, starved)) = kept
+        && k == key
+    {
+        return starved;
+    }
+    let starved = g.starved();
+    ui.data_mut(|d| d.insert_temp(id, (key, starved.clone())));
+    starved
+}
+
+/// The least room between a hang and the gauges on the Script card's title line, and between
+/// the two gauges.
 const BESIDE_GAP: f32 = 12.0;
 
-/// The Script card: a line with the budgets, the program's blocks (scrolling when they
-/// run past the card), the palette row (the blocks to add, and moving or clearing the selected
-/// one), then Step, Run and Pause on a row of their own. Edits and presses become actions;
-/// nothing here changes the game.
-fn script_card(p: &mut Panes, ui: &mut Ui) {
-    let g = p.game;
-    let card = stack_fight::card(g);
-    let look = card_look(p, ui);
-    let ink = look.ink;
-    let mut acts: Vec<Action> = Vec::new();
-    // The budgets line, at the right: the pane's tab already names the card. A hang goes at
-    // its left while the ▶ is held, or on a row of its own above when the two don't fit.
+/// The title line's gauges: a block's side (the largest that fits the column), the gap between
+/// blocks, and between the label and its blocks.
+const GAUGE_BLOCKS: [f32; 3] = [8.0, 6.0, 4.0];
+const GAUGE_GAP: f32 = 2.0;
+const GAUGE_LABEL_GAP: f32 = 6.0;
+
+/// A gauge's width: its label and `most` blocks of side `side`.
+fn gauge_width(label_w: f32, most: u32, side: f32) -> f32 {
+    let n = most as f32;
+    (label_w + GAUGE_LABEL_GAP + n * side + (n - 1.0).max(0.0) * GAUGE_GAP).ceil()
+}
+
+/// How the title line lays out in `full`: the gauges' block side, whether they stack on two
+/// rows (when side by side won't fit), and whether a hang `broke_w` wide sits beside them at
+/// the left (else on a row of its own above). Nothing overlaps and nothing runs past `full`.
+fn title_fit(
+    full: f32,
+    labels: [f32; 2],
+    most: [u32; 2],
+    broke_w: Option<f32>,
+) -> (f32, bool, bool) {
+    let widths = |side| [0, 1].map(|i| gauge_width(labels[i], most[i], side));
+    let side_by = |w: [f32; 2]| w[0] + BESIDE_GAP + w[1];
+    let fits = |need: f32| need <= full;
+    let (side, stacked) = GAUGE_BLOCKS
+        .iter()
+        .find_map(|&s| fits(side_by(widths(s))).then_some((s, false)))
+        .or_else(|| {
+            GAUGE_BLOCKS
+                .iter()
+                .find_map(|&s| fits(widths(s)[0].max(widths(s)[1])).then_some((s, true)))
+        })
+        .unwrap_or((GAUGE_BLOCKS[GAUGE_BLOCKS.len() - 1], true));
+    let w = widths(side);
+    // Stacked, both gauges start under the wider one.
+    let row = if stacked { w[0].max(w[1]) } else { side_by(w) };
+    let beside = broke_w.is_none_or(|b| b + BESIDE_GAP + row <= full);
+    (side, stacked, beside)
+}
+
+/// One gauge at `left` on the row centred at `cy`: its label, then a block per unit, filled
+/// ink for what's left and an ink outline for what's spent. No number is drawn.
+fn gauge(
+    ui: &Ui,
+    left: f32,
+    cy: f32,
+    label: &str,
+    (have, most): (u32, u32),
+    side: f32,
+    look: &liza::Look,
+) {
+    let label_w = text_w(ui, label, &look.font);
+    let painter = ui.painter();
+    painter.text(
+        pos2(left, cy).round(),
+        Align2::LEFT_CENTER,
+        label,
+        look.font.clone(),
+        look.ink,
+    );
+    let mut x = (left + label_w + GAUGE_LABEL_GAP).round();
+    let top = (cy - side / 2.0).round();
+    for i in 0..most {
+        let b = Rect::from_min_size(pos2(x, top), vec2(side, side));
+        if i < have {
+            painter.rect_filled(b, 0.0, look.ink);
+        } else {
+            painter.rect_stroke(b, 0.0, Stroke::new(1.0, look.ink), StrokeKind::Inside);
+        }
+        x += side + GAUGE_GAP;
+    }
+}
+
+/// The Script card's title line: the CPU and RAM gauges at the right (stacked on two rows in a
+/// narrow column), and a hang's `?BREAK IN n` at the left while the ▶ is held, or on a row of
+/// its own above when the two don't fit. The pane's tab already names the card.
+fn title_line(ui: &mut Ui, card: &stack_fight::Card, look: &liza::Look) {
     let line_h = ui.fonts_mut(|f| f.row_height(&look.font)).ceil() + 4.0;
     let full = ui.available_width().floor();
-    let budget = card.budget_words();
+    let gauges = card.budgets.gauges();
+    let labels = gauges.map(|(l, ..)| text_w(ui, l, &look.font));
+    let most = gauges.map(|(_, _, m)| m);
     let broke = card.broke_words();
-    let text_w = |ui: &Ui, t: &str| {
-        ui.fonts_mut(|f| {
-            f.layout_no_wrap(t.to_string(), look.font.clone(), ink)
-                .size()
-                .x
-        })
-    };
-    let beside = broke
-        .as_deref()
-        .is_none_or(|b| text_w(ui, b) + text_w(ui, &budget) + 2.0 + BESIDE_GAP <= full);
-    if let Some(broke) = broke.as_ref().filter(|_| !beside) {
-        let (row, _) = ui.allocate_exact_size(vec2(full, line_h), Sense::hover());
+    let broke_w = broke.as_deref().map(|b| text_w(ui, b, &look.font) + 2.0);
+    let (side, stacked, beside) = title_fit(full, labels, most, broke_w);
+    let widths = [0, 1].map(|i| gauge_width(labels[i], most[i], side));
+    let broke_at = |ui: &Ui, row: Rect, broke: &str| {
         ui.painter().text(
             pos2(row.left() + 1.0, row.center().y).round(),
             Align2::LEFT_CENTER,
             broke,
             look.font.clone(),
-            ink,
+            look.ink,
         );
+    };
+    if let Some(b) = broke.as_deref().filter(|_| !beside) {
+        let (row, _) = ui.allocate_exact_size(vec2(full, line_h), Sense::hover());
+        broke_at(ui, row, b);
     }
-    let (title, _) = ui.allocate_exact_size(vec2(full, line_h), Sense::hover());
-    ui.painter().text(
-        pos2(title.right() - 1.0, title.center().y).round(),
-        Align2::RIGHT_CENTER,
-        budget,
-        look.font.clone(),
-        ink,
-    );
-    if let Some(broke) = broke.filter(|_| beside) {
-        ui.painter().text(
-            pos2(title.left() + 1.0, title.center().y).round(),
-            Align2::LEFT_CENTER,
-            broke,
-            look.font.clone(),
-            ink,
-        );
+    let rows = if stacked { 2 } else { 1 };
+    let (area, _) = ui.allocate_exact_size(vec2(full, line_h * rows as f32), Sense::hover());
+    let area = Rect::from_min_size(area.min.round(), area.size());
+    let right = area.right() - 1.0;
+    let first = Rect::from_min_size(area.min, vec2(full, line_h));
+    if stacked {
+        // Labels in line, the wider gauge flush right.
+        let left = right - widths[0].max(widths[1]);
+        for (i, (label, have, most)) in gauges.into_iter().enumerate() {
+            let cy = first.center().y + i as f32 * line_h;
+            gauge(ui, left, cy, label, (have, most), side, look);
+        }
+    } else {
+        let mut left = right - widths[0] - BESIDE_GAP - widths[1];
+        for (i, (label, have, most)) in gauges.into_iter().enumerate() {
+            gauge(ui, left, first.center().y, label, (have, most), side, look);
+            left += widths[i] + BESIDE_GAP;
+        }
     }
+    if let Some(b) = broke.as_deref().filter(|_| beside) {
+        broke_at(ui, first, b);
+    }
+}
+
+/// The Script card, top to bottom: the title line (the CPU and RAM gauges), the palette row
+/// (the blocks to add, and moving or clearing the selected one), the program's blocks
+/// (scrolling when they run past the card), then the transport alone at the foot: Step, Play,
+/// fast-forward and Pause as a hi-fi's icon buttons, the one held in drawn down. Edits and
+/// presses become actions; nothing here changes the game.
+fn script_card(p: &mut Panes, ui: &mut Ui) {
+    let g = p.game;
+    let card = stack_fight::card_with(g, &forecast(ui, g));
+    let look = card_look(p, ui);
+    let ink = look.ink;
+    let mut acts: Vec<Action> = Vec::new();
+    title_line(ui, &card, &look);
     let mut sel = selected(ui, g);
     let gap = ui.spacing().item_spacing.x;
     let (chip_w, wrap) = palette_fit(ui.available_width().floor(), gap);
-    blocks(ui, g, &card, &look, wrap, &mut sel, &mut acts);
-    ui.add_space(4.0);
     // The palette: the blocks to add, then the selected block's move and clear boxes, beside
     // them or, in a narrow column, on a row of their own.
     let boxes = |ui: &mut Ui, sel: &mut Option<u32>, acts: &mut Vec<Action>| {
@@ -659,20 +762,25 @@ fn script_card(p: &mut Panes, ui: &mut Ui) {
         ui.horizontal(|ui| boxes(ui, &mut sel, &mut acts));
     }
     ui.add_space(4.0);
+    blocks(ui, g, &card, &look, &mut sel, &mut acts);
+    ui.add_space(4.0);
     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
         let b = card.buttons;
-        // Right to left: Pause, Run, Step, so they read Step, Run, Pause.
-        for (label, on, default, a) in [
-            ("Pause", b.pause, false, Action::Pause),
-            ("Run", b.run, b.run, Action::Play),
-            ("Step", b.step, false, Action::Step),
-        ] {
-            let pressed = ui
-                .add_enabled_ui(on, |ui| liza::push_button(ui, label, default, &look))
-                .inner
-                .clicked();
-            if pressed {
-                acts.push(a);
+        use stack_fight::Transport;
+        // Right to left, so they read Step, Play, fast-forward, Pause. Play is the default
+        // (Enter) while it presses.
+        for t in Transport::ALL.into_iter().rev() {
+            let (name, icon) = match t {
+                Transport::Step => ("Step", liza::Icon::Step),
+                Transport::Play => ("Run", liza::Icon::Play),
+                Transport::Fast => ("Fast forward", liza::Icon::FastForward),
+                Transport::Pause => ("Pause", liza::Icon::Pause),
+            };
+            let on = b.enabled(t);
+            let default = t == Transport::Play && on;
+            let held = b.latched == Some(t);
+            if liza::icon_button(ui, name, icon, default, on, held, &look).clicked() {
+                acts.push(t.action());
             }
         }
     });
@@ -739,19 +847,14 @@ fn blocks(
     g: &Game,
     card: &stack_fight::Card,
     look: &liza::Look,
-    wrap: bool,
     sel: &mut Option<u32>,
     acts: &mut Vec<Action>,
 ) {
-    // Under the box: a gap, the palette's row (two when it wraps), a gap, the buttons' row,
-    // with egui's spacing round each.
-    let palette_rows = if wrap { 2.0 } else { 1.0 };
+    // Under the box: a gap and the transport's row, with egui's spacing round each.
     let foot = 4.0
-        + palette_rows * (look::CHIP_H + ui.spacing().item_spacing.y)
-        + 4.0
         + liza::size::BUTTON_H
         + 2.0 * liza::size::RING_OUT
-        + 3.0 * ui.spacing().item_spacing.y
+        + 2.0 * ui.spacing().item_spacing.y
         + 2.0;
     let box_h = (ui.available_height() - foot)
         .max(2.0 * look::BLOCK_ROW)
@@ -911,10 +1014,44 @@ fn end_slot(ui: &mut Ui, row: Rect, g: &Game, look: &liza::Look, acts: &mut Vec<
     }
 }
 
+/// How wide a block's face is drawn from its left edge to the end of what it says: its
+/// keyword, caption, a bad line's text, its fields and its fault, with the room round them; a
+/// comment's line of words.
+fn content_width(ui: &Ui, b: &Block, look: &liza::Look) -> f32 {
+    let font = &look.font;
+    if b.kind == BlockKind::Rem {
+        return look::BLOCK_PAD + text_w(ui, &format!("{}  -- {}", b.no, b.text), font);
+    }
+    let mut w = look::BLOCK_PAD + text_w(ui, &format!("({})", b.kind.label()), font);
+    w += look::BLOCK_PAD;
+    if let Some(caption) = b.caption {
+        w += text_w(ui, caption, font) + look::FIELD_GAP;
+    }
+    if b.kind == BlockKind::Bad {
+        w += text_w(ui, &b.text, font) + look::FIELD_GAP;
+    }
+    for f in &b.fields {
+        w += match f {
+            Field::Menu { value, options } => liza::popup_width(ui.ctx(), options, value, look),
+            Field::Number(_) => look::NUMBER_W,
+        } + look::FIELD_GAP;
+    }
+    if let Some(why) = &b.fault {
+        w += text_w(ui, why, &fault_font(font));
+    }
+    w
+}
+
+/// The smaller type a block's number and fault are set in.
+fn fault_font(font: &egui::FontId) -> egui::FontId {
+    egui::FontId::new((font.size * 0.85).round(), font.family.clone())
+}
+
 /// One line of the program: the ▶ in the gutter when it's next, then the block (a framed box
-/// with its number on the top edge, its keyword, its fields, its fault); a comment is a plain
-/// `--` line. A click on it selects it (a dotted marquee round it); a block dropped on it goes
-/// in above it.
+/// with its number on the top edge, its keyword, its fields, its fault), in from the gutter by
+/// one indent for each IF that guards it; a comment is a plain `--` line. A block the turn
+/// won't execute is greyed, as the Mac greyed a disabled item, and nothing says why. A click on
+/// it selects it (a dotted marquee round it); a block dropped on it goes in above it.
 fn block_row(
     ui: &mut Ui,
     row: Rect,
@@ -926,7 +1063,7 @@ fn block_row(
 ) {
     let ink = look.ink;
     let font = look.font.clone();
-    let small = egui::FontId::new((font.size * 0.85).round(), font.family.clone());
+    let small = fault_font(&font);
     let note = b.kind == BlockKind::Rem;
     let row = Rect::from_min_size(row.min.round(), row.size().round());
     let drop = ui.interact(row, Id::new(("stack-row", b.no)), Sense::hover());
@@ -942,8 +1079,15 @@ fn block_row(
             Stroke::new(2.0, ink),
         );
     }
+    // In by its IFs, as far as the row has room to spare beside the block's own words and
+    // fields: in a narrow column the indent gives way before anything runs off the card.
+    let spare = row.width() - look::GUTTER - look::BLOCK_PAD - content_width(ui, b, look);
+    let indent = (b.depth as f32 * look::INDENT).min(spare.max(0.0)).floor();
     let body = Rect::from_min_max(
-        pos2(row.left() + look::GUTTER, row.top() + look::BLOCK_GAP),
+        pos2(
+            row.left() + look::GUTTER + indent,
+            row.top() + look::BLOCK_GAP,
+        ),
         pos2(row.right() - look::BLOCK_PAD, row.bottom()),
     );
     if b.current {
@@ -983,11 +1127,8 @@ fn block_row(
     let no = b.no.to_string();
     let no_at = pos2(frame.left() + look::BLOCK_PAD, frame.top());
     let no_w = text_w(ui, &no, &small);
-    painter.rect_filled(
-        Rect::from_min_size(no_at - vec2(3.0, 6.0), vec2(no_w + 6.0, 12.0)),
-        0.0,
-        look.paper,
-    );
+    let no_box = Rect::from_min_size(no_at - vec2(3.0, 6.0), vec2(no_w + 6.0, 12.0));
+    painter.rect_filled(no_box, 0.0, look.paper);
     painter.text(no_at, Align2::LEFT_CENTER, &no, small.clone(), ink);
     // The keyword: STOP stands out inverted, the breakpoint.
     let mut x = frame.left() + look::BLOCK_PAD;
@@ -1047,6 +1188,9 @@ fn block_row(
     }
     if let Some(why) = &b.fault {
         painter.text(pos2(x, cy), Align2::LEFT_CENTER, why, small, ink);
+    }
+    if b.starved {
+        liza::grey_out(&painter, frame.union(no_box), look);
     }
 }
 
@@ -1537,7 +1681,7 @@ pub(crate) mod tests {
         let mut h = crate::uitest::Harness::new(1280.0, 800.0);
         script(&mut h, &g, PANE, vec![]);
         script(&mut h, &g, PANE, vec![]);
-        for b in ["Step", "Run", "Pause"] {
+        for b in ["Step", "Run", "Fast forward", "Pause"] {
             assert_eq!(h.enabled(b), Some(false), "{b} with no ICE in front");
         }
         let painted: Vec<String> = h.painted_text().into_iter().map(|t| t.0).collect();
@@ -1617,6 +1761,7 @@ pub(crate) mod tests {
             "clear",
             "Step",
             "Run",
+            "Fast forward",
             "Pause",
         ];
         for w in [340.0, 300.0, 260.0, 230.0] {
@@ -1648,6 +1793,21 @@ pub(crate) mod tests {
             }
             assert!(h.cut_text().is_empty(), "{w}: {:?}", h.cut_text());
         }
+    }
+
+    #[test]
+    fn a_hang_beside_stacked_gauges_clears_the_wider_one() {
+        // A narrow column and a big RAM: the gauges stack, flush right under the wider (RAM),
+        // so the hang only sits beside them if it clears that one, not just the CPU.
+        let (side, stacked, beside) = title_fit(130.0, [24.0, 24.0], [3, 12], Some(60.0));
+        assert!(stacked, "{side}");
+        assert!(
+            60.0 + BESIDE_GAP + gauge_width(24.0, 3, side) <= 130.0,
+            "it clears the CPU"
+        );
+        assert!(!beside, "but not the RAM: the hang takes a row of its own");
+        let (_, stacked, beside) = title_fit(400.0, [24.0, 24.0], [3, 12], Some(60.0));
+        assert!(!stacked && beside);
     }
 
     #[test]
@@ -1797,7 +1957,7 @@ pub(crate) mod tests {
                     "{size:?}: {t} at {r:?}"
                 );
             }
-            for name in ["Step", "Run", "Pause"] {
+            for name in ["Step", "Run", "Fast forward", "Pause"] {
                 let r = h.find(name).unwrap();
                 assert!(pane.contains_rect(r), "{size:?}: {name} at {r:?}");
                 assert_eq!(r.min, r.min.round(), "{name} on whole pixels");
@@ -1805,53 +1965,393 @@ pub(crate) mod tests {
         }
     }
 
-    #[test]
-    fn on_a_narrow_card_the_hang_takes_a_row_of_its_own() {
+    /// The title line's gauges as last frame drew them: each label, the rect from it to its
+    /// last block, and how many of its blocks are filled.
+    fn gauges(h: &crate::uitest::Harness) -> Vec<(String, Rect, usize, usize)> {
+        let painted = h.painted_text();
+        let labels: Vec<(String, Rect)> = ["CPU", "RAM"]
+            .iter()
+            .filter_map(|l| painted.iter().find(|(t, _)| t == l).cloned())
+            .collect();
+        let squares: Vec<(Rect, bool)> = h
+            .painted()
+            .iter()
+            .filter_map(|s| match s {
+                egui::Shape::Rect(r)
+                    if r.rect.width() == r.rect.height() && r.rect.width() <= 8.5 =>
+                {
+                    Some((r.rect, r.fill != Color32::TRANSPARENT))
+                }
+                _ => None,
+            })
+            .collect();
+        labels
+            .iter()
+            .map(|(l, lr)| {
+                // Its blocks: on its row, right of it, and left of any label after it there.
+                let stop = labels
+                    .iter()
+                    .filter(|(_, o)| {
+                        (o.center().y - lr.center().y).abs() < 2.0 && o.left() > lr.right()
+                    })
+                    .map(|(_, o)| o.left())
+                    .fold(f32::INFINITY, f32::min);
+                let mine: Vec<&(Rect, bool)> = squares
+                    .iter()
+                    .filter(|(r, _)| {
+                        (r.center().y - lr.center().y).abs() < 3.0
+                            && r.left() > lr.right()
+                            && r.right() < stop
+                    })
+                    .collect();
+                let all = mine.iter().fold(*lr, |a, (r, _)| a.union(*r));
+                let filled = mine.iter().filter(|(_, f)| *f).count();
+                (l.clone(), all, filled, mine.len())
+            })
+            .collect()
+    }
+
+    /// A hung fight: `10 GOTO 20` / `20 GOTO 10`, the ▶ held on line 10.
+    fn hung() -> Game {
         let mut g = fight("10 GOTO 20\n20 GOTO 10");
-        for _ in 0..3 {
+        while g.exec.broke.is_none() {
             g.apply(Action::Step);
         }
+        g
+    }
+
+    #[test]
+    fn on_a_narrow_card_the_hang_takes_a_row_of_its_own() {
+        let g = hung();
         for w in [340.0, 240.0, 200.0] {
             let mut h = crate::uitest::Harness::new(1280.0, 800.0);
             script(&mut h, &g, (w, 520.0), vec![]);
             script(&mut h, &g, (w, 520.0), vec![]);
             let painted = h.painted_text();
-            let broke = painted.iter().find(|(t, _)| t == "?BREAK IN 10");
-            let budgets = painted.iter().find(|(t, _)| t.ends_with("left"));
-            let (Some(broke), Some(budgets)) = (broke, budgets) else {
-                panic!("{w}: {painted:?}");
-            };
+            let broke = painted
+                .iter()
+                .find(|(t, _)| t == "?BREAK IN 10")
+                .unwrap_or_else(|| panic!("{w}: {painted:?}"));
+            let gs = gauges(&h);
+            assert_eq!(gs.len(), 2, "{w}: {gs:?}");
+            for (l, r, ..) in &gs {
+                assert!(
+                    !broke.1.intersects(*r),
+                    "{w}: they overlap: {broke:?} {l} {r:?}"
+                );
+                assert!(r.right() <= w + 0.5, "{w}: {l} at {r:?} runs past the card");
+            }
             assert!(
-                !broke.1.intersects(budgets.1),
-                "{w}: they overlap: {broke:?} {budgets:?}"
+                !gs[0].1.intersects(gs[1].1),
+                "{w}: the gauges overlap: {gs:?}"
             );
         }
     }
 
     #[test]
     fn a_hang_is_said_on_the_cards_title_line_with_the_line_held() {
-        let mut g = fight("10 GOTO 20\n20 GOTO 10");
-        for _ in 0..3 {
-            g.apply(Action::Step);
-        }
+        let mut g = hung();
         assert_eq!(g.exec.broke, Some(10));
         let mut h = crate::uitest::Harness::new(1280.0, 800.0);
         script(&mut h, &g, PANE, vec![]);
         script(&mut h, &g, PANE, vec![]);
         let painted: Vec<(String, egui::Rect)> = h.painted_text();
         let broke = painted.iter().find(|(t, _)| t == "?BREAK IN 10");
-        let budgets = painted.iter().find(|(t, _)| t.ends_with("left"));
-        let (Some(broke), Some(budgets)) = (broke, budgets) else {
+        let gs = gauges(&h);
+        let (Some(broke), Some(cpu)) = (broke, gs.first()) else {
             panic!("{painted:?}");
         };
         assert!(
-            (broke.1.center().y - budgets.1.center().y).abs() < 1.0
-                && broke.1.right() < budgets.1.left(),
-            "beside the budgets, clear of them: {broke:?} {budgets:?}"
+            (broke.1.center().y - cpu.1.center().y).abs() < 1.5 && broke.1.right() < cpu.1.left(),
+            "beside the gauges, clear of them: {broke:?} {cpu:?}"
         );
         assert!(painted.iter().any(|(t, _)| t == "▶"));
         g.apply(Action::Step);
         script(&mut h, &g, PANE, vec![]);
         assert!(!h.painted_text().iter().any(|(t, _)| t.contains("BREAK")));
+    }
+
+    #[test]
+    fn the_gauges_are_blocks_with_no_numbers_and_drain_as_the_turn_runs() {
+        let mut g = fight("10 IF INTEG > 0\n20 RUN icepick\n30 GOTO 10");
+        let c = g.combat.as_mut().unwrap();
+        (c.strength, c.strength_max) = (500, 500);
+        let (cpu, ram) = (g.deck.cpu_max as usize, g.deck.ram_max as usize);
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        script(&mut h, &g, PANE, vec![]);
+        script(&mut h, &g, PANE, vec![]);
+        let gs = gauges(&h);
+        let counts: Vec<(&str, usize, usize)> =
+            gs.iter().map(|(l, _, f, n)| (l.as_str(), *f, *n)).collect();
+        assert_eq!(
+            counts,
+            [("CPU", cpu, cpu), ("RAM", ram, ram)],
+            "full at the turn's start"
+        );
+        // No number anywhere on the title line.
+        let title = gs[0].1.union(gs[1].1);
+        for (t, r) in h.painted_text() {
+            if r.intersects(title) {
+                assert!(
+                    !t.chars().any(|c| c.is_ascii_digit()),
+                    "{t:?} on the title line"
+                );
+            }
+        }
+        // An IF and a RUN: a GB and a cycle gone.
+        g.apply(Action::Step);
+        g.apply(Action::Step);
+        script(&mut h, &g, PANE, vec![]);
+        let counts: Vec<(usize, usize)> = gauges(&h).iter().map(|(_, _, f, n)| (*f, *n)).collect();
+        assert_eq!(counts, [(cpu - 1, cpu), (ram - 1, ram)]);
+    }
+
+    #[test]
+    fn the_palette_is_on_top_and_the_transport_alone_at_the_foot() {
+        let g = fight("10 RUN icepick\n20 GOTO 10");
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        script(&mut h, &g, PANE, vec![]);
+        script(&mut h, &g, PANE, vec![]);
+        let first = h.find("line 10").unwrap();
+        let last = h.find("line 20").unwrap();
+        for chip in ["RUN", "IF", "GOTO", "STOP", "move up", "move down", "clear"] {
+            let r = h.find(chip).unwrap();
+            assert!(
+                r.bottom() <= first.top(),
+                "{chip} at {r:?} above the blocks {first:?}"
+            );
+        }
+        let transport = ["Step", "Run", "Fast forward", "Pause"];
+        let foot: Vec<Rect> = transport.iter().map(|t| h.find(t).unwrap()).collect();
+        for (t, r) in transport.iter().zip(&foot) {
+            assert!(r.top() >= last.bottom(), "{t} at {r:?} under the blocks");
+            assert!(
+                (r.center().y - foot[0].center().y).abs() < 0.5,
+                "{t}: one row"
+            );
+        }
+        // Left to right: Step, Run, Fast forward, Pause.
+        assert!(
+            foot.windows(2).all(|w| w[0].right() <= w[1].left()),
+            "{foot:?}"
+        );
+        // Nothing else on the transport's row.
+        let row = foot.iter().fold(foot[0], |a, r| a.union(*r));
+        let others: Vec<(String, Rect)> = h
+            .outside(Rect::NOTHING)
+            .into_iter()
+            .filter(|(t, r)| r.intersects(row) && !transport.contains(&t.trim()))
+            .collect();
+        assert!(others.is_empty(), "{others:?}");
+        // The transport's icons are painted, not set in type.
+        let painted: Vec<String> = h.painted_text().into_iter().map(|t| t.0).collect();
+        for glyph in ["▶▶", "‖", "■", "Step", "Run", "Pause"] {
+            assert!(!painted.iter().any(|t| t == glyph), "{glyph} set as text");
+        }
+    }
+
+    #[test]
+    fn fast_forward_latches_until_it_or_another_button_is_clicked() {
+        let mut g = fight("10 RUN icepick\n20 GOTO 10");
+        let c = g.combat.as_mut().unwrap();
+        (c.strength, c.strength_max) = (500, 500);
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        script(&mut h, &g, PANE, vec![]);
+        script(&mut h, &g, PANE, vec![]);
+        assert_eq!(h.ticked("Pause"), Some(true), "paused: Pause is down");
+        let out = click_on(&mut h, &g, "Fast forward");
+        assert_eq!(apply(&mut g, out), [Action::FastForward]);
+        script(&mut h, &g, PANE, vec![]);
+        assert_eq!(h.ticked("Fast forward"), Some(true), "it stays in");
+        assert_eq!(h.ticked("Run"), Some(false));
+        assert_eq!(h.ticked("Pause"), Some(false));
+        // Clicked again it pops up, and the program plays on at pace.
+        let out = click_on(&mut h, &g, "Fast forward");
+        apply(&mut g, out);
+        script(&mut h, &g, PANE, vec![]);
+        assert_eq!(h.ticked("Fast forward"), Some(false));
+        assert_eq!(h.ticked("Run"), Some(true), "Play is down");
+        assert_eq!(
+            h.enabled("Run"),
+            Some(false),
+            "and pressing it again does nothing"
+        );
+        // In again, then Run pops it up.
+        let out = click_on(&mut h, &g, "Fast forward");
+        apply(&mut g, out);
+        script(&mut h, &g, PANE, vec![]);
+        let out = click_on(&mut h, &g, "Run");
+        assert_eq!(apply(&mut g, out), [Action::Play]);
+        script(&mut h, &g, PANE, vec![]);
+        assert_eq!(h.ticked("Fast forward"), Some(false));
+        assert!(!g.fast_forward());
+        // In again, then Pause pops it up.
+        let out = click_on(&mut h, &g, "Fast forward");
+        apply(&mut g, out);
+        script(&mut h, &g, PANE, vec![]);
+        let out = click_on(&mut h, &g, "Pause");
+        assert_eq!(apply(&mut g, out), [Action::Pause]);
+        script(&mut h, &g, PANE, vec![]);
+        assert_eq!(h.ticked("Fast forward"), Some(false));
+        assert_eq!(h.ticked("Pause"), Some(true));
+        // And Enter still presses Run, Esc still pauses.
+        keys(&mut h, &g, vec![]);
+        let out = keys(&mut h, &g, crate::uitest::key(egui::Key::Enter));
+        assert_eq!(apply(&mut g, out), [Action::Play]);
+        let out = keys(&mut h, &g, crate::uitest::key(egui::Key::Escape));
+        assert_eq!(apply(&mut g, out), [Action::Pause]);
+    }
+
+    /// The grey a block is drawn in: a pattern image laid over `r` (`liza::grey_out`).
+    fn greyed(h: &crate::uitest::Harness, r: Rect) -> bool {
+        h.painted().iter().any(|s| match s {
+            egui::Shape::Mesh(m) => {
+                let b = m.calc_bounds();
+                b.contains_rect(r.shrink(1.0)) && b.height() < r.height() * 3.0
+            }
+            _ => false,
+        })
+    }
+
+    #[test]
+    fn a_starved_block_is_grey_and_still_selectable() {
+        // A pick for each cycle, then one more and the torch (not on the disk).
+        let n = a_fight(&Data::builtin().unwrap()).deck.cpu_max;
+        let picks: String = (1..=n + 1)
+            .map(|i| format!("{} RUN icepick\n", i * 10))
+            .collect();
+        let mut g = fight(&format!("{picks}{} RUN torch", (n + 2) * 10));
+        let c = g.combat.as_mut().unwrap();
+        (c.strength, c.strength_max) = (500, 500);
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        script(&mut h, &g, (340.0, 700.0), vec![]);
+        script(&mut h, &g, (340.0, 700.0), vec![]);
+        for i in 1..=n + 2 {
+            let r = h.find(&format!("line {}", i * 10)).unwrap();
+            assert_eq!(greyed(&h, r), i > n, "line {}", i * 10);
+        }
+        // No words say why.
+        let painted: Vec<String> = h.painted_text().into_iter().map(|t| t.0).collect();
+        assert!(
+            !painted
+                .iter()
+                .any(|t| t.contains("cpu") || t.contains("cycle")),
+            "{painted:?}"
+        );
+        // Still selectable, and the palette moves it.
+        let last = (n + 2) * 10;
+        let r = h.find(&format!("line {last}")).unwrap();
+        script(
+            &mut h,
+            &g,
+            (340.0, 700.0),
+            crate::uitest::click(pos2(r.left() + 12.0, r.center().y)),
+        );
+        script(&mut h, &g, (340.0, 700.0), vec![]);
+        assert_eq!(h.enabled("move up"), Some(true));
+        let ev = press(&h, "move up");
+        let out = script(&mut h, &g, (340.0, 700.0), ev);
+        apply(&mut g, out);
+        assert_eq!(g.program.line(last - 10).unwrap().text, "RUN torch");
+    }
+
+    #[test]
+    fn the_kept_forecast_follows_the_game() {
+        let mut g = fight("10 IF INTEG > 0\n20 RUN icepick\n30 RUN icepick");
+        let c = g.combat.as_mut().unwrap();
+        (c.strength, c.strength_max) = (500, 500);
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        script(&mut h, &g, PANE, vec![]);
+        script(&mut h, &g, PANE, vec![]);
+        let row = |h: &crate::uitest::Harness| h.find("line 30").unwrap();
+        assert!(!greyed(&h, row(&h)), "two cycles for two picks");
+        // The hotbar spends two cycles: the last pick starves, and the card says so.
+        g.apply(Action::Step);
+        let pick = g.slot_named("icepick").unwrap();
+        g.apply(Action::Run(pick));
+        g.apply(Action::Run(pick));
+        script(&mut h, &g, PANE, vec![]);
+        assert!(greyed(&h, row(&h)));
+        // The next turn has the cycles again: the grey goes.
+        g.apply(Action::EndTurn);
+        script(&mut h, &g, PANE, vec![]);
+        assert!(!greyed(&h, row(&h)));
+    }
+
+    #[test]
+    fn a_guarded_block_is_indented_under_its_if() {
+        let g = fight("10 IF INTEG < 10\n20 IF TURN > 1\n30 RUN icepick\n40 GOTO 10");
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        script(&mut h, &g, PANE, vec![]);
+        script(&mut h, &g, PANE, vec![]);
+        let left =
+            |h: &crate::uitest::Harness, no: u32| h.find(&format!("line {no}")).unwrap().left();
+        assert!(left(&h, 20) > left(&h, 10), "the IF's guarded IF");
+        assert!(left(&h, 30) > left(&h, 20), "two IFs in a row nest");
+        assert_eq!(
+            left(&h, 40),
+            left(&h, 10),
+            "an unguarded line is back at the left"
+        );
+        // Its fields move with it.
+        let turn = h.find("TURN").unwrap().left();
+        let integ = h.find("INTEG").unwrap().left();
+        assert!(turn > integ, "{turn} {integ}");
+        // The ▶ stays in the gutter.
+        let mut g = g;
+        g.apply(Action::Step);
+        script(&mut h, &g, PANE, vec![]);
+        let arrow = h.painted_text().into_iter().find(|t| t.0 == "▶").unwrap();
+        assert!(arrow.1.right() <= left(&h, 10), "{arrow:?}");
+    }
+
+    #[test]
+    fn a_guarded_fault_or_comment_stays_on_the_card() {
+        // A guarded GOTO to nowhere says so after its fields; a guarded comment is a line of
+        // its own words. The indent gives way for both.
+        let g = fight(
+            "10 IF INTEG < 10\n20 IF TURN > 1\n30 GOTO 999\n40 IF TURN > 1\n\
+             50 REM patch, then the breaker, then go",
+        );
+        // The default column and a little wider (a GOTO's fault fills a 300px one unindented).
+        for w in [340.0, 360.0] {
+            let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+            script(&mut h, &g, (w, 520.0), vec![]);
+            script(&mut h, &g, (w, 520.0), vec![]);
+            assert!(h.cut_text().is_empty(), "{w}: {:?}", h.cut_text());
+            for (t, r) in h.painted_text() {
+                assert!(r.right() <= w + 0.5, "{w}: {t} at {r:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_new_card_is_whole_from_the_small_column_to_a_wide_one() {
+        let g = fight(
+            "10 IF INTEG < 10\n20 IF NEXT ATTACK\n30 RUN firewall\n40 IF HAVE icepick\n\
+             50 RUN icepick\n60 RUN torch\n70 GOTO 10",
+        );
+        // The small window's column, the default's and a wide one: nested IFs and all, nothing
+        // runs off the card (the indent gives way first).
+        for size in [(300.0, 520.0), (340.0, 520.0), (480.0, 700.0)] {
+            let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+            script(&mut h, &g, size, vec![]);
+            script(&mut h, &g, size, vec![]);
+            assert!(h.cut_text().is_empty(), "{size:?}: {:?}", h.cut_text());
+            let pane = Rect::from_min_size(egui::Pos2::ZERO, vec2(size.0, size.1));
+            assert!(
+                h.outside(pane).is_empty(),
+                "{size:?}: {:?}",
+                h.outside(pane)
+            );
+            for (l, r, ..) in gauges(&h) {
+                assert!(pane.contains_rect(r), "{size:?}: {l} at {r:?}");
+            }
+            for name in ["Step", "Run", "Fast forward", "Pause"] {
+                let r = h.find(name).unwrap();
+                assert!(pane.contains_rect(r), "{size:?}: {name} at {r:?}");
+                assert_eq!(r.min, r.min.round(), "{name} on whole pixels");
+            }
+        }
     }
 }
