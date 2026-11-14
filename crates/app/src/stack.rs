@@ -995,10 +995,14 @@ fn end_slot(ui: &mut Ui, row: Rect, g: &Game, look: &liza::Look, acts: &mut Vec<
     }
 }
 
-/// How wide a block's face is drawn from its left edge to the end of its last field: its
-/// keyword, caption, a bad line's text and its fields, with the room round them.
+/// How wide a block's face is drawn from its left edge to the end of what it says: its
+/// keyword, caption, a bad line's text, its fields and its fault, with the room round them; a
+/// comment's line of words.
 fn content_width(ui: &Ui, b: &Block, look: &liza::Look) -> f32 {
     let font = &look.font;
+    if b.kind == BlockKind::Rem {
+        return look::BLOCK_PAD + text_w(ui, &format!("{}  -- {}", b.no, b.text), font);
+    }
     let mut w = look::BLOCK_PAD + text_w(ui, &format!("({})", b.kind.label()), font);
     w += look::BLOCK_PAD;
     if let Some(caption) = b.caption {
@@ -1013,7 +1017,15 @@ fn content_width(ui: &Ui, b: &Block, look: &liza::Look) -> f32 {
             Field::Number(_) => look::NUMBER_W,
         } + look::FIELD_GAP;
     }
+    if let Some(why) = &b.fault {
+        w += text_w(ui, why, &fault_font(font));
+    }
     w
+}
+
+/// The smaller type a block's number and fault are set in.
+fn fault_font(font: &egui::FontId) -> egui::FontId {
+    egui::FontId::new((font.size * 0.85).round(), font.family.clone())
 }
 
 /// One line of the program: the ▶ in the gutter when it's next, then the block (a framed box
@@ -1032,7 +1044,7 @@ fn block_row(
 ) {
     let ink = look.ink;
     let font = look.font.clone();
-    let small = egui::FontId::new((font.size * 0.85).round(), font.family.clone());
+    let small = fault_font(&font);
     let note = b.kind == BlockKind::Rem;
     let row = Rect::from_min_size(row.min.round(), row.size().round());
     let drop = ui.interact(row, Id::new(("stack-row", b.no)), Sense::hover());
@@ -2249,6 +2261,26 @@ pub(crate) mod tests {
         script(&mut h, &g, PANE, vec![]);
         let arrow = h.painted_text().into_iter().find(|t| t.0 == "▶").unwrap();
         assert!(arrow.1.right() <= left(&h, 10), "{arrow:?}");
+    }
+
+    #[test]
+    fn a_guarded_fault_or_comment_stays_on_the_card() {
+        // A guarded GOTO to nowhere says so after its fields; a guarded comment is a line of
+        // its own words. The indent gives way for both.
+        let g = fight(
+            "10 IF INTEG < 10\n20 IF TURN > 1\n30 GOTO 999\n40 IF TURN > 1\n\
+             50 REM patch, then the breaker, then go",
+        );
+        // The default column and a little wider (a GOTO's fault fills a 300px one unindented).
+        for w in [340.0, 360.0] {
+            let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+            script(&mut h, &g, (w, 520.0), vec![]);
+            script(&mut h, &g, (w, 520.0), vec![]);
+            assert!(h.cut_text().is_empty(), "{w}: {:?}", h.cut_text());
+            for (t, r) in h.painted_text() {
+                assert!(r.right() <= w + 0.5, "{w}: {t} at {r:?}");
+            }
+        }
     }
 
     #[test]
