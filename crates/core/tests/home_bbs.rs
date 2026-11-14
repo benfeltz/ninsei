@@ -438,7 +438,7 @@ fn the_home_call_dials_and_hangs_up_as_it_always_did() {
             }
             assert!(t < tuning::BBS_HANGUP_SECS, "{}", b.id);
         }
-        assert!(t >= tuning::BBS_HANGUP_SECS && t < tuning::BBS_HANGUP_SECS + 0.06);
+        assert!((tuning::BBS_HANGUP_SECS..tuning::BBS_HANGUP_SECS + 0.06).contains(&t));
     }
 }
 
