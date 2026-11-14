@@ -1497,7 +1497,7 @@ impl Game {
             Action::Buy { area, file } => self.buy(area, file),
             Action::Patch { slot, bin } => self.patch(slot, bin),
             Action::Optimize { slot } => self.optimize(slot),
-            Action::GetSource { ice, version } => self.learn_source(ice, version),
+            Action::GetSource { ice, version } => self.learn_source(ice, version, ""),
             // `apply` hands the sysops their time before anything else.
             Action::Study { .. } => unreachable!("applied in `apply`"),
         }
@@ -1737,9 +1737,10 @@ impl Game {
         self.combat.as_ref().is_some_and(|c| c.listed)
     }
 
-    /// [`Action::GetSource`]: the source of version `v` of ICE `ice` (1.0.0, or a version this
-    /// run runs) lists from now on and comes home with the run.
-    fn learn_source(&mut self, ice: usize, v: Version) -> Result<(), String> {
+    /// [`Action::GetSource`], or a board's download: the source of version `v` of ICE `ice`
+    /// (1.0.0, or a version this run runs) lists from now on and comes home with the run,
+    /// carrying the header and remarks of board `from` (empty: none).
+    fn learn_source(&mut self, ice: usize, v: Version, from: &str) -> Result<(), String> {
         if ice >= self.data.ice.len() {
             return Err("no such ICE.".into());
         }
@@ -1753,7 +1754,7 @@ impl Game {
             id: self.data.ice[ice].id.clone(),
             version: v,
             program,
-            from: String::new(),
+            from: from.to_string(),
         });
         if let Some(c) = self
             .combat
@@ -3398,11 +3399,8 @@ impl Game {
                 let name = self.data.ice[i].name.clone();
                 // A source the deck has already is no news; `learn_source` says nothing. One
                 // bought here carries this board's header and remarks.
-                if self.learn_source(i, version).is_ok() {
-                    let board = self.bbs().id.clone();
-                    if let Some(s) = self.sources_got.last_mut() {
-                        s.from = board;
-                    }
+                let board = self.bbs().id.clone();
+                if self.learn_source(i, version, &board).is_ok() {
                     self.say(LogKind::Loot, format!("+ ICE source: {name} {version}"));
                 }
             }

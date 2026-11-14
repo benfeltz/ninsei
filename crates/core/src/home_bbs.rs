@@ -361,12 +361,9 @@ impl Save {
                 format!("{name} is on your disk")
             }
             Drop::Source { ice, version } => {
-                if !self.learn_source(data, ice, *version) {
-                    return Err("corrupt download.".into());
-                }
                 // It carries this board's header and remarks.
-                if let Some(s) = self.ice_sources.last_mut() {
-                    s.from = call.def.id.clone();
+                if !self.learn_source_from(data, ice, *version, &call.def.id) {
+                    return Err("corrupt download.".into());
                 }
                 let name = data
                     .ice_by_id(ice)
