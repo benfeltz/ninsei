@@ -675,8 +675,8 @@ impl App {
         if open && !self.bbs_heard {
             // The line's own call, the one its window ticks against: a call from home dials
             // that board's number; in a run, the net's PAD calls the network's board.
-            if let Some(call) = self.bbs_call() {
-                self.speaker.dial(call.timeline());
+            if let Some(timeline) = self.bbs_call().map(|c| c.timeline().clone()) {
+                self.speaker.dial(&timeline);
             }
         } else if !open && self.bbs_heard {
             self.speaker.stop();
@@ -686,7 +686,7 @@ impl App {
 
     /// The call on the BBS window's line, if one is up: a board called from home, else the
     /// run's.
-    fn bbs_call(&self) -> Option<ninsei_core::bbs::Call> {
+    fn bbs_call(&self) -> Option<ninsei_core::bbs::Call<'_>> {
         use ninsei_core::bbs::Line;
         match (&self.home_bbs, &self.bbs) {
             (Some((_, call)), _) => Some(call.connect()),
