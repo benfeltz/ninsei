@@ -123,7 +123,7 @@ fn each_deck_prints_a_remark_its_own_way() {
     );
     assert_eq!(
         btop_fight::ice_line(rem),
-        "      rem razorwire // enigma 1.0.0"
+        "·     rem razorwire // enigma 1.0.0"
     );
     let p = suite::procedure(&rows);
     let first = &p[0];

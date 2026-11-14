@@ -76,8 +76,9 @@ pub fn ice_window(rows: &[IceRow], n: usize) -> Vec<IceRow> {
 
 /// A row of the ICE's listing in btop's lowercase: `▶` on the line it carries on from.
 pub fn ice_line(r: &IceRow) -> String {
+    // A remark row keeps the mark column (a label drops leading spaces) and has no number.
     if r.rem {
-        return format!("      rem {}", r.text.to_lowercase());
+        return format!("·     rem {}", r.text.to_lowercase());
     }
     let mark = if r.cursor { "▶" } else { "·" };
     format!("{mark} {:>3} {}", r.no, r.text.to_lowercase())
