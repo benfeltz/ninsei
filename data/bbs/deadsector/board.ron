@@ -67,6 +67,13 @@
         minor: "|12{ice} {version}|08. new trick. don't run what you ran.",
         major: "|12{ice} {version}|08. new code. whatever worked, didn't.",
     )),
+    // d1rge's rips: black ICE and kr4ken's code, ripped off the backbones.
+    sources: Some((
+        name: "RIPPED SOURCE",
+        tiers: [2, 0],
+        first: "{ice} {version}. old code.",
+        patched: "{ice} {version}. fresh rip.",
+    )),
     users: [
         (handle: "d1rge",     location: "???",          doing: "Watching you"),
         (handle: "lag",       location: "Sprawl",       doing: "Uploading (stalled)"),

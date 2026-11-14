@@ -245,6 +245,13 @@ pub enum Drop {
     Fragment(u32),
     /// Lowers trace.
     Scrub(u32),
+    /// The source of version `version` of ICE kind `ice` (an id in `ice.ron`): the ICE DB's
+    /// and the IDE's data, yours for good, even on a flatline. Never in data: a board's
+    /// `sources` area is generated ([`crate::bbs::source_area`]).
+    Source {
+        ice: String,
+        version: crate::ice_version::Version,
+    },
     /// A number range for the wardialer (id in `hub/exchanges.ron`). Comes home even on a flatline.
     Hint(String),
     /// A desktop tool (id in `hub/tools.ron`): yours for good once downloaded, even on a flatline.
@@ -377,6 +384,10 @@ pub struct BbsDef {
     /// The news of new ICE versions it hears, as a bulletin after its own (none: it doesn't).
     #[serde(default)]
     pub ice_news: Option<IceNewsDef>,
+    /// The ICE sources it sells, as one more file area after its own, generated from the
+    /// kinds and versions (none: it sells none).
+    #[serde(default)]
+    pub sources: Option<SourcesDef>,
     /// Pipe-coded splash art, from the board's `splash.txt`.
     #[serde(skip)]
     pub splash: String,
@@ -400,6 +411,33 @@ pub struct IceNewsDef {
     pub minor: String,
     pub major: String,
 }
+
+/// A board's ICE source area, in its own voice: one file per kind of the ICE tiers it carries,
+/// the newest version the scene has cracked (1.0.0 from the start), priced by tier in
+/// `tuning.rs`. The area and its files are generated ([`crate::bbs::source_area`]).
+#[derive(Deserialize, Clone, Debug)]
+pub struct SourcesDef {
+    /// The area's name.
+    pub name: String,
+    /// The ICE tiers (`ice.ron`'s `tier`) whose sources it carries.
+    pub tiers: Vec<u32>,
+    /// A file's description for 1.0.0, and for a later version: `{ice}` is the kind's name
+    /// and `{version}` the version.
+    pub first: String,
+    pub patched: String,
+}
+
+impl SourcesDef {
+    /// A file's description: kind `ice` at `version` (as printed), 1.0.0's or a later one's.
+    pub fn desc(&self, first: bool, ice: &str, version: &str) -> String {
+        let t = if first { &self.first } else { &self.patched };
+        t.replace("{ice}", ice).replace("{version}", version)
+    }
+}
+
+/// The widest a board's file description may print: the area screen's columns take the rest
+/// of the 78 cells, and a tag follows it.
+pub const FILE_DESC_MAX: usize = 35;
 
 /// The words an ICE news line may fill in.
 pub const NEWS_SLOTS: [&str; 2] = ["{ice}", "{version}"];
@@ -666,8 +704,10 @@ impl BbsDef {
         if self.bulletins.is_empty() || self.areas.is_empty() {
             return Err("needs at least one bulletin and one file area".into());
         }
-        if self.areas.len() > 9 || self.bulletins.len() > 9 {
-            return Err("at most 9 areas and 9 bulletins (one keypress each)".into());
+        // Areas go to ten (`0` is the tenth), a source area included.
+        let areas = self.areas.len() + usize::from(self.sources.is_some());
+        if areas > 10 || self.bulletins.len() > 9 {
+            return Err("at most 10 areas and 9 bulletins (one keypress each)".into());
         }
         if self.messages.len() > 9 || self.messages.iter().any(|b| b.posts.len() > 9) {
             return Err("at most 9 message bases of 9 posts (one keypress each)".into());
@@ -1250,6 +1290,8 @@ impl Data {
         for b in &self.boards {
             self.validate_ice_news(b)
                 .map_err(|e| format!("bbs/{}/board.ron ice_news: {e}", b.id))?;
+            self.validate_sources(b)
+                .map_err(|e| format!("bbs/{}/board.ron sources: {e}", b.id))?;
         }
         for ice in &self.ice {
             self.validate_ice_program(ice)
@@ -1774,6 +1816,68 @@ impl Data {
             }
             if !fits(&filled) {
                 return Err(format!("`{filled}` is wider than the terminal"));
+            }
+        }
+        Ok(())
+    }
+
+    /// A board's source area: a name, tiers that have ICE, at most nine
+    /// kinds (an area's files are picked by one digit), and descriptions that name only `{ice}`
+    /// and `{version}` and fit at the longest name and a `LONG_VERSION`. No board's own files
+    /// are sources: those are generated.
+    fn validate_sources(&self, b: &BbsDef) -> Result<(), String> {
+        if let Some(f) = b
+            .areas
+            .iter()
+            .flat_map(|a| &a.files)
+            .find(|f| matches!(f.item, Drop::Source { .. }))
+        {
+            return Err(format!(
+                "file `{}` is a source: those are generated",
+                f.file
+            ));
+        }
+        let Some(s) = &b.sources else {
+            return Ok(());
+        };
+        if s.name.trim().is_empty() {
+            return Err("an area with no name".into());
+        }
+        if s.tiers.is_empty() {
+            return Err("carries no tiers".into());
+        }
+        if let Some(t) = s
+            .tiers
+            .iter()
+            .find(|t| !self.ice.iter().any(|i| i.tier == **t))
+        {
+            return Err(format!("no ICE of tier {t}"));
+        }
+        let kinds = self
+            .ice
+            .iter()
+            .filter(|i| s.tiers.contains(&i.tier))
+            .count();
+        if kinds > 9 {
+            return Err(format!("{kinds} kinds: an area lists nine at most"));
+        }
+        let longest = self
+            .ice
+            .iter()
+            .map(|i| i.name.as_str())
+            .max_by_key(|n| n.chars().count())
+            .unwrap_or("");
+        for first in [true, false] {
+            let filled = s.desc(first, longest, LONG_VERSION);
+            if filled.contains('{') || filled.contains('}') {
+                return Err(format!(
+                    "`{filled}` has a word it can't fill ({NEWS_SLOTS:?})"
+                ));
+            }
+            if crate::ansi::visible_len(&filled) > FILE_DESC_MAX {
+                return Err(format!(
+                    "`{filled}` is wider than its column ({FILE_DESC_MAX})"
+                ));
             }
         }
         Ok(())

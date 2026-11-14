@@ -626,6 +626,9 @@ fn worth(g: &Game, d: &Drop, known: &[String]) -> i64 {
         Drop::Game(_) => 0,
         // Nor is a tune.
         Drop::Tune(_) => 0,
+        // Nor an ICE's source: the bots' programs never read the ICE's code, so a source
+        // changes nothing they do.
+        Drop::Source { .. } => 0,
         Drop::Hint(id) if !known.contains(id) && !g.hints.contains(id) => g
             .data
             .exchanges
@@ -646,6 +649,7 @@ fn kind(d: &Drop) -> &'static str {
         Drop::Tool(_) => "tool",
         Drop::Game(_) => "game",
         Drop::Tune(_) => "tune",
+        Drop::Source { .. } => "ICE source",
         Drop::Credits(..) | Drop::Text(_) | Drop::Nothing => "other",
     }
 }
@@ -1296,7 +1300,12 @@ impl Probe {
         let new: Vec<(String, crate::ice_version::Bump)> = save
             .ice_versions
             .iter()
-            .filter(|v| !before.contains(v))
+            // A version, not its crack, which the clock moves on every one.
+            .filter(|v| {
+                !before
+                    .iter()
+                    .any(|b| b.id == v.id && b.version == v.version && b.program == v.program)
+            })
             .filter_map(|v| v.bump.map(|b| (v.id.clone(), b)))
             .collect();
         self.stats.drafts[usize::from(picking)] += drafts;
