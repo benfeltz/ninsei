@@ -200,6 +200,17 @@ pub const STUDY_PATIENCE: u32 = 24;
 pub const STUDY_DRAFT_MS: u32 = 5_000;
 /// The fights a study keeps to stage its duels from: the latest this many it lost.
 pub const STUDY_STARTS: usize = 6;
+
+// Hacked ICE (141.11): the scene cracks each version the sysops ship and the boards sell its
+// source.
+
+/// The crackers' delay: steps of the sysops' clock (one per `STUDY_DRAFT_MS`) between a version
+/// shipping and its source being on the boards. The clock runs while a crack is pending.
+pub const SOURCE_CRACK_STEPS: u32 = 240;
+/// A source's price in credits, by the kind's ICE tier (`ice.ron`'s `tier`: 0 a rogue, 1 ICE,
+/// 2 black ICE): a version past 1.0.0, and 1.0.0, which every board has had from the start.
+pub const SOURCE_PRICE: [u32; 3] = [800, 120, 500];
+pub const SOURCE_PRICE_FIRST: [u32; 3] = [400, 60, 250];
 /// The probe has no clock, so it assumes how long its bots take: milliseconds of play an
 /// action takes (a move, a turn of a fight, a choice), and the time spent at home between two
 /// runs. Each becomes the sysops' drafts at `STUDY_DRAFT_MS`, and the report prints both.

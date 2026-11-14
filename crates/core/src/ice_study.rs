@@ -256,6 +256,8 @@ impl Pace {
 }
 
 /// Whether any of `studies` is at work.
+/// (`Save::sysops_busy` and `Game::sysops_busy` add the crackers at work on a version's
+/// source.)
 pub fn busy(studies: &[Study]) -> bool {
     studies.iter().any(|s| !s.rest)
 }

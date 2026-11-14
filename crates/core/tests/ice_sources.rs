@@ -35,6 +35,7 @@ fn ship(s: &mut Save, d: &Data) -> Version {
         version: v,
         program,
         bump: Some(Bump::Patch),
+        crack: 0,
     });
     v
 }

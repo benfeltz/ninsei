@@ -296,6 +296,7 @@ fn meeting_a_newer_version_keeps_the_last_one_s_record() {
         version: patch,
         program: text.into(),
         bump: Some(Bump::Patch),
+        crack: 0,
     });
     let mut g = fight(&mut s, &d, "enigma", "");
     turn(&mut g);
@@ -392,6 +393,7 @@ fn a_fight_names_its_ice_with_the_version_in_force() {
         version: ice_version::Version::default().bumped(ice_version::Bump::Patch),
         program: "10 ATTACK 4\n20 TRACE 4".into(),
         bump: Some(ice_version::Bump::Patch),
+        crack: 0,
     });
     let g = fight(&mut s, &d, "enigma", "");
     assert_eq!(g.ice_label(e), "Enigma 1.0.1");

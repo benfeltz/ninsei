@@ -116,6 +116,7 @@ fn a_version_in_the_save_is_in_force_from_jack_in_on_every_net() {
         version: v,
         program: next.program.clone(),
         bump: None,
+        crack: 0,
     });
     let want = basic::parse_with(&next.program, basic::Vocab::Ice(&row.verbs));
     for site in 0..3 {
@@ -132,6 +133,7 @@ fn a_version_in_the_save_is_in_force_from_jack_in_on_every_net() {
             version: v,
             program: next.program.clone(),
             bump: None,
+            crack: 0,
         });
     }
 }
@@ -219,6 +221,7 @@ fn a_patched_kind_is_met_blind_though_the_last_version_s_source_is_owned() {
         version: Version::default().bumped(next.bump.unwrap()),
         program: next.program,
         bump: None,
+        crack: 0,
     });
     let g = fight(&mut s, &d, "enigma");
     assert!(ice_listing::rows(&g).is_empty());

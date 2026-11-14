@@ -465,6 +465,7 @@ fn shipped_save(d: &Data) -> hub::Save {
             version: v.bumped(bump),
             program: row.program.clone(),
             bump: Some(bump),
+            crack: 0,
         });
     }
     s
@@ -558,6 +559,7 @@ fn a_full_news_bulletin_fits_the_terminal() {
             },
             program: row.program.clone(),
             bump: Some(Bump::Major),
+            crack: 0,
         });
     }
     for (i, b) in d.boards.iter().enumerate() {
