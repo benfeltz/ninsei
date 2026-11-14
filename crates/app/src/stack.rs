@@ -2,7 +2,8 @@
 //! field of meters that fill with darker patterns as they rise, programs are rounded buttons
 //! with a hatched shadow, the terminal is the Message box under a scrolling log field, and a
 //! fight puts the Script card under the ICE: the deck's program as a stack of operator blocks
-//! with fields, after HyperCard 1.2's button script editor, and Step, Run and Pause. What the
+//! with fields, after HyperCard 1.2's button script editor, under its CPU and RAM gauges, and a
+//! hi-fi's transport (Step, Play, fast-forward, Pause). What the
 //! card shows is core's (`ninsei_core::stack_fight`); this only draws it and routes edits. Two
 //! theme colours (lit ink on dark paper); anything it doesn't draw is Classic.
 
