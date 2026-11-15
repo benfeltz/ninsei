@@ -125,9 +125,28 @@ fn ai_card(painter: &Painter, at: Pos2, m: &AiMark, c: Two, area: Rect, avoid: &
         spots.push(pos2(own.right() + gap + size.x / 2.0, at.y));
         spots.push(pos2(own.left() - gap - size.x / 2.0, at.y));
     }
+    // Then anywhere on the card, nearest first.
+    let within = area.shrink(4.0);
+    let mut rest: Vec<Pos2> = (0..=(within.width() / 8.0) as i32)
+        .flat_map(|i| {
+            (0..=(within.height() / 8.0) as i32).map(move |j| {
+                pos2(
+                    within.left() + 8.0 * i as f32,
+                    within.top() + 8.0 * j as f32,
+                )
+            })
+        })
+        .collect();
+    rest.sort_by(|a, b| (*a - at).length().total_cmp(&(*b - at).length()));
+    spots.extend(rest);
     let mut keep_off = avoid.to_vec();
     keep_off.push(own);
-    let r = crate::netmap::place_clear(&spots, size, &keep_off, area.shrink(4.0));
+    // The hint along the card's bottom.
+    keep_off.push(Rect::from_min_max(
+        pos2(area.left(), area.bottom() - 24.0),
+        area.right_bottom(),
+    ));
+    let r = crate::netmap::place_clear(&spots, size, &keep_off, within);
     let tip = pos2(r.center().x.clamp(r.left(), r.right()), r.center().y);
     let from = pos2(
         tip.x.clamp(at.x - look::W / 2.0, at.x + look::W / 2.0),
@@ -362,7 +381,7 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
 
     if let Some(m) = netview::ai_mark(game) {
         let avoid: Vec<Rect> = (0..net.nodes.len())
-            .filter(|&id| id != m.node && shown(id))
+            .filter(|&id| id != m.node)
             .map(|id| on_card(pos(id)))
             .collect();
         ai_card(&painter, pos(m.node), &m, c, inside, &avoid);

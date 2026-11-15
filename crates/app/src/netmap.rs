@@ -133,7 +133,7 @@ pub fn place_clear(spots: &[egui::Pos2], size: egui::Vec2, avoid: &[Rect], withi
     rects
         .iter()
         .filter(inside)
-        .find(|r| !avoid.iter().any(|a| a.intersects(**r)))
+        .find(|r| !avoid.iter().any(|a| a.expand(2.0).intersects(**r)))
         .or_else(|| rects.iter().find(inside))
         .or(rects.first())
         .copied()
