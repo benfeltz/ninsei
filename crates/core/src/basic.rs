@@ -398,8 +398,21 @@ impl Program {
     }
 
     /// Whether running from the top can reach one of an ICE's verbs, whichever way its IFs go:
-    /// a program whose every path loops, stops or ends first never acts.
+    /// a program whose every path loops, stops or ends first never acts. A net's AI's walks
+    /// don't count: a fight passes over them.
     pub fn can_act(&self) -> bool {
+        self.can_reach(|s| matches!(s, Stmt::Act(_)))
+    }
+
+    /// Whether running from the top can reach one of a net's AI's walks: whether it can ever
+    /// do anything on the map.
+    pub fn can_walk(&self) -> bool {
+        self.can_reach(|s| matches!(s, Stmt::Walk(_)))
+    }
+
+    /// Whether running from the top can reach a statement `is` holds for, whichever way its
+    /// IFs go.
+    fn can_reach(&self, is: impl Fn(&Stmt) -> bool) -> bool {
         let mut seen = Vec::new();
         let mut todo: Vec<u32> = self.first().into_iter().collect();
         while let Some(no) = todo.pop() {
@@ -410,7 +423,7 @@ impl Program {
             let Some(l) = self.line(no) else { continue };
             let after = self.after(no);
             match &l.stmt {
-                Stmt::Act(_) | Stmt::Walk(_) => return true,
+                s if is(s) => return true,
                 Stmt::Stop => {}
                 Stmt::If(_) => todo.extend(after.into_iter().chain(self.skip(after))),
                 Stmt::Goto(to) if self.line(*to).is_some() => todo.push(*to),

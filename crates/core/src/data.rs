@@ -2518,6 +2518,9 @@ impl Data {
         if !p.can_act() {
             return Err("program never acts: no verb can be reached from the top".into());
         }
+        if ice.boss && !p.can_walk() {
+            return Err("program never walks: no walk can be reached from the top".into());
+        }
         let lines = p
             .lines
             .iter()

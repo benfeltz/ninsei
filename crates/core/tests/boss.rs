@@ -129,6 +129,18 @@ fn validate_refuses_a_bad_ai() {
             "model `watchman` is listed twice",
         ),
         (r#"strength: 30,"#, r#"strength: 0,"#, "strength 0"),
+        // Walks only: a fight passes over them, so it would never act there.
+        (
+            "50 IF TARGET RAN patch\n            60 SEGFAULT\n            70 IF TARGET SHIELD > 0\n            80 TRACE 6\n            90 ATTACK 5\n            100 ATTACK 4\"),",
+            "50 GOTO 20\"),",
+            "never acts",
+        ),
+        // ICE verbs only: it would never move on the map.
+        (
+            "20 IF TARGET DIST > 0\n            30 MOVE TOWARD TARGET\n            40 SCAN 2\n            50 IF TARGET RAN patch",
+            "50 IF TARGET RAN patch",
+            "never walks",
+        ),
     ];
     for (find, replace, why) in bad {
         let err = ai_edited(find, replace).expect_err(why);
