@@ -2333,9 +2333,6 @@ impl Data {
         })
     }
 
-    /// An ICE's row must have budgets to run with, verbs, an HDD, a range for every verb that
-    /// takes a number (and none for a verb it doesn't have or that takes none), and a program
-    /// that passes [`Data::check_ice_program`].
     /// The nets' AIs: models named once with a machine, versions of a known model named once,
     /// every row of `runs` naming a version, and every network tier running one from heat 0.
     /// (Each version's program is checked as its row in `ice`, against its model.)
@@ -2463,6 +2460,9 @@ impl Data {
         self.ai.models.iter().find(|m| m.id == v.model)
     }
 
+    /// An ICE's row must have budgets to run with, verbs, an HDD, a range for every verb that
+    /// takes a number (and none for a verb it doesn't have or that takes none), and a program
+    /// that passes [`Data::check_ice_program`].
     fn validate_ice_program(&self, ice: &IceDef) -> Result<(), String> {
         if ice.cpu == 0 || ice.ram == 0 {
             return Err(format!(
