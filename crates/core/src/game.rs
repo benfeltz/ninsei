@@ -2028,7 +2028,8 @@ impl Game {
         self.phase = Phase::Exploring;
         let n = &mut self.net.nodes[c.node];
         n.cleared = true;
-        if matches!(n.kind, NodeKind::Ice | NodeKind::BlackIce) {
+        // The node's own ICE: a client's setup fought on it is another kind.
+        if matches!(n.kind, NodeKind::Ice | NodeKind::BlackIce) && n.ice == Some(c.ice) {
             n.beaten = Some(c.ice_version);
         }
         let def = &self.data.ice[c.ice];

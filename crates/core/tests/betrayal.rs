@@ -238,3 +238,24 @@ fn bad_betrayals_are_caught() {
             .contains("under 100%")
     );
 }
+
+/// The node remembers the version of its own ICE the deck beat there, not of a setup's.
+#[test]
+fn a_setup_beaten_on_a_node_leaves_its_own_ice_s_version() {
+    use ninsei_core::ice_version::{Bump, Version};
+    let d = only("Setup(\"archer\")");
+    let mut g = betrayed(&d, 3, 200);
+    let node = g.at;
+    assert_eq!(g.net.nodes[node].beaten, Some(Version::FIRST));
+    let c = g.combat.as_mut().unwrap();
+    c.ice_version = Version::FIRST.bumped(Bump::Patch);
+    c.strength = 1;
+    let i = g
+        .hdd
+        .iter()
+        .position(|s| matches!(s.spec.effect, Effect::Break { .. }))
+        .unwrap();
+    g.apply(Action::Run(i));
+    assert_eq!(g.phase, Phase::Exploring);
+    assert_eq!(g.net.nodes[node].beaten, Some(Version::FIRST));
+}
