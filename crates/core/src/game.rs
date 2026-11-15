@@ -1608,18 +1608,17 @@ impl Game {
     /// ships: the node meets it. A newer version already in force is met as it is, and with
     /// their patience spent it's the version in force. Nothing here draws from the run's RNG.
     fn rearm(&mut self, node: usize, ice: usize) {
-        let v = self.ice_version(ice);
+        let (v, program) = in_force(&self.data, &self.ice_versions, ice);
         let id = &self.data.ice[ice].id;
         let study = self
             .ice_study
             .iter()
             .position(|s| s.id == *id && s.version == v && !s.rest);
         if let Some(i) = study.filter(|_| self.net.nodes[node].beaten == Some(v)) {
-            let data = std::sync::Arc::clone(&self.data);
-            let (_, program) = in_force(&data, &self.ice_versions, ice);
-            let next = self.ice_study[i].finish(&data, &program, self.study_key);
-            if let Some(next) = next {
-                self.ship(vec![(data.ice[ice].id.clone(), v, next)]);
+            let (data, key) = (&self.data, self.study_key);
+            if let Some(next) = self.ice_study[i].finish(data, &program, key) {
+                let id = id.clone();
+                self.ship(vec![(id, v, next)]);
             }
         }
         self.net.nodes[node].cleared = false;
