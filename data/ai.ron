@@ -3,9 +3,22 @@
 // net's threshold (`hub/networks.ron`) and fights through the same loop as ICE.
 //
 // models:   what a corp buys: the company that sells it, the product's name, its class, its
-//           machine (cpu, ram, hdd, as an ICE row's in `ice.ron`) and its vocabulary (`verbs`,
-//           with a range for every verb that takes a number). SEGFAULT is an AI's verb: no
-//           ordinary ICE has it. Every version of a model fits its machine.
+//           machine (cpu, ram, hdd, as an ICE row's in `ice.ron`) and its vocabulary: `verbs`
+//           (with a range for every verb that takes a number) for a fight, and `walks` for the
+//           map, between fights, with `reach` the hops a `SCAN n` may look (1 or more):
+//             Move  `MOVE TOWARD TARGET` one hop toward where it last saw the runner
+//                   `MOVE TOWARD EXIT`   one hop toward the net's exit
+//             Hold  `HOLD`               stays put for the rest of its pass
+//             Wait  `WAIT`               stays put for a cycle
+//             Scan  `SCAN n`             finds the runner if they're within n hops
+//           and the reads only an AI has: `TARGET SEEN` (its last look found the runner),
+//           `TARGET DIST <|>|= n` (hops it would walk to where it last saw them),
+//           `TARGET TRACE <|>|= n` and `AT <node kind>` (`AT EXIT`, `AT BLACK ICE`).
+//           SEGFAULT is an AI's verb: no ordinary ICE has it. Every version fits its machine.
+//           It walks the links the runner walks, one way links included. On the map it takes
+//           one pass of its program, from the top, for every hop the runner makes: each walk
+//           that does something spends a cycle (HOLD spends them all), its ICE verbs do nothing
+//           there, and a fight passes over its walks. A bigger cpu is a faster hunter.
 // versions: a model's programs, one per version, written by hand: `version` as the product
 //           numbers it, the `strength` it fights at (the net's ICE bonus and heat add to it, as
 //           they do to ICE), and its `program` in the fight's BASIC. Its header is a REM.
@@ -14,78 +27,110 @@
 (
     models: [
         (id: "watchman", company: "Maas-Neotek", name: "WATCHMAN", class: CodeGate,
-            cpu: 1, ram: 2, hdd: 10,
+            cpu: 1, ram: 2, hdd: 12,
             verbs: [Attack, Trace, Segfault],
-            ranges: [(Attack, 3, 7), (Trace, 3, 8)]),
+            ranges: [(Attack, 3, 7), (Trace, 3, 8)],
+            walks: [Move, Hold, Wait, Scan], reach: Some((1, 3))),
         (id: "sentinel", company: "Maas-Neotek", name: "SENTINEL", class: Sentry,
-            cpu: 2, ram: 3, hdd: 14,
+            cpu: 2, ram: 3, hdd: 16,
             verbs: [Attack, Trace, Spoof, Segfault],
-            ranges: [(Attack, 4, 9), (Trace, 3, 8), (Spoof, 1, 3)]),
+            ranges: [(Attack, 4, 9), (Trace, 3, 8), (Spoof, 1, 3)],
+            walks: [Move, Hold, Wait, Scan], reach: Some((1, 3))),
         (id: "warden", company: "Hosaka", name: "WARDEN", class: Barrier,
-            cpu: 2, ram: 4, hdd: 18,
+            cpu: 2, ram: 4, hdd: 20,
             verbs: [Attack, Trace, Fortify, Spoof, Segfault],
-            ranges: [(Attack, 5, 10), (Trace, 4, 9), (Fortify, 3, 6), (Spoof, 1, 3)]),
+            ranges: [(Attack, 5, 10), (Trace, 4, 9), (Fortify, 3, 6), (Spoof, 1, 3)],
+            walks: [Move, Hold, Wait, Scan], reach: Some((1, 4))),
     ],
     versions: [
+        // Walks to where it last saw you; there, it looks again.
         (model: "watchman", version: "1.2", strength: 22, program: "
             10 REM MAAS-NEOTEK WATCHMAN 1.2
-            20 IF TARGET RAN patch
-            30 SEGFAULT
-            40 IF TARGET SHIELD > 0
-            50 TRACE 6
-            60 ATTACK 5
-            70 ATTACK 4"),
+            20 IF TARGET DIST > 0
+            30 MOVE TOWARD TARGET
+            40 SCAN 2
+            50 IF TARGET RAN patch
+            60 SEGFAULT
+            70 IF TARGET SHIELD > 0
+            80 TRACE 6
+            90 ATTACK 5
+            100 ATTACK 4"),
         (model: "watchman", version: "1.4", strength: 25, program: "
             10 REM MAAS-NEOTEK WATCHMAN 1.4
-            20 IF TARGET RAN patch
-            30 SEGFAULT
-            40 IF TARGET SHIELD > 0
-            50 TRACE 7
-            60 IF TARGET INTEG < 8
-            70 ATTACK 7
-            80 ATTACK 5"),
+            20 IF TARGET DIST > 0
+            30 MOVE TOWARD TARGET
+            40 SCAN 3
+            50 IF TARGET RAN patch
+            60 SEGFAULT
+            70 IF TARGET SHIELD > 0
+            80 TRACE 7
+            90 IF TARGET INTEG < 8
+            100 ATTACK 7
+            110 ATTACK 5"),
+        // Moves and looks in the same hop, and moves again on what it finds.
         (model: "sentinel", version: "3.0", strength: 26, program: "
             10 REM MAAS-NEOTEK SENTINEL 3.0
-            20 IF TARGET SHIELD > 0
-            30 SPOOF 2
-            40 IF TARGET RAN firewall
-            50 SEGFAULT
-            60 ATTACK 6
-            70 TRACE 4
-            80 ATTACK 5"),
+            20 IF TARGET DIST > 0
+            30 MOVE TOWARD TARGET
+            40 SCAN 2
+            50 IF TARGET DIST > 0
+            60 MOVE TOWARD TARGET
+            70 IF TARGET SHIELD > 0
+            80 SPOOF 2
+            90 IF TARGET RAN firewall
+            100 SEGFAULT
+            110 ATTACK 6
+            120 TRACE 4
+            130 ATTACK 5"),
         (model: "sentinel", version: "3.2", strength: 29, program: "
             10 REM MAAS-NEOTEK SENTINEL 3.2
-            20 IF TARGET SHIELD > 0
-            30 SPOOF 2
-            40 IF TARGET RAN firewall
-            50 SEGFAULT
-            60 IF TARGET INTEG < 10
-            70 ATTACK 9
-            80 ATTACK 6
-            90 TRACE 5"),
+            20 IF TARGET DIST > 0
+            30 MOVE TOWARD TARGET
+            40 SCAN 3
+            50 IF TARGET DIST > 0
+            60 MOVE TOWARD TARGET
+            70 IF TARGET SHIELD > 0
+            80 SPOOF 2
+            90 IF TARGET RAN firewall
+            100 SEGFAULT
+            110 IF TARGET INTEG < 10
+            120 ATTACK 9
+            130 ATTACK 6
+            140 TRACE 5"),
+        // Two hops a hop toward where it last saw you, and it looks when it gets there.
         (model: "warden", version: "4.2", strength: 30, program: "
             10 REM HOSAKA WARDEN 4.2
-            20 IF TARGET RAN icepick
-            30 SEGFAULT
-            40 IF SELF STR < 20
-            50 FORTIFY 5
-            60 IF TARGET SHIELD > 0
-            70 TRACE 6
-            80 ATTACK 7
-            90 ATTACK 6"),
+            20 IF TARGET DIST > 0
+            30 MOVE TOWARD TARGET
+            40 IF TARGET DIST > 0
+            50 MOVE TOWARD TARGET
+            60 SCAN 3
+            70 IF TARGET RAN icepick
+            80 SEGFAULT
+            90 IF SELF STR < 20
+            100 FORTIFY 5
+            110 IF TARGET SHIELD > 0
+            120 TRACE 6
+            130 ATTACK 7
+            140 ATTACK 6"),
         (model: "warden", version: "4.5", strength: 34, program: "
             10 REM HOSAKA WARDEN 4.5
-            20 IF TARGET RAN icepick
-            30 SEGFAULT
-            40 IF TARGET RAN patch
-            50 SEGFAULT
-            60 IF SELF STR < 24
-            70 FORTIFY 6
-            80 IF TARGET SHIELD > 0
-            90 TRACE 7
-            100 IF TARGET INTEG < 10
-            110 ATTACK 10
-            120 ATTACK 7"),
+            20 IF TARGET DIST > 0
+            30 MOVE TOWARD TARGET
+            40 IF TARGET DIST > 0
+            50 MOVE TOWARD TARGET
+            60 SCAN 4
+            70 IF TARGET RAN icepick
+            80 SEGFAULT
+            90 IF TARGET RAN patch
+            100 SEGFAULT
+            110 IF SELF STR < 24
+            120 FORTIFY 6
+            130 IF TARGET SHIELD > 0
+            140 TRACE 7
+            150 IF TARGET INTEG < 10
+            160 ATTACK 10
+            170 ATTACK 7"),
     ],
     runs: [
         (tier: 1, heat: 0, model: "watchman", version: "1.2"),

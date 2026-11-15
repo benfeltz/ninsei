@@ -29,6 +29,18 @@ pub enum NodeKind {
 }
 
 impl NodeKind {
+    /// Every kind, in the order the map's legend lists them.
+    pub const ALL: [NodeKind; 8] = [
+        NodeKind::Entry,
+        NodeKind::Ice,
+        NodeKind::BlackIce,
+        NodeKind::Vault,
+        NodeKind::Bbs,
+        NodeKind::Contact,
+        NodeKind::Subnet,
+        NodeKind::Exit,
+    ];
+
     pub fn label(self) -> &'static str {
         match self {
             NodeKind::Entry => "ENTRY",

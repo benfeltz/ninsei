@@ -41,7 +41,7 @@ pub fn with_probe_ai(verbs: &str, program: &str) -> Result<Data, String> {
     let ai = include_str!("../../../../data/ai.ron");
     let model = format!(
         "models: [\n        (id: \"probe\", company: \"Probe\", name: \"PROBE\", class: Sentry, \
-         cpu: 1, ram: 2, hdd: 40, verbs: [{verbs}], ranges: [{ranges}]),"
+         cpu: 1, ram: 2, hdd: 40, verbs: [{verbs}], ranges: [{ranges}], walks: []),"
     );
     let version = format!(
         "versions: [\n        (model: \"probe\", version: \"1.0\", strength: 10, program: \"{program}\"),"

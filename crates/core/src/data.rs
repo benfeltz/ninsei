@@ -134,6 +134,11 @@ pub struct IceDef {
     /// (`Data::parse`). Never written in `ice.ron`, never placed on the map, never patched.
     #[serde(skip)]
     pub boss: bool,
+    /// A net's AI's moves on the map (its model's), and how far its `SCAN` may reach.
+    #[serde(skip)]
+    pub walks: Vec<crate::basic::Walk>,
+    #[serde(skip)]
+    pub reach: Option<(u32, u32)>,
 }
 
 /// The ICE tier a net's AI fights as: above black ICE, never on the map.
@@ -162,6 +167,11 @@ pub struct AiModel {
     pub hdd: u32,
     pub verbs: Vec<crate::basic::Verb>,
     pub ranges: Vec<(crate::basic::Verb, u32, u32)>,
+    /// What its program may do on the map, between fights.
+    pub walks: Vec<crate::basic::Walk>,
+    /// The hops a `SCAN n` may reach, (lowest, highest): there exactly when it has `Scan`.
+    #[serde(default)]
+    pub reach: Option<(u32, u32)>,
 }
 
 /// A version of a model: a program, and the strength it fights at.
@@ -218,6 +228,8 @@ impl AiDef {
                     ranges: m.ranges.clone(),
                     yields: None,
                     boss: true,
+                    walks: m.walks.clone(),
+                    reach: m.reach,
                 })
             })
             .collect()
@@ -225,6 +237,15 @@ impl AiDef {
 }
 
 impl IceDef {
+    /// The words its program is written in: an ICE's verbs, and a net's AI's walks too.
+    pub fn vocab(&self) -> crate::basic::Vocab<'_> {
+        if self.boss {
+            crate::basic::Vocab::Boss(&self.verbs, &self.walks)
+        } else {
+            crate::basic::Vocab::Ice(&self.verbs)
+        }
+    }
+
     /// The numbers `verb`'s line may carry, (lowest, highest), if its row gives a range.
     pub fn range(&self, verb: crate::basic::Verb) -> Option<(u32, u32)> {
         self.ranges
@@ -2330,6 +2351,29 @@ impl Data {
             if !ai.versions.iter().any(|v| v.model == m.id) {
                 return Err(format!("model `{}` has no versions", m.id));
             }
+            let scans = m.walks.contains(&crate::basic::Walk::Scan);
+            match m.reach {
+                Some((lo, hi)) if !scans => {
+                    return Err(format!("model `{}` reaches {lo}..{hi} with no SCAN", m.id));
+                }
+                Some((lo, hi)) if lo == 0 || lo > hi || hi > crate::basic::MAX_ARG => {
+                    return Err(format!(
+                        "model `{}` reaches {lo}..{hi} (lowest first, 1 to {})",
+                        m.id,
+                        crate::basic::MAX_ARG
+                    ));
+                }
+                None if scans => return Err(format!("model `{}` scans with no reach", m.id)),
+                _ => {}
+            }
+            if let Some((_, w)) = m
+                .walks
+                .iter()
+                .enumerate()
+                .find(|(i, w)| m.walks[..*i].contains(w))
+            {
+                return Err(format!("model `{}` has {} twice", m.id, w.word()));
+            }
         }
         for (i, v) in ai.versions.iter().enumerate() {
             if !ai.models.iter().any(|m| m.id == v.model) {
@@ -2466,8 +2510,8 @@ impl Data {
     /// range, and it holds no more lines that attack the program than its tier may (the
     /// grammar's `fair`). The row's own program and every version the generator draws pass this one check.
     pub fn check_ice_program(&self, ice: &IceDef, program: &str) -> Result<(), String> {
-        use crate::basic::{Cond, Stmt, Vocab};
-        let p = crate::basic::parse_with(program, Vocab::Ice(&ice.verbs));
+        use crate::basic::{Cond, Stmt};
+        let p = crate::basic::parse_with(program, ice.vocab());
         if let Some(s) = p.stray.first() {
             return Err(format!("program line `{s}` has no line number"));
         }
@@ -2513,6 +2557,15 @@ impl Data {
                 return Err(format!(
                     "program line {} reads `{name}`, which no program is called",
                     l.no
+                ));
+            }
+            if let Stmt::Walk(crate::basic::WalkAct::Scan(n)) = l.stmt
+                && let Some((lo, hi)) = ice.reach
+                && !(lo..=hi).contains(&n)
+            {
+                return Err(format!(
+                    "program line {} `{}`: SCAN takes {lo} to {hi}",
+                    l.no, l.text
                 ));
             }
             if let Stmt::Act(intent) = l.stmt

@@ -106,26 +106,26 @@ fn validate_refuses_a_bad_ai() {
         ),
         // A verb outside its model's vocabulary is a bad line.
         (
-            "60 ATTACK 5\n            70 ATTACK 4",
-            "60 FORTIFY 5\n            70 ATTACK 4",
+            "90 ATTACK 5\n            100 ATTACK 4",
+            "90 FORTIFY 5\n            100 ATTACK 4",
             "unknown keyword",
         ),
         // A number outside its model's range.
         (
-            "60 ATTACK 5\n            70 ATTACK 4",
-            "60 ATTACK 50\n            70 ATTACK 4",
+            "90 ATTACK 5\n            100 ATTACK 4",
+            "90 ATTACK 50\n            100 ATTACK 4",
             "ATTACK takes 3 to 7",
         ),
         // More lines than its model's HDD.
         (
-            "cpu: 1, ram: 2, hdd: 10,",
+            "cpu: 1, ram: 2, hdd: 12,",
             "cpu: 1, ram: 2, hdd: 3,",
             "more than its hdd",
         ),
         (
             "models: [",
             r#"models: [(id: "watchman", company: "Maas-Neotek", name: "WATCHMAN", class: Sentry,
-                cpu: 1, ram: 2, hdd: 10, verbs: [Attack], ranges: [(Attack, 3, 7)]),"#,
+                cpu: 1, ram: 2, hdd: 10, verbs: [Attack], ranges: [(Attack, 3, 7)], walks: []),"#,
             "model `watchman` is listed twice",
         ),
         (r#"strength: 22,"#, r#"strength: 0,"#, "strength 0"),

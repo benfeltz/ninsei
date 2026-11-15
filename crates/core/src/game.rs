@@ -1897,7 +1897,7 @@ impl Game {
         let (ice_prog, bump, program) = match self.ice_versions.iter().find(|(i, ..)| *i == ice) {
             Some((_, _, p, b)) => (p.clone(), *b, p.text()),
             None => (
-                crate::basic::parse_with(&def.program, Vocab::Ice(&def.verbs)),
+                crate::basic::parse_with(&def.program, def.vocab()),
                 None,
                 String::new(),
             ),
@@ -2316,6 +2316,11 @@ impl Game {
             Cond::Target(..) | Cond::TargetRan(_) | Cond::SelfStr(..) => {
                 crate::ice_version::holds(cond, self)
             }
+            // A net's AI's, in a fight: the runner is in front of it, on its node.
+            Cond::Seen => c.is_some(),
+            Cond::Dist(op, n) => c.is_some() && op.test(0, *n),
+            Cond::TargetTrace(op, n) => op.test(self.deck.trace, *n),
+            Cond::At(k) => c.is_some_and(|c| self.net.nodes[c.node].kind == *k),
         }
     }
 
@@ -2552,7 +2557,8 @@ impl Game {
             self.ex_mut(side).pc = next;
             ran |= !matches!(stmt, Stmt::Rem);
             match stmt {
-                Stmt::Rem => {}
+                // A net's AI's moves on the map: a fight passes over them.
+                Stmt::Rem | Stmt::Walk(_) => {}
                 Stmt::Bad(why) => {
                     let why = self.prog(side).fault(no).unwrap_or(why);
                     self.trace_step(side, no, StepWhat::Skipped(why));

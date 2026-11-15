@@ -9,12 +9,19 @@
 //! `TARGET CPU`, `TARGET RAN <program>`, `SELF STR`, `TURN`). A word outside a program's
 //! vocabulary is a bad line: the deck can't `ATTACK` and an ICE can't `RUN`.
 //!
+//! A net's AI (`ai.ron`) has a vocabulary of its own ([`Vocab::Boss`]): its ICE verbs, and
+//! [`Walk`]s that reach onto the map (`MOVE TOWARD TARGET`, `MOVE TOWARD EXIT`, `HOLD`, `WAIT`,
+//! `SCAN n`), with reads of where it thinks the runner is (`TARGET SEEN`, `TARGET DIST`,
+//! `TARGET TRACE`, `AT <node kind>`). No ordinary ICE has them. A fight passes over its walks;
+//! on the map (`crate::boss`) its ICE verbs do nothing.
+//!
 //! A line that doesn't parse is kept, marked bad with the interpreter's reason, and skipped
 //! when the program runs, so a typo never halts a fight.
 
 use serde::Deserialize;
 
 use crate::data::{IceClass, Intent};
+use crate::network::NodeKind;
 
 /// The highest line number, as on the machines this BASIC imitates.
 pub const MAX_LINE: u32 = 63999;
@@ -95,12 +102,81 @@ impl Verb {
     }
 }
 
-/// The words a program may use: the deck's (`RUN` and the player's conditions) or an ICE's
-/// (its verbs and the conditions that read the deck). `IF`, `GOTO`, `STOP` and `REM` are both's.
+/// A verb a net's AI's program uses on the map, between fights (its model's `walks`).
+#[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Walk {
+    /// `MOVE TOWARD TARGET` or `MOVE TOWARD EXIT`: one hop along the shortest route it can
+    /// walk, toward where it last saw the runner or toward the net's exit.
+    Move,
+    /// `HOLD`: stays where it is for the rest of its pass.
+    Hold,
+    /// `WAIT`: stays where it is for one cycle.
+    Wait,
+    /// `SCAN n`: looks for the runner within n hops.
+    Scan,
+}
+
+impl Walk {
+    pub const ALL: [Walk; 4] = [Walk::Move, Walk::Hold, Walk::Wait, Walk::Scan];
+
+    pub fn word(self) -> &'static str {
+        match self {
+            Walk::Move => "MOVE",
+            Walk::Hold => "HOLD",
+            Walk::Wait => "WAIT",
+            Walk::Scan => "SCAN",
+        }
+    }
+}
+
+/// Where a `MOVE TOWARD` goes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Goal {
+    /// Where it last saw the runner.
+    Target,
+    /// The net's exit.
+    Exit,
+}
+
+/// A net's AI's move on the map, as its program writes it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WalkAct {
+    Toward(Goal),
+    Hold,
+    Wait,
+    /// The reach, in hops.
+    Scan(u32),
+}
+
+impl WalkAct {
+    pub fn walk(self) -> Walk {
+        match self {
+            WalkAct::Toward(_) => Walk::Move,
+            WalkAct::Hold => Walk::Hold,
+            WalkAct::Wait => Walk::Wait,
+            WalkAct::Scan(_) => Walk::Scan,
+        }
+    }
+}
+
+/// The words a program may use: the deck's (`RUN` and the player's conditions), an ICE's (its
+/// verbs and the conditions that read the deck), or a net's AI's (its ICE verbs, its walks, and
+/// the reads of where the runner is too). `IF`, `GOTO`, `STOP` and `REM` are all of theirs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Vocab<'a> {
     Deck,
     Ice(&'a [Verb]),
+    Boss(&'a [Verb], &'a [Walk]),
+}
+
+impl<'a> Vocab<'a> {
+    /// Its ICE verbs, if it has any.
+    fn verbs(self) -> Option<&'a [Verb]> {
+        match self {
+            Vocab::Deck => None,
+            Vocab::Ice(v) | Vocab::Boss(v, _) => Some(v),
+        }
+    }
 }
 
 /// Whether `typed`, a program name in a `RUN` or `HAVE`, means the program called `name`
@@ -154,6 +230,8 @@ pub enum Stmt {
     Rem,
     /// An ICE's verb, as the move it makes: `ATTACK n`, `TRACE n` or `FORTIFY n`.
     Act(Intent),
+    /// A net's AI's move on the map.
+    Walk(WalkAct),
     /// Didn't parse; the interpreter's reason. Skipped when the program runs.
     Bad(String),
 }
@@ -170,6 +248,14 @@ pub enum Cond {
     TargetRan(String),
     /// An ICE's: its own strength.
     SelfStr(Op, u32),
+    /// A net's AI's: its last look found the runner (`TARGET SEEN`).
+    Seen,
+    /// A net's AI's: hops it would walk to where it last saw the runner (`TARGET DIST`).
+    Dist(Op, u32),
+    /// A net's AI's: the runner's trace (`TARGET TRACE`).
+    TargetTrace(Op, u32),
+    /// A net's AI's: the kind of node it is on (`AT EXIT`, `AT BLACK ICE`).
+    At(NodeKind),
 }
 
 /// A number on the deck an ICE's condition reads.
@@ -324,7 +410,7 @@ impl Program {
             let Some(l) = self.line(no) else { continue };
             let after = self.after(no);
             match &l.stmt {
-                Stmt::Act(_) => return true,
+                Stmt::Act(_) | Stmt::Walk(_) => return true,
                 Stmt::Stop => {}
                 Stmt::If(_) => todo.extend(after.into_iter().chain(self.skip(after))),
                 Stmt::Goto(to) if self.line(*to).is_some() => todo.push(*to),
@@ -487,10 +573,14 @@ pub fn parse_stmt_with(text: &str, vocab: Vocab) -> Stmt {
         "IF" => match vocab {
             Vocab::Deck => parse_cond(rest),
             Vocab::Ice(_) => parse_ice_cond(rest),
+            Vocab::Boss(..) => parse_boss_cond(rest),
         }
         .map_or_else(bad, Stmt::If),
-        word => match vocab {
-            Vocab::Ice(verbs) => match verbs.iter().find(|v| v.word() == word) {
+        word if matches!(vocab, Vocab::Boss(_, walks) if walks.iter().any(|w| w.word() == word)) => {
+            parse_walk(word, rest)
+        }
+        word => match vocab.verbs() {
+            Some(verbs) => match verbs.iter().find(|v| v.word() == word) {
                 Some(v) if !v.takes_number() => match rest {
                     [] => Stmt::Act(v.with(0)),
                     _ => bad("takes nothing"),
@@ -504,8 +594,47 @@ pub fn parse_stmt_with(text: &str, vocab: Vocab) -> Stmt {
                 },
                 None => bad("unknown keyword"),
             },
-            Vocab::Deck => bad("unknown keyword"),
+            None => bad("unknown keyword"),
         },
+    }
+}
+
+/// A net's AI's walk (`word` is one its model has), and what follows it.
+fn parse_walk(word: &str, rest: &[String]) -> Stmt {
+    let up: Vec<String> = rest.iter().map(|w| w.to_ascii_uppercase()).collect();
+    let words: Vec<&str> = up.iter().map(String::as_str).collect();
+    match (word, words.as_slice()) {
+        ("MOVE", ["TOWARD", "TARGET"]) => Stmt::Walk(WalkAct::Toward(Goal::Target)),
+        ("MOVE", ["TOWARD", "EXIT"]) => Stmt::Walk(WalkAct::Toward(Goal::Exit)),
+        ("MOVE", _) => bad("MOVE TOWARD TARGET or MOVE TOWARD EXIT"),
+        ("HOLD", []) => Stmt::Walk(WalkAct::Hold),
+        ("WAIT", []) => Stmt::Walk(WalkAct::Wait),
+        ("HOLD" | "WAIT", _) => bad("takes nothing"),
+        ("SCAN", [n]) => match n.parse::<u32>() {
+            Ok(n) if n <= MAX_ARG => Stmt::Walk(WalkAct::Scan(n)),
+            _ => bad("needs a number up to 999"),
+        },
+        _ => bad("needs a number"),
+    }
+}
+
+/// A net's AI's condition: an ICE's, or where it thinks the runner is.
+fn parse_boss_cond(t: &[String]) -> Result<Cond, &'static str> {
+    let up: Vec<String> = t.iter().map(|w| w.to_ascii_uppercase()).collect();
+    let words: Vec<&str> = up.iter().map(String::as_str).collect();
+    match words.as_slice() {
+        ["TARGET", "SEEN"] => Ok(Cond::Seen),
+        ["TARGET", "DIST", op, n] => compare(op, n).map(|(op, n)| Cond::Dist(op, n)),
+        ["TARGET", "TRACE", op, n] => compare(op, n).map(|(op, n)| Cond::TargetTrace(op, n)),
+        ["AT", kind @ ..] if !kind.is_empty() => {
+            let label = kind.join(" ");
+            NodeKind::ALL
+                .into_iter()
+                .find(|k| k.label() == label)
+                .map(Cond::At)
+                .ok_or("AT reads a kind of node")
+        }
+        _ => parse_ice_cond(t),
     }
 }
 
