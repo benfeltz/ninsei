@@ -251,7 +251,11 @@ impl ChromeView for Stack {
             let w = &s.spec;
             // Live when its preview passes (a hack's live control already asked it).
             let on = g.run_control(i) == Some(true) && (w.effect.is_hack() || g.preview(i).is_ok());
-            let sub = format!("run · cpu {}", w.cpu);
+            // What it costs to run: a hack's is trace, never cpu.
+            let sub = match w.effect.hack_trace() {
+                Some(t) => format!("run · trace +{t}"),
+                None => format!("run · cpu {}", w.cpu),
+            };
             let id = ui.id().with(("stack-prog", s.uid));
             ui.horizontal(|ui| {
                 if button(ui, p, id, &w.file(), &sub, on, false) {

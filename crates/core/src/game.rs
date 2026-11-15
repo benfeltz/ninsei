@@ -2044,12 +2044,14 @@ impl Game {
         self.hacks += 1;
         self.deck.trace += trace;
         let here = self.net.nodes[self.at].name.clone();
-        let s = if links == 1 { "" } else { "s" };
+        let (s, they) = if links == 1 {
+            ("", "it leads")
+        } else {
+            ("s", "they lead")
+        };
         self.say(
             LogKind::Good,
-            format!(
-                "{name}: {links} link{s} into {here} turned around. they lead out of here now."
-            ),
+            format!("{name}: {links} link{s} into {here} turned around. {they} out of here now."),
         );
         if self.check_trace() {
             return Ok(());

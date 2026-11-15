@@ -249,6 +249,20 @@ fn on_the_map_backlink_does_what_its_preview_said() {
                 assert_eq!(g.deck.trace, before.0 + trace, "its only cost is the trace");
                 assert_eq!((g.hops, g.at), (before.1, before.2), "it moves no one");
                 assert_eq!(g.hacks, 1);
+                let here = &g.net.nodes[g.at].name;
+                let said = &g.log.last().unwrap().text;
+                assert_eq!(
+                    *said,
+                    if links == 1 {
+                        format!(
+                            "Backlink: 1 link into {here} turned around. it leads out of here now."
+                        )
+                    } else {
+                        format!(
+                            "Backlink: {links} links into {here} turned around. they lead out of here now."
+                        )
+                    }
+                );
                 for &(a, _) in &flips {
                     assert!(g.reachable().contains(&a), "the turned link leads out");
                 }

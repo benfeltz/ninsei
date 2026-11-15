@@ -1100,6 +1100,10 @@ mod tests {
                 Ch::Suite => continue,
                 // The program's own button, a painted face.
                 Ch::Stack => {
+                    assert!(
+                        h.painted_text().iter().any(|(t, _)| t == "run · trace +12"),
+                        "a hack's button says its trace, never cpu"
+                    );
                     let (_, r) = h
                         .painted_text()
                         .into_iter()
