@@ -27,7 +27,7 @@ use crate::hub::{Entry, RunEnd, Save, Upgrade};
 use crate::ice_study::Pace;
 use crate::network::NodeKind;
 use crate::rng::Rng;
-use crate::tuning::{BETRAY_PCT, TRACE_MAX};
+use crate::tuning::{BETRAY_PCT, TRACE_MAX, TRACE_PER_HOP};
 
 /// How big a probe to run.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -256,6 +256,10 @@ pub struct RunLog {
     pub betrayals: Vec<(String, u32)>,
     /// What it chose in each encounter.
     pub talks: Vec<&'static str>,
+    /// Hops it took back, to a node a layer up, and fights with ICE back up on a node it had
+    /// beaten.
+    pub back: u32,
+    pub rearmed: u32,
 }
 
 impl RunLog {
@@ -375,10 +379,15 @@ fn play_paced(
                     Bot::Smart | Bot::SafePick => best_route(&g),
                 };
                 let Some(to) = to else { break };
+                let from = (g.outer.is_some(), g.net.nodes[g.at].layer);
                 g.apply(Action::Move(to));
                 clock.see(&g, &mut log);
+                if (g.outer.is_some(), g.net.nodes[g.at].layer + 1) == from {
+                    log.back += 1;
+                }
                 if g.phase == Phase::Combat {
                     log.fights += 1;
+                    log.rearmed += u32::from(g.combat.as_ref().is_some_and(|c| c.rearmed));
                 }
             }
             Phase::Combat => {
@@ -449,9 +458,85 @@ fn play_paced(
     (g, log)
 }
 
-/// The route a careful runner takes: the exit when it's there, loot when trace allows, and
+/// Trace a careful runner keeps in hand for the fights on a walk back, on top of the hops.
+const BACK_MARGIN: u32 = 20;
+
+/// The first hop of a shortest walk on the network the runner is on from `from` to `to`, along
+/// the moves the game allows, never through a node whose ICE it beat (it would be back up), and
+/// how many hops the walk takes.
+fn walk(g: &Game, from: usize, to: usize) -> Option<(usize, u32)> {
+    if from == to {
+        return Some((to, 0));
+    }
+    let net = &g.net;
+    let mut prev: Vec<Option<usize>> = vec![None; net.nodes.len()];
+    let mut queue = std::collections::VecDeque::from([from]);
+    prev[from] = Some(from);
+    while let Some(n) = queue.pop_front() {
+        if n == to {
+            break;
+        }
+        if n != from && net.nodes[n].beaten.is_some() {
+            continue;
+        }
+        for m in net.routes(n) {
+            if prev[m].is_none() {
+                prev[m] = Some(n);
+                queue.push_back(m);
+            }
+        }
+    }
+    prev[to]?;
+    let (mut n, mut hops) = (to, 0);
+    while prev[n] != Some(from) {
+        n = prev[n]?;
+        hops += 1;
+    }
+    Some((n, hops + 1))
+}
+
+/// Where a careful runner walks back to: a contract target it left behind, or the BBS it went
+/// past without calling, when the walk there and on to the exit costs less trace than it has
+/// left, by the game's own hop cost, with [`BACK_MARGIN`] for the fights. The nearest, if any;
+/// the first hop toward it.
+fn back_for(g: &Game) -> Option<usize> {
+    if g.outer.is_some() {
+        return None;
+    }
+    let ahead = g.net.reachable_from(g.at);
+    let mut goals: Vec<usize> = g
+        .contracts
+        .iter()
+        .filter(|k| k.status == ContractStatus::Active && !ahead[k.node])
+        .map(|k| k.node)
+        .collect();
+    if let Some(b) = g.net.bbs()
+        && !g.net.nodes[b].cleared
+        && !ahead[b]
+    {
+        goals.push(b);
+    }
+    let exit = *g.net.layers.last()?.first()?;
+    let hop = g.mods.trace(TRACE_PER_HOP);
+    goals
+        .into_iter()
+        .filter_map(|t| {
+            let (first, there) = walk(g, g.at, t)?;
+            let (_, out) = walk(g, t, exit)?;
+            let cost = g.deck.trace + (there + out) * hop + BACK_MARGIN;
+            (cost < TRACE_MAX).then_some((there, first))
+        })
+        .min()
+        .map(|(_, first)| first)
+}
+
+/// The route a careful runner takes: back for a job or the board it left behind when the trace
+/// allows ([`back_for`]), else deeper: the exit when it's there, loot when trace allows, and
 /// around ICE (black ICE most of all) when there's a choice.
 fn best_route(g: &Game) -> Option<usize> {
+    if let Some(to) = back_for(g) {
+        return Some(to);
+    }
     let trace = g.deck.trace;
     // Contract targets pull the route toward them (they're on the main network).
     let targets: Vec<usize> = if g.outer.is_none() {
@@ -463,7 +548,7 @@ fn best_route(g: &Game) -> Option<usize> {
     } else {
         Vec::new()
     };
-    // Deeper only, for now: the way back is taught in step 4 of 143.1.
+    // Deeper, then: it never walks back for nothing.
     let deeper = |to: &usize| g.net.nodes[*to].layer > g.net.nodes[g.at].layer;
     g.reachable().into_iter().filter(deeper).max_by_key(|&to| {
         let pull: i64 = if targets.contains(&to) {
@@ -486,7 +571,10 @@ fn best_route(g: &Game) -> Option<usize> {
             .ice
             .and_then(|i| g.data.ice.get(i))
             .map_or(0, |d| d.strength as i64);
-        let score: i64 = if n.cleared {
+        let score: i64 = if n.beaten.is_some() {
+            // Back up, and nothing on it any more.
+            -30 - ice_strength
+        } else if n.cleared {
             20
         } else {
             match n.kind {
@@ -814,6 +902,9 @@ pub struct TierStats {
     /// ICE turns that hid NEXT or garbled a line of the bot's program.
     pub spoofs: u32,
     pub segfaults: u32,
+    /// Hops back and fights with re-armed ICE in these runs.
+    pub back: u32,
+    pub rearmed: u32,
 }
 
 impl TierStats {
@@ -824,6 +915,8 @@ impl TierStats {
         self.turns += log.turns;
         self.spoofs += log.spoofs;
         self.segfaults += log.segfaults;
+        self.back += log.back;
+        self.rearmed += log.rearmed;
         match f {
             Fate::Exit => self.exits += 1,
             Fate::Traced => self.traced += 1,
@@ -834,6 +927,12 @@ impl TierStats {
 
     pub fn win_pct(&self) -> u32 {
         pct(self.exits, self.runs)
+    }
+
+    /// Hops back and fights with re-armed ICE, a run.
+    pub fn back_per_run(&self) -> (f32, f32) {
+        let runs = self.runs.max(1) as f32;
+        (self.back as f32 / runs, self.rearmed as f32 / runs)
     }
 
     /// Turns a fight took, on average.
@@ -1751,6 +1850,18 @@ impl Probe {
                 avg
             ));
         }
+        out.push(format!(
+            "  back / re-armed a run: {}",
+            s.career
+                .iter()
+                .enumerate()
+                .map(|(t, c)| {
+                    let (b, r) = c.back_per_run();
+                    format!("t{} {b:.2}/{r:.2}", t + 1)
+                })
+                .collect::<Vec<_>>()
+                .join("  ")
+        ));
         let mut by = s.t3_by_chassis.clone();
         let pick_rows: Vec<String> = s
             .career_pick

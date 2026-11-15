@@ -185,7 +185,16 @@ fn the_dumb_bot_is_two_lines() {
     // All three play fights through the interpreter: what's left in the run is their program.
     for bot in Bot::ALL {
         let (g, log) = probe::play(Game::new(data.clone(), 3), bot);
-        assert_eq!(g.program, ninsei_core::basic::parse(bot.program()));
+        // Its lines, though an ICE's SEGFAULT may have garbled one.
+        let lines =
+            |p: &ninsei_core::basic::Program| p.lines.iter().map(|l| l.no).collect::<Vec<_>>();
+        assert_eq!(
+            lines(&g.program),
+            lines(&ninsei_core::basic::parse(bot.program()))
+        );
+        if log.segfaults == 0 {
+            assert_eq!(g.program, ninsei_core::basic::parse(bot.program()));
+        }
         if log.fights > 0 {
             assert!(
                 !log.breaks.is_empty(),
@@ -394,4 +403,91 @@ fn spot_runs_dial_on_one_point_oh() {
         s.spot,
         "the careers come after, and change nothing before"
     );
+}
+
+/// A bare run on `seed`, every link two way, every node but the ends an empty cleared vault,
+/// standing on a layer-2 node with a layer-1 node behind it that it never visited: (the run,
+/// the node behind).
+fn past_a_node(seed: u64) -> Option<(Game, usize)> {
+    let mut g = Game::new(Data::builtin().unwrap(), seed);
+    g.net.orient(seed, 0);
+    for n in &mut g.net.nodes {
+        if !matches!(n.kind, NodeKind::Entry | NodeKind::Exit) {
+            n.kind = NodeKind::Vault;
+            n.cleared = true;
+            n.ice = None;
+        }
+    }
+    let l1 = g.net.layers[1].clone();
+    let (a, b, c) = l1.iter().find_map(|&a| {
+        l1.iter().filter(|&&b| b != a).find_map(|&b| {
+            let c = *g.net.nodes[a]
+                .links
+                .iter()
+                .find(|x| g.net.nodes[b].links.contains(x))?;
+            Some((a, b, c))
+        })
+    })?;
+    g.apply(Action::Move(a));
+    g.apply(Action::Move(c));
+    assert_eq!(g.at, c);
+    Some((g, b))
+}
+
+#[test]
+fn the_careful_bot_walks_back_for_a_contract_it_left_behind() {
+    let mut checked = 0;
+    for seed in 0..30 {
+        let Some((mut g, b)) = past_a_node(seed) else {
+            continue;
+        };
+        let ice = g.data.ice.iter().position(|i| i.id == "icewall").unwrap();
+        let n = &mut g.net.nodes[b];
+        (n.kind, n.ice, n.cleared) = (NodeKind::Ice, Some(ice), false);
+        g.contracts.push(Contract {
+            client: "test".into(),
+            brief: String::new(),
+            node: b,
+            reward: 100,
+            ghost: None,
+            status: ContractStatus::Active,
+            paid: 0,
+            betrayal: None,
+        });
+        // Too hot to go back for it: it carries on to the exit.
+        let mut hot = g.clone();
+        hot.deck.trace = 70;
+        let (hot, log) = probe::play(hot, Bot::Smart);
+        assert_eq!(log.back, 0, "seed {seed}: no trace for the walk back");
+        assert_eq!(hot.contracts[0].status, ContractStatus::Active);
+        // With the trace for it, it goes back, takes the job and gets out.
+        let (g, log) = probe::play(g, Bot::Smart);
+        assert!(log.back >= 1, "seed {seed}");
+        assert!(
+            matches!(
+                g.contracts[0].status,
+                ContractStatus::Done | ContractStatus::Betrayed
+            ),
+            "seed {seed}: settled"
+        );
+        assert_eq!(g.phase, Phase::JackedOut, "seed {seed}");
+        assert_eq!(log.rearmed, 0, "it routes around what it beat");
+        // The dumb bot never looks back.
+        let (_, log) = probe::play(past_a_node(seed).unwrap().0, Bot::Dumb);
+        assert_eq!(log.back, 0);
+        checked += 1;
+    }
+    assert!(checked > 10);
+}
+
+#[test]
+fn the_careful_bot_never_walks_back_for_nothing() {
+    for seed in 0..30 {
+        let Some((g, _)) = past_a_node(seed) else {
+            continue;
+        };
+        let (g, log) = probe::play(g, Bot::Smart);
+        assert_eq!(log.back, 0, "seed {seed}");
+        assert_eq!(g.phase, Phase::JackedOut);
+    }
 }
