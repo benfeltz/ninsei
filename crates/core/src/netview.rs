@@ -162,6 +162,20 @@ pub fn ai_mark(game: &Game) -> Option<AiMark> {
     })
 }
 
+/// What a map style writes beside the net's AI, in its own drawing's words: the Iso's tag, the
+/// Draft's callout in capitals, the Paint card's sentence. Last known says so.
+pub fn ai_caption(m: &AiMark, view: MapView) -> String {
+    let l = &m.label;
+    match (view, m.now) {
+        (MapView::Iso, true) => l.clone(),
+        (MapView::Iso, false) => format!("{l}  last seen"),
+        (MapView::Draft, true) => l.to_uppercase(),
+        (MapView::Draft, false) => format!("{} (LAST SEEN)", l.to_uppercase()),
+        (MapView::Paint, true) => format!("{l} is on this card"),
+        (MapView::Paint, false) => format!("{l} was last seen here"),
+    }
+}
+
 /// A link as the map shows it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LinkView {

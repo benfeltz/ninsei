@@ -229,6 +229,7 @@ pub fn hint(game: &Game) -> &'static str {
 mod tests {
     use super::*;
     use crate::uitest::{Harness, click};
+    use ninsei_core::netview;
     use ninsei_core::{Action, Data};
 
     const VIEWS: [MapView; 3] = [MapView::Iso, MapView::Draft, MapView::Paint];
@@ -364,6 +365,82 @@ mod tests {
                 assert!(
                     new.iter().all(|c| roles.contains(c)),
                     "{view:?} {theme}: arrows in the theme's ink: {new:?}"
+                );
+            }
+        }
+    }
+
+    /// `one_in(seed)` with the net's AI awake on node `at`; `now` false moves it out of sight,
+    /// leaving `at` where it was last known.
+    fn with_ai(seed: u64, at: usize, now: bool) -> Game {
+        use ninsei_core::boss::Hunter;
+        use ninsei_core::game::BossState;
+        let d = Data::builtin().unwrap();
+        let ice = d.boss_for(1, 0).unwrap();
+        let kit = ninsei_core::Kit {
+            tools: ninsei_core::data::TOOLS
+                .iter()
+                .map(|t| t.to_string())
+                .collect(),
+            boss: Some((ice, 25)),
+            ..ninsei_core::Kit::default()
+        };
+        let mut g = Game::start(d, seed, &kit);
+        g.net.orient(seed, 0);
+        for n in &mut g.net.nodes {
+            if !matches!(n.kind, NodeKind::Entry | NodeKind::Exit) {
+                (n.kind, n.ice, n.cleared) = (NodeKind::Vault, None, true);
+            }
+        }
+        let a = g.net.nodes[g.at].links[0];
+        g.apply(Action::Move(a));
+        let far = ninsei_core::boss::exit(&g.net).unwrap();
+        let mut h = Hunter::wake(ice, &g.data.ice[ice], if now { at } else { far }, g.at);
+        h.prog = ninsei_core::basic::parse_with("10 HOLD", g.data.ice[ice].vocab());
+        let b = g.boss.as_mut().unwrap();
+        b.state = BossState::Awake(h);
+        b.known = Some(at);
+        g
+    }
+
+    #[test]
+    fn every_map_marks_the_ai_where_the_runner_knows_it_is_and_where_it_was() {
+        for theme in ["amber", "synthwave"] {
+            for view in VIEWS {
+                let quiet = one_in(3);
+                let next = quiet.net.nodes[quiet.at].links[0];
+                let seen = with_ai(3, next, true);
+                let last = with_ai(3, next, false);
+                let (m_now, m_last) = (
+                    netview::ai_mark(&seen).unwrap(),
+                    netview::ai_mark(&last).unwrap(),
+                );
+                assert!(m_now.now && !m_last.now && m_last.node == next);
+                let said = |g: &Game| -> Vec<String> {
+                    drawn(view, g, theme)
+                        .painted_text()
+                        .into_iter()
+                        .map(|(t, _)| t)
+                        .collect()
+                };
+                let (now_cap, last_cap) = (
+                    netview::ai_caption(&m_now, view),
+                    netview::ai_caption(&m_last, view),
+                );
+                assert!(
+                    said(&seen).contains(&now_cap),
+                    "{view:?} {theme}: {now_cap}"
+                );
+                assert!(
+                    said(&last).contains(&last_cap),
+                    "{view:?} {theme}: {last_cap}"
+                );
+                let none = said(&quiet);
+                assert!(
+                    !none
+                        .iter()
+                        .any(|t| t.contains(&m_now.label) || t == &last_cap),
+                    "{view:?} {theme}: nothing to mark"
                 );
             }
         }

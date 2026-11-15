@@ -5,7 +5,9 @@
 use egui::{
     Align2, Color32, FontFamily, FontId, Painter, Pos2, Rect, Sense, Shape, Stroke, Ui, pos2, vec2,
 };
-use ninsei_core::netview::{self, HOVER, Iso, MapNode, Mesh, SPACING, style, world};
+use ninsei_core::netview::{
+    self, AiMark, HOVER, Iso, MapNode, MapView, Mesh, MeshKind, SPACING, style, world,
+};
 use ninsei_core::{Game, Phase};
 
 use crate::netmap::{
@@ -234,6 +236,10 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         }
     }
 
+    if let Some(m) = netview::ai_mark(game) {
+        ai_marker(&painter, &cam, game, &m, t, p);
+    }
+
     painter.text(
         rect.left_bottom() + vec2(8.0, -6.0),
         Align2::LEFT_BOTTOM,
@@ -242,6 +248,55 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         p.dim,
     );
     clicked
+}
+
+/// How high over its node the net's AI floats, in world units, above the node's own shape.
+const AI_LIFT: f32 = 0.8;
+
+/// The net's AI over the node the runner knows it is on: its own wireframe, lit and turning,
+/// and its tag. Where it was last known: the same shape, hollow and dim, tethered by a dashed
+/// line.
+fn ai_marker(painter: &Painter, cam: &Iso, game: &Game, m: &AiMark, t: f32, p: &Palette) {
+    let w = world(&game.net, m.node);
+    let at = [w[0], HOVER + AI_LIFT + (t * 1.5).sin() * 0.05, w[2]];
+    let mesh = Mesh::of(MeshKind::Ai);
+    let ink = if m.now {
+        Ink {
+            edge: p.bright,
+            fill: Some(p.dim.gamma_multiply(0.3)),
+            lit: true,
+        }
+    } else {
+        Ink {
+            edge: p.dim,
+            fill: None,
+            lit: false,
+        }
+    };
+    let head = cam.project(at);
+    let foot = cam.project([w[0], HOVER, w[2]]);
+    let (head, foot) = (pos2(head[0], head[1]), pos2(foot[0], foot[1]));
+    painter.extend(Shape::dashed_line(
+        &[head, foot],
+        Stroke::new(1.0, if m.now { p.fg } else { p.faint }),
+        2.0,
+        3.0,
+    ));
+    draw_mesh(
+        painter,
+        cam,
+        &mesh,
+        at,
+        (t * if m.now { 1.2 } else { 0.3 }, 0.5),
+        ink,
+    );
+    painter.text(
+        head - vec2(0.0, 26.0),
+        Align2::CENTER_BOTTOM,
+        netview::ai_caption(m, MapView::Iso),
+        FontId::new(11.0, FontFamily::Monospace),
+        if m.now { p.bright } else { p.dim },
+    );
 }
 
 /// The camera that fits the network into `rect`, leaving the hint's line below.

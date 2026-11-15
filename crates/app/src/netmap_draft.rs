@@ -5,7 +5,7 @@
 use egui::{
     Align2, Color32, FontFamily, FontId, Painter, Pos2, Rect, Sense, Shape, Stroke, Ui, pos2, vec2,
 };
-use ninsei_core::netview::{self, MapNode, Symbol, style};
+use ninsei_core::netview::{self, AiMark, MapNode, MapView, Symbol, style};
 use ninsei_core::{Game, NodeKind, Phase};
 
 use crate::netmap::{Anim, arrowhead, board_ink, hint, interact, kind, mix, tag, target, visible};
@@ -219,6 +219,10 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
             );
             painter.circle_stroke(c, R * 1.7, Stroke::new(1.0, p.bright));
         }
+    }
+
+    if let Some(m) = netview::ai_mark(game) {
+        ai_callout(&painter, pos(m.node), &m, p);
     }
 
     dimension(
@@ -519,6 +523,53 @@ fn revision_cloud(painter: &Painter, c: Pos2, p: &Palette) {
         FontId::new(8.0, FontFamily::Monospace),
         p.bright,
     );
+}
+
+/// The net's AI on the plan: a leader from the node it's on to a boxed callout, the node ringed
+/// twice. Where it was last known: the ring and the leader dashed, in `dim`.
+fn ai_callout(painter: &Painter, c: Pos2, m: &AiMark, p: &Palette) {
+    let ink = if m.now { p.bright } else { p.dim };
+    let elbow = c + vec2(-R * 2.2, -R * 2.6);
+    let end = elbow - vec2(R * 1.2, 0.0);
+    let ring = |r: f32| -> Vec<Pos2> {
+        (0..=32)
+            .map(|k| {
+                let a = std::f32::consts::TAU * k as f32 / 32.0;
+                c + vec2(a.cos(), a.sin()) * r
+            })
+            .collect()
+    };
+    if m.now {
+        painter.circle_stroke(c, R * 1.45, Stroke::new(1.6, ink));
+        painter.circle_stroke(c, R * 1.75, Stroke::new(1.0, ink));
+        painter.line_segment([c + vec2(-R * 1.0, -R * 1.1), elbow], Stroke::new(1.2, ink));
+        painter.line_segment([elbow, end], Stroke::new(1.2, ink));
+    } else {
+        painter.extend(Shape::dashed_line(
+            &ring(R * 1.6),
+            Stroke::new(1.0, ink),
+            4.0,
+            3.0,
+        ));
+        painter.extend(Shape::dashed_line(
+            &[c + vec2(-R * 1.1, -R * 1.2), elbow, end],
+            Stroke::new(1.0, ink),
+            4.0,
+            3.0,
+        ));
+    }
+    let font = FontId::new(10.0, FontFamily::Monospace);
+    let g = painter.layout_no_wrap(netview::ai_caption(m, MapView::Draft), font, ink);
+    let r = Align2::RIGHT_CENTER.anchor_size(end, g.size() + vec2(10.0, 6.0));
+    let r = Rect::from_min_size(r.min.round(), r.size().round());
+    painter.rect_filled(r, 0.0, p.bg);
+    painter.rect_stroke(
+        r,
+        0.0,
+        Stroke::new(if m.now { 1.4 } else { 1.0 }, ink),
+        egui::StrokeKind::Inside,
+    );
+    painter.galley(r.min + vec2(5.0, 3.0), g, ink);
 }
 
 /// A dimension line with architectural ticks and its figure.
