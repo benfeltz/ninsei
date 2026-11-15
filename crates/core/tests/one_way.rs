@@ -379,3 +379,44 @@ fn an_earlier_vault_pays_once() {
     }
     assert!(checked > 10);
 }
+
+/// A job on the board whose target falls while the runner is away is gone from the board when
+/// it steps back on: it could never pay.
+#[test]
+fn a_revisit_drops_a_job_whose_target_has_fallen() {
+    let mut checked = 0;
+    for seed in 0..30 {
+        let mut g = Game::new(data(), seed);
+        g.net.orient(seed, 0);
+        let bbs = g.net.bbs().unwrap();
+        for n in &mut g.net.nodes {
+            if n.id != bbs && n.layer > 0 && n.layer <= tuning::BBS_LAYER {
+                n.kind = NodeKind::Vault;
+                n.cleared = true;
+                n.ice = None;
+            }
+        }
+        while g.at != bbs {
+            let next = *g.net.nodes[g.at]
+                .links
+                .iter()
+                .find(|&&n| g.net.reachable_from(n)[bbs])
+                .unwrap();
+            g.apply(Action::Move(next));
+        }
+        let Some(k) = g.bbs_jobs.first().cloned() else {
+            continue;
+        };
+        let on = g.net.back(bbs).next().unwrap();
+        g.apply(Action::Move(on));
+        // The target falls while the runner is off the board.
+        g.net.nodes[k.node].cleared = true;
+        g.net.nodes[k.node].beaten = Some(ninsei_core::ice_version::Version::FIRST);
+        let rng = rng_at(&g);
+        g.apply(Action::Move(bbs));
+        assert!(!g.bbs_jobs.iter().any(|j| j.node == k.node), "seed {seed}");
+        assert_eq!(rng_at(&g), rng, "nothing drawn");
+        checked += 1;
+    }
+    assert!(checked > 10);
+}

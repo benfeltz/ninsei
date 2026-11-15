@@ -1682,6 +1682,15 @@ impl Game {
                     self.bbs_jobs = (0..BBS_JOBS)
                         .filter_map(|_| self.roll_contract(true))
                         .collect();
+                } else {
+                    // A job on a node that has fallen since can never pay: it's off the board.
+                    let net = self.outer.as_ref().map_or(&self.net, |o| &o.net);
+                    let gone = |k: &Contract| {
+                        let n = &net.nodes[k.node];
+                        n.cleared || n.beaten.is_some()
+                    };
+                    self.bbs_jobs
+                        .retain(|k| k.status != ContractStatus::Offered || !gone(k));
                 }
             }
             NodeKind::Contact if !node.cleared => {
