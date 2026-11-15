@@ -1887,8 +1887,10 @@ impl Game {
     fn boss_hop(&mut self) {
         let Some(b) = self.boss.as_ref() else { return };
         let ice = b.ice;
-        if b.state == BossState::Asleep && self.deck.trace >= b.wake {
-            let at = self.wake_node();
+        if b.state == BossState::Asleep
+            && self.deck.trace >= b.wake
+            && let Some(at) = self.wake_node()
+        {
             let runner = self.root_at();
             let h = crate::boss::Hunter::wake(ice, &self.data.ice[ice], at, runner);
             if let Some(b) = self.boss.as_mut() {
@@ -1915,15 +1917,16 @@ impl Game {
 
     /// Where the net's AI wakes: ahead of the runner, `BOSS_WAKE_AHEAD` hops along the shortest
     /// route they can walk from where they are (a subnet's door, from inside it) to the exit,
-    /// the exit itself if that's nearer. Never their node; always one they can walk to.
-    fn wake_node(&self) -> usize {
+    /// the exit itself if that's nearer. Never their node; always one they can walk to. `None`
+    /// when they're on the exit: the hop that woke it is the one that takes them off the net.
+    fn wake_node(&self) -> Option<usize> {
         let net = self.root();
         let from = self.root_at();
-        let exit = crate::boss::exit(net).unwrap_or(from);
-        match crate::boss::route(net, from, exit) {
+        let exit = crate::boss::exit(net).filter(|&e| e != from)?;
+        Some(match crate::boss::route(net, from, exit) {
             Some(r) if r.len() > 1 => r[(BOSS_WAKE_AHEAD as usize).clamp(1, r.len() - 1)],
             _ => exit,
-        }
+        })
     }
 
     /// The runner meets the net's AI on their node: a fight that can't be left. `arriving` is

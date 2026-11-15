@@ -393,3 +393,31 @@ fn the_probe_reports_the_nets_ais_by_version() {
         "{lines:#?}"
     );
 }
+
+#[test]
+fn the_hop_onto_the_exit_that_crosses_the_threshold_jacks_out() {
+    let mut checked = 0;
+    for seed in 0..20 {
+        let mut g = quiet_run(1, seed);
+        let exit = ninsei_core::boss::exit(&g.net).unwrap();
+        // One hop short of the exit.
+        let Some(&before) = g
+            .net
+            .nodes
+            .iter()
+            .map(|n| n.id)
+            .collect::<Vec<_>>()
+            .iter()
+            .find(|&&n| g.net.nodes[n].links.contains(&exit))
+        else {
+            continue;
+        };
+        g.at = before;
+        let hop = g.route(exit).unwrap().trace;
+        g.deck.trace = wake(&g) - hop;
+        g.apply(Action::Move(exit));
+        assert_eq!(g.phase, Phase::JackedOut, "seed {seed}: {:?}", g.log.last());
+        checked += 1;
+    }
+    assert!(checked > 0);
+}
