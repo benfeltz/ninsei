@@ -207,16 +207,24 @@ pub fn icedb(ui: &mut Ui, data: &Data, save: &Save, sel: &mut Option<String>) {
                 .find(|e| sel.as_deref() == Some(e.def.id.as_str()))
             {
                 Some(e) => {
+                    // The page in whole cells: a line too long for the window hangs under its
+                    // text (`ice_listing::hang`), never back under the line numbers.
+                    let font = egui::TextStyle::Monospace.resolve(ui.style());
+                    let cell = ui.fonts_mut(|f| f.glyph_width(&font, 'M')).max(1.0);
+                    let cols = ((ui.available_width() / cell).floor() as usize).max(16);
                     for (n, l) in e.page(save, data).iter().enumerate() {
-                        let t = RichText::new(&l.text).monospace();
-                        // What isn't on disk recedes, as an unmet entry does.
-                        ui.label(if n == 0 {
-                            t.strong().color(accent())
-                        } else if l.muted {
-                            t.color(muted())
-                        } else {
-                            t.color(ink())
-                        });
+                        for part in ninsei_core::ice_listing::hang(&l.text, cols) {
+                            let t = RichText::new(part).monospace();
+                            // What isn't on disk recedes, as an unmet entry does.
+                            let t = if n == 0 {
+                                t.strong().color(accent())
+                            } else if l.muted {
+                                t.color(muted())
+                            } else {
+                                t.color(ink())
+                            };
+                            ui.add(egui::Label::new(t).wrap_mode(egui::TextWrapMode::Extend));
+                        }
                     }
                 }
                 None => {
@@ -1047,6 +1055,38 @@ mod icedb_tests {
                 "{want:?} in {texts:#?}"
             );
         }
+    }
+
+    #[test]
+    fn a_long_note_keeps_its_hanging_indent_in_a_narrow_window() {
+        let data = Data::builtin().unwrap();
+        let mut save = Save::default();
+        let ai = data.boss_for(3, 0).unwrap();
+        let id = data.ice[ai].id.clone();
+        let model = data.boss_model(ai).unwrap().id.clone();
+        save.ice_sources.push(IceSource {
+            id: id.clone(),
+            version: ninsei_core::ice_version::Version::FIRST,
+            program: String::new(),
+            from: model,
+        });
+        let mut sel = Some(id);
+        let mut h = Harness::new(420.0, 900.0);
+        for _ in 0..2 {
+            h.frame(vec![], |ui| icedb(ui, &data, &save, &mut sel));
+        }
+        let texts = h.texts();
+        let note = texts
+            .iter()
+            .find(|t| t.trim_start().starts_with("REM LICENSED"))
+            .unwrap_or_else(|| panic!("{texts:#?}"));
+        // It didn't fit: the rest of its words hang under its text, past `REM `.
+        assert!(!note.contains("RESALE."), "{texts:#?}");
+        let rest = texts
+            .iter()
+            .find(|t| t.trim_end().ends_with("RESALE.") && !t.contains("LICENSED"))
+            .unwrap_or_else(|| panic!("{texts:#?}"));
+        assert!(rest.starts_with(&" ".repeat(11)), "{rest:?}");
     }
 
     #[test]

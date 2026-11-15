@@ -107,6 +107,57 @@ pub fn rem_line(text: &str) -> String {
     format!("       REM {text}")
 }
 
+/// A listing's line laid out in `cols` cells: as it is when it fits, else broken at spaces with
+/// every continuation hung under where its text starts (past the line's indent, and past a
+/// `REM `), so a long note never runs back under the line numbers. A word longer than the room
+/// is broken where the room ends. Whole cells; nothing is cut.
+pub fn hang(line: &str, cols: usize) -> Vec<String> {
+    if line.chars().count() <= cols {
+        return vec![line.to_string()];
+    }
+    let indent = line.len() - line.trim_start().len();
+    let body = line.trim_start();
+    let lead = indent + if body.starts_with("REM ") { 4 } else { 0 };
+    let hang = " ".repeat(lead.min(cols.saturating_sub(8)));
+    let room = |first: bool| {
+        if first {
+            cols
+        } else {
+            cols.saturating_sub(hang.len()).max(1)
+        }
+    };
+    let mut out: Vec<String> = Vec::new();
+    let mut cur = line[..lead.min(line.len())].to_string();
+    let mut first = true;
+    for word in line[lead.min(line.len())..].split(' ') {
+        let width = |s: &str| s.chars().count();
+        let used = width(&cur) - if first { 0 } else { hang.len() };
+        let gap = usize::from(used > 0 && !cur.ends_with(' '));
+        if used + gap + width(word) > room(first) && used > 0 {
+            out.push(cur.trim_end().to_string());
+            cur = hang.clone();
+            first = false;
+        } else if gap == 1 {
+            cur.push(' ');
+        }
+        let mut w: Vec<char> = word.chars().collect();
+        // A word too long for the room is broken where the room ends.
+        while w.len() > room(first) {
+            let used = width(&cur) - if first { 0 } else { hang.len() };
+            let take = room(first).saturating_sub(used).max(1);
+            cur.extend(w.drain(..take.min(w.len())));
+            out.push(cur.clone());
+            cur = hang.clone();
+            first = false;
+        }
+        cur.extend(w);
+    }
+    if !cur.trim().is_empty() {
+        out.push(cur.trim_end().to_string());
+    }
+    out
+}
+
 /// An ICE's program listed whole, every line numbered. No marks.
 pub fn decompile(program: &Program) -> Vec<IceRow> {
     program

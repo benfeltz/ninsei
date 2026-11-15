@@ -279,3 +279,24 @@ fn validate_holds_the_ais_notes_to_the_boards_rules() {
         assert!(err.contains(why), "{why}: {err}");
     }
 }
+
+#[test]
+fn a_long_note_hangs_under_its_text_at_any_width() {
+    let line = ice_listing::rem_line("LICENSED SOFTWARE. NOT FOR RESALE.");
+    for cols in [24, 30, 36, 44, 80] {
+        let out = ice_listing::hang(&line, cols);
+        assert!(
+            out.iter().all(|l| l.chars().count() <= cols),
+            "{cols}: {out:?}"
+        );
+        // Every continuation starts under the note's text, never under the line numbers.
+        for l in &out[1..] {
+            assert!(l.starts_with(&" ".repeat(11)), "{cols}: {l:?}");
+        }
+        // Nothing is lost: the words come back in order.
+        let words: Vec<&str> = out.iter().flat_map(|l| l.split_whitespace()).collect();
+        let want: Vec<&str> = line.split_whitespace().collect();
+        assert_eq!(words, want, "{cols}");
+    }
+    assert_eq!(ice_listing::hang("   10 ATTACK 4", 40), ["   10 ATTACK 4"]);
+}
