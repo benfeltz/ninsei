@@ -1537,10 +1537,12 @@ impl Game {
         Ok(Hop {
             trace: self.mods.trace(TRACE_PER_HOP),
             back,
+            // The AI's fight there is the only one: the ICE it stands in for never wakes.
             rearms: matches!(n.kind, NodeKind::Ice | NodeKind::BlackIce)
                 && n.cleared
                 && n.beaten.is_some()
-                && n.ice.is_some(),
+                && n.ice.is_some()
+                && !self.ice_replaced(to, meets),
             meets,
         })
     }
@@ -1864,6 +1866,16 @@ impl Game {
     }
 
     // ---- the net's AI ------------------------------------------------------------
+
+    /// Whether node `id`'s ICE is the net's AI's: beaten with it there (gone for the run), or
+    /// with the AI on it now (`ai_on_it`), whose fight is then the only one there. `false` for a
+    /// node with no ICE. The one place it is decided: the fight's end and the preview ask it.
+    pub fn ice_replaced(&self, id: usize, ai_on_it: bool) -> bool {
+        let n = &self.net.nodes[id];
+        matches!(n.kind, NodeKind::Ice | NodeKind::BlackIce)
+            && n.ice.is_some()
+            && (n.replaced || ai_on_it)
+    }
 
     /// The net's AI's name and maker, once it has woken this run (asleep: `None`): what each
     /// deck's alert names.
@@ -2354,7 +2366,8 @@ impl Game {
     }
 
     /// The deck beat the net's AI: it's down for the run, and the node the runner was arriving
-    /// on has its say. The node itself isn't cleared: its own ICE is still there.
+    /// on has its say. The AI stood in its ICE's place there, so that ICE is gone for the run:
+    /// no fight, no pay, never back up. The rest of the node is the runner's.
     fn down_boss(&mut self, c: Combat) {
         let name = self.data.ice[c.ice].name.clone();
         if c.strength == 0 {
@@ -2373,7 +2386,13 @@ impl Game {
         self.say(LogKind::Loot, format!("+ {pay}¢ from {name}'s accounts."));
         self.take_sources(c.ice);
         if let Some((node, hop)) = pending {
-            self.arrive(node, hop);
+            if self.ice_replaced(node, true) {
+                let n = &mut self.net.nodes[node];
+                n.cleared = true;
+                n.replaced = true;
+            }
+            let rearms = hop.rearms && !self.ice_replaced(node, false);
+            self.arrive(node, Hop { rearms, ..hop });
         }
     }
 

@@ -229,21 +229,26 @@ pub fn links(game: &Game) -> Vec<LinkView> {
 
 /// The line a route says, where the map's hover and the route list name it: `jack 3  →  VAULT`
 /// deeper, `jack 1  ←  ENTRY` back, `, back up` where ICE beaten there wakes, and
-/// `, WATCHMAN 1.2 there` where the runner knows the net's AI is. `None` when node `id` isn't a
-/// route from here.
+/// `, WATCHMAN 1.2 there` where the runner knows the net's AI is; on an ICE node the AI stands in
+/// for, its name in the ICE's place (`jack 3  →  WATCHMAN 1.2`), the only fight there. `None`
+/// when node `id` isn't a route from here.
 pub fn route_tip(game: &Game, id: usize) -> Option<String> {
     if !game.reachable().contains(&id) {
         return None;
     }
     // A route is a layer either side of the runner, so never in the fog.
     let hop = game.route(id).ok()?;
-    let what = game.node_label(id);
     let way = if hop.back { "←" } else { "→" };
     let up = if hop.rearms { ", back up" } else { "" };
-    // The net's AI, where the runner knows it is: the step meets it.
-    let ai = match (hop.meets, ai_mark(game)) {
-        (true, Some(m)) => format!(", {} there", m.label),
-        _ => String::new(),
+    // The net's AI, where the runner knows it is: the step meets it, and on an ICE node its
+    // fight is the only one there.
+    let (what, ai) = match (hop.meets, ai_mark(game)) {
+        (true, Some(m)) if game.ice_replaced(id, true) => (m.label, String::new()),
+        (true, Some(m)) => (
+            game.node_label(id).to_string(),
+            format!(", {} there", m.label),
+        ),
+        _ => (game.node_label(id).to_string(), String::new()),
     };
     Some(format!("jack {id}  {way}  {what}{up}{ai}"))
 }

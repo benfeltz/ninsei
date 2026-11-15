@@ -27,6 +27,7 @@ fn net(layers: &[&[NodeKind]], links: &[(usize, usize)], one_way: &[(usize, usiz
                 one_way: one_way.iter().filter(|l| l.0 == id).map(|l| l.1).collect(),
                 walked: Vec::new(),
                 beaten: None,
+                replaced: false,
             });
             row.push(id);
         }

@@ -5,6 +5,7 @@
 use ninsei_core::boss::{Hunter, route};
 use ninsei_core::game::{BossState, Sighting};
 use ninsei_core::hub::{Entry, Save};
+use ninsei_core::netview;
 use ninsei_core::*;
 
 fn data() -> Data {
@@ -507,4 +508,124 @@ fn a_wake_the_run_could_never_reach_is_refused_and_traits_keep_it_reachable() {
     .unwrap();
     let g = save(1, &["graveyard"]).dial(&d, 0, 1).unwrap();
     assert!(wake(&g) < tuning::TRACE_MAX);
+}
+
+/// A non-AI ICE kind to put on a node.
+fn plain_ice(d: &Data) -> usize {
+    d.ice.iter().position(|i| !i.boss && i.tier == 0).unwrap()
+}
+
+/// `g` with node `to` an ICE node, never fought, the AI on it holding still.
+fn ai_on_ice(seed: u64) -> (Game, usize) {
+    let mut g = quiet_run(1, seed);
+    let to = deeper(&g);
+    let ice = plain_ice(&g.data);
+    let n = &mut g.net.nodes[to];
+    n.kind = NodeKind::Ice;
+    n.ice = Some(ice);
+    n.cleared = false;
+    awake_at(&mut g, to, "10 HOLD");
+    (g, to)
+}
+
+/// Steps onto `to` and beats the AI there, the deck's ICEPICK against a weakened AI.
+fn beat_ai_on(g: &mut Game, to: usize) {
+    g.apply(Action::Move(to));
+    assert_eq!(g.phase, Phase::Combat);
+    assert!(g.data.ice[g.combat.as_ref().unwrap().ice].boss);
+    g.combat.as_mut().unwrap().strength = 1;
+    let pick = g.slot_named("icepick").unwrap();
+    g.apply(Action::Run(pick));
+}
+
+#[test]
+fn beating_it_on_an_ice_node_is_the_only_fight_there_and_the_ice_pays_nothing() {
+    for seed in 0..5 {
+        // The same run with the AI on a looted vault: what beating it pays, and nothing else.
+        let mut vault = quiet_run(1, seed);
+        let at = deeper(&vault);
+        awake_at(&mut vault, at, "10 HOLD");
+        let before = vault.deck.credits;
+        beat_ai_on(&mut vault, at);
+        let paid = vault.deck.credits - before;
+
+        let (mut g, to) = ai_on_ice(seed);
+        let before = g.deck.credits;
+        beat_ai_on(&mut g, to);
+        assert_eq!(g.phase, Phase::Exploring, "seed {seed}: {:?}", g.log.last());
+        assert!(g.combat.is_none());
+        assert_eq!(
+            g.deck.credits - before,
+            paid,
+            "seed {seed}: the AI's pay only"
+        );
+        let n = &g.net.nodes[to];
+        assert!(n.cleared && n.replaced && n.beaten.is_none());
+        assert!(g.ice_replaced(to, false));
+        assert!(!g.log.iter().any(|l| l.text.contains("node clear")));
+    }
+}
+
+#[test]
+fn the_ice_the_ai_stood_in_for_never_rearms() {
+    let mut checked = 0;
+    for seed in 0..20 {
+        let (mut g, to) = ai_on_ice(seed);
+        // Beaten here before: stepping back on would bring it back up, but the AI's there.
+        let v = g.ice_version(g.net.nodes[to].ice.unwrap());
+        g.net.nodes[to].cleared = true;
+        g.net.nodes[to].beaten = Some(v);
+        let hop = g.route(to).unwrap();
+        assert!(hop.meets && !hop.rearms, "seed {seed}: {hop:?}");
+        beat_ai_on(&mut g, to);
+        assert_eq!(g.phase, Phase::Exploring, "seed {seed}");
+        // On, and back by a link that runs both ways: nothing wakes.
+        let Some(&on) = g.net.nodes[to]
+            .links
+            .iter()
+            .find(|&&b| !g.net.one_way(to, b) && g.net.nodes[b].kind != NodeKind::Exit)
+        else {
+            continue;
+        };
+        g.apply(Action::Move(on));
+        let back = g.route(to).unwrap();
+        assert!(!back.rearms && !back.meets, "seed {seed}: {back:?}");
+        g.apply(Action::Move(to));
+        assert_eq!(g.phase, Phase::Exploring, "seed {seed}: {:?}", g.log.last());
+        checked += 1;
+    }
+    assert!(checked > 3);
+}
+
+#[test]
+fn the_preview_of_the_hop_names_only_the_ai() {
+    let (g, to) = ai_on_ice(5);
+    let name = g.data.ice[g.boss.as_ref().unwrap().ice].name.clone();
+    let tip = netview::route_tip(&g, to).unwrap();
+    assert_eq!(tip, format!("jack {to}  →  {name}"));
+    let ice = &g.data.ice[g.net.nodes[to].ice.unwrap()].name;
+    assert!(!tip.contains(ice.as_str()) && !tip.contains("ICE"), "{tip}");
+}
+
+#[test]
+fn an_ai_that_walked_off_unbeaten_leaves_the_nodes_ice_as_it_was() {
+    let (mut g, to) = ai_on_ice(5);
+    let ice = g.net.nodes[to].ice;
+    // It walks off to the exit, out of sight.
+    let exit = ninsei_core::boss::exit(&g.net).unwrap();
+    if let BossState::Awake(h) = &mut g.boss.as_mut().unwrap().state {
+        h.at = exit;
+    }
+    g.boss.as_mut().unwrap().known = None;
+    assert!(!g.ice_replaced(to, false));
+    let hop = g.route(to).unwrap();
+    assert!(!hop.meets);
+    g.apply(Action::Move(to));
+    assert_eq!(g.phase, Phase::Combat);
+    assert_eq!(
+        Some(g.combat.as_ref().unwrap().ice),
+        ice,
+        "the node's own ICE"
+    );
+    assert!(!g.net.nodes[to].replaced);
 }
