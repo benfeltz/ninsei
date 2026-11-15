@@ -30,9 +30,11 @@ fn career(d: &Data, runs: u64) -> Save {
     });
     for r in 0..runs {
         s.program = Some(SAFE_PICK.into());
-        let Ok(g) = s.dial(d, 0, 0x3E0 + r) else {
+        let Ok(mut g) = s.dial(d, 0, 0x3E0 + r) else {
             continue;
         };
+        // ICE's own sources only: a net's AI gives up the net's when it's beaten (138.3).
+        g.boss = None;
         let (g, _) = probe::play(g, Bot::SafePick);
         for l in g.log.iter().filter(|l| l.text.starts_with("!! ")) {
             if let Some(row) = d

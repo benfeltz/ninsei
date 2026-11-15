@@ -47,9 +47,11 @@ fn career(s: &mut Save, d: &Data, runs: u64, seed: u64, mut check: impl FnMut(&S
     let arc = std::sync::Arc::new(d.clone());
     for r in 0..runs {
         s.program = Some(SAFE_PICK.into());
-        let Ok(g) = s.dial(d, 0, seed + r) else {
+        let Ok(mut g) = s.dial(d, 0, seed + r) else {
             continue;
         };
+        // ICE's own sources only: a net's AI gives up the net's when it's beaten (138.3).
+        g.boss = None;
         let (g, _) = probe::play(g, Bot::SafePick);
         check(s, &g);
         s.record(&g, &[], &d.rig).unwrap();
