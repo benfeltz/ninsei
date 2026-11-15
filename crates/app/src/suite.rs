@@ -720,7 +720,9 @@ impl Panes<'_> {
                                 st.col = SheetCol::ALL[k - 1];
                             }
                         }
-                        if resp.double_clicked() && g.run_control(slot) == Some(true) {
+                        // Wherever there's a run control, a double click sends the run, and the
+                        // game says why when it can't.
+                        if resp.double_clicked() && g.run_control(slot).is_some() {
                             acts.push(act(Action::Run(slot)));
                         }
                         let w = &s.spec;
@@ -731,8 +733,12 @@ impl Panes<'_> {
                             w.effect.describe()
                         ))
                         .context_menu(|ui| {
+                            let why = g.preview(slot).err().unwrap_or_default();
                             if let Some(ok) = g.run_control(slot)
-                                && ui.add_enabled(ok, egui::Button::new("Run")).clicked()
+                                && ui
+                                    .add_enabled(ok, egui::Button::new("Run"))
+                                    .on_disabled_hover_text(why)
+                                    .clicked()
                             {
                                 acts.push(act(Action::Run(slot)));
                             }
@@ -2049,6 +2055,24 @@ mod tests {
             crate::uitest::double_click(at.center()),
         );
         assert_eq!(ran(out), [Action::Run(hack)]);
+        // In a fight the double click still sends, for a program it can't afford and for a
+        // hack, and the game refuses it in the preview's words.
+        let mut g = crate::stack::tests::a_fight(&d);
+        let mut slot = g.factory_slot(d.warez_ix("backlink").unwrap()).unwrap();
+        slot.uid = 900;
+        g.hdd.push(slot);
+        let hack = g.hdd.len() - 1;
+        g.combat.as_mut().unwrap().cpu = 0;
+        for slot in [0, hack] {
+            h.wait(1.0);
+            sheet(&mut h, &d, &g, &mut st, Vec::new());
+            let at = glyph(&h, &g.hdd[slot].spec.file());
+            let ev = crate::uitest::double_click(at.center());
+            assert_eq!(ran(sheet(&mut h, &d, &g, &mut st, ev)), [Action::Run(slot)]);
+            let why = g.preview(slot).unwrap_err();
+            g.apply(Action::Run(slot));
+            assert!(g.log.last().unwrap().text.contains(&why), "slot {slot}");
+        }
     }
 
     #[test]
