@@ -123,15 +123,14 @@ impl Game {
         let here = &self.net.nodes[self.at].name;
         let outcome = match w.effect {
             Effect::Backlink(n) => {
+                if self.net.one_way_into(self.at).is_empty() {
+                    return Err(format!("nothing runs one way into {here}."));
+                }
                 let links = self.net.backlinks(self.at).len() as u32;
                 if links == 0 {
-                    return Err(if self.net.one_way_into(self.at).is_empty() {
-                        format!("nothing runs one way into {here}.")
-                    } else {
-                        format!(
-                            "no link into {here} can turn without cutting a node off from the exit."
-                        )
-                    });
+                    return Err(format!(
+                        "no link into {here} can turn without cutting a node off from the exit."
+                    ));
                 }
                 Outcome::Backlink {
                     links,

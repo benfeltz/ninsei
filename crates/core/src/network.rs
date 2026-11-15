@@ -242,11 +242,15 @@ impl Network {
     /// the layer before along a link that is one way, and from the layer after along one that
     /// was turned around. In node order.
     pub fn one_way_into(&self, node: usize) -> Vec<(usize, usize)> {
-        let mut out: Vec<(usize, usize)> = self
-            .nodes
+        // Only the layer before links in.
+        let before = self.nodes[node]
+            .layer
+            .checked_sub(1)
+            .map_or(&[][..], |l| &self.layers[l][..]);
+        let mut out: Vec<(usize, usize)> = before
             .iter()
-            .filter(|a| a.one_way.contains(&node))
-            .map(|a| (a.id, node))
+            .filter(|&&a| self.nodes[a].one_way.contains(&node))
+            .map(|&a| (a, node))
             .collect();
         out.extend(self.nodes[node].reversed.iter().map(|&b| (b, node)));
         out.sort_unstable();
@@ -257,9 +261,14 @@ impl Network {
     /// ([`Network::one_way_into`]), in order, less any whose turn would leave some node with
     /// no way to the exit. Each is judged with the ones before it turned. Draws nothing.
     pub fn backlinks(&self, node: usize) -> Vec<(usize, usize)> {
+        let into = self.one_way_into(node);
+        if into.is_empty() {
+            return into;
+        }
+        // Judged on a scratch copy, turned and turned back in place.
         let mut net = self.clone();
         let mut out = Vec::new();
-        for (a, b) in self.one_way_into(node) {
+        for (a, b) in into {
             net.turn(a, b);
             if net.reaches_exit().iter().all(|&r| r) {
                 out.push((a, b));
