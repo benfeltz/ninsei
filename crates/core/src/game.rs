@@ -2371,8 +2371,42 @@ impl Game {
         let pay = self.mods.pay(AI_PAY[tier - 1]);
         self.deck.credits += pay;
         self.say(LogKind::Loot, format!("+ {pay}¢ from {name}'s accounts."));
+        self.take_sources(c.ice);
         if let Some((node, hop)) = pending {
             self.arrive(node, hop);
+        }
+    }
+
+    /// The net's AI (row `ai`) is beaten and gives up what it wrote: the source of every ICE kind
+    /// on the net's main network at the version in force, and its own, each from its model (so
+    /// they list with its notes), booked like any source. One the deck owns stays as it is.
+    fn take_sources(&mut self, ai: usize) {
+        let Some(model) = self.data.boss_model(ai).map(|m| m.id.clone()) else {
+            return;
+        };
+        let mut kinds: Vec<usize> = self
+            .root()
+            .nodes
+            .iter()
+            .filter_map(|n| n.ice)
+            .filter(|&i| !self.data.ice[i].boss)
+            .collect();
+        kinds.sort_unstable();
+        kinds.dedup();
+        kinds.push(ai);
+        let mut got = 0;
+        for ice in kinds {
+            let v = self.ice_version(ice);
+            if !self.owns_source(ice, v) && self.learn_source(ice, v, &model).is_ok() {
+                got += 1;
+            }
+        }
+        if got > 0 {
+            let name = self.data.ice[ai].name.clone();
+            self.say(
+                LogKind::Loot,
+                format!("+ {got} sources from {name}'s revision store."),
+            );
         }
     }
 

@@ -19,6 +19,9 @@
 //           one pass of its program, from the top, for every hop the runner makes: each walk
 //           that does something spends a cycle (HOLD spends them all), its ICE verbs do nothing
 //           there, and a fight passes over its walks. A bigger cpu is a faster hunter.
+//           `notes`: what it writes on the sources it gives up when it's beaten: a `header`
+//           over each listing ({ice}, {version} and {ai}, its product name), and `remarks` on
+//           the reads it knows, as a board's crew remarks on theirs, in the product's voice.
 // versions: a model's programs, one per version, written by hand: `version` as the product
 //           numbers it, the `strength` it fights at (the net's ICE bonus and heat add to it, as
 //           they do to ICE), and its `program` in the fight's BASIC. Its header is a REM.
@@ -30,17 +33,50 @@
             cpu: 1, ram: 2, hdd: 12,
             verbs: [Attack, Trace, Segfault],
             ranges: [(Attack, 3, 7), (Trace, 3, 8)],
-            walks: [Move, Hold, Wait, Scan], reach: Some((1, 3))),
+            walks: [Move, Hold, Wait, Scan], reach: Some((1, 3)),
+            notes: (
+                header: ["{ice} {version}", "revision drafted by {ai}", "approved for release by staff"],
+                remarks: [
+                    (read: "TARGET SHIELD", text: "rev: vs shielded sessions"),
+                    (read: "TARGET INTEG",  text: "rev: vs degraded sessions"),
+                    (read: "TARGET RAN",    text: "rev: vs observed tool use"),
+                    (read: "TARGET CPU",    text: "rev: vs exhausted sessions"),
+                    (read: "SELF STR",      text: "rev: self-repair threshold"),
+                    (read: "TURN",          text: "rev: vs long sessions"),
+                ],
+            )),
         (id: "sentinel", company: "Maas-Neotek", name: "SENTINEL", class: Sentry,
             cpu: 2, ram: 3, hdd: 16,
             verbs: [Attack, Trace, Spoof, Segfault],
             ranges: [(Attack, 4, 9), (Trace, 3, 8), (Spoof, 1, 3)],
-            walks: [Move, Hold, Wait, Scan], reach: Some((1, 3))),
+            walks: [Move, Hold, Wait, Scan], reach: Some((1, 3)),
+            notes: (
+                header: ["{ice} {version}", "revision drafted by {ai}", "approved for release by staff"],
+                remarks: [
+                    (read: "TARGET SHIELD", text: "rev: vs shielded sessions"),
+                    (read: "TARGET INTEG",  text: "rev: vs degraded sessions"),
+                    (read: "TARGET RAN",    text: "rev: vs observed tool use"),
+                    (read: "TARGET CPU",    text: "rev: vs exhausted sessions"),
+                    (read: "SELF STR",      text: "rev: self-repair threshold"),
+                    (read: "TURN",          text: "rev: vs long sessions"),
+                ],
+            )),
         (id: "warden", company: "Hosaka", name: "WARDEN", class: Barrier,
             cpu: 2, ram: 4, hdd: 20,
             verbs: [Attack, Trace, Fortify, Spoof, Segfault],
             ranges: [(Attack, 5, 10), (Trace, 4, 9), (Fortify, 3, 6), (Spoof, 1, 3)],
-            walks: [Move, Hold, Wait, Scan], reach: Some((1, 4))),
+            walks: [Move, Hold, Wait, Scan], reach: Some((1, 4)),
+            notes: (
+                header: ["{ice} REV. {version}", "PREPARED BY {ai}", "REVIEWED AND APPROVED"],
+                remarks: [
+                    (read: "TARGET SHIELD", text: "COUNTERS: SHIELDED INTRUDERS"),
+                    (read: "TARGET INTEG",  text: "COUNTERS: DAMAGED INTRUDERS"),
+                    (read: "TARGET RAN",    text: "COUNTERS: OBSERVED TOOLS"),
+                    (read: "TARGET CPU",    text: "COUNTERS: SPENT INTRUDERS"),
+                    (read: "SELF STR",      text: "RESTORES BELOW THRESHOLD"),
+                    (read: "TURN",          text: "COUNTERS: LONG SESSIONS"),
+                ],
+            )),
     ],
     versions: [
         // Walks to where it last saw you; there, it looks again.

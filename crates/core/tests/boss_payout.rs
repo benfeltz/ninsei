@@ -94,3 +94,91 @@ fn losing_to_it_pays_nothing() {
     assert_eq!(g.phase, Phase::Flatlined);
     assert!(!g.log.iter().any(|l| l.text.contains("'s accounts")));
 }
+
+#[test]
+fn beaten_it_gives_up_the_source_of_every_kind_on_its_net_and_its_own() {
+    let mut s = save(2);
+    let mut g = facing_it(&mut s, 5);
+    let ai = g.boss.as_ref().unwrap().ice;
+    let model = g.data.boss_model(ai).unwrap().id.clone();
+    let mut kinds: Vec<usize> = g.net.nodes.iter().filter_map(|n| n.ice).collect();
+    kinds.sort_unstable();
+    kinds.dedup();
+    assert!(!kinds.is_empty());
+    beat(&mut g);
+    for &k in kinds.iter().chain([&ai]) {
+        let id = &g.data.ice[k].id;
+        let v = g.ice_version(k);
+        let got = g.sources_got.iter().find(|s| s.id == *id && s.version == v);
+        let got = got.unwrap_or_else(|| panic!("no source of {id} {v}"));
+        assert_eq!(got.from, model);
+    }
+    assert_eq!(g.sources_got.len(), kinds.len() + 1);
+    // They come home even when the run then ends in a flatline.
+    g.deck.trace = tuning::TRACE_MAX;
+    let to = g.net.nodes[g.at].links[0];
+    g.apply(Action::Move(to));
+    assert_eq!(g.phase, Phase::Flatlined);
+    s.record(&g, &[], &data().rig).unwrap();
+    for &k in kinds.iter().chain([&ai]) {
+        assert!(
+            s.ice_sources.iter().any(|x| x.id == g.data.ice[k].id),
+            "{}",
+            g.data.ice[k].id
+        );
+    }
+}
+
+#[test]
+fn a_source_it_gave_up_lists_with_its_notes() {
+    let d = data();
+    let ai = d.boss_for(3, 0).unwrap();
+    let model = d.boss_model(ai).unwrap();
+    let hydra = d.ice.iter().find(|i| i.id == "hydra").unwrap();
+    let (header, remarks) =
+        ice_listing::notes(&d, &model.id, &hydra.name, ice_version::Version::FIRST).unwrap();
+    assert!(header.iter().any(|l| l.contains(&model.name)), "{header:?}");
+    assert!(header.iter().all(|l| l.chars().count() <= data::NOTE_MAX));
+    // Hydra's `IF TARGET RAN firewall` gets the AI's remark on TARGET RAN.
+    let p = basic::parse_with(&hydra.program, hydra.vocab());
+    let rows = ice_listing::decompile(&p);
+    let all = ice_listing::annotate(rows, header.clone(), remarks);
+    let rem = data::remark_on(remarks, "IF TARGET RAN firewall").unwrap();
+    assert!(all.iter().any(|r| r.text.contains(rem)), "{all:?}");
+}
+
+#[test]
+fn validate_refuses_bad_ai_notes() {
+    let ai = include_str!("../../../data/ai.ron");
+    let bad = [
+        (
+            r#"header: ["{ice} REV. {version}","#,
+            r#"header: ["{ice} REV. {version} {nope}","#,
+            "can't fill",
+        ),
+        (
+            r#"(read: "TURN",          text: "COUNTERS: LONG SESSIONS"),"#,
+            r#"(read: "TURN",          text: "COUNTERS: VERY VERY LONG SESSIONS INDEED"),"#,
+            "wider than",
+        ),
+        (
+            r#"(read: "TURN",          text: "COUNTERS: LONG SESSIONS"),"#,
+            r#"(read: "TARGET MOOD",   text: "COUNTERS: MOODS"),"#,
+            "no ICE reads",
+        ),
+        (
+            r#""PREPARED BY {ai}","#,
+            r#""PREPARED BY {ai} FOR {ice} OF THE NETWORK","#,
+            "wider than",
+        ),
+    ];
+    for (find, replace, why) in bad {
+        assert!(ai.contains(find), "{find}");
+        let err = Data::parse(Sources {
+            ai: &ai.replacen(find, replace, 1),
+            ..Sources::builtin()
+        })
+        .unwrap_err();
+        assert!(err.contains(why), "{why}: {err}");
+    }
+}

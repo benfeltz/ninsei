@@ -36,17 +36,28 @@ impl IceRow {
     }
 }
 
-/// A source's notes: the header and remarks its board (`IceSource::from`) puts on kind `ice`
-/// at `version`, if that board has a `sources` block. `None` for a source from no board.
+/// A source's notes: the header and remarks where it came from (`IceSource::from`) puts on kind
+/// `ice` at `version`: a board with a `sources` block, or a net's AI (its model's id in
+/// `ai.ron`), which gave it up when it was beaten. `None` for a source from neither.
 pub fn notes<'a>(
     data: &'a crate::data::Data,
     from: &str,
     ice: &str,
     version: crate::ice_version::Version,
-) -> Option<(Vec<String>, &'a crate::data::SourcesDef)> {
+) -> Option<(Vec<String>, &'a [crate::data::RemarkDef])> {
+    if let Some(m) = data.ai.models.iter().find(|m| m.id == from) {
+        let n = &m.notes;
+        return Some((
+            n.header_lines(ice, &version.to_string(), &m.name),
+            &n.remarks,
+        ));
+    }
     let b = data.boards.get(data.board(from)?)?;
     let s = b.sources.as_ref()?;
-    Some((s.header_lines(ice, &version.to_string(), &b.name), s))
+    Some((
+        s.header_lines(ice, &version.to_string(), &b.name),
+        &s.remarks,
+    ))
 }
 
 /// `rows` with a source's notes, whatever a row is: the header first, then each row, a remark
@@ -55,13 +66,15 @@ pub fn notes<'a>(
 pub fn interleave<T>(
     rows: Vec<T>,
     header: Vec<String>,
-    sources: &crate::data::SourcesDef,
+    remarks: &[crate::data::RemarkDef],
     text: impl Fn(&T) -> Option<&str>,
     rem: impl Fn(String) -> T,
 ) -> Vec<T> {
     let mut out: Vec<T> = header.into_iter().map(&rem).collect();
     for r in rows {
-        let remark = text(&r).and_then(|t| sources.remark(t)).map(str::to_string);
+        let remark = text(&r)
+            .and_then(|t| crate::data::remark_on(remarks, t))
+            .map(str::to_string);
         out.push(r);
         out.extend(remark.map(&rem));
     }
@@ -73,12 +86,12 @@ pub fn interleave<T>(
 pub fn annotate(
     rows: Vec<IceRow>,
     header: Vec<String>,
-    sources: &crate::data::SourcesDef,
+    remarks: &[crate::data::RemarkDef],
 ) -> Vec<IceRow> {
     interleave(
         rows,
         header,
-        sources,
+        remarks,
         |r| Some(r.text.as_str()),
         IceRow::remark,
     )

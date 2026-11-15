@@ -172,6 +172,9 @@ pub struct AiModel {
     /// The hops a `SCAN n` may reach, (lowest, highest): there exactly when it has `Scan`.
     #[serde(default)]
     pub reach: Option<(u32, u32)>,
+    /// What it writes on the sources it gives up when it's beaten.
+    #[serde(default)]
+    pub notes: AiNotes,
 }
 
 /// A version of a model: a program, and the strength it fights at.
@@ -582,20 +585,50 @@ impl SourcesDef {
 
     /// Its remark on a line of a program, if the line is an IF that opens with a read it knows.
     pub fn remark(&self, line: &str) -> Option<&str> {
-        let cond = line.strip_prefix("IF ")?;
-        self.remarks
-            .iter()
-            .find(|r| {
-                cond.strip_prefix(r.read.as_str())
-                    .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
-            })
-            .map(|r| r.text.as_str())
+        remark_on(&self.remarks, line)
     }
 
     /// A file's description: kind `ice` at `version` (as printed), 1.0.0's or a later one's.
     pub fn desc(&self, first: bool, ice: &str, version: &str) -> String {
         let t = if first { &self.first } else { &self.patched };
         t.replace("{ice}", ice).replace("{version}", version)
+    }
+}
+
+/// The remark among `remarks` on a line of a program, if the line is an IF that opens with a
+/// read one of them knows: a board's crew's, or a net's AI's own notes.
+pub fn remark_on<'a>(remarks: &'a [RemarkDef], line: &str) -> Option<&'a str> {
+    let cond = line.strip_prefix("IF ")?;
+    remarks
+        .iter()
+        .find(|r| {
+            cond.strip_prefix(r.read.as_str())
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
+        })
+        .map(|r| r.text.as_str())
+}
+
+/// A net's AI's notes on the sources it gives up (`ai.ron`'s model `notes`): a header over each
+/// listing (`{ice}`, `{version}` and `{ai}`, its product name, filled in) and a remark on each
+/// read it knows, in the product's voice.
+#[derive(Deserialize, Clone, Debug, Default)]
+pub struct AiNotes {
+    #[serde(default)]
+    pub header: Vec<String>,
+    #[serde(default)]
+    pub remarks: Vec<RemarkDef>,
+}
+
+impl AiNotes {
+    pub fn header_lines(&self, ice: &str, version: &str, ai: &str) -> Vec<String> {
+        self.header
+            .iter()
+            .map(|l| {
+                l.replace("{ice}", ice)
+                    .replace("{version}", version)
+                    .replace("{ai}", ai)
+            })
+            .collect()
     }
 }
 
@@ -2363,6 +2396,7 @@ impl Data {
                 None if scans => return Err(format!("model `{}` scans with no reach", m.id)),
                 _ => {}
             }
+            self.validate_ai_notes(m)?;
             if let Some((_, w)) = m
                 .walks
                 .iter()
@@ -2435,6 +2469,59 @@ impl Data {
         for t in &self.networks.tiers {
             if !ai.runs.iter().any(|r| r.tier == t.tier && r.heat == 0) {
                 return Err(format!("tier {} runs no AI at heat 0", t.tier));
+            }
+        }
+        Ok(())
+    }
+
+    /// A model's notes: every header line fills and fits a listing (`NOTE_MAX`) with the longest
+    /// kind and version, and every remark is on a read some ICE makes and fits (`REMARK_MAX`).
+    fn validate_ai_notes(&self, m: &AiModel) -> Result<(), String> {
+        let longest = self
+            .ice
+            .iter()
+            .map(|i| i.name.as_str())
+            .max_by_key(|n| n.chars().count())
+            .unwrap_or("");
+        for line in m.notes.header_lines(longest, LONG_VERSION, &m.name) {
+            if line.contains('{') || line.contains('}') {
+                return Err(format!(
+                    "model `{}`: note `{line}` has a word it can't fill",
+                    m.id
+                ));
+            }
+            if line.chars().count() > NOTE_MAX {
+                return Err(format!(
+                    "model `{}`: note `{line}` is wider than {NOTE_MAX}",
+                    m.id
+                ));
+            }
+        }
+        for r in &m.notes.remarks {
+            let read = |text: &str| {
+                text.lines().any(|l| {
+                    l.contains(&format!("IF {} ", r.read))
+                        || l.trim_end().ends_with(&format!("IF {}", r.read))
+                })
+            };
+            let known = self.ice.iter().any(|i| read(&i.program))
+                || self
+                    .ice_grammar
+                    .classes
+                    .iter()
+                    .flat_map(|c| &c.reads)
+                    .any(|g| g.read.starts_with(r.read.as_str()));
+            if !known {
+                return Err(format!(
+                    "model `{}`: a remark on `{}`, which no ICE reads",
+                    m.id, r.read
+                ));
+            }
+            if r.text.chars().count() > REMARK_MAX {
+                return Err(format!(
+                    "model `{}`: remark `{}` is wider than {REMARK_MAX}",
+                    m.id, r.text
+                ));
             }
         }
         Ok(())
