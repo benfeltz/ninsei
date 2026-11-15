@@ -1908,6 +1908,7 @@ impl Game {
         let g = crate::boss::Ground {
             net,
             runner,
+            here: self.outer.is_none(),
             trace,
             strength,
         };

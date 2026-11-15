@@ -60,6 +60,7 @@ fn ground(net: &Network, runner: usize) -> Ground<'_> {
     Ground {
         net,
         runner,
+        here: true,
         trace: 30,
         strength: 22,
     }
@@ -311,4 +312,20 @@ fn every_builtin_ai_hunts_a_runner_down_a_line() {
         }
         assert!(met && h.at == 0, "{} stuck on {}", def.id, h.at);
     }
+}
+
+#[test]
+fn it_meets_no_one_on_a_subnets_door_while_the_runner_is_inside() {
+    let n = diamond();
+    let (ix, def) = row("10 MOVE TOWARD TARGET\n20 MOVE TOWARD TARGET", 2);
+    let mut h = Hunter::wake(ix, &def, 0, 3);
+    // The runner is through the door on 1, inside its subnet.
+    let g = Ground {
+        here: false,
+        ..ground(&n, 1)
+    };
+    h.seen = Some(1);
+    let s = h.pass(&def, &g);
+    assert_eq!(h.at, 1);
+    assert!(s.iter().all(|s| s.did != Did::Met), "{s:?}");
 }

@@ -38,6 +38,8 @@ pub struct Ground<'a> {
     pub net: &'a Network,
     /// The node the runner is on in it (a subnet's door while they're inside).
     pub runner: usize,
+    /// The runner is on the main network, where it can meet them (not inside a subnet).
+    pub here: bool,
     /// The runner's trace.
     pub trace: u32,
     /// Its strength, as a fight would open with it.
@@ -185,7 +187,7 @@ impl Hunter {
                             visited.clear();
                             step(&mut out, no, Did::Moved { from: self.at, to });
                             self.at = to;
-                            if to == g.runner {
+                            if g.here && to == g.runner {
                                 step(&mut out, no, Did::Met);
                                 break;
                             }
