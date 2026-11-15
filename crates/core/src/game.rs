@@ -222,6 +222,8 @@ pub struct Combat {
     pub bonus: Vec<Drop>,
     /// Speaks l33t (it came from a l33t encounter).
     pub leet: bool,
+    /// A node's ICE back up after the deck beat it there: beating it again pays nothing.
+    pub rearmed: bool,
 }
 
 /// What the runner brings into a run: the deck's numbers (its base plus RIG, up to its caps)
@@ -784,6 +786,31 @@ impl StepWhat {
     }
 }
 
+/// ICE `ice`'s version in force in a run whose versions are `versions`, and its program: 1.0.0
+/// and its row's when the sysops haven't shipped one.
+fn in_force(
+    data: &Data,
+    versions: &[(usize, Version, Program, Option<crate::ice_version::Bump>)],
+    ice: usize,
+) -> (Version, String) {
+    match versions.iter().find(|(i, ..)| *i == ice) {
+        Some((_, v, p, _)) => (*v, p.text()),
+        None => (Version::default(), data.ice[ice].program.clone()),
+    }
+}
+
+/// What a move does, as its preview says ([`Game::route`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Hop {
+    /// The trace it adds: every hop the same, forward or back.
+    pub trace: u32,
+    /// It walks a link back, to the layer before.
+    pub back: bool,
+    /// It steps onto a node whose ICE the deck beat there: the ICE comes back up, maybe as a
+    /// version its sysops ship there and then, and it's a fight that pays nothing.
+    pub rearms: bool,
+}
+
 /// The forecast's lines, less any the pass executes, in order, once each.
 fn finish(mut starved: Vec<u32>, went: Vec<u32>) -> Vec<u32> {
     starved.retain(|n| !went.contains(n));
@@ -844,7 +871,8 @@ impl Game {
     /// duel), which never builds its board's source area.
     fn start_with(data: std::sync::Arc<Data>, seed: u64, kit: &Kit, board_area: bool) -> Self {
         let mut rng = Rng::new(seed);
-        let net = Network::generate_with(&mut rng, &data, &kit.net);
+        let mut net = Network::generate_with(&mut rng, &data, &kit.net);
+        net.orient(seed, kit.net.one_way());
         let board = if kit.board < data.boards.len() {
             kit.board
         } else {
@@ -1347,15 +1375,16 @@ impl Game {
         crate::glitch::level(self.deck.integrity, self.deck.integrity_max)
     }
 
-    /// Whether the runner has been on node `id` of the network they're on. Routes only run
-    /// forward and every node clears once you've been there, so visited nodes are your path.
+    /// Whether the runner has been on node `id` of the network they're on: every node clears
+    /// once you've been there (an ICE node once beaten), so visited nodes are where you've been.
     pub fn visited(&self, id: usize) -> bool {
         id == self.at || self.net.nodes.get(id).is_some_and(|n| n.cleared)
     }
 
-    /// Whether the runner came along the link from `a` to `b`: the hop trail on the map.
+    /// Whether the runner came along the link between `a` and `b`, either way: the hop trail
+    /// on the map.
     pub fn travelled(&self, a: usize, b: usize) -> bool {
-        self.visited(a) && self.visited(b) && self.net.nodes[a].links.contains(&b)
+        a < self.net.nodes.len() && b < self.net.nodes.len() && self.net.walked(a, b)
     }
 
     /// What a node on the current network is called in the UI: a subnet's exit is its uplink.
@@ -1372,13 +1401,49 @@ impl Game {
         (base + self.net.nodes[node].layer) as u32
     }
 
-    /// Nodes the runner may move to right now.
-    pub fn reachable(&self) -> &[usize] {
-        if self.phase == Phase::Exploring {
-            &self.net.nodes[self.at].links
-        } else {
-            &[]
+    /// Nodes the runner may move to right now: deeper along a link first, then back along one
+    /// that runs both ways. Exactly the moves [`Game::route`] allows.
+    pub fn reachable(&self) -> Vec<usize> {
+        if self.phase != Phase::Exploring {
+            return Vec::new();
         }
+        let routes = self.net.routes(self.at);
+        debug_assert!(routes.iter().all(|&to| self.route(to).is_ok()));
+        routes
+    }
+
+    /// What a move to node `to` will do, or why it can't: the move's preview, and the move
+    /// resolves through it.
+    pub fn route(&self, to: usize) -> Result<Hop, String> {
+        if matches!(self.phase, Phase::Flatlined | Phase::JackedOut) {
+            return Err("run is over. `newrun` to jack in again.".into());
+        }
+        if self.phase == Phase::Combat {
+            return Err("ICE is holding the connection. break it first.".into());
+        }
+        if self.phase == Phase::Encounter {
+            return Err("someone's still talking. answer them first.".into());
+        }
+        let (net, at) = (&self.net, self.at);
+        if to >= net.nodes.len() || !net.linked(at, to) {
+            return Err(format!("no route to node {to}."));
+        }
+        let back = net.nodes[at].layer > net.nodes[to].layer;
+        if back && net.one_way(to, at) {
+            return Err(format!(
+                "{} -> {} is one way. no route back.",
+                net.nodes[to].name, net.nodes[at].name
+            ));
+        }
+        let n = &net.nodes[to];
+        Ok(Hop {
+            trace: self.mods.trace(TRACE_PER_HOP),
+            back,
+            rearms: matches!(n.kind, NodeKind::Ice | NodeKind::BlackIce)
+                && n.cleared
+                && n.beaten.is_some()
+                && n.ice.is_some(),
+        })
     }
 
     pub fn say(&mut self, kind: LogKind, text: impl Into<String>) {
@@ -1524,14 +1589,16 @@ impl Game {
             self.study_key,
             steps,
             drafts,
-            |id| {
-                let ice = data.ice_by_id(id)?;
-                Some(match versions.iter().find(|(i, ..)| *i == ice) {
-                    Some((_, v, p, _)) => (*v, p.text()),
-                    None => (Version::default(), data.ice[ice].program.clone()),
-                })
-            },
+            |id| Some(in_force(data, versions, data.ice_by_id(id)?)),
         );
+        self.ship(shipped);
+    }
+
+    /// What the sysops shipped goes in force: the kind's version from the next fight with it,
+    /// the scene starts cracking its source, the board hears of it and it goes home with the
+    /// run (`shipped`, for `Save::record`), even on a flatline. The one way a version ships in
+    /// a run, by the clock or by a node re-arming.
+    fn ship(&mut self, shipped: Vec<(String, Version, crate::ice_version::Next)>) {
         if shipped.is_empty() {
             return;
         }
@@ -1557,20 +1624,39 @@ impl Game {
         );
     }
 
+    /// The deck steps back onto `node`, whose ICE `ice` it beat there: the ICE comes back up.
+    /// If the version it beat is still in force and its sysops are at work on it, they work
+    /// through every draft they have left at once, as their clock would, and what they find
+    /// ships: the node meets it. A newer version already in force is met as it is, and with
+    /// their patience spent it's the version in force. Nothing here draws from the run's RNG.
+    fn rearm(&mut self, node: usize, ice: usize) {
+        let (v, program) = in_force(&self.data, &self.ice_versions, ice);
+        let id = &self.data.ice[ice].id;
+        let study = self
+            .ice_study
+            .iter()
+            .position(|s| s.id == *id && s.version == v && !s.rest);
+        if let Some(i) = study.filter(|_| self.net.nodes[node].beaten == Some(v)) {
+            let (data, key) = (&self.data, self.study_key);
+            if let Some(next) = self.ice_study[i].finish(data, &program, key) {
+                let id = id.clone();
+                self.ship(vec![(id, v, next)]);
+            }
+        }
+        self.net.nodes[node].cleared = false;
+        self.start_combat(node, ice);
+        if let Some(c) = self.combat.as_mut() {
+            c.rearmed = true;
+        }
+    }
+
     fn move_to(&mut self, to: usize) -> Result<(), String> {
-        if self.phase == Phase::Combat {
-            return Err("ICE is holding the connection. break it first.".into());
-        }
-        if self.phase == Phase::Encounter {
-            return Err("someone's still talking. answer them first.".into());
-        }
-        if !self.net.nodes[self.at].links.contains(&to) {
-            return Err(format!("no route to node {to}."));
-        }
+        let hop = self.route(to)?;
+        self.net.walk(self.at, to);
         self.at = to;
         self.hops += 1;
         self.encounter = None;
-        self.deck.trace += self.mods.trace(TRACE_PER_HOP);
+        self.deck.trace += hop.trace;
         let node = self.net.nodes[to].clone();
         let label = self.node_label(to);
         self.say(
@@ -1586,6 +1672,12 @@ impl Game {
                     self.start_combat(to, ice);
                 }
             }
+            // Beaten here before: it's back up.
+            NodeKind::Ice | NodeKind::BlackIce if hop.rearms => {
+                if let Some(ice) = node.ice {
+                    self.rearm(to, ice);
+                }
+            }
             NodeKind::Vault if !node.cleared => {
                 self.net.nodes[to].cleared = true;
                 self.say(LogKind::Good, "vault unlocked. pulling data...");
@@ -1593,6 +1685,8 @@ impl Game {
                 self.roll_loot(&table);
             }
             NodeKind::Bbs => {
+                // The same board on a revisit, with the same jobs: they're rolled once.
+                let first = !node.cleared;
                 self.net.nodes[to].cleared = true;
                 let b = self.bbs();
                 let line = format!("ATDT {} ... CONNECT {} to {}", b.phone, b.baud, b.name);
@@ -1605,9 +1699,20 @@ impl Game {
                     self.say(LogKind::Info, note);
                 }
                 self.bbs_seen = true;
-                self.bbs_jobs = (0..BBS_JOBS)
-                    .filter_map(|_| self.roll_contract(true))
-                    .collect();
+                if first {
+                    self.bbs_jobs = (0..BBS_JOBS)
+                        .filter_map(|_| self.roll_contract(true))
+                        .collect();
+                } else {
+                    // A job on a node that has fallen since can never pay: it's off the board.
+                    let net = self.outer.as_ref().map_or(&self.net, |o| &o.net);
+                    let gone = |k: &Contract| {
+                        let n = &net.nodes[k.node];
+                        n.cleared || n.beaten.is_some()
+                    };
+                    self.bbs_jobs
+                        .retain(|k| k.status != ContractStatus::Offered || !gone(k));
+                }
             }
             NodeKind::Contact if !node.cleared => {
                 self.net.nodes[to].cleared = true;
@@ -1824,6 +1929,7 @@ impl Game {
             ifs: self.deck.ram_max,
             bonus: Vec::new(),
             leet: false,
+            rearmed: false,
         });
         self.phase = Phase::Combat;
         // Every fight opens with the program loaded and the cursor on its first line.
@@ -1941,7 +2047,12 @@ impl Game {
         self.wake_study(c.ice, c.ice_version);
         self.end_pass();
         self.phase = Phase::Exploring;
-        self.net.nodes[c.node].cleared = true;
+        let n = &mut self.net.nodes[c.node];
+        n.cleared = true;
+        // The node's own ICE: a client's setup fought on it is another kind.
+        if matches!(n.kind, NodeKind::Ice | NodeKind::BlackIce) && n.ice == Some(c.ice) {
+            n.beaten = Some(c.ice_version);
+        }
         let def = &self.data.ice[c.ice];
         let name = def.name.clone();
         let table = if def.tier >= 2 {
@@ -1951,6 +2062,11 @@ impl Game {
         };
         if c.strength == 0 {
             self.say(LogKind::Good, format!("{name} derezzed. node clear."));
+        }
+        // Back up after you beat it here: whatever it guarded is gone already.
+        if c.rearmed {
+            self.say(LogKind::Info, "nothing left on this node.");
+            return;
         }
         self.roll_loot(&table);
         if !c.bonus.is_empty() {
@@ -2817,10 +2933,10 @@ impl Game {
 
     // ---- contracts -----------------------------------------------------------
 
-    /// ICE nodes ahead that nobody has a contract on yet.
+    /// ICE nodes the runner can still get to that nobody has a contract on yet.
     fn contract_targets(&self) -> Vec<usize> {
         let (net, at) = (self.root(), self.root_at());
-        let reach = net.reachable_from(at);
+        let reach = net.routes_from(at);
         let taken = |n: usize| {
             self.contracts
                 .iter()
@@ -3052,7 +3168,7 @@ impl Game {
 
     /// Fails active contracts whose target can no longer be reached.
     fn void_unreachable_contracts(&mut self) {
-        let reach = self.root().reachable_from(self.root_at());
+        let reach = self.root().routes_from(self.root_at());
         let mut lost = Vec::new();
         for k in &mut self.contracts {
             if k.status == ContractStatus::Active && !reach[k.node] {

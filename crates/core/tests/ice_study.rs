@@ -580,12 +580,14 @@ fn the_sysops_time_never_touches_what_the_run_plays_from() {
             if g.phase != Phase::Exploring {
                 break;
             }
-            let to = g.reachable().iter().find(|&&n| {
-                g.net.nodes[n]
-                    .ice
-                    .is_none_or(|i| g.data.ice[i].id != "enigma")
+            let here = g.net.nodes[g.at].layer;
+            let to = g.reachable().into_iter().find(|&n| {
+                g.net.nodes[n].layer > here
+                    && g.net.nodes[n]
+                        .ice
+                        .is_none_or(|i| g.data.ice[i].id != "enigma")
             });
-            let Some(&to) = to else { break };
+            let Some(to) = to else { break };
             g.apply(Action::Move(to));
             play_out(g);
         }

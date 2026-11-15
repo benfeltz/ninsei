@@ -246,6 +246,7 @@ fn bad_shapes_are_rejected() {
         max_width: 4,
         links: 35,
         choke: 0,
+        one_way: None,
     };
     assert!(ok.validate().is_ok());
     for bad in [
@@ -256,6 +257,10 @@ fn bad_shapes_are_rejected() {
             ..ok
         },
         Shape { links: 101, ..ok },
+        Shape {
+            one_way: Some(101),
+            ..ok
+        },
     ] {
         assert!(bad.validate().is_err(), "{bad:?}");
     }

@@ -25,6 +25,9 @@ pub const NET_MIN_WIDTH: usize = 2;
 pub const NET_MAX_WIDTH: usize = 4;
 /// Chance (percent) of an extra link to a neighbouring lane.
 pub const NET_EXTRA_LINK_PCT: u32 = 35;
+/// Percent of links that are one way on a network nobody dialed (a bare run); a tier's
+/// `one_way` in `data/hub/networks.ron` says its own.
+pub const NET_ONE_WAY_PCT: u32 = 25;
 /// Node kind weights for mid layers.
 pub const NODE_WEIGHT_ICE: u32 = 50;
 pub const NODE_WEIGHT_VAULT: u32 = 18;

@@ -5,12 +5,9 @@
 
 use egui::{Color32, Rect, Sense, Ui};
 use ninsei_core::netview::{MapNode, MapView, style};
-use ninsei_core::{ContractStatus, Game, NodeKind, Phase};
+use ninsei_core::{Game, NodeKind, Phase};
 
 use crate::theme::Palette;
-
-/// Nodes further than this many layers past the runner are fogged.
-const SIGHT: usize = 1;
 
 /// The map's animation timings and strengths, in one place. Display numbers, not balance.
 pub mod anim {
@@ -156,23 +153,25 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette, view: MapView) -> Option<usiz
     }
 }
 
-/// Whether the runner can see what node `id` is. The BBS number is passed around, and the
-/// client gave you contract targets' hostnames; the rest is fog past the next layer.
-pub fn visible(game: &Game, id: usize) -> bool {
-    let net = &game.net;
-    net.nodes[id].layer <= net.nodes[game.at].layer + SIGHT
-        || net.nodes[id].kind == NodeKind::Bbs
-        || target(game, id)
-}
+pub use ninsei_core::netview::{target, visible};
 
-/// Whether node `id` is an active contract's target. They live on the main network, so none
-/// show inside a subnet.
-pub fn target(game: &Game, id: usize) -> bool {
-    !game.in_subnet()
-        && game
-            .contracts
-            .iter()
-            .any(|k| k.node == id && k.status == ContractStatus::Active)
+/// A filled arrowhead centred on `at`, pointing along `dir`, `len` long: how every map style
+/// marks a one-way link (and Draft a live route's end). Snapped to whole pixels.
+pub fn arrowhead(painter: &egui::Painter, at: egui::Pos2, dir: egui::Vec2, len: f32, c: Color32) {
+    let d = dir.normalized();
+    let n = egui::vec2(-d.y, d.x);
+    let tip = at + d * (len / 2.0);
+    let back = at - d * (len / 2.0);
+    let snap = |q: egui::Pos2| egui::pos2(q.x.round(), q.y.round());
+    painter.add(egui::Shape::convex_polygon(
+        vec![
+            snap(tip),
+            snap(back + n * (len / 2.0)),
+            snap(back - n * (len / 2.0)),
+        ],
+        c,
+        egui::Stroke::NONE,
+    ));
 }
 
 pub fn kind(game: &Game, id: usize) -> MapNode {
@@ -205,15 +204,10 @@ pub fn interact(ui: &mut Ui, game: &Game, id: usize, r: Rect) -> (Option<usize>,
     };
     let resp = ui.interact(r, ui.id().with(("node", id)), sense);
     let hovered = resp.hovered();
-    if !can_go {
+    let Some(tip) = ninsei_core::netview::route_tip(game, id).filter(|_| can_go) else {
         return (None, hovered);
-    }
-    let what = if visible(game, id) {
-        game.node_label(id)
-    } else {
-        "unknown"
     };
-    let resp = resp.on_hover_text(format!("jack {id}  →  {what}"));
+    let resp = resp.on_hover_text(tip);
     (resp.clicked().then_some(id), hovered)
 }
 
@@ -228,5 +222,150 @@ pub fn hint(game: &Game) -> &'static str {
         Phase::Encounter => "someone wants to talk",
         Phase::Flatlined => "FLATLINED. `newrun` to jack in again",
         Phase::JackedOut => "JACKED OUT. `newrun` to go deeper",
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::uitest::{Harness, click};
+    use ninsei_core::{Action, Data};
+
+    const VIEWS: [MapView; 3] = [MapView::Iso, MapView::Draft, MapView::Paint];
+
+    /// A bare run standing one layer in on `seed`, every node but the ends an empty cleared
+    /// vault, every link two way.
+    fn one_in(seed: u64) -> Game {
+        let mut g = Game::new(Data::builtin().unwrap(), seed);
+        g.net.orient(seed, 0);
+        for n in &mut g.net.nodes {
+            if !matches!(n.kind, NodeKind::Entry | NodeKind::Exit) {
+                (n.kind, n.ice, n.cleared) = (NodeKind::Vault, None, true);
+            }
+        }
+        let a = g.net.nodes[g.at].links[0];
+        g.apply(Action::Move(a));
+        g
+    }
+
+    fn palette(id: &str) -> Palette {
+        let d = Data::builtin().unwrap();
+        Palette::from_def(d.themes.iter().find(|t| t.id == id).unwrap())
+    }
+
+    fn spot(view: MapView, rect: Rect, g: &Game, id: usize) -> egui::Pos2 {
+        match view {
+            MapView::Iso => crate::netmap_iso::spot_in(rect, g, id),
+            MapView::Draft => crate::netmap_draft::spot_in(rect, g, id),
+            MapView::Paint => crate::netmap_paint::spot_in(rect, g, id),
+        }
+    }
+
+    /// Draws `view` until the map has swept in, then once more with a click on node `id`:
+    /// what the map says was clicked, and the last frame.
+    fn click_on(view: MapView, g: &Game, id: usize) -> (Option<usize>, Harness) {
+        let p = palette("amber");
+        let mut h = Harness::new(1000.0, 640.0);
+        let mut rect = Rect::NOTHING;
+        for _ in 0..12 {
+            h.frame(Vec::new(), |ui| {
+                rect = ui.available_rect_before_wrap();
+                show(ui, g, &p, view);
+            });
+        }
+        let at = spot(view, rect, g, id);
+        let mut got = None;
+        h.frame(click(at), |ui| {
+            got = got.or(show(ui, g, &p, view));
+        });
+        (got, h)
+    }
+
+    #[test]
+    fn a_click_on_the_node_you_came_from_moves_back_there_on_every_map() {
+        for view in VIEWS {
+            for seed in 0..4 {
+                let mut g = one_in(seed);
+                let entry = g.net.entry();
+                assert!(g.reachable().contains(&entry));
+                let (got, _) = click_on(view, &g, entry);
+                assert_eq!(got, Some(entry), "{view:?} seed {seed}");
+                g.apply(Action::Move(entry));
+                assert_eq!(g.at, entry, "{view:?}: the click's move goes back");
+            }
+        }
+    }
+
+    #[test]
+    fn a_one_way_link_back_takes_no_click_on_any_map() {
+        for view in VIEWS {
+            let mut g = one_in(2);
+            let (entry, here) = (g.net.entry(), g.at);
+            g.net.nodes[entry].one_way = vec![here];
+            assert!(!g.reachable().contains(&entry));
+            let (got, _) = click_on(view, &g, entry);
+            assert_eq!(got, None, "{view:?}");
+            // A route forward still takes one.
+            let ahead = g.net.nodes[here].links[0];
+            assert_eq!(click_on(view, &g, ahead).0, Some(ahead), "{view:?}");
+        }
+    }
+
+    /// Filled triangles painted last frame, with their fill.
+    fn triangles(h: &Harness) -> Vec<Color32> {
+        h.painted()
+            .iter()
+            .filter_map(|s| match s {
+                egui::Shape::Path(p) if p.points.len() == 3 && p.closed => Some(p.fill),
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// Draws `view` in theme `theme` until it has swept in; the last frame.
+    fn drawn(view: MapView, g: &Game, theme: &str) -> Harness {
+        let p = palette(theme);
+        let mut h = Harness::new(1000.0, 640.0);
+        for _ in 0..12 {
+            h.frame(Vec::new(), |ui| {
+                show(ui, g, &p, view);
+            });
+        }
+        h
+    }
+
+    #[test]
+    fn every_map_marks_a_one_way_link_with_an_arrow_in_the_theme_s_ink() {
+        for theme in ["amber", "synthwave"] {
+            let p = palette(theme);
+            let roles = [p.faint, p.dim, p.fg, p.bright];
+            for view in VIEWS {
+                let two = one_in(5);
+                let mut one = two.clone();
+                let here = one.at;
+                one.net.nodes[here].one_way = one.net.nodes[here].links.clone();
+                let n = one.net.nodes[here].links.len();
+                let (before, after) = (
+                    triangles(&drawn(view, &two, theme)),
+                    triangles(&drawn(view, &one, theme)),
+                );
+                assert_eq!(
+                    after.len(),
+                    before.len() + n,
+                    "{view:?} {theme}: an arrow on each one-way link out of here"
+                );
+                // What the arrows added, colour by colour, is the theme's ink.
+                let mut new = after.clone();
+                for c in &before {
+                    if let Some(i) = new.iter().position(|x| x == c) {
+                        new.swap_remove(i);
+                    }
+                }
+                assert!(
+                    new.iter().all(|c| roles.contains(c)),
+                    "{view:?} {theme}: arrows in the theme's ink: {new:?}"
+                );
+            }
+        }
     }
 }

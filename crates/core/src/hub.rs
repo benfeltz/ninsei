@@ -11,7 +11,8 @@ use crate::rng::Rng;
 use crate::tuning::{
     BBS_LAYER, DEADMAN_PCT, FRAGMENTS_PER_OPT, HEAT_COOL, HEAT_ICE, HEAT_MAX, HEAT_PER_RUN,
     HEAT_TRACE_PCT, HUB_DRAG_SECS, HUB_PALETTE_CHARS, LOCAL_RANGE, MAX_OPT, NET_MID_LAYERS,
-    PHONEBOOK_START, RESULTS_KEPT, START_WAREZ, STASH_BASE_SLOTS, TRAP_TRACE_PCT, WARDIAL_BLOCK,
+    NET_ONE_WAY_PCT, PHONEBOOK_START, RESULTS_KEPT, START_WAREZ, STASH_BASE_SLOTS, TRAP_TRACE_PCT,
+    WARDIAL_BLOCK,
 };
 
 /// Bump when the save's shape changes incompatibly. 2: binary byte 07 (the RAM cost) became
@@ -295,6 +296,9 @@ pub struct TierDef {
     /// Trace gain, percent of normal, before traits and heat.
     #[serde(default = "full_pct")]
     pub trace_pct: u32,
+    /// Percent of links that are one way (walked deeper, never back). A trait's `Shape` may
+    /// say its own.
+    pub one_way: u32,
 }
 
 fn full_pct() -> u32 {
@@ -536,6 +540,9 @@ impl NetworksDef {
             }
             if d.traits.0 > d.traits.1 {
                 return Err(format!("tier {t} trait range is backwards"));
+            }
+            if d.one_way > 100 {
+                return Err(format!("tier {t} one-way share is over 100%"));
             }
         }
         for (i, t) in self.traits.iter().enumerate() {
@@ -1932,6 +1939,7 @@ impl Save {
             mid_layers: tier.map_or(NET_MID_LAYERS, |t| t.mid_layers),
             subnets: tier.map_or(0, |t| t.subnets),
             black_bonus: tier.map_or(0, |t| t.black),
+            one_way: tier.map_or(NET_ONE_WAY_PCT, |t| t.one_way),
             ..NetParams::default()
         };
         p.shape.choke = tier.map_or(0, |t| t.choke);

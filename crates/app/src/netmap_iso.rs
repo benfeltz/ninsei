@@ -8,11 +8,15 @@ use egui::{
 use ninsei_core::netview::{self, HOVER, Iso, MapNode, Mesh, SPACING, style, world};
 use ninsei_core::{Game, Phase};
 
-use crate::netmap::{Anim, anim, board_ink, hint, interact, kind, mix, tag, target, visible};
+use crate::netmap::{
+    Anim, anim, arrowhead, board_ink, hint, interact, kind, mix, tag, target, visible,
+};
 use crate::theme::Palette;
 
 /// Clickable area around each shape, in pixels.
 const HIT: f32 = 56.0;
+/// How long the chevron on a one-way link is, in pixels.
+const CHEVRON: f32 = 10.0;
 /// How far fogged nodes' links stay visible: dashed, in `faint`.
 const DASH: (f32, f32) = (3.0, 6.0);
 
@@ -25,12 +29,7 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
     ui.ctx().request_repaint();
 
     let net = &game.net;
-    let cam = Iso::fit(
-        net,
-        rect.width(),
-        rect.height() - 24.0,
-        [rect.center().x, rect.center().y - 6.0],
-    );
+    let cam = camera(rect, game);
     let at = |p3: [f32; 3]| {
         let s = cam.project(p3);
         pos2(s[0], s[1])
@@ -42,10 +41,7 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
     let shown = |id: usize| fx.reveal(net.nodes[id].layer, layers);
     // A hovered route lifts; its click area stays where it was.
     let pointer = ui.input(|i| i.pointer.hover_pos());
-    let resting = |id: usize| {
-        let w = world(net, id);
-        at([w[0], HOVER, w[2]])
-    };
+    let resting = |id: usize| spot(&cam, game, id);
     let hover = |id: usize| {
         reach.contains(&id)
             && pointer
@@ -59,43 +55,59 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         [w[0], HOVER + lift + bob(id), w[2]]
     };
 
-    // Links between the floating nodes.
-    for n in &net.nodes {
-        for &to in &n.links {
-            let show = shown(n.id).min(shown(to));
-            if show <= 0.0 {
-                continue;
-            }
-            let (a, b) = (at(top(n.id)), at(top(to)));
-            let live = n.id == game.at && reach.contains(&to);
-            if game.travelled(n.id, to) {
+    // Links between the floating nodes. A one-way link carries a chevron pointing deeper.
+    for l in netview::links(game) {
+        let show = shown(l.from).min(shown(l.to));
+        if show <= 0.0 {
+            continue;
+        }
+        let (a, b) = (at(top(l.from)), at(top(l.to)));
+        let seen = visible(game, l.from) && visible(game, l.to);
+        let mark = if l.walked || l.route.is_some() {
+            if l.walked {
                 // The hop trail: the way you came stays lit.
                 glow(&painter, a, b, 1.8, p.bright, 0.8 * show);
-            } else if live {
+            } else {
                 glow(&painter, a, b, 2.2, p.fg, 1.0);
-                // A pulse running down the route.
-                let k = (t * 0.6 + to as f32 * 0.37).fract();
-                let c = a + (b - a) * k;
+            }
+            if let Some(end) = l.route {
+                // A pulse running down the route, toward where it leads: back along the
+                // trail too.
+                let (from, to) = if end == l.to { (a, b) } else { (b, a) };
+                let k = (t * 0.6 + end as f32 * 0.37).fract();
+                let c = from + (to - from) * k;
                 painter.circle_filled(c, 6.0, p.bright.gamma_multiply(0.25));
                 painter.circle_filled(c, 3.0, p.bright);
-            } else if visible(game, n.id) && visible(game, to) {
-                let both = net.nodes[n.id].cleared && net.nodes[to].cleared;
-                glow(
-                    &painter,
-                    a,
-                    b,
-                    1.2,
-                    p.fg,
-                    show * if both { 0.45 } else { 0.35 },
-                );
-            } else {
-                painter.extend(Shape::dashed_line(
-                    &[a, b],
-                    Stroke::new(1.0, p.faint),
-                    DASH.0,
-                    DASH.1,
-                ));
             }
+            p.bright
+        } else if seen {
+            let both = net.nodes[l.from].cleared && net.nodes[l.to].cleared;
+            glow(
+                &painter,
+                a,
+                b,
+                1.2,
+                p.fg,
+                show * if both { 0.45 } else { 0.35 },
+            );
+            p.fg
+        } else {
+            painter.extend(Shape::dashed_line(
+                &[a, b],
+                Stroke::new(1.0, p.faint),
+                DASH.0,
+                DASH.1,
+            ));
+            continue;
+        };
+        if l.one_way {
+            arrowhead(
+                &painter,
+                a + (b - a) * 0.5,
+                b - a,
+                CHEVRON,
+                mark.gamma_multiply(show),
+            );
         }
     }
 
@@ -146,7 +158,7 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         let (board_edge, board_label) = board_ink(game, p);
         let edge = if here || (can_go && hovered) {
             p.bright
-        } else if done {
+        } else if done && !can_go {
             p.dim
         } else if k == MapNode::Bbs {
             board_edge
@@ -230,6 +242,29 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         p.dim,
     );
     clicked
+}
+
+/// The camera that fits the network into `rect`, leaving the hint's line below.
+fn camera(rect: Rect, game: &Game) -> Iso {
+    Iso::fit(
+        &game.net,
+        rect.width(),
+        rect.height() - 24.0,
+        [rect.center().x, rect.center().y - 6.0],
+    )
+}
+
+/// Where node `id` rests on screen: the centre of its click area.
+fn spot(cam: &Iso, game: &Game, id: usize) -> Pos2 {
+    let w = world(&game.net, id);
+    let s = cam.project([w[0], HOVER, w[2]]);
+    pos2(s[0], s[1])
+}
+
+/// Node `id`'s click area's centre, on a map drawn in `rect`.
+#[cfg(test)]
+pub fn spot_in(rect: Rect, game: &Game, id: usize) -> Pos2 {
+    spot(&camera(rect, game), game, id)
 }
 
 /// A line with a soft glow: a wide faint stroke under a thin bright one.

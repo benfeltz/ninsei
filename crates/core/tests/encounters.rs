@@ -146,6 +146,30 @@ fn quiet_except(g: &mut Game, keep: usize) {
     }
 }
 
+/// The first hop of a shortest walk from where the runner stands to `target`, along the moves
+/// the game allows.
+fn toward(g: &Game, target: usize) -> usize {
+    let mut from = vec![None; g.net.nodes.len()];
+    let mut queue = std::collections::VecDeque::from([g.at]);
+    from[g.at] = Some(g.at);
+    while let Some(n) = queue.pop_front() {
+        if n == target {
+            break;
+        }
+        for m in g.net.routes(n) {
+            if from[m].is_none() {
+                from[m] = Some(n);
+                queue.push_back(m);
+            }
+        }
+    }
+    let mut n = target;
+    while from[n] != Some(g.at) {
+        n = from[n].expect("the target is reachable");
+    }
+    n
+}
+
 #[test]
 fn fixer_contract_pays_when_the_target_falls() {
     let mut g = game(8);
@@ -158,19 +182,14 @@ fn fixer_contract_pays_when_the_target_falls() {
     assert_eq!(g.contracts.len(), 1);
     let k = g.contracts[0].clone();
     assert_eq!(k.status, ContractStatus::Active);
-    assert!(g.net.reachable_from(g.at)[k.node]);
+    assert!(g.net.routes_from(g.at)[k.node]);
     g.apply(Action::EndEncounter);
 
     quiet_except(&mut g, k.node);
     g.deck.trace = 0;
     g.deck.integrity = 999;
     while g.at != k.node {
-        let target = k.node;
-        let next = *g.net.nodes[g.at]
-            .links
-            .iter()
-            .find(|&&n| g.net.reachable_from(n)[target])
-            .unwrap();
+        let next = toward(&g, k.node);
         g.apply(Action::Move(next));
     }
     assert_eq!(g.phase, Phase::Combat);
@@ -206,11 +225,11 @@ fn contracts_fail_when_the_target_drops_out_of_reach() {
         g.apply(Action::EndEncounter);
         let target = g.contracts[0].node;
         quiet_except(&mut g, target);
-        // Walk away from the target if any route does.
-        let Some(&away) = g.net.nodes[g.at]
-            .links
-            .iter()
-            .find(|&&n| !g.net.reachable_from(n)[target])
+        // Walk away from the target if any route does: only a one-way link leaves it behind.
+        let Some(away) = g
+            .reachable()
+            .into_iter()
+            .find(|&n| !g.net.routes_from(n)[target])
         else {
             continue;
         };

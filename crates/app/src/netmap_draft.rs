@@ -5,12 +5,14 @@
 use egui::{
     Align2, Color32, FontFamily, FontId, Painter, Pos2, Rect, Sense, Shape, Stroke, Ui, pos2, vec2,
 };
-use ninsei_core::netview::{MapNode, Symbol, style};
+use ninsei_core::netview::{self, MapNode, Symbol, style};
 use ninsei_core::{Game, NodeKind, Phase};
 
-use crate::netmap::{Anim, board_ink, hint, interact, kind, mix, tag, target, visible};
+use crate::netmap::{Anim, arrowhead, board_ink, hint, interact, kind, mix, tag, target, visible};
 use crate::theme::Palette;
 
+/// How long the flow arrow on a one-way wire is, in pixels.
+const FLOW: f32 = 9.0;
 /// Half the size of a node symbol, in pixels.
 const R: f32 = 15.0;
 /// Room round the drawing: bubbles on top, dimension and title block below.
@@ -30,16 +32,9 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
 
     let net = &game.net;
     let layers = net.layers.len();
-    let inner = Rect::from_min_max(rect.min + vec2(SIDE, TOP), rect.max - vec2(SIDE, BOTTOM));
-    let col = |l: usize| inner.left() + inner.width() * l as f32 / (layers - 1).max(1) as f32;
-    let pos = |id: usize| {
-        let n = &net.nodes[id];
-        let width = net.layers[n.layer].len();
-        pos2(
-            col(n.layer),
-            inner.top() + inner.height() * (n.lane as f32 + 0.5) / width as f32,
-        )
-    };
+    let inner = sheet(rect);
+    let col = |l: usize| column(inner, layers, l);
+    let pos = |id: usize| spot(inner, game, id);
     let small = FontId::new(10.0, FontFamily::Monospace);
     let body = FontId::new(11.0, FontFamily::Monospace);
     // The sheet draws itself in, layer by layer, when a run starts.
@@ -61,31 +56,47 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
     }
 
     // Wires: right-angled runs. Your routes are heavy, known ones light, the rest hidden lines.
+    // A route's end arrowhead points where it leads; a one-way wire carries a flow arrow
+    // pointing deeper on its last run.
     let reach = game.reachable();
-    for n in &net.nodes {
-        for &to in &n.links {
-            if !shown(n.id) || !shown(to) {
-                continue;
-            }
-            let (a, b) = (pos(n.id) + vec2(R, 0.0), pos(to) - vec2(R, 0.0));
-            let mid = (a.x + b.x) / 2.0;
-            let run = [a, pos2(mid, a.y), pos2(mid, b.y), b];
-            if game.travelled(n.id, to) {
+    for l in netview::links(game) {
+        if !shown(l.from) || !shown(l.to) {
+            continue;
+        }
+        let (a, b) = (pos(l.from) + vec2(R, 0.0), pos(l.to) - vec2(R, 0.0));
+        let mid = (a.x + b.x) / 2.0;
+        let run = [a, pos2(mid, a.y), pos2(mid, b.y), b];
+        let ink = if l.walked || l.route.is_some() {
+            let (w, ink) = if l.walked {
                 // The hop trail: the way you came, inked heavy.
-                painter.add(Shape::line(run.to_vec(), Stroke::new(2.5, p.bright)));
-            } else if n.id == game.at && reach.contains(&to) {
-                painter.add(Shape::line(run.to_vec(), Stroke::new(2.0, p.fg)));
-                arrow(&painter, b, p.fg);
-            } else if visible(game, n.id) && visible(game, to) {
-                painter.add(Shape::line(run.to_vec(), Stroke::new(1.0, p.dim)));
+                (2.5, p.bright)
             } else {
-                painter.extend(Shape::dashed_line(
-                    &run,
-                    Stroke::new(1.0, p.faint),
-                    5.0,
-                    4.0,
-                ));
+                (2.0, p.fg)
+            };
+            painter.add(Shape::line(run.to_vec(), Stroke::new(w, ink)));
+            // A route's arrowhead at the end it leads to: back along the trail too.
+            match l.route {
+                Some(end) if end == l.to => arrow(&painter, b, 1.0, ink),
+                Some(_) => arrow(&painter, a, -1.0, ink),
+                None => {}
             }
+            ink
+        } else if visible(game, l.from) && visible(game, l.to) {
+            painter.add(Shape::line(run.to_vec(), Stroke::new(1.0, p.dim)));
+            p.dim
+        } else {
+            painter.extend(Shape::dashed_line(
+                &run,
+                Stroke::new(1.0, p.faint),
+                5.0,
+                4.0,
+            ));
+            continue;
+        };
+        if l.one_way {
+            // On the last run, into its own end: the runs out of a node are shared.
+            let flow = pos2(((mid + b.x) / 2.0).round(), b.y.round());
+            arrowhead(&painter, flow, vec2(1.0, 0.0), FLOW, ink);
         }
     }
 
@@ -350,7 +361,7 @@ fn symbol(painter: &Painter, c: Pos2, s: Symbol, ink: Color32, p: &Palette, heav
             boxed(painter);
             let y = c.y;
             painter.line_segment([pos2(sq.left() - 6.0, y), pos2(c.x + 4.0, y)], st);
-            arrow(painter, pos2(c.x + 6.0, y), ink);
+            arrow(painter, pos2(c.x + 6.0, y), 1.0, ink);
         }
         Symbol::Door => {
             // A wall with a gap, the door leaf and its swing.
@@ -434,12 +445,36 @@ fn clip_diagonal(k: f32, flip: bool) -> (egui::Vec2, egui::Vec2) {
     }
 }
 
-fn arrow(painter: &Painter, tip: Pos2, c: Color32) {
-    painter.add(Shape::convex_polygon(
-        vec![tip, tip + vec2(-8.0, -4.0), tip + vec2(-8.0, 4.0)],
-        c,
-        Stroke::NONE,
-    ));
+/// A dimension arrowhead with its tip at `tip`, pointing right (`way` 1) or left (-1).
+fn arrow(painter: &Painter, tip: Pos2, way: f32, c: Color32) {
+    arrowhead(painter, tip - vec2(4.0 * way, 0.0), vec2(way, 0.0), 8.0, c);
+}
+
+/// The drawing's frame inside `rect`: bubbles on top, dimension and title block below.
+fn sheet(rect: Rect) -> Rect {
+    Rect::from_min_max(rect.min + vec2(SIDE, TOP), rect.max - vec2(SIDE, BOTTOM))
+}
+
+/// The x of layer `l`'s chain line, of `layers`, inside the sheet.
+fn column(inner: Rect, layers: usize, l: usize) -> f32 {
+    inner.left() + inner.width() * l as f32 / (layers - 1).max(1) as f32
+}
+
+/// Where node `id` sits on the sheet: its layer's chain line, its lane spread top to bottom.
+fn spot(inner: Rect, game: &Game, id: usize) -> Pos2 {
+    let net = &game.net;
+    let n = &net.nodes[id];
+    let width = net.layers[n.layer].len();
+    pos2(
+        column(inner, net.layers.len(), n.layer),
+        inner.top() + inner.height() * (n.lane as f32 + 0.5) / width as f32,
+    )
+}
+
+/// Node `id`'s click area's centre, on a map drawn in `rect`.
+#[cfg(test)]
+pub fn spot_in(rect: Rect, game: &Game, id: usize) -> Pos2 {
+    spot(sheet(rect), game, id)
 }
 
 /// A scalloped revision cloud round the node you're on, with its delta.

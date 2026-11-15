@@ -1,6 +1,6 @@
 //! The network map's geometry: shapes per node kind (data), meshes, and the isometric camera.
 
-use ninsei_core::hub::Save;
+use ninsei_core::hub::{self, Save};
 use ninsei_core::netview::{self, Iso, MapNode, MapStyleDef, MapView, Mesh, MeshKind};
 use ninsei_core::*;
 
@@ -218,4 +218,119 @@ fn the_flat_layout_runs_left_to_right_inside_the_picture() {
             }
         }
     }
+}
+
+/// A bare run standing one layer in, every node but the ends an empty cleared vault, every
+/// link two way (or one way, with `one_way`).
+fn one_in(seed: u64, one_way: bool) -> Game {
+    let mut g = Game::new(data(), seed);
+    g.net.orient(seed, if one_way { 100 } else { 0 });
+    for n in &mut g.net.nodes {
+        if !matches!(n.kind, NodeKind::Entry | NodeKind::Exit) {
+            (n.kind, n.ice, n.cleared) = (NodeKind::Vault, None, true);
+        }
+    }
+    let a = g.net.nodes[g.at].links[0];
+    g.apply(Action::Move(a));
+    g
+}
+
+#[test]
+fn a_link_back_to_where_you_came_from_is_a_route_to_it() {
+    for seed in 0..20 {
+        let g = one_in(seed, false);
+        let entry = g.net.entry();
+        for l in netview::links(&g) {
+            let want = if l.from == entry && l.to == g.at {
+                Some(entry)
+            } else if l.from == g.at {
+                Some(l.to)
+            } else {
+                None
+            };
+            assert_eq!(l.route, want, "seed {seed}: {l:?}");
+            assert!(!l.one_way);
+            assert_eq!(l.walked, l.from == entry && l.to == g.at);
+        }
+        // One way, it's an arrow and no route.
+        let g = one_in(seed, true);
+        let back = netview::links(&g)
+            .into_iter()
+            .find(|l| l.to == g.at && l.from == entry)
+            .unwrap();
+        assert!(back.one_way && back.route.is_none() && back.walked);
+    }
+}
+
+#[test]
+fn the_map_s_routes_are_the_game_s() {
+    let d = std::sync::Arc::new(data());
+    for tier in 1..=3 {
+        for seed in 0..30u64 {
+            let mut s = Save::default();
+            s.ensure_key(3);
+            s.phonebook.push(hub::Entry {
+                id: 0,
+                name: "probe".into(),
+                business: "test".into(),
+                number: "555-0000".into(),
+                tier,
+                traits: Vec::new(),
+                heat: 0,
+                runs: 0,
+                last: Vec::new(),
+            });
+            let mut g = s.dial(&d, 0, seed).unwrap();
+            for _ in 0..3 {
+                if g.phase != Phase::Exploring {
+                    break;
+                }
+                let mut ends: Vec<usize> =
+                    netview::links(&g).iter().filter_map(|l| l.route).collect();
+                let mut reach = g.reachable();
+                ends.sort_unstable();
+                reach.sort_unstable();
+                assert_eq!(ends, reach, "tier {tier} seed {seed}");
+                let to = g.reachable()[0];
+                g.apply(Action::Move(to));
+            }
+        }
+    }
+}
+
+#[test]
+fn a_route_says_which_way_it_goes_and_what_wakes() {
+    let g = one_in(4, false);
+    let entry = g.net.entry();
+    let ahead = g.net.nodes[g.at].links[0];
+    assert_eq!(
+        netview::route_tip(&g, ahead).unwrap(),
+        format!("jack {ahead}  →  DATA VAULT")
+    );
+    assert_eq!(
+        netview::route_tip(&g, entry).unwrap(),
+        format!("jack {entry}  ←  ENTRY")
+    );
+    // Not a route: nothing to say.
+    let far = *g.net.layers.last().unwrap().first().unwrap();
+    assert_eq!(netview::route_tip(&g, far), None);
+    // A beaten ICE behind you wakes.
+    let mut g = one_in(4, false);
+    let here = g.at;
+    let n = &mut g.net.nodes[here];
+    let e = d_ix("enigma");
+    (n.kind, n.ice, n.beaten) = (
+        NodeKind::Ice,
+        Some(e),
+        Some(ninsei_core::ice_version::Version::FIRST),
+    );
+    g.apply(Action::Move(ahead));
+    assert_eq!(
+        netview::route_tip(&g, here).unwrap(),
+        format!("jack {here}  ←  ICE, back up")
+    );
+}
+
+fn d_ix(id: &str) -> usize {
+    data().ice.iter().position(|i| i.id == id).unwrap()
 }
