@@ -421,3 +421,36 @@ fn the_hop_onto_the_exit_that_crosses_the_threshold_jacks_out() {
     }
     assert!(checked > 0);
 }
+
+#[test]
+fn the_ice_db_has_no_page_for_an_ai_met_or_not() {
+    let d = data();
+    let mut s = save(1, &[]);
+    let mut g = s.dial(&d, 0, 9).unwrap();
+    for n in &mut g.net.nodes {
+        if !matches!(n.kind, NodeKind::Entry | NodeKind::Exit) {
+            n.kind = NodeKind::Vault;
+            n.cleared = true;
+            n.ice = None;
+        }
+    }
+    let to = deeper(&g);
+    awake_at(&mut g, to, "10 HOLD");
+    g.apply(Action::Move(to));
+    assert!(g.data.ice[g.combat.as_ref().unwrap().ice].boss);
+    g.deck.integrity = 1;
+    while g.phase == Phase::Combat {
+        g.apply(Action::EndTurn);
+    }
+    s.record(&g, &[], &d.rig).unwrap();
+    assert!(
+        s.ice_seen
+            .iter()
+            .all(|seen| !d.ice.iter().any(|i| i.boss && i.id == seen.id))
+    );
+    assert!(icedb::entries(&s, &d).iter().all(|e| !e.def.boss));
+    assert_eq!(
+        icedb::entries(&s, &d).len(),
+        d.ice.iter().filter(|i| !i.boss).count()
+    );
+}

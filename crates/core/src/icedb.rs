@@ -24,10 +24,12 @@ pub struct Entry<'a> {
     data: &'a Data,
 }
 
-/// Every ICE, in data order, with what you know of it.
+/// Every ICE, in data order, with what you know of it. The nets' AIs aren't the bestiary's
+/// (`ai.ron`): it has no page for them.
 pub fn entries<'a>(save: &'a Save, data: &'a Data) -> Vec<Entry<'a>> {
     data.ice
         .iter()
+        .filter(|def| !def.boss)
         .map(|def| {
             let seen = save.ice_seen.iter().find(|s| s.id == def.id);
             // (version, program as booked, its text, the board it came from)
