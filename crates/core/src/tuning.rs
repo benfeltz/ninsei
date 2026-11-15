@@ -26,7 +26,7 @@ pub const BOSS_WAKE_AHEAD: u32 = 2;
 pub const BOSS_SEEN_HOPS: u32 = 1;
 /// Credits for beating a net's AI, by the net's tier (1 to 3), before the net's pay: the net's
 /// big payout.
-pub const AI_PAY: [u32; 3] = [200, 300, 400];
+pub const AI_PAY: [u32; 3] = [60, 100, 150];
 
 /// Network shape: entry layer, `NET_MID_LAYERS` layers of nodes, exit layer.
 pub const NET_MID_LAYERS: usize = 5;
