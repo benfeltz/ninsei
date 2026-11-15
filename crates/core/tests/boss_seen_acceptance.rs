@@ -11,7 +11,7 @@ fn save(tier: u32) -> Save {
         program: Some(probe::CAREFUL.into()),
         ..Save::default()
     };
-    s.ensure_key(0x1382_a);
+    s.ensure_key(0x1382);
     s.phonebook.push(Entry {
         id: 0,
         name: "probe".into(),
