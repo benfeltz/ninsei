@@ -436,6 +436,8 @@ pub struct Boss {
     pub last: Vec<crate::boss::Step>,
     /// Passes it has taken on the map: one a hop since it woke.
     pub passes: u32,
+    /// The hop it woke on (`Game::hops`), once it has.
+    pub woke_at: Option<u32>,
     /// Where the runner last knew it to be (`Game::sighting`).
     pub known: Option<usize>,
     /// The node and hop the runner was arriving on when it met them: once it's beaten, the
@@ -991,6 +993,7 @@ impl Game {
                 state: BossState::Asleep,
                 last: Vec::new(),
                 passes: 0,
+                woke_at: None,
                 known: None,
                 pending: None,
             });
@@ -1862,6 +1865,14 @@ impl Game {
 
     // ---- the net's AI ------------------------------------------------------------
 
+    /// The net's AI's name and maker, once it has woken this run (asleep: `None`): what each
+    /// deck's alert names.
+    pub fn ai_woke(&self) -> Option<(&str, &str)> {
+        let b = self.boss.as_ref().filter(|b| b.woke_at.is_some())?;
+        let model = self.data.boss_model(b.ice)?;
+        Some((self.data.ice[b.ice].name.as_str(), model.company.as_str()))
+    }
+
     /// The net's AI on the map, if it's awake.
     pub fn hunter(&self) -> Option<&crate::boss::Hunter> {
         match &self.boss.as_ref()?.state {
@@ -1893,9 +1904,14 @@ impl Game {
         {
             let runner = self.root_at();
             let h = crate::boss::Hunter::wake(ice, &self.data.ice[ice], at, runner);
+            let hop = self.hops;
             if let Some(b) = self.boss.as_mut() {
                 b.state = BossState::Awake(h);
+                b.woke_at = Some(hop);
             }
+            // The deck's OS sees a new process come up on the net it's on.
+            let name = self.data.ice[ice].name.clone();
+            self.say(LogKind::Bad, format!("!! {name} is up on the net."));
         }
         let strength = self.boss_strength(ice);
         let (runner, trace) = (self.root_at(), self.deck.trace);

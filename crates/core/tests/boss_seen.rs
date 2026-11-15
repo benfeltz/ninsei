@@ -146,3 +146,77 @@ fn the_preview_names_it_only_where_the_runner_knows_it_is() {
     g.boss.as_mut().unwrap().known = None;
     assert!(!route_tip(&g, next).unwrap().contains(&name));
 }
+
+/// A run walked deeper, hop by hop, until the AI wakes. Returns the cues and log of that hop.
+fn to_the_wake(g: &mut Game) -> (Vec<cue::Cue>, Vec<String>) {
+    let hop = g.route(deeper(g)).unwrap().trace;
+    g.deck.trace = g.boss.as_ref().unwrap().wake - hop;
+    g.cues.clear();
+    let said = g.log.len();
+    g.apply(Action::Move(deeper(g)));
+    assert!(g.ai_woke().is_some());
+    let log = g.log[said..].iter().map(|l| l.text.clone()).collect();
+    (std::mem::take(&mut g.cues), log)
+}
+
+#[test]
+fn the_wake_is_said_and_sounded_once() {
+    let mut g = quiet_run(1, 6);
+    let name = g.data.ice[g.boss.as_ref().unwrap().ice].name.clone();
+    let (cues, log) = to_the_wake(&mut g);
+    assert_eq!(cues.iter().filter(|c| **c == cue::Cue::AiWake).count(), 1);
+    let line = format!("!! {name} is up on the net.");
+    assert_eq!(log.iter().filter(|l| **l == line).count(), 1, "{log:?}");
+    assert_eq!(g.boss.as_ref().unwrap().woke_at, Some(g.hops));
+    // Not again.
+    for _ in 0..3 {
+        if g.phase != Phase::Exploring {
+            break;
+        }
+        g.cues.clear();
+        g.apply(Action::Move(deeper(&g)));
+        assert!(!g.cues.contains(&cue::Cue::AiWake));
+    }
+    assert_eq!(g.log.iter().filter(|l| l.text == line).count(), 1);
+}
+
+#[test]
+fn every_deck_says_it_in_its_own_words_and_they_fit() {
+    let mut g = quiet_run(3, 6);
+    assert!(suite::ai_notice(&g).is_none() && stack_fight::ai_alert(&g).is_none());
+    assert!(btop_fight::ai_banner(&g).is_none());
+    let mut watch = suite::Watch::default();
+    watch.step(&g);
+    to_the_wake(&mut g);
+    let notices = watch.step(&g);
+    assert_eq!(notices.len(), 1, "{notices:?}");
+    assert_eq!(notices[0].title, "SECURITY NOTICE");
+    assert!(watch.step(&g).is_empty(), "filed once");
+    let (name, company) = g.ai_woke().unwrap();
+    assert!(name.starts_with("WARDEN") && company == "Hosaka");
+    for l in &notices[0].lines {
+        assert!(l.chars().count() <= 60, "{l}");
+    }
+    let card = stack_fight::ai_alert(&g).unwrap();
+    assert!(card.iter().all(|l| l.chars().count() <= 48), "{card:?}");
+    assert!(
+        card[0].contains(name) && card[1].contains(company),
+        "{card:?}"
+    );
+    let bar = btop_fight::ai_banner(&g).unwrap();
+    assert!(bar.contains(name) && bar.chars().count() <= 60, "{bar}");
+    // Nobody coaches: no keys, no advice.
+    let all: Vec<String> = notices[0]
+        .lines
+        .iter()
+        .cloned()
+        .chain(stack_fight::ai_alert(&g).unwrap())
+        .chain([bar])
+        .collect();
+    for l in all {
+        let low = l.to_ascii_lowercase();
+        for w in ["press", "route", "avoid", "click", "esc", "run away"] {
+            assert!(!low.contains(w), "{l}");
+        }
+    }
+}

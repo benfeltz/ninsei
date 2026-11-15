@@ -534,3 +534,13 @@ pub fn moved_to(g: &Game, no: u32, up: bool) -> Option<u32> {
     let j = if up { i.checked_sub(1)? } else { i + 1 };
     lines.get(j).map(|l| l.no)
 }
+
+/// The Sense/Net's alert card when the net's AI comes up, in its OS's friendly words:
+/// what started up, and that it's watching. `None` until it has woken.
+pub fn ai_alert(g: &Game) -> Option<[String; 2]> {
+    let (name, company) = g.ai_woke()?;
+    Some([
+        format!("{name} has started up on this network."),
+        format!("It's a {company} guardian, and it is watching."),
+    ])
+}

@@ -103,3 +103,10 @@ pub const ICE_WORDS: crate::ice_listing::IceWords = crate::ice_listing::IceWords
     heading: "PROG",
     none: "[ no source available ]",
 };
+
+/// The Ono-Sendai's alarm bar when the net's AI comes up: the hacker's OS, terse. `None` until
+/// it has woken.
+pub fn ai_banner(g: &Game) -> Option<String> {
+    let (name, company) = g.ai_woke()?;
+    Some(format!("!! AI ONLINE  {name}  [{company}]"))
+}
