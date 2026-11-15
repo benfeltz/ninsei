@@ -1954,12 +1954,15 @@ impl Game {
         {
             return Some(Sighting::Near(h.at));
         }
-        let scanned = b
-            .last
-            .iter()
-            .any(|s| matches!(s.did, crate::boss::Did::Scanned { found: true, .. }));
-        if scanned {
-            return Some(Sighting::Scanned(h.at));
+        // Where its last scan that found them came from: that's where they heard it.
+        let scanned = b.last.iter().rev().find_map(|s| match s.did {
+            crate::boss::Did::Scanned {
+                from, found: true, ..
+            } => Some(from),
+            _ => None,
+        });
+        if let Some(from) = scanned {
+            return Some(Sighting::Scanned(from));
         }
         b.known.map(Sighting::Last)
     }

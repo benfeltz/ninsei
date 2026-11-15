@@ -56,8 +56,9 @@ pub enum Did {
     Held,
     /// A `WAIT`: a cycle on this node.
     Waited,
-    /// A `SCAN n`, and whether it found the runner.
+    /// A `SCAN n` from node `from`, and whether it found the runner.
     Scanned {
+        from: usize,
         reach: u32,
         found: bool,
     },
@@ -217,7 +218,8 @@ impl Hunter {
                     if found {
                         self.seen = Some(g.runner);
                     }
-                    step(&mut out, no, Did::Scanned { reach, found });
+                    let from = self.at;
+                    step(&mut out, no, Did::Scanned { from, reach, found });
                 }
             }
         }

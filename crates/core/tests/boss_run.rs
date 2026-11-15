@@ -454,3 +454,32 @@ fn the_ice_db_has_no_page_for_an_ai_met_or_not() {
         d.ice.iter().filter(|i| !i.boss).count()
     );
 }
+
+#[test]
+fn a_scan_is_heard_from_where_it_scanned_not_where_the_ai_moved_on_to() {
+    let mut checked = 0;
+    for seed in 0..20 {
+        let mut g = quiet_run(1, seed);
+        let ice = g.boss.as_ref().unwrap().ice;
+        // A machine that scans and then moves in the same pass, with the reach to find them.
+        let mut d = (*g.data).clone();
+        d.ice[ice].cpu = 2;
+        d.ice[ice].reach = Some((1, 9));
+        g.data = std::sync::Arc::new(d);
+        let next = deeper(&g);
+        let exit = ninsei_core::boss::exit(&g.net).unwrap();
+        // Three hops past the runner's next node: out of sight.
+        let Some(far) = route(&g.net, next, exit).and_then(|r| r.get(3).copied()) else {
+            continue;
+        };
+        awake_at(&mut g, far, "10 SCAN 9\n20 MOVE TOWARD TARGET");
+        g.apply(Action::Move(next));
+        if g.phase != Phase::Exploring {
+            continue;
+        }
+        assert_eq!(g.sighting(), Some(Sighting::Scanned(far)), "seed {seed}");
+        // Most seeds have a way back for it: there it moved on after the scan.
+        checked += u32::from(g.hunter().unwrap().at != far);
+    }
+    assert!(checked > 3, "{checked}");
+}

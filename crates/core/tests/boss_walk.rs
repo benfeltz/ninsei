@@ -198,6 +198,7 @@ fn a_scan_finds_the_runner_inside_its_reach_and_not_outside() {
     assert_eq!(
         dids(&s)[0],
         Did::Scanned {
+            from: 4,
             reach: 1,
             found: false
         }
@@ -211,6 +212,7 @@ fn a_scan_finds_the_runner_inside_its_reach_and_not_outside() {
     assert_eq!(
         dids(&s)[0],
         Did::Scanned {
+            from: 4,
             reach: 2,
             found: true
         }
@@ -240,6 +242,7 @@ fn its_reads_are_what_it_knows() {
         [
             Did::If(false),
             Did::Scanned {
+                from: 4,
                 reach: 3,
                 found: true
             },
