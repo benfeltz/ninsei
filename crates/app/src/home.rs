@@ -273,7 +273,7 @@ pub struct Home {
     pub(crate) qwk: ninsei_core::qwk::Reader,
     pub(crate) qwk_color: bool,
     /// The ICE database's picked entry.
-    pub(crate) icedb_sel: Option<usize>,
+    pub(crate) icedb_sel: Option<String>,
     /// Cracktros: the pass each tool's body was last drawn on (so a fresh open replays its
     /// intro), and the intros playing now with the time each started.
     intro_drawn: std::collections::HashMap<&'static str, u64>,
