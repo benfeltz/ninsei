@@ -298,11 +298,15 @@ pub fn hops(net: &Network, a: usize, b: usize) -> Option<u32> {
         if n == b {
             return Some(d);
         }
-        let back = net
-            .nodes
+        // Links run into the next layer, so the ones back into `n` are from the layer before.
+        let before = net.nodes[n]
+            .layer
+            .checked_sub(1)
+            .map_or(&[][..], |l| &net.layers[l][..]);
+        let back = before
             .iter()
-            .filter(|o| o.links.contains(&n))
-            .map(|o| o.id);
+            .copied()
+            .filter(|&a| net.nodes[a].links.contains(&n));
         let near: Vec<usize> = net.nodes[n].links.iter().copied().chain(back).collect();
         for m in near {
             if dist[m].is_none() {
