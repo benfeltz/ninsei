@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 use crate::data::{Data, IceClass};
+use crate::game::{ContractStatus, Game};
 use crate::network::{Network, NodeKind};
 
 /// Which way the network map is drawn. Saved with the hub.
@@ -107,6 +108,87 @@ pub struct MapStyleDef {
     /// How the Paint view fills the node: a pattern id (`data/patterns.ron`), or `paper`
     /// (blank, with its tag written inside) or `solid` (all ink).
     pub paint: String,
+}
+
+/// Nodes further than this many layers past the runner are fogged on the map.
+pub const SIGHT: usize = 1;
+
+/// Whether the runner can see what node `id` is: the BBS number is passed around and a client
+/// gave you its targets' hostnames; past the next layer the rest is fog.
+pub fn visible(game: &Game, id: usize) -> bool {
+    let net = &game.net;
+    net.nodes[id].layer <= net.nodes[game.at].layer + SIGHT
+        || net.nodes[id].kind == NodeKind::Bbs
+        || target(game, id)
+}
+
+/// Whether node `id` is an active contract's target. They live on the main network, so none
+/// show inside a subnet.
+pub fn target(game: &Game, id: usize) -> bool {
+    !game.in_subnet()
+        && game
+            .contracts
+            .iter()
+            .any(|k| k.node == id && k.status == ContractStatus::Active)
+}
+
+/// A link as the map shows it.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct LinkView {
+    /// Its shallower end.
+    pub from: usize,
+    /// Its deeper end.
+    pub to: usize,
+    /// Walked deeper only, never back: the map draws an arrow pointing deeper.
+    pub one_way: bool,
+    /// The runner came along it, either way: the hop trail.
+    pub walked: bool,
+    /// The end the runner would step to along it from where it stands, either way; `None`
+    /// when it isn't a route from here.
+    pub route: Option<usize>,
+}
+
+/// Every link on the network the runner is on, as the map shows it. Its routes are exactly
+/// `Game::reachable`.
+pub fn links(game: &Game) -> Vec<LinkView> {
+    let net = &game.net;
+    let reach = game.reachable();
+    let route = |a: usize, b: usize| {
+        if a == game.at && reach.contains(&b) {
+            Some(b)
+        } else if b == game.at && reach.contains(&a) {
+            Some(a)
+        } else {
+            None
+        }
+    };
+    net.nodes
+        .iter()
+        .flat_map(|n| {
+            n.links.iter().map(move |&to| LinkView {
+                from: n.id,
+                to,
+                one_way: net.one_way(n.id, to),
+                walked: game.travelled(n.id, to),
+                route: route(n.id, to),
+            })
+        })
+        .collect()
+}
+
+/// The line a route says, where the map's hover and the route list name it: `jack 3  →  VAULT`
+/// deeper, `jack 1  ←  ENTRY` back, and `, back up` where ICE beaten there wakes. `None` when
+/// node `id` isn't a route from here.
+pub fn route_tip(game: &Game, id: usize) -> Option<String> {
+    if !game.reachable().contains(&id) {
+        return None;
+    }
+    // A route is a layer either side of the runner, so never in the fog.
+    let hop = game.route(id).ok()?;
+    let what = game.node_label(id);
+    let way = if hop.back { "←" } else { "→" };
+    let up = if hop.rearms { ", back up" } else { "" };
+    Some(format!("jack {id}  {way}  {what}{up}"))
 }
 
 /// Paint fills that aren't patterns.
