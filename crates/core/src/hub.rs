@@ -552,10 +552,12 @@ impl NetworksDef {
             if d.one_way > 100 {
                 return Err(format!("tier {t} one-way share is over 100%"));
             }
-            if !(1..=TRACE_MAX).contains(&d.wake) {
+            // At TRACE_MAX the run is over before the AI's turn comes.
+            if !(1..TRACE_MAX).contains(&d.wake) {
                 return Err(format!(
-                    "tier {t} wakes its AI at {}% trace (1-{TRACE_MAX})",
-                    d.wake
+                    "tier {t} wakes its AI at {}% trace (1-{})",
+                    d.wake,
+                    TRACE_MAX - 1
                 ));
             }
         }
@@ -1987,7 +1989,8 @@ impl Save {
     }
 
     /// The AI an entry's network runs (its row in `Data::ice`, `ai.ron`'s pick for its tier and
-    /// heat) and the trace it wakes at: its tier's, moved by its traits', never below 1.
+    /// heat) and the trace it wakes at: its tier's, moved by its traits', kept between 1 and
+    /// one short of `TRACE_MAX`, where the run is over before it could wake.
     pub fn site_boss(data: &Data, e: &Entry) -> Option<(usize, u32)> {
         let ice = data.boss_for(e.tier, e.heat)?;
         let tier = data.networks.tier(e.tier)?;
@@ -1997,7 +2000,7 @@ impl Save {
             .filter_map(|id| data.networks.trait_def(id))
             .map(|d| d.wake)
             .sum();
-        let wake = (tier.wake as i32 + moved).max(1) as u32;
+        let wake = (tier.wake as i32 + moved).clamp(1, TRACE_MAX as i32 - 1) as u32;
         Some((ice, wake))
     }
 

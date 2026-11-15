@@ -483,3 +483,24 @@ fn a_scan_is_heard_from_where_it_scanned_not_where_the_ai_moved_on_to() {
     }
     assert!(checked > 3, "{checked}");
 }
+
+#[test]
+fn a_wake_the_run_could_never_reach_is_refused_and_traits_keep_it_reachable() {
+    let nets = include_str!("../../../data/hub/networks.ron");
+    let find = "one_way: 25, wake: 25)";
+    assert!(nets.contains(find));
+    let err = Data::parse(Sources {
+        networks: &nets.replacen(find, "one_way: 25, wake: 100)", 1),
+        ..Sources::builtin()
+    })
+    .unwrap_err();
+    assert!(err.contains("tier 1 wakes its AI at 100%"), "{err}");
+    // A tier at 95 with a skeleton crew's +10 still wakes before the end.
+    let d = Data::parse(Sources {
+        networks: &nets.replacen(find, "one_way: 25, wake: 95)", 1),
+        ..Sources::builtin()
+    })
+    .unwrap();
+    let g = save(1, &["graveyard"]).dial(&d, 0, 1).unwrap();
+    assert!(wake(&g) < tuning::TRACE_MAX);
+}
