@@ -30,11 +30,9 @@ fn career(d: &Data, runs: u64) -> Save {
     });
     for r in 0..runs {
         s.program = Some(SAFE_PICK.into());
-        let Ok(mut g) = s.dial(d, 0, 0x3E0 + r) else {
+        let Ok(g) = s.dial(d, 0, 0x3E0 + r) else {
             continue;
         };
-        // ICE's own sources only: a net's AI gives up the net's when it's beaten (138.3).
-        g.boss = None;
         let (g, _) = probe::play(g, Bot::SafePick);
         for l in g.log.iter().filter(|l| l.text.starts_with("!! ")) {
             if let Some(row) = d
@@ -60,6 +58,9 @@ fn career(d: &Data, runs: u64) -> Save {
             }
         }
         s.record(&g, &[], &d.rig).unwrap();
+        // What a beaten net's AI gave up isn't what fighting ICE gives (138.3): not kept here.
+        s.ice_sources
+            .retain(|x| !d.ai.models.iter().any(|m| m.id == x.from));
         s.study(
             &std::sync::Arc::new(d.clone()),
             tuning::STUDY_PATIENCE,
@@ -102,8 +103,9 @@ fn the_ice_db_shows_only_the_sources_you_own() {
             .map(|l| l.text.clone())
             .collect()
     };
-    // No source: the record of every version met, and none of any version's code.
-    for e in icedb::entries(&s, &d) {
+    // No source: the record of every version met, and none of any version's code. (A net's
+    // AI's page is its maker's product: `boss_payout` covers it.)
+    for e in icedb::entries(&s, &d).into_iter().filter(|e| !e.def.boss) {
         let Some(seen) = e.seen else { continue };
         let page = e.lines(&s, &d);
         assert!(
@@ -131,7 +133,7 @@ fn the_ice_db_shows_only_the_sources_you_own() {
             from: String::new(),
         });
     }
-    for e in icedb::entries(&s, &d) {
+    for e in icedb::entries(&s, &d).into_iter().filter(|e| !e.def.boss) {
         if e.seen.is_none() {
             continue;
         }

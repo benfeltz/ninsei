@@ -136,7 +136,7 @@ fn a_source_it_gave_up_lists_with_its_notes() {
     let model = d.boss_model(ai).unwrap();
     let hydra = d.ice.iter().find(|i| i.id == "hydra").unwrap();
     let (header, remarks) =
-        ice_listing::notes(&d, &model.id, &hydra.name, ice_version::Version::FIRST).unwrap();
+        ice_listing::notes(&d, &model.id, hydra, ice_version::Version::FIRST).unwrap();
     assert!(header.iter().any(|l| l.contains(&model.name)), "{header:?}");
     assert!(header.iter().all(|l| l.chars().count() <= data::NOTE_MAX));
     // Hydra's `IF TARGET RAN firewall` gets the AI's remark on TARGET RAN.
@@ -200,9 +200,16 @@ fn beaten_its_ice_db_page_lists_its_program_with_its_notes() {
     let page = e.lines(&s, &d).join("\n");
     let model = d.boss_model(ai).unwrap();
     assert!(page.contains("SEGFAULT"), "its own source lists: {page}");
+    // Its own program is its maker's release, not a revision it drafted, and its name carries
+    // the version: no 1.0.0 anywhere on its page.
     assert!(
-        page.contains(&format!("PREPARED BY {}", model.name)),
-        "its notes: {page}"
+        page.contains(&format!("{} {}", model.company, d.ice[ai].name)),
+        "its maker's header: {page}"
+    );
+    assert!(page.contains("source         on file"), "{page}");
+    assert!(
+        !page.contains("PREPARED BY") && !page.contains("1.0.0"),
+        "{page}"
     );
     // And a kind from its net, listed with the AI's notes rather than a crew's.
     let kind = d
@@ -213,4 +220,62 @@ fn beaten_its_ice_db_page_lists_its_program_with_its_notes() {
     let ke = entries.iter().find(|e| e.def.id == kind.id).unwrap();
     let kp = ke.lines(&s, &d).join("\n");
     assert!(kp.contains("REVIEWED AND APPROVED"), "{kp}");
+}
+
+#[test]
+fn one_source_is_one_source() {
+    let d = data();
+    let mut s = save(1);
+    // The deck owns every kind on file already: only the AI's own is new.
+    for i in d.ice.iter().filter(|i| !i.boss) {
+        assert!(s.learn_source(&d, &i.id, ice_version::Version::FIRST));
+    }
+    let mut g = facing_it(&mut s, 7);
+    let name = g.data.ice[g.boss.as_ref().unwrap().ice].name.clone();
+    beat(&mut g);
+    assert!(
+        g.log
+            .iter()
+            .any(|l| l.text == format!("+ 1 source from {name}'s revision store.")),
+        "{:?}",
+        g.log.iter().rev().take(5).collect::<Vec<_>>()
+    );
+}
+
+#[test]
+fn validate_holds_the_ais_notes_to_the_boards_rules() {
+    let ai = include_str!("../../../data/ai.ron");
+    let bad = [
+        // A read that's only part of a word never matches a line.
+        (
+            r#"(read: "TARGET CPU",    text: "COUNTERS: SPENT INTRUDERS"),"#,
+            r#"(read: "TARGET C",      text: "COUNTERS: SPENT INTRUDERS"),"#,
+            "no ICE reads",
+        ),
+        // Its own header, too.
+        (
+            r#"own: ["{company} {ai}", "LICENSED SOFTWARE. NOT FOR RESALE.","#,
+            r#"own: ["{company} {ai} {ice}", "LICENSED SOFTWARE. NOT FOR RESALE.","#,
+            "can't fill",
+        ),
+        // A model may not share a board's id: a source's origin would mean both.
+        (
+            r#"(id: "warden", company: "Hosaka""#,
+            r#"(id: "gutter", company: "Hosaka""#,
+            "a board's id",
+        ),
+    ];
+    for (find, replace, why) in bad {
+        assert!(ai.contains(find), "{find}");
+        let mut text = ai.replacen(find, replace, 1);
+        if why == "a board's id" {
+            text = text.replace(r#"model: "warden""#, r#"model: "gutter""#);
+        }
+        let err = Data::parse(Sources {
+            ai: &text,
+            ..Sources::builtin()
+        })
+        .unwrap_err();
+        assert!(err.contains(why), "{why}: {err}");
+    }
 }
