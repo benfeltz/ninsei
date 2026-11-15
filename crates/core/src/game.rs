@@ -2366,6 +2366,11 @@ impl Game {
         });
         let table = self.data.loot.black_ice.clone();
         self.roll_loot(&table);
+        // The net's big payout: what was behind the thing that ran it.
+        let tier = (self.tier() as usize).clamp(1, AI_PAY.len());
+        let pay = self.mods.pay(AI_PAY[tier - 1]);
+        self.deck.credits += pay;
+        self.say(LogKind::Loot, format!("+ {pay}¢ from {name}'s accounts."));
         if let Some((node, hop)) = pending {
             self.arrive(node, hop);
         }
