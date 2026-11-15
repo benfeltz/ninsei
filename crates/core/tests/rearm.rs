@@ -100,6 +100,9 @@ fn a_beaten_ice_stepped_back_onto_comes_back_as_the_sysops_next_version() {
             steps: STUDY_PATIENCE,
             drafts: u32::MAX,
         });
+        // The preview says it re-arms, before the step.
+        let hop = g.route(node).unwrap();
+        assert!(hop.rearms && !hop.back, "seed {seed}: {hop:?}");
         // ...or the step back does.
         let mut back = g.clone();
         back.apply(Action::Move(node));

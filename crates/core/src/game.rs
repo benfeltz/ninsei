@@ -799,6 +799,18 @@ fn in_force(
     }
 }
 
+/// What a move does, as its preview says ([`Game::route`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Hop {
+    /// The trace it adds: every hop the same, forward or back.
+    pub trace: u32,
+    /// It walks a link back, to the layer before.
+    pub back: bool,
+    /// It steps onto a node whose ICE the deck beat there: the ICE comes back up, maybe as a
+    /// version its sysops ship there and then, and it's a fight that pays nothing.
+    pub rearms: bool,
+}
+
 /// The forecast's lines, less any the pass executes, in order, once each.
 fn finish(mut starved: Vec<u32>, went: Vec<u32>) -> Vec<u32> {
     starved.retain(|n| !went.contains(n));
@@ -1402,7 +1414,7 @@ impl Game {
 
     /// What a move to node `to` will do, or why it can't: the move's preview, and the move
     /// resolves through it.
-    pub fn route(&self, to: usize) -> Result<(), String> {
+    pub fn route(&self, to: usize) -> Result<Hop, String> {
         if matches!(self.phase, Phase::Flatlined | Phase::JackedOut) {
             return Err("run is over. `newrun` to jack in again.".into());
         }
@@ -1416,13 +1428,22 @@ impl Game {
         if to >= net.nodes.len() || !net.linked(at, to) {
             return Err(format!("no route to node {to}."));
         }
-        if net.nodes[at].layer > net.nodes[to].layer && net.one_way(to, at) {
+        let back = net.nodes[at].layer > net.nodes[to].layer;
+        if back && net.one_way(to, at) {
             return Err(format!(
                 "{} -> {} is one way. no route back.",
                 net.nodes[to].name, net.nodes[at].name
             ));
         }
-        Ok(())
+        let n = &net.nodes[to];
+        Ok(Hop {
+            trace: self.mods.trace(TRACE_PER_HOP),
+            back,
+            rearms: matches!(n.kind, NodeKind::Ice | NodeKind::BlackIce)
+                && n.cleared
+                && n.beaten.is_some()
+                && n.ice.is_some(),
+        })
     }
 
     pub fn say(&mut self, kind: LogKind, text: impl Into<String>) {
@@ -1630,12 +1651,12 @@ impl Game {
     }
 
     fn move_to(&mut self, to: usize) -> Result<(), String> {
-        self.route(to)?;
+        let hop = self.route(to)?;
         self.net.walk(self.at, to);
         self.at = to;
         self.hops += 1;
         self.encounter = None;
-        self.deck.trace += self.mods.trace(TRACE_PER_HOP);
+        self.deck.trace += hop.trace;
         let node = self.net.nodes[to].clone();
         let label = self.node_label(to);
         self.say(
@@ -1652,7 +1673,7 @@ impl Game {
                 }
             }
             // Beaten here before: it's back up.
-            NodeKind::Ice | NodeKind::BlackIce if node.beaten.is_some() => {
+            NodeKind::Ice | NodeKind::BlackIce if hop.rearms => {
                 if let Some(ice) = node.ice {
                     self.rearm(to, ice);
                 }

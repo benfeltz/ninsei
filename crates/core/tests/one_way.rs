@@ -217,8 +217,19 @@ fn a_hop_back_costs_a_hop() {
         let entry = g.at;
         let a = g.reachable()[0];
         assert!(g.reachable().iter().all(|&n| g.net.nodes[n].layer == 1));
+        let hop = g.route(a).unwrap();
+        assert_eq!(
+            (hop.trace, hop.back, hop.rearms),
+            (tuning::TRACE_PER_HOP, false, false)
+        );
         g.apply(Action::Move(a));
         assert!(g.reachable().contains(&entry), "the entry is a step back");
+        let hop = g.route(entry).unwrap();
+        assert_eq!(
+            (hop.trace, hop.back),
+            (tuning::TRACE_PER_HOP, true),
+            "a hop is a hop"
+        );
         g.apply(Action::Move(entry));
         assert_eq!(g.at, entry);
         g.apply(Action::Move(a));
