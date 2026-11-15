@@ -241,6 +241,15 @@ pub fn budget_of(effect: Effect, cpu: u32, opt: u32) -> u32 {
     }
 }
 
+/// How [`budget_of`] works for this effect, as the hex editor prints it under the bar.
+pub fn budget_rule(effect: Effect) -> String {
+    if effect.is_hack() {
+        format!("budget = {BUDGET_PER_TRACE}×trace + {BUDGET_PER_OPT}×opt")
+    } else {
+        format!("budget = {BUDGET_PER_CPU}×cpu + {BUDGET_PER_OPT}×opt")
+    }
+}
+
 /// Hex text for saving a binary.
 pub fn to_hex(b: &Bin) -> String {
     b.iter().map(|x| format!("{x:02x}")).collect()
