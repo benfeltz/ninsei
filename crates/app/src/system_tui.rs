@@ -684,7 +684,7 @@ fn glyph(kind: WarezKind) -> (char, Color32) {
         WarezKind::Breaker => ('▓', accent()),
         WarezKind::Shield => ('▒', ink()),
         WarezKind::Utility => ('░', ink()),
-        WarezKind::Hack => ('▚', accent()),
+        WarezKind::Hack => ('▄', accent()),
     }
 }
 
