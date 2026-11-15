@@ -48,8 +48,9 @@ fn ran(g: &Game, name: &str) -> usize {
 #[test]
 fn every_ice_is_a_program_with_its_own_budgets() {
     let d = data();
-    assert_eq!(d.ice.len(), 9);
-    for ice in &d.ice {
+    // Nine kinds, then the nets' AIs, which are rows of their own (`ai.ron`).
+    assert_eq!(d.ice.iter().filter(|i| !i.boss).count(), 9);
+    for ice in d.ice.iter().filter(|i| !i.boss) {
         let p = basic::parse_with(&ice.program, basic::Vocab::Ice(&ice.verbs));
         assert!(p.can_act(), "{}", ice.id);
         assert!(

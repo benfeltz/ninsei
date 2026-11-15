@@ -130,6 +130,98 @@ pub struct IceDef {
     /// Whether it gives up when it's losing.
     #[serde(default)]
     pub yields: Option<YieldDef>,
+    /// A net's AI: a version of a model in `ai.ron`, made a row of its own as the data loads
+    /// (`Data::parse`). Never written in `ice.ron`, never placed on the map, never patched.
+    #[serde(skip)]
+    pub boss: bool,
+}
+
+/// The ICE tier a net's AI fights as: above black ICE, never on the map.
+pub const BOSS_TIER: u32 = 3;
+
+/// The nets' AIs (`data/ai.ron`): the models the corps buy, the versions they run, and which
+/// version a net of a given tier and heat runs.
+#[derive(Deserialize, Clone, Debug, Default)]
+pub struct AiDef {
+    pub models: Vec<AiModel>,
+    pub versions: Vec<AiVersion>,
+    pub runs: Vec<AiRun>,
+}
+
+/// A model: the product a corp buys, its vocabulary and its machine. Every version of it fits.
+#[derive(Deserialize, Clone, Debug)]
+pub struct AiModel {
+    pub id: String,
+    /// The company that sells it, as its manuals print it.
+    pub company: String,
+    /// The product's name, as its version header prints it (`SENTINEL`).
+    pub name: String,
+    pub class: IceClass,
+    pub cpu: u32,
+    pub ram: u32,
+    pub hdd: u32,
+    pub verbs: Vec<crate::basic::Verb>,
+    pub ranges: Vec<(crate::basic::Verb, u32, u32)>,
+}
+
+/// A version of a model: a program, and the strength it fights at.
+#[derive(Deserialize, Clone, Debug)]
+pub struct AiVersion {
+    pub model: String,
+    /// As the product numbers it (`2.1`).
+    pub version: String,
+    pub strength: u32,
+    pub program: String,
+}
+
+/// Which version a net runs: the row for its tier with the highest `heat` at or under its own.
+#[derive(Deserialize, Clone, Debug)]
+pub struct AiRun {
+    pub tier: u32,
+    pub heat: u32,
+    pub model: String,
+    pub version: String,
+}
+
+impl AiVersion {
+    /// The id its row in `Data::ice` takes.
+    pub fn row_id(&self) -> String {
+        format!("{}-{}", self.model, self.version)
+    }
+}
+
+impl AiDef {
+    /// The rows a fight meets: one per version, its model's machine and vocabulary with the
+    /// version's program and strength.
+    fn rows(&self) -> Result<Vec<IceDef>, String> {
+        self.versions
+            .iter()
+            .map(|v| {
+                let m = self
+                    .models
+                    .iter()
+                    .find(|m| m.id == v.model)
+                    .ok_or_else(|| {
+                        format!("version {} of unknown model `{}`", v.version, v.model)
+                    })?;
+                Ok(IceDef {
+                    id: v.row_id(),
+                    name: format!("{} {}", m.name, v.version),
+                    class: m.class,
+                    tier: BOSS_TIER,
+                    strength: v.strength,
+                    program: v.program.clone(),
+                    cpu: m.cpu,
+                    ram: m.ram,
+                    verbs: m.verbs.clone(),
+                    hdd: m.hdd,
+                    ranges: m.ranges.clone(),
+                    yields: None,
+                    boss: true,
+                })
+            })
+            .collect()
+    }
 }
 
 impl IceDef {
@@ -1115,6 +1207,7 @@ pub struct Sources<'a> {
     pub warez: &'a str,
     pub ice: &'a str,
     pub ice_grammar: &'a str,
+    pub ai: &'a str,
     pub loot: &'a str,
     pub boards: &'a [BoardSrc<'a>],
     pub events: &'a str,
@@ -1153,6 +1246,7 @@ impl Sources<'static> {
             warez: include_str!("../../../data/warez.ron"),
             ice: include_str!("../../../data/ice.ron"),
             ice_grammar: include_str!("../../../data/ice_grammar.ron"),
+            ai: include_str!("../../../data/ai.ron"),
             loot: include_str!("../../../data/loot.ron"),
             boards: BUILTIN_BOARDS,
             events: include_str!("../../../data/events.ron"),
@@ -1213,9 +1307,12 @@ impl Shared for std::sync::Arc<Data> {
 #[derive(Clone, Debug)]
 pub struct Data {
     pub warez: Vec<WarezDef>,
+    /// Every ICE: `ice.ron`'s rows, then a row for each version of a net's AI (`ai`).
     pub ice: Vec<IceDef>,
     /// What new ICE versions are written from.
     pub ice_grammar: IceGrammar,
+    /// The nets' AIs.
+    pub ai: AiDef,
     pub loot: LootTables,
     /// Every BBS, the default board first.
     pub boards: Vec<BbsDef>,
@@ -1294,9 +1391,13 @@ impl Data {
         boards.sort_by_key(|b| !b.default);
         let contracts: ContractsFile =
             ron::from_str(src.contracts).map_err(|e| format!("contracts.ron: {e}"))?;
+        let ai: AiDef = ron::from_str(src.ai).map_err(|e| format!("ai.ron: {e}"))?;
+        let mut ice: Vec<IceDef> = ron::from_str(src.ice).map_err(|e| format!("ice.ron: {e}"))?;
+        ice.extend(ai.rows().map_err(|e| format!("ai.ron: {e}"))?);
         let data = Self {
             warez: ron::from_str(src.warez).map_err(|e| format!("warez.ron: {e}"))?,
-            ice: ron::from_str(src.ice).map_err(|e| format!("ice.ron: {e}"))?,
+            ice,
+            ai,
             ice_grammar: ron::from_str(src.ice_grammar)
                 .map_err(|e| format!("ice_grammar.ron: {e}"))?,
             loot: ron::from_str(src.loot).map_err(|e| format!("loot.ron: {e}"))?,
@@ -1418,13 +1519,21 @@ impl Data {
             self.validate_sources(b)
                 .map_err(|e| format!("bbs/{}/board.ron sources: {e}", b.id))?;
         }
+        self.validate_ai().map_err(|e| format!("ai.ron: {e}"))?;
         for ice in &self.ice {
             self.validate_ice_program(ice)
                 .map_err(|e| format!("ICE `{}`: {e}", ice.id))?;
-            if ice.tier > 2 {
+            if ice.tier > 2 && !ice.boss {
                 return Err(format!(
                     "ICE `{}` has tier {} (0, 1 or 2)",
                     ice.id, ice.tier
+                ));
+            }
+            // SEGFAULT is a net's AI's verb: no ordinary ICE has it.
+            if !ice.boss && ice.verbs.contains(&crate::basic::Verb::Segfault) {
+                return Err(format!(
+                    "ICE `{}` has SEGFAULT, which only a net's AI has",
+                    ice.id
                 ));
             }
             if let Some(y) = &ice.yields
@@ -1934,6 +2043,7 @@ impl Data {
         let longest = self
             .ice
             .iter()
+            .filter(|i| !i.boss)
             .map(|i| i.name.as_str())
             .max_by_key(|n| n.chars().count())
             .unwrap_or("");
@@ -2026,6 +2136,7 @@ impl Data {
         let longest = self
             .ice
             .iter()
+            .filter(|i| !i.boss)
             .map(|i| i.name.as_str())
             .max_by_key(|n| n.chars().count())
             .unwrap_or("");
@@ -2088,7 +2199,7 @@ impl Data {
                 return Err(format!("tier {} is in `fair` twice", f.tier));
             }
         }
-        for ice in &self.ice {
+        for ice in self.ice.iter().filter(|i| !i.boss) {
             if !g.fair.iter().any(|f| f.tier == ice.tier) {
                 return Err(format!(
                     "`fair` has no tier {} (ICE `{}`)",
@@ -2102,7 +2213,11 @@ impl Data {
             }
         }
         for class in IceClass::ALL {
-            let rows: Vec<&IceDef> = self.ice.iter().filter(|i| i.class == class).collect();
+            let rows: Vec<&IceDef> = self
+                .ice
+                .iter()
+                .filter(|i| i.class == class && !i.boss)
+                .collect();
             if rows.is_empty() {
                 continue;
             }
@@ -2200,6 +2315,110 @@ impl Data {
     /// An ICE's row must have budgets to run with, verbs, an HDD, a range for every verb that
     /// takes a number (and none for a verb it doesn't have or that takes none), and a program
     /// that passes [`Data::check_ice_program`].
+    /// The nets' AIs: models named once with a machine, versions of a known model named once,
+    /// every row of `runs` naming a version, and every network tier running one from heat 0.
+    /// (Each version's program is checked as its row in `ice`, against its model.)
+    fn validate_ai(&self) -> Result<(), String> {
+        let ai = &self.ai;
+        for (i, m) in ai.models.iter().enumerate() {
+            if ai.models[..i].iter().any(|o| o.id == m.id) {
+                return Err(format!("model `{}` is listed twice", m.id));
+            }
+            if m.company.trim().is_empty() || m.name.trim().is_empty() {
+                return Err(format!("model `{}` needs a company and a name", m.id));
+            }
+            if !ai.versions.iter().any(|v| v.model == m.id) {
+                return Err(format!("model `{}` has no versions", m.id));
+            }
+        }
+        for (i, v) in ai.versions.iter().enumerate() {
+            if !ai.models.iter().any(|m| m.id == v.model) {
+                return Err(format!(
+                    "version {} of unknown model `{}`",
+                    v.version, v.model
+                ));
+            }
+            if ai.versions[..i]
+                .iter()
+                .any(|o| o.model == v.model && o.version == v.version)
+            {
+                return Err(format!("{} {} is listed twice", v.model, v.version));
+            }
+            if v.version.trim().is_empty() || v.version.contains(char::is_whitespace) {
+                return Err(format!("{} has a version `{}`", v.model, v.version));
+            }
+            if v.strength == 0 {
+                return Err(format!("{} {} has strength 0", v.model, v.version));
+            }
+        }
+        for v in &ai.versions {
+            if self.ice.iter().filter(|r| r.id == v.row_id()).count() != 1 {
+                return Err(format!(
+                    "{} {}: its id is another ICE's",
+                    v.model, v.version
+                ));
+            }
+        }
+        for (i, r) in ai.runs.iter().enumerate() {
+            if !ai
+                .versions
+                .iter()
+                .any(|v| v.model == r.model && v.version == r.version)
+            {
+                return Err(format!(
+                    "tier {} at heat {} runs {} {}, which isn't a version",
+                    r.tier, r.heat, r.model, r.version
+                ));
+            }
+            if self.networks.tier(r.tier).is_none() {
+                return Err(format!("runs on tier {}, which no network has", r.tier));
+            }
+            if r.heat > crate::tuning::HEAT_MAX {
+                return Err(format!(
+                    "tier {} at heat {}: heat tops out at {}",
+                    r.tier,
+                    r.heat,
+                    crate::tuning::HEAT_MAX
+                ));
+            }
+            if ai.runs[..i]
+                .iter()
+                .any(|o| o.tier == r.tier && o.heat == r.heat)
+            {
+                return Err(format!(
+                    "tier {} at heat {} is listed twice",
+                    r.tier, r.heat
+                ));
+            }
+        }
+        for t in &self.networks.tiers {
+            if !ai.runs.iter().any(|r| r.tier == t.tier && r.heat == 0) {
+                return Err(format!("tier {} runs no AI at heat 0", t.tier));
+            }
+        }
+        Ok(())
+    }
+
+    /// The row in `ice` of the AI a net of tier `tier` at heat `heat` runs: its tier's row in
+    /// `ai.ron`'s `runs` with the highest heat at or under `heat`.
+    pub fn boss_for(&self, tier: u32, heat: u32) -> Option<usize> {
+        let run = self
+            .ai
+            .runs
+            .iter()
+            .filter(|r| r.tier == tier && r.heat <= heat)
+            .max_by_key(|r| r.heat)?;
+        let id = format!("{}-{}", run.model, run.version);
+        self.ice.iter().position(|i| i.boss && i.id == id)
+    }
+
+    /// The model a net's AI's row (an index into `ice`) is a version of.
+    pub fn boss_model(&self, ice: usize) -> Option<&AiModel> {
+        let row = self.ice.get(ice).filter(|r| r.boss)?;
+        let v = self.ai.versions.iter().find(|v| v.row_id() == row.id)?;
+        self.ai.models.iter().find(|m| m.id == v.model)
+    }
+
     fn validate_ice_program(&self, ice: &IceDef) -> Result<(), String> {
         if ice.cpu == 0 || ice.ram == 0 {
             return Err(format!(
@@ -2274,7 +2493,8 @@ impl Data {
             })
             .count();
         let most = self.ice_grammar.most_program_attacks(ice.tier);
-        if attacks > most as usize {
+        // A net's AI is written against the deck's program: no tier's fairness binds it.
+        if attacks > most as usize && !ice.boss {
             return Err(format!(
                 "program has {attacks} lines that attack the program; tier {} holds {most}",
                 ice.tier

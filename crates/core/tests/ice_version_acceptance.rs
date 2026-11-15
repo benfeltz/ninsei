@@ -51,7 +51,7 @@ fn a_long_line_of_versions_would_each_pass_as_the_rows_own() {
     // Whatever the sysops write, it could have shipped in ice.ron: Data::parse takes it.
     let d = data();
     let s = deck(&d);
-    for row in &d.ice {
+    for row in d.ice.iter().filter(|i| !i.boss) {
         let (mut v, mut text) = (Version::default(), row.program.clone());
         for step in 0..24 {
             let bump = [Bump::Patch, Bump::Patch, Bump::Minor, Bump::Major][step % 4];

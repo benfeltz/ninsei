@@ -52,44 +52,45 @@ fn archer_hides_its_next_from_a_deck_behind_a_firewall() {
 }
 
 #[test]
-fn hydra_garbles_the_safe_program_the_turn_it_raises_a_firewall() {
+fn hydra_hides_its_next_the_turn_the_safe_program_raises_a_firewall() {
+    // 138.1: SEGFAULT is a net's AI's verb. Hydra answers a firewall with a SPOOF instead, and
+    // the deck's program comes out of the turn as it went in.
     let d = data();
     let safe = d.starts.program("").to_string();
     let mut g = fight_with("hydra", &safe);
-    // Deep in a turn SAFE raises the firewall on NEXT ATTACK; force a hit to come.
     g.deck.integrity = 15;
     let fw = g.slot_named("firewall").unwrap();
     g.apply(Action::Run(fw));
     g.apply(Action::Finish);
-    let garbled: Vec<u32> = g
-        .program
-        .lines
-        .iter()
-        .filter(|l| {
-            g.program
-                .fault(l.no)
-                .is_some_and(|f| f.starts_with("?SYNTAX ERROR IN"))
-        })
-        .map(|l| l.no)
-        .collect();
-    assert_eq!(garbled.len(), 1, "{}", g.program.text());
-    // Ben's call: the line that ran what its TARGET RAN named, SAFE's firewall line.
-    let fw_line = basic::parse(&safe)
-        .lines
-        .iter()
-        .find(|l| l.text.eq_ignore_ascii_case("RUN firewall"))
-        .map(|l| l.no)
-        .unwrap();
-    assert_eq!(garbled, [fw_line], "{}", g.program.text());
+    assert_eq!(g.next_move(), Some(NextMove::Spoofed));
+    assert_eq!(g.program, basic::parse(&safe));
     assert!(
-        g.log
+        !d.ice
             .iter()
-            .any(|l| l.text == format!("?SYNTAX ERROR IN {}", garbled[0]))
+            .any(|i| !i.boss && i.verbs.contains(&basic::Verb::Segfault))
     );
-    // The player retypes it from the kit's own text.
-    let original = basic::parse(&safe);
-    let text = original.line(garbled[0]).unwrap().text.clone();
-    g.apply(listing::retype(&g, garbled[0], &text).unwrap());
+}
+
+#[test]
+fn a_nets_ai_garbles_the_line_that_ran_the_patch() {
+    // The tier-1 AI reads a patch and garbles the line that ran it; the player retypes it.
+    let d = data();
+    let ix = d.boss_for(1, 0).unwrap();
+    let id = d.ice[ix].id.clone();
+    let program = "10 RUN patch\n20 RUN icepick";
+    let mut g = fight_with(&id, program);
+    g.deck.integrity = 10;
+    g.apply(Action::Finish);
+    let original = basic::parse(program);
+    assert!(
+        g.program
+            .fault(10)
+            .is_some_and(|f| f.starts_with("?SYNTAX ERROR IN")),
+        "{}",
+        g.program.text()
+    );
+    let text = original.line(10).unwrap().text.clone();
+    g.apply(listing::retype(&g, 10, &text).unwrap());
     assert_eq!(g.program, original);
 }
 
