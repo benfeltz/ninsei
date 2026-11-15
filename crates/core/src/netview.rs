@@ -81,6 +81,8 @@ pub enum MeshKind {
     Nested,
     Pad,
     Portal,
+    /// The net's AI: an eye of a ring round a core. Never a node's; the map floats it over one.
+    Ai,
 }
 
 /// Drafting symbols for the flat view. The app draws them.
@@ -132,6 +134,34 @@ pub fn target(game: &Game, id: usize) -> bool {
             .any(|k| k.node == id && k.status == ContractStatus::Active)
 }
 
+/// The net's AI as the map marks it: where the runner knows it to be.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AiMark {
+    /// The node it is on, or was last known on.
+    pub node: usize,
+    /// The runner knows it is there now (in sight, or its scan was heard); otherwise it's
+    /// where it was last known.
+    pub now: bool,
+    /// What the map writes beside it: its product name and version (`WATCHMAN 1.2`).
+    pub label: String,
+}
+
+/// Where the map marks the net's AI, from what the runner knows of it (`Game::sighting`).
+/// Nothing while it's asleep or down, before they ever knew where it was, or inside a subnet:
+/// it's on the main network, and the map shows the subnet.
+pub fn ai_mark(game: &Game) -> Option<AiMark> {
+    if game.in_subnet() {
+        return None;
+    }
+    let s = game.sighting()?;
+    let ice = game.boss.as_ref()?.ice;
+    Some(AiMark {
+        node: s.node(),
+        now: s.now(),
+        label: game.data.ice[ice].name.clone(),
+    })
+}
+
 /// A link as the map shows it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LinkView {
@@ -177,8 +207,9 @@ pub fn links(game: &Game) -> Vec<LinkView> {
 }
 
 /// The line a route says, where the map's hover and the route list name it: `jack 3  →  VAULT`
-/// deeper, `jack 1  ←  ENTRY` back, and `, back up` where ICE beaten there wakes. `None` when
-/// node `id` isn't a route from here.
+/// deeper, `jack 1  ←  ENTRY` back, `, back up` where ICE beaten there wakes, and
+/// `, WATCHMAN 1.2 there` where the runner knows the net's AI is. `None` when node `id` isn't a
+/// route from here.
 pub fn route_tip(game: &Game, id: usize) -> Option<String> {
     if !game.reachable().contains(&id) {
         return None;
@@ -188,7 +219,12 @@ pub fn route_tip(game: &Game, id: usize) -> Option<String> {
     let what = game.node_label(id);
     let way = if hop.back { "←" } else { "→" };
     let up = if hop.rearms { ", back up" } else { "" };
-    Some(format!("jack {id}  {way}  {what}{up}"))
+    // The net's AI, where the runner knows it is: the step meets it.
+    let ai = match (hop.meets, ai_mark(game)) {
+        (true, Some(m)) => format!(", {} there", m.label),
+        _ => String::new(),
+    };
+    Some(format!("jack {id}  {way}  {what}{up}{ai}"))
 }
 
 /// Paint fills that aren't patterns.
@@ -289,6 +325,7 @@ impl Mesh {
             MeshKind::Nested => cube().scaled(0.45).merge(cube().scaled(0.2)),
             MeshKind::Pad => pad(0.55),
             MeshKind::Portal => torus(0.5, 0.07, 20, 6, true),
+            MeshKind::Ai => octa().scaled(0.28).merge(torus(0.48, 0.05, 20, 6, false)),
         }
     }
 }
