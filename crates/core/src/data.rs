@@ -575,11 +575,7 @@ impl SourcesDef {
     pub fn header_lines(&self, ice: &str, version: &str, board: &str) -> Vec<String> {
         self.header
             .iter()
-            .map(|l| {
-                l.replace("{ice}", ice)
-                    .replace("{version}", version)
-                    .replace("{board}", board)
-            })
+            .map(|l| fill_note(l, ice, version, ("{board}", board)))
             .collect()
     }
 
@@ -608,26 +604,43 @@ pub fn remark_on<'a>(remarks: &'a [RemarkDef], line: &str) -> Option<&'a str> {
         .map(|r| r.text.as_str())
 }
 
+/// A source's header line filled in: `{ice}` and `{version}`, and its origin's own word (`slot`:
+/// a board's `{board}`, a net's AI's `{ai}`) with its name. One filler for every source's notes.
+pub fn fill_note(template: &str, ice: &str, version: &str, slot: (&str, &str)) -> String {
+    template
+        .replace("{ice}", ice)
+        .replace("{version}", version)
+        .replace(slot.0, slot.1)
+}
+
 /// A net's AI's notes on the sources it gives up (`ai.ron`'s model `notes`): a header over each
-/// listing (`{ice}`, `{version}` and `{ai}`, its product name, filled in) and a remark on each
-/// read it knows, in the product's voice.
+/// listing of a kind it wrote (`{ice}`, `{version}` and `{ai}`, its product name, filled in), a
+/// remark on each read it knows, in the product's voice, and `own`, the header over its own
+/// program, which its maker wrote and shipped (`{ai}` and `{company}`), with no version: its
+/// name carries it.
 #[derive(Deserialize, Clone, Debug, Default)]
 pub struct AiNotes {
     #[serde(default)]
     pub header: Vec<String>,
     #[serde(default)]
     pub remarks: Vec<RemarkDef>,
+    #[serde(default)]
+    pub own: Vec<String>,
 }
 
 impl AiNotes {
     pub fn header_lines(&self, ice: &str, version: &str, ai: &str) -> Vec<String> {
         self.header
             .iter()
-            .map(|l| {
-                l.replace("{ice}", ice)
-                    .replace("{version}", version)
-                    .replace("{ai}", ai)
-            })
+            .map(|l| fill_note(l, ice, version, ("{ai}", ai)))
+            .collect()
+    }
+
+    /// The header over its own program: `ai` is the row's name, with its version.
+    pub fn own_lines(&self, ai: &str, company: &str) -> Vec<String> {
+        self.own
+            .iter()
+            .map(|l| l.replace("{ai}", ai).replace("{company}", company))
             .collect()
     }
 }
@@ -2194,37 +2207,7 @@ impl Data {
             .map(|i| i.name.as_str())
             .max_by_key(|n| n.chars().count())
             .unwrap_or("");
-        for line in s.header_lines(longest, LONG_VERSION, &b.name) {
-            if line.contains('{') || line.contains('}') {
-                return Err(format!("header `{line}` has a word it can't fill"));
-            }
-            if line.chars().count() > NOTE_MAX {
-                return Err(format!("header `{line}` is wider than {NOTE_MAX}"));
-            }
-        }
-        // A remark's read is one an ICE reads: in the grammar, or in a program.
-        let reads: Vec<&str> = self
-            .ice_grammar
-            .classes
-            .iter()
-            .flat_map(|c| c.reads.iter().map(|r| r.read.as_str()))
-            .collect();
-        for r in &s.remarks {
-            let known = reads.iter().any(|g| {
-                g.strip_prefix(r.read.as_str())
-                    .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
-            }) || self.ice.iter().any(|i| {
-                i.program
-                    .lines()
-                    .any(|l| l.contains(&format!("IF {} ", r.read)))
-            });
-            if !known {
-                return Err(format!("a remark on `{}`, which no ICE reads", r.read));
-            }
-            if r.text.chars().count() > REMARK_MAX {
-                return Err(format!("remark `{}` is wider than {REMARK_MAX}", r.text));
-            }
-        }
+        self.check_notes(&s.header_lines(longest, LONG_VERSION, &b.name), &s.remarks)?;
         for first in [true, false] {
             let filled = s.desc(first, longest, LONG_VERSION);
             if filled.contains('{') || filled.contains('}') {
@@ -2474,55 +2457,76 @@ impl Data {
         Ok(())
     }
 
-    /// A model's notes: every header line fills and fits a listing (`NOTE_MAX`) with the longest
-    /// kind and version, and every remark is on a read some ICE makes and fits (`REMARK_MAX`).
+    /// A source's notes, wherever they come from (a board's `sources`, a net's AI's `notes`):
+    /// every header line filled in (`header`, as the longest kind and version fill it) has no
+    /// word left over and fits a listing (`NOTE_MAX`); every remark is on a read some ICE makes
+    /// (in the grammar, or in a program, whole words) and fits (`REMARK_MAX`). One rule for both.
+    fn check_notes(&self, header: &[String], remarks: &[RemarkDef]) -> Result<(), String> {
+        for line in header {
+            if line.contains('{') || line.contains('}') {
+                return Err(format!("header `{line}` has a word it can't fill"));
+            }
+            if line.chars().count() > NOTE_MAX {
+                return Err(format!("header `{line}` is wider than {NOTE_MAX}"));
+            }
+        }
+        let whole = |text: &str, read: &str| {
+            text.strip_prefix(read)
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
+        };
+        for r in remarks {
+            let in_grammar = self
+                .ice_grammar
+                .classes
+                .iter()
+                .flat_map(|c| &c.reads)
+                .any(|g| whole(&g.read, &r.read));
+            let in_program = self.ice.iter().any(|i| {
+                i.program.lines().any(|l| {
+                    l.split_once("IF ")
+                        .is_some_and(|(_, cond)| whole(cond.trim_end(), &r.read))
+                })
+            });
+            if !in_grammar && !in_program {
+                return Err(format!("a remark on `{}`, which no ICE reads", r.read));
+            }
+            if r.text.chars().count() > REMARK_MAX {
+                return Err(format!("remark `{}` is wider than {REMARK_MAX}", r.text));
+            }
+        }
+        Ok(())
+    }
+
+    /// A model's notes, by the same rules as a board's ([`Data::check_notes`]), its own
+    /// header too (filled with its longest version's name and its company).
     fn validate_ai_notes(&self, m: &AiModel) -> Result<(), String> {
         let longest = self
             .ice
             .iter()
+            .filter(|i| !i.boss)
             .map(|i| i.name.as_str())
             .max_by_key(|n| n.chars().count())
             .unwrap_or("");
-        for line in m.notes.header_lines(longest, LONG_VERSION, &m.name) {
-            if line.contains('{') || line.contains('}') {
-                return Err(format!(
-                    "model `{}`: note `{line}` has a word it can't fill",
-                    m.id
-                ));
-            }
-            if line.chars().count() > NOTE_MAX {
-                return Err(format!(
-                    "model `{}`: note `{line}` is wider than {NOTE_MAX}",
-                    m.id
-                ));
-            }
-        }
-        for r in &m.notes.remarks {
-            let read = |text: &str| {
-                text.lines().any(|l| {
-                    l.contains(&format!("IF {} ", r.read))
-                        || l.trim_end().ends_with(&format!("IF {}", r.read))
-                })
-            };
-            let known = self.ice.iter().any(|i| read(&i.program))
-                || self
-                    .ice_grammar
-                    .classes
-                    .iter()
-                    .flat_map(|c| &c.reads)
-                    .any(|g| g.read.starts_with(r.read.as_str()));
-            if !known {
-                return Err(format!(
-                    "model `{}`: a remark on `{}`, which no ICE reads",
-                    m.id, r.read
-                ));
-            }
-            if r.text.chars().count() > REMARK_MAX {
-                return Err(format!(
-                    "model `{}`: remark `{}` is wider than {REMARK_MAX}",
-                    m.id, r.text
-                ));
-            }
+        self.check_notes(
+            &m.notes.header_lines(longest, LONG_VERSION, &m.name),
+            &m.notes.remarks,
+        )
+        .map_err(|e| format!("model `{}`: {e}", m.id))?;
+        let own_name = self
+            .ai
+            .versions
+            .iter()
+            .filter(|v| v.model == m.id)
+            .map(|v| format!("{} {}", m.name, v.version))
+            .max_by_key(|n| n.chars().count())
+            .unwrap_or_default();
+        self.check_notes(&m.notes.own_lines(&own_name, &m.company), &[])
+            .map_err(|e| format!("model `{}` own: {e}", m.id))?;
+        if self.board(&m.id).is_some() {
+            return Err(format!(
+                "model `{}` has a board's id: a source's origin would mean both",
+                m.id
+            ));
         }
         Ok(())
     }
@@ -2542,7 +2546,14 @@ impl Data {
 
     /// The model a net's AI's row (an index into `ice`) is a version of.
     pub fn boss_model(&self, ice: usize) -> Option<&AiModel> {
-        let row = self.ice.get(ice).filter(|r| r.boss)?;
+        self.boss_model_of(self.ice.get(ice)?)
+    }
+
+    /// The model a net's AI's row is a version of; `None` for an ordinary ICE's row.
+    pub fn boss_model_of(&self, row: &IceDef) -> Option<&AiModel> {
+        if !row.boss {
+            return None;
+        }
         let v = self.ai.versions.iter().find(|v| v.row_id() == row.id)?;
         self.ai.models.iter().find(|m| m.id == v.model)
     }

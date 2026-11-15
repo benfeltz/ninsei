@@ -184,7 +184,13 @@ impl<'a> Entry<'a> {
         let prev = self.sources.get(k + 1);
         let rows = crate::ice_listing::changes(&self.def.verbs, prev.map(|p| p.1), program);
         let against = prev.map_or(String::new(), |p| format!(", against {}", p.0));
-        let mut out = vec![PageLine::plain(format!("{heading}{v}{against}"))];
+        // A net's AI's program is its maker's release: its name carries the version.
+        let shown = if self.def.boss {
+            "on file".to_string()
+        } else {
+            v.to_string()
+        };
+        let mut out = vec![PageLine::plain(format!("{heading}{shown}{against}"))];
         // The board it came from puts its header above it and a remark under each read it
         // knows: muted, as the fight's decks dim them. A removed line takes none.
         let lines: Vec<(PageLine, Option<String>)> = rows
@@ -195,7 +201,7 @@ impl<'a> Entry<'a> {
                 (line, stmt)
             })
             .collect();
-        let notes = crate::ice_listing::notes(self.data, self.from[k], &self.def.name, v);
+        let notes = crate::ice_listing::notes(self.data, self.from[k], self.def, v);
         let lines = match notes {
             Some((header, sources)) => {
                 let rem = |t: String| {
@@ -276,13 +282,7 @@ impl<'a> Entry<'a> {
         }
         let d = self.def;
         // A net's AI's name carries its product's version (`WARDEN 4.2`), and its kind its maker.
-        let company = data
-            .ai
-            .versions
-            .iter()
-            .find(|v| v.row_id() == d.id)
-            .and_then(|v| data.ai.models.iter().find(|m| m.id == v.model))
-            .map(|m| m.company.as_str());
+        let company = data.boss_model_of(d).map(|m| m.company.as_str());
         let mut out = vec![
             match company {
                 Some(company) => {

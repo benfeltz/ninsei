@@ -36,26 +36,31 @@ impl IceRow {
     }
 }
 
-/// A source's notes: the header and remarks where it came from (`IceSource::from`) puts on kind
-/// `ice` at `version`: a board with a `sources` block, or a net's AI (its model's id in
-/// `ai.ron`), which gave it up when it was beaten. `None` for a source from neither.
+/// A source's notes: the header and remarks where it came from (`IceSource::from`) puts on the
+/// kind `row` at `version`: a board with a `sources` block, or a net's AI (its model's id in
+/// `ai.ron`), which gave it up when it was beaten. Over the AI's own program, the model's `own`
+/// header in its maker's voice, with no version (its name carries it) and no remarks. `None`
+/// for a source from neither.
 pub fn notes<'a>(
     data: &'a crate::data::Data,
     from: &str,
-    ice: &str,
+    row: &crate::data::IceDef,
     version: crate::ice_version::Version,
 ) -> Option<(Vec<String>, &'a [crate::data::RemarkDef])> {
     if let Some(m) = data.ai.models.iter().find(|m| m.id == from) {
         let n = &m.notes;
+        if data.boss_model_of(row).is_some_and(|own| own.id == m.id) {
+            return Some((n.own_lines(&row.name, &m.company), &[]));
+        }
         return Some((
-            n.header_lines(ice, &version.to_string(), &m.name),
+            n.header_lines(&row.name, &version.to_string(), &m.name),
             &n.remarks,
         ));
     }
     let b = data.boards.get(data.board(from)?)?;
     let s = b.sources.as_ref()?;
     Some((
-        s.header_lines(ice, &version.to_string(), &b.name),
+        s.header_lines(&row.name, &version.to_string(), &b.name),
         &s.remarks,
     ))
 }
@@ -144,12 +149,7 @@ pub fn rows(g: &Game) -> Vec<IceRow> {
         r.next = Some(r.no) == next;
     }
     // The source's board's notes, if it came from one.
-    let notes = notes(
-        &g.data,
-        &c.source_from,
-        &g.data.ice[c.ice].name,
-        c.ice_version,
-    );
+    let notes = notes(&g.data, &c.source_from, &g.data.ice[c.ice], c.ice_version);
     match notes {
         Some((header, sources)) => annotate(rows, header, sources),
         None => rows,
