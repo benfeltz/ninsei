@@ -185,16 +185,30 @@ fn the_dumb_bot_is_two_lines() {
     // All three play fights through the interpreter: what's left in the run is their program.
     for bot in Bot::ALL {
         let (g, log) = probe::play(Game::new(data.clone(), 3), bot);
-        // Its lines, though an ICE's SEGFAULT may have garbled one.
-        let lines =
+        // Its program, but for the lines an ICE's SEGFAULT garbled: each one that differs is
+        // garbage (a line that no longer parses), and no more than the SEGFAULTs counted.
+        let want = ninsei_core::basic::parse(bot.program());
+        let nos =
             |p: &ninsei_core::basic::Program| p.lines.iter().map(|l| l.no).collect::<Vec<_>>();
-        assert_eq!(
-            lines(&g.program),
-            lines(&ninsei_core::basic::parse(bot.program()))
+        assert_eq!(nos(&g.program), nos(&want), "{bot:?}");
+        let garbled: Vec<_> = g
+            .program
+            .lines
+            .iter()
+            .zip(&want.lines)
+            .filter(|(got, was)| got != was)
+            .map(|(got, _)| got)
+            .collect();
+        assert!(
+            garbled.len() as u32 <= log.segfaults,
+            "{bot:?}: {garbled:?}"
         );
-        if log.segfaults == 0 {
-            assert_eq!(g.program, ninsei_core::basic::parse(bot.program()));
-        }
+        assert!(
+            garbled
+                .iter()
+                .all(|l| matches!(l.stmt, ninsei_core::basic::Stmt::Bad(_))),
+            "{bot:?}: {garbled:?}"
+        );
         if log.fights > 0 {
             assert!(
                 !log.breaks.is_empty(),
