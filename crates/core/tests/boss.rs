@@ -154,3 +154,36 @@ fn an_ordinary_row_may_not_segfault_and_ice_ron_cant_write_an_ai() {
     .unwrap_err();
     assert!(err.contains("rival") && err.contains("tier 3"), "{err}");
 }
+
+#[test]
+fn no_board_carries_or_hears_of_the_ais_tier() {
+    // The AIs fight as tier 3, but a board's sources and news are of ICE: tier 3 has none.
+    let d = Data::builtin().unwrap();
+    let b = d.boards.iter().position(|b| b.sources.is_some()).unwrap();
+    let mut bad = d.clone();
+    bad.boards[b].sources.as_mut().unwrap().tiers = vec![data::BOSS_TIER];
+    let err = bad.validate().unwrap_err();
+    assert!(err.contains("no ICE of tier 3"), "{err}");
+    let b = d.boards.iter().position(|b| b.ice_news.is_some()).unwrap();
+    let mut bad = d.clone();
+    bad.boards[b].ice_news.as_mut().unwrap().tiers = vec![data::BOSS_TIER];
+    let err = bad.validate().unwrap_err();
+    assert!(err.contains("no ICE of tier 3"), "{err}");
+    // And a source area never stocks one.
+    for board in &d.boards {
+        let mut all = board.clone();
+        if let Some(s) = all.sources.as_mut() {
+            s.tiers = vec![0, 1, 2, data::BOSS_TIER];
+            if let Some(area) = bbs::source_area(&all, &d, |_| ice_version::Version::FIRST) {
+                assert!(area.files.len() <= d.ice.iter().filter(|i| !i.boss).count());
+                for f in &area.files {
+                    assert!(
+                        !f.file.contains("WATCH") && !f.file.contains("SENTI"),
+                        "{}",
+                        f.file
+                    );
+                }
+            }
+        }
+    }
+}

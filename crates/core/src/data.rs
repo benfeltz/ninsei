@@ -2045,7 +2045,7 @@ impl Data {
         if let Some(t) = n
             .tiers
             .iter()
-            .find(|t| !self.ice.iter().any(|i| i.tier == **t))
+            .find(|t| !self.ice.iter().any(|i| i.tier == **t && !i.boss))
         {
             return Err(format!("no ICE of tier {t}"));
         }
@@ -2127,14 +2127,14 @@ impl Data {
         if let Some(t) = s
             .tiers
             .iter()
-            .find(|t| !self.ice.iter().any(|i| i.tier == **t))
+            .find(|t| !self.ice.iter().any(|i| i.tier == **t && !i.boss))
         {
             return Err(format!("no ICE of tier {t}"));
         }
         let kinds: Vec<&IceDef> = self
             .ice
             .iter()
-            .filter(|i| s.tiers.contains(&i.tier))
+            .filter(|i| s.tiers.contains(&i.tier) && !i.boss)
             .collect();
         if kinds.len() > 9 {
             return Err(format!("{} kinds: an area lists nine at most", kinds.len()));
