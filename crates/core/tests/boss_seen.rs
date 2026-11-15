@@ -4,7 +4,7 @@
 use ninsei_core::boss::Hunter;
 use ninsei_core::game::BossState;
 use ninsei_core::hub::{Entry, Save};
-use ninsei_core::netview::{self, ai_mark, route_tip};
+use ninsei_core::netview::{self, MapView, ai_mark, route_tip};
 use ninsei_core::*;
 
 fn data() -> Data {
@@ -250,4 +250,39 @@ fn the_classic_status_marks_it_while_it_is_up() {
     g.boss.as_mut().unwrap().state = BossState::Down;
     assert_eq!(netview::ai_status(&g), None, "down: not up");
     assert_eq!(btop_fight::ai_banner(&g), None);
+}
+
+#[test]
+fn a_node_the_ai_holds_is_tagged_as_the_ai_and_last_seen_still_captions() {
+    let mut g = quiet_run(1, 2);
+    let next = deeper(&g);
+    let ice = g.data.ice.iter().position(|i| !i.boss).unwrap();
+    let n = &mut g.net.nodes[next];
+    n.kind = NodeKind::Ice;
+    n.ice = Some(ice);
+    n.cleared = false;
+    let own = netview::tag(&g, next);
+    awake_at(&mut g, next, "10 HOLD");
+    let name = g.data.ice[g.boss.as_ref().unwrap().ice].name.clone();
+    // In sight: the node is the AI's, and nothing is written beside it.
+    assert_eq!(netview::ai_holds(&g, next), Some(name.clone()));
+    assert_eq!(netview::tag(&g, next), name);
+    assert_ne!(own, name);
+    let m = ai_mark(&g).unwrap();
+    for view in [MapView::Iso, MapView::Draft, MapView::Paint] {
+        assert_eq!(netview::ai_caption(&m, view), None, "{view:?}");
+    }
+    // Out of sight: the node is its own again, and the map says where it was last seen.
+    g.boss.as_mut().unwrap().known = Some(next);
+    if let BossState::Awake(h) = &mut g.boss.as_mut().unwrap().state {
+        h.at = ninsei_core::boss::exit(&g.net).unwrap();
+    }
+    assert_eq!(netview::ai_holds(&g, next), None);
+    assert_eq!(netview::tag(&g, next), own);
+    let m = ai_mark(&g).unwrap();
+    for view in [MapView::Iso, MapView::Draft, MapView::Paint] {
+        let cap = netview::ai_caption(&m, view).unwrap();
+        assert!(cap.to_lowercase().contains("last seen"), "{view:?}: {cap}");
+        assert!(!cap.contains("is on this card"));
+    }
 }

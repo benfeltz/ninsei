@@ -157,6 +157,8 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         let can_go = reach.contains(&id);
         let done = n.cleared && !here;
         let k = kind(game, id);
+        // A node the net's AI holds is drawn as the AI, its name for the tag.
+        let held = netview::ai_holds(game, id).is_some();
         let (board_edge, board_label) = board_ink(game, p);
         let edge = if here || (can_go && hovered) {
             p.bright
@@ -167,7 +169,11 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         } else {
             p.fg
         };
-        let mesh = Mesh::of(style(&game.data, k).mesh);
+        let mesh = Mesh::of(if held {
+            MeshKind::Ai
+        } else {
+            style(&game.data, k).mesh
+        });
         let spin = t
             * 0.5
             * if hovered && can_go {
@@ -181,7 +187,7 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
             burst(&painter, &cam, &mesh, top(id), spin, b, p.bright);
         }
         let black = k == MapNode::BlackIce;
-        let fill = match (done, black) {
+        let fill = match (done && !held, black || held) {
             (true, _) => None,
             (false, true) => Some(p.faint.gamma_multiply(0.85)),
             (false, false) => Some(p.dim.gamma_multiply(0.22)),
@@ -190,9 +196,9 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         // While bursting, the cleared outline fades back in under the pieces.
         let fade = fx.burst(id).map_or(1.0, |b| (b * 2.0 - 1.0).max(0.0)) * show;
         let ink = Ink {
-            edge: edge.gamma_multiply(fade),
+            edge: if held { p.bright } else { edge }.gamma_multiply(fade),
             fill: fill.map(|f| f.gamma_multiply(fade)),
-            lit: !done,
+            lit: !done || held,
         };
         draw_mesh(&painter, &cam, &mesh, top(id), (spin, tilt), ink);
 
@@ -212,7 +218,7 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
             name,
         );
         let mut label = tag(game, id);
-        if done {
+        if done && !held {
             label.push_str(" ok");
         }
         painter.text(
@@ -220,7 +226,7 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
             Align2::CENTER_TOP,
             label,
             small.clone(),
-            if done { p.dim } else { p.bright },
+            if done && !held { p.dim } else { p.bright },
         );
         if target(game, id) {
             bounty(&painter, head, p);
@@ -236,7 +242,8 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         }
     }
 
-    if let Some(m) = netview::ai_mark(game) {
+    // Where it was last known, it floats there hollow; where it is, the node is drawn as it.
+    if let Some(m) = netview::ai_mark(game).filter(|m| !m.now) {
         ai_marker(&painter, &cam, game, &m, t, p, rect);
     }
 
@@ -253,9 +260,9 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
 /// How high over its node the net's AI floats, in world units, above the node's own shape.
 const AI_LIFT: f32 = 0.8;
 
-/// The net's AI over the node the runner knows it is on: its own wireframe, lit and turning,
-/// and its tag. Where it was last known: the same shape, hollow and dim, tethered by a dashed
-/// line.
+/// The net's AI where the runner last knew it to be: its own wireframe, hollow and dim, floating
+/// over the node and tethered to it by a dashed line, with its tag above it. Where it is now
+/// the node itself is drawn as it.
 fn ai_marker(
     painter: &Painter,
     cam: &Iso,
@@ -265,50 +272,33 @@ fn ai_marker(
     p: &Palette,
     view: Rect,
 ) {
+    let Some(caption) = netview::ai_caption(m, MapView::Iso) else {
+        return;
+    };
     let w = world(&game.net, m.node);
     let at = [w[0], HOVER + AI_LIFT + (t * 1.5).sin() * 0.05, w[2]];
     let mesh = Mesh::of(MeshKind::Ai);
-    let ink = if m.now {
-        Ink {
-            edge: p.bright,
-            fill: Some(p.dim.gamma_multiply(0.3)),
-            lit: true,
-        }
-    } else {
-        Ink {
-            edge: p.dim,
-            fill: None,
-            lit: false,
-        }
+    let ink = Ink {
+        edge: p.dim,
+        fill: None,
+        lit: false,
     };
     let head = cam.project(at);
     let foot = cam.project([w[0], HOVER, w[2]]);
     let (head, foot) = (pos2(head[0], head[1]), pos2(foot[0], foot[1]));
     painter.extend(Shape::dashed_line(
         &[head, foot],
-        Stroke::new(1.0, if m.now { p.fg } else { p.faint }),
+        Stroke::new(1.0, p.faint),
         2.0,
         3.0,
     ));
-    draw_mesh(
-        painter,
-        cam,
-        &mesh,
-        at,
-        (t * if m.now { 1.2 } else { 0.3 }, 0.5),
-        ink,
-    );
+    draw_mesh(painter, cam, &mesh, at, (t * 0.3, 0.5), ink);
     // Its tag above it, kept inside the map.
-    let ink = if m.now { p.bright } else { p.dim };
-    let g = painter.layout_no_wrap(
-        netview::ai_caption(m, MapView::Iso),
-        FontId::new(11.0, FontFamily::Monospace),
-        ink,
-    );
+    let g = painter.layout_no_wrap(caption, FontId::new(11.0, FontFamily::Monospace), p.dim);
     let r = Align2::CENTER_BOTTOM.anchor_size(head - vec2(0.0, 26.0), g.size());
     let dx = (view.left() + 4.0 - r.left()).max(0.0) - (r.right() - view.right() + 4.0).max(0.0);
     let dy = (view.top() + 4.0 - r.top()).max(0.0);
-    painter.galley(r.min.round() + vec2(dx, dy).round(), g, ink);
+    painter.galley(r.min.round() + vec2(dx, dy).round(), g, p.dim);
 }
 
 /// The camera that fits the network into `rect`, leaving the hint's line below.

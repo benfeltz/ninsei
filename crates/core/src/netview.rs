@@ -169,18 +169,48 @@ pub fn ai_status(game: &Game) -> Option<String> {
     Some(format!("▲ {name} UP"))
 }
 
-/// What a map style writes beside the net's AI, in its own drawing's words: the Iso's tag, the
-/// Draft's callout in capitals, the Paint card's sentence. Last known says so.
-pub fn ai_caption(m: &AiMark, view: MapView) -> String {
-    let l = &m.label;
-    match (view, m.now) {
-        (MapView::Iso, true) => l.clone(),
-        (MapView::Iso, false) => format!("{l}  last seen"),
-        (MapView::Draft, true) => l.to_uppercase(),
-        (MapView::Draft, false) => format!("{} (LAST SEEN)", l.to_uppercase()),
-        (MapView::Paint, true) => format!("{l} is on this card"),
-        (MapView::Paint, false) => format!("{l} was last seen here"),
+/// The net's AI where the runner knows it holds node `id` now: the node is the AI's, and the
+/// map draws the AI in place of what's there, its name where the node's tag goes. Its name,
+/// or `None` when it isn't there or the runner doesn't know it is.
+pub fn ai_holds(game: &Game, id: usize) -> Option<String> {
+    ai_mark(game)
+        .filter(|m| m.now && m.node == id)
+        .map(|m| m.label)
+}
+
+/// The short label under a node on the map: its kind's tag, the board's name, a subnet's exit
+/// as its uplink, `???` in the fog, and the net's AI's name on a node it holds.
+pub fn tag(game: &Game, id: usize) -> String {
+    if !visible(game, id) {
+        return "???".into();
     }
+    if let Some(name) = ai_holds(game, id) {
+        return name;
+    }
+    let k = MapNode::of(&game.net, id, &game.data);
+    if k == MapNode::Exit && game.in_subnet() {
+        return "UPLINK".into();
+    }
+    if k == MapNode::Bbs {
+        return game.bbs().name.clone();
+    }
+    style(&game.data, k).tag.clone()
+}
+
+/// What a map style writes beside the net's AI where it was last known, in its own drawing's
+/// words: the Iso's tag, the Draft's callout in capitals, the Paint card's sentence. Where it
+/// is now there's nothing beside it: the node is drawn as the AI, its name as the tag
+/// ([`ai_holds`]).
+pub fn ai_caption(m: &AiMark, view: MapView) -> Option<String> {
+    if m.now {
+        return None;
+    }
+    let l = &m.label;
+    Some(match view {
+        MapView::Iso => format!("{l}  last seen"),
+        MapView::Draft => format!("{} (LAST SEEN)", l.to_uppercase()),
+        MapView::Paint => format!("{l} was last seen here"),
+    })
 }
 
 /// A link as the map shows it.

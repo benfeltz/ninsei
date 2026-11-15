@@ -119,6 +119,8 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         let seen = visible(game, n.id);
         let can_go = reach.contains(&n.id);
         let done = n.cleared && !here;
+        // A node the net's AI holds is drawn as the AI, its name for the tag.
+        let held = netview::ai_holds(game, n.id).is_some();
         let ink = if here || (can_go && hovered) {
             p.bright
         } else if can_go {
@@ -135,14 +137,18 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
             } else {
                 ink
             };
-            symbol(
-                &painter,
-                c,
-                style(&game.data, k).symbol,
-                ink,
-                p,
-                k == MapNode::BlackIce,
-            );
+            if held {
+                ai_symbol(&painter, c, p);
+            } else {
+                symbol(
+                    &painter,
+                    c,
+                    style(&game.data, k).symbol,
+                    ink,
+                    p,
+                    k == MapNode::BlackIce,
+                );
+            }
             let derezzed = done && matches!(n.kind, NodeKind::Ice | NodeKind::BlackIce);
             if let Some(b) = fx.burst(n.id) {
                 // Struck through: a quick hatch fill over the symbol, fading.
@@ -186,7 +192,7 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         );
         let bbs = seen && kind(game, n.id) == MapNode::Bbs;
         let mut label = tag(game, n.id);
-        if done && n.kind != NodeKind::Entry {
+        if done && !held && n.kind != NodeKind::Entry {
             label.push_str(" ok");
         }
         painter.text(
@@ -194,7 +200,13 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
             Align2::CENTER_TOP,
             label,
             small.clone(),
-            if bbs { board_label } else { p.dim },
+            if held {
+                p.bright
+            } else if bbs {
+                board_label
+            } else {
+                p.dim
+            },
         );
 
         if here {
@@ -221,7 +233,8 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         }
     }
 
-    if let Some(m) = netview::ai_mark(game) {
+    // Where it was last known, a callout says so; where it is, the node is drawn as it.
+    if let Some(m) = netview::ai_mark(game).filter(|m| !m.now) {
         // The revision cloud round the runner, and its delta, are annotations too.
         let cloud = pos(game.at) + vec2(0.0, 9.0);
         // And the sheet's own furniture: the grid bubbles over it, the dimension line and the
@@ -579,14 +592,17 @@ fn written(painter: &Painter, c: Pos2, lines: &[String], font: &FontId) -> Vec<R
     out
 }
 
-/// The net's AI on the plan: a double box drawn tight round the node's symbol (between it and its
-/// labels), and a leader from it to a boxed callout, placed on the sheet (under the grid
-/// bubbles) clear of the other nodes and their labels (`place_clear`). Where it was last known:
-/// both dashed, in `dim`.
+/// The net's AI where it was last known on the plan: a dashed box drawn tight round the node's
+/// symbol (between it and its labels), and a dashed leader from it to a boxed callout, in `dim`,
+/// placed on the sheet (under the grid bubbles) clear of the other nodes and their labels
+/// (`place_clear`). Where it is now the node is drawn as it ([`ai_symbol`]).
 fn ai_callout(painter: &Painter, c: Pos2, m: &AiMark, p: &Palette, sheet: Rect, avoid: &[Rect]) {
-    let ink = if m.now { p.bright } else { p.dim };
+    let Some(caption) = netview::ai_caption(m, MapView::Draft) else {
+        return;
+    };
+    let ink = p.dim;
     let font = FontId::new(10.0, FontFamily::Monospace);
-    let g = painter.layout_no_wrap(netview::ai_caption(m, MapView::Draft), font, ink);
+    let g = painter.layout_no_wrap(caption, font, ink);
     let size = g.size() + vec2(10.0, 6.0);
     let own = Rect::from_center_size(c, vec2(R * 2.0 + 6.0, R * 2.0 + 4.0));
     let own = Rect::from_min_size(own.min.round(), own.size().round());
@@ -691,37 +707,42 @@ fn ai_callout(painter: &Painter, c: Pos2, m: &AiMark, p: &Palette, sheet: Rect, 
         own.left_bottom(),
         own.left_top(),
     ];
-    if m.now {
-        painter.rect_stroke(own, 0.0, Stroke::new(1.6, ink), egui::StrokeKind::Inside);
-        painter.rect_stroke(
-            own.shrink(3.0),
-            0.0,
-            Stroke::new(1.0, ink),
-            egui::StrokeKind::Inside,
-        );
-        painter.line_segment([from, to], Stroke::new(1.2, ink));
-    } else {
-        painter.extend(Shape::dashed_line(
-            &corners,
-            Stroke::new(1.0, ink),
-            4.0,
-            3.0,
-        ));
-        painter.extend(Shape::dashed_line(
-            &[from, to],
-            Stroke::new(1.0, ink),
-            4.0,
-            3.0,
-        ));
-    }
+    painter.extend(Shape::dashed_line(
+        &corners,
+        Stroke::new(1.0, ink),
+        4.0,
+        3.0,
+    ));
+    painter.extend(Shape::dashed_line(
+        &[from, to],
+        Stroke::new(1.0, ink),
+        4.0,
+        3.0,
+    ));
     painter.rect_filled(r, 0.0, p.bg);
-    painter.rect_stroke(
-        r,
-        0.0,
-        Stroke::new(if m.now { 1.4 } else { 1.0 }, ink),
-        egui::StrokeKind::Inside,
-    );
+    painter.rect_stroke(r, 0.0, Stroke::new(1.0, ink), egui::StrokeKind::Inside);
     painter.galley(r.min + vec2(5.0, 3.0), g, ink);
+}
+
+/// The net's AI drawn in a node's place on the plan: a double box, and in it a ring round a
+/// core, the Iso's eye laid flat. In `bright`: it's the one live thing on the sheet.
+fn ai_symbol(painter: &Painter, c: Pos2, p: &Palette) {
+    let sq = Rect::from_center_size(c, vec2(R * 2.0, R * 2.0));
+    painter.rect_filled(sq, 0.0, p.bg);
+    painter.rect_stroke(
+        sq,
+        0.0,
+        Stroke::new(1.6, p.bright),
+        egui::StrokeKind::Middle,
+    );
+    painter.rect_stroke(
+        sq.shrink(3.0),
+        0.0,
+        Stroke::new(1.0, p.bright),
+        egui::StrokeKind::Middle,
+    );
+    painter.circle_stroke(c, R * 0.55, Stroke::new(1.2, p.bright));
+    painter.circle_filled(c, 2.5, p.bright);
 }
 
 /// A dimension line with architectural ticks and its figure.
