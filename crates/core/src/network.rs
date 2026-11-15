@@ -1,5 +1,8 @@
 //! The network you traverse: a layered graph from an entry node to an exit node,
-//! Slay-the-Spire style. Links only go forward, one layer at a time.
+//! Slay-the-Spire style. Every link joins a node to one in the next layer, and is walked both
+//! ways unless it is one way ([`Node::one_way`]): then only deeper, so the exit is always ahead.
+//! Which links are one way is drawn from its own stream off the seed ([`Network::orient`]), so
+//! a seed's nodes, ICE, names and links are the same with or without it.
 //!
 //! A network's [`Shape`] sets how wide its layers run, how often routes cross and
 //! where it funnels through chokepoints. A `Subnet` node is a door to a smaller
@@ -54,6 +57,8 @@ pub struct Node {
     pub cleared: bool,
     /// Ids of nodes in the next layer this one links to.
     pub links: Vec<usize>,
+    /// The links of `links` that are one way: walked from here deeper, never back.
+    pub one_way: Vec<usize>,
 }
 
 #[derive(Clone, Debug)]
@@ -112,6 +117,7 @@ impl Network {
                     ice,
                     cleared: kind == NodeKind::Entry,
                     links: Vec::new(),
+                    one_way: Vec::new(),
                 });
                 ids.push(id);
             }
@@ -181,6 +187,52 @@ impl Network {
         self.nodes.iter().position(|n| n.kind == NodeKind::Bbs)
     }
 
+    /// Makes `pct` percent of the links one way, drawn from a stream of its own off `seed`
+    /// (never the one that laid the network out): a draw per link, in node order then link
+    /// order, whatever the percent.
+    pub fn orient(&mut self, seed: u64, pct: u32) {
+        let mut rng = Rng::new(seed ^ ONE_WAY_STREAM);
+        for n in &mut self.nodes {
+            n.one_way = n
+                .links
+                .iter()
+                .copied()
+                .filter(|_| rng.chance(pct))
+                .collect();
+        }
+    }
+
+    /// Whether the link from `a` to `b` (`b` one of `a`'s links) is one way.
+    pub fn one_way(&self, a: usize, b: usize) -> bool {
+        self.nodes[a].one_way.contains(&b)
+    }
+
+    /// The nodes a link lets the runner step to from `from`: deeper along its links, then back
+    /// along every link into it that isn't one way.
+    pub fn routes(&self, from: usize) -> Vec<usize> {
+        let mut out = self.nodes[from].links.clone();
+        out.extend(self.back(from));
+        out
+    }
+
+    /// The nodes in the layer before `from` whose link into it runs both ways.
+    pub fn back(&self, from: usize) -> impl Iterator<Item = usize> + '_ {
+        let layer = self.nodes[from].layer;
+        let before = layer
+            .checked_sub(1)
+            .map_or(&[][..], |l| &self.layers[l][..]);
+        before
+            .iter()
+            .copied()
+            .filter(move |&a| self.nodes[a].links.contains(&from) && !self.one_way(a, from))
+    }
+
+    /// Whether a link runs from `a` to `b` either way: `b` deeper on one of `a`'s links, or
+    /// `a` deeper on one of `b`'s (walkable back or not).
+    pub fn linked(&self, a: usize, b: usize) -> bool {
+        self.nodes[a].links.contains(&b) || self.nodes[b].links.contains(&a)
+    }
+
     /// Every node reachable from `from` (inclusive), following links forward.
     pub fn reachable_from(&self, from: usize) -> Vec<bool> {
         let mut seen = vec![false; self.nodes.len()];
@@ -188,6 +240,18 @@ impl Network {
         while let Some(n) = stack.pop() {
             if !std::mem::replace(&mut seen[n], true) {
                 stack.extend(&self.nodes[n].links);
+            }
+        }
+        seen
+    }
+
+    /// Every node the runner can get to from `from` (inclusive), along [`Network::routes`].
+    pub fn routes_from(&self, from: usize) -> Vec<bool> {
+        let mut seen = vec![false; self.nodes.len()];
+        let mut stack = vec![from];
+        while let Some(n) = stack.pop() {
+            if !std::mem::replace(&mut seen[n], true) {
+                stack.extend(self.routes(n));
             }
         }
         seen
@@ -207,10 +271,15 @@ impl Network {
             subnets: 0,
             ..parent.clone()
         };
-        let mut rng = Rng::new(seed ^ (node as u64 + 1).wrapping_mul(0xD1B5_4A32_D192_ED03));
-        Self::generate_with(&mut rng, data, &p)
+        let seed = seed ^ (node as u64 + 1).wrapping_mul(0xD1B5_4A32_D192_ED03);
+        let mut net = Self::generate_with(&mut Rng::new(seed), data, &p);
+        net.orient(seed, p.one_way());
+        net
     }
 }
+
+/// What [`Network::orient`]'s stream is salted with, so it never runs alongside the layout's.
+const ONE_WAY_STREAM: u64 = 0x0E3A_7D1B_C0DE_5EED;
 
 fn link(nodes: &mut [Node], a: usize, b: usize) {
     if !nodes[a].links.contains(&b) {
@@ -293,6 +362,15 @@ pub struct NetParams {
     pub shape: Shape,
     /// Subnet nodes to place.
     pub subnets: usize,
+    /// Percent of links that are one way: the tier's (a trait's `Shape` may say its own).
+    pub one_way: u32,
+}
+
+impl NetParams {
+    /// Percent of links that are one way: the shape's if it says, else the tier's.
+    pub fn one_way(&self) -> u32 {
+        self.shape.one_way.unwrap_or(self.one_way)
+    }
 }
 
 /// A network's topology: layer widths, how often routes cross, and chokepoints.
@@ -307,6 +385,9 @@ pub struct Shape {
     /// Every `choke`th middle layer is a single guarded node (0 = none). Never the BBS layer.
     #[serde(default)]
     pub choke: usize,
+    /// Percent of links that are one way, in place of the tier's (none: the tier's).
+    #[serde(default)]
+    pub one_way: Option<u32>,
 }
 
 impl Shape {
@@ -324,6 +405,9 @@ impl Shape {
         if self.links > 100 {
             return Err("shape link chance is over 100%".into());
         }
+        if self.one_way.is_some_and(|p| p > 100) {
+            return Err("shape one-way share is over 100%".into());
+        }
         Ok(())
     }
 }
@@ -335,6 +419,7 @@ impl Default for Shape {
             max_width: NET_MAX_WIDTH,
             links: NET_EXTRA_LINK_PCT,
             choke: 0,
+            one_way: None,
         }
     }
 }
@@ -350,6 +435,7 @@ impl Default for NetParams {
             bbs: true,
             shape: Shape::default(),
             subnets: 0,
+            one_way: NET_ONE_WAY_PCT,
         }
     }
 }

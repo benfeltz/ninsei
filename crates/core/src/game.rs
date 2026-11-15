@@ -844,7 +844,8 @@ impl Game {
     /// duel), which never builds its board's source area.
     fn start_with(data: std::sync::Arc<Data>, seed: u64, kit: &Kit, board_area: bool) -> Self {
         let mut rng = Rng::new(seed);
-        let net = Network::generate_with(&mut rng, &data, &kit.net);
+        let mut net = Network::generate_with(&mut rng, &data, &kit.net);
+        net.orient(seed, kit.net.one_way());
         let board = if kit.board < data.boards.len() {
             kit.board
         } else {
