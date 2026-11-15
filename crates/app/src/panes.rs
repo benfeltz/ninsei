@@ -453,9 +453,11 @@ impl Panes<'_> {
                 ui.add_space(4.0);
                 ui.label(RichText::new("routes:").color(p.dim));
                 for to in g.reachable() {
-                    let t = &g.net.nodes[to];
+                    let Some(tip) = ninsei_core::netview::route_tip(g, to) else {
+                        continue;
+                    };
                     if ui
-                        .button(format!("jack {to}  {}  [{}]", t.name, g.node_label(to)))
+                        .button(format!("{tip}  {}", g.net.nodes[to].name))
                         .clicked()
                     {
                         self.act(Action::Move(to));
@@ -941,6 +943,65 @@ mod tests {
 
     fn label_of(g: &Game, uid: u32) -> String {
         g.hdd.iter().find(|s| s.uid == uid).unwrap().spec.file()
+    }
+
+    /// The classic target pane on `g`, once with `ev`; what it asked for.
+    fn target_pane(h: &mut Harness, g: &Game, ev: Vec<egui::Event>) -> Vec<Request> {
+        let d = Data::builtin().unwrap();
+        let (mut term, mut focus, mut hex, mut keep) =
+            (ninsei_term::LineEditor::default(), false, None, Vec::new());
+        let mut suite = crate::suite::State::default();
+        let mut out = Vec::new();
+        h.frame(ev, |ui| {
+            let mut panes = Panes {
+                game: g,
+                pal: Palette::from_def(&d.themes[0]),
+                map: MapView::Iso,
+                deck: String::new(),
+                chrome: Ch::Classic,
+                corrupt: (0.0, 0),
+                term: &mut term,
+                focus_input: &mut focus,
+                bbs_open: false,
+                hex: &mut hex,
+                keep: &mut keep,
+                keep_room: 0,
+                suite: &mut suite,
+                hear: &Vec::new,
+                scope_rate: 0,
+                out: Vec::new(),
+            };
+            panes.target(ui);
+            out = std::mem::take(&mut panes.out);
+        });
+        out
+    }
+
+    #[test]
+    fn the_route_list_has_the_way_back_and_it_moves_there() {
+        let mut g = Game::new(Data::builtin().unwrap(), 4);
+        g.net.orient(4, 0);
+        for n in &mut g.net.nodes {
+            if !matches!(
+                n.kind,
+                ninsei_core::NodeKind::Entry | ninsei_core::NodeKind::Exit
+            ) {
+                (n.kind, n.ice, n.cleared) = (ninsei_core::NodeKind::Vault, None, true);
+            }
+        }
+        let entry = g.at;
+        g.apply(Action::Move(g.net.nodes[entry].links[0]));
+        let mut h = Harness::new(900.0, 700.0);
+        target_pane(&mut h, &g, Vec::new());
+        let back = format!("jack {entry}  ←  ENTRY  {}", g.net.nodes[entry].name);
+        let ev = press(&h, &back);
+        let out = target_pane(&mut h, &g, ev);
+        assert!(
+            out.iter()
+                .any(|r| matches!(r, Request::Cmd(Command::Game(Action::Move(n))) if *n == entry)),
+            "{:?}",
+            h.texts()
+        );
     }
 
     #[test]

@@ -6,10 +6,10 @@
 
 use egui::{Align2, Color32, FontFamily, FontId, Painter, Pos2, Rect, Sense, Shape, Stroke, Ui};
 use egui::{StrokeKind, pos2, vec2};
-use ninsei_core::netview::{MapNode, PAINT_PAPER, PAINT_SOLID, flat_layout, style};
+use ninsei_core::netview::{self, MapNode, PAINT_PAPER, PAINT_SOLID, flat_layout, style};
 use ninsei_core::{Game, NodeKind, Phase};
 
-use crate::netmap::{Anim, hint, interact, kind, tag, target, visible};
+use crate::netmap::{Anim, arrowhead, hint, interact, kind, tag, target, visible};
 use crate::patterns;
 use crate::theme::Palette;
 
@@ -29,6 +29,35 @@ mod look {
     pub const ANTS_CALM: f32 = 10.0;
     pub const ANTS_FAST: f32 = 40.0;
     pub const FONT: f32 = 12.0;
+    /// How long the arrowhead on a one-way link is.
+    pub const ARROW: f32 = 10.0;
+}
+
+/// The picture's area on the card's inside: room for labels and the hint below.
+fn picture(inside: Rect) -> Rect {
+    Rect::from_min_max(
+        inside.min + vec2(look::PAD, look::PAD - 10.0),
+        inside.max - vec2(look::PAD, look::BOTTOM),
+    )
+}
+
+/// A spot from `flat_layout` placed on the picture, in whole pixels.
+fn place(area: Rect, (x, y): (f32, f32)) -> Pos2 {
+    pos2(
+        (area.left() + area.width() * x).round(),
+        (area.top() + area.height() * y).round(),
+    )
+}
+
+/// The card's inside on a map drawn in `rect`: the frame's band, then a rule.
+fn inside(rect: Rect) -> Rect {
+    rect.shrink(6.0).shrink(6.0)
+}
+
+/// Node `id`'s click area's centre, on a map drawn in `rect`.
+#[cfg(test)]
+pub fn spot_in(rect: Rect, game: &Game, id: usize) -> Pos2 {
+    place(picture(inside(rect)), flat_layout(&game.net)[id])
 }
 
 #[derive(Clone, Copy)]
@@ -114,62 +143,55 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
     let card = rect.shrink(6.0);
     let band = pressure_pattern(game.deck.trace);
     paint(&painter, game, card, band, c);
-    let inside = card.shrink(6.0);
+    let inside = inside(rect);
     painter.rect_filled(inside, 0.0, c.paper);
     painter.rect_stroke(inside, 0.0, Stroke::new(1.0, c.ink), StrokeKind::Inside);
 
     let net = &game.net;
     let layers = net.layers.len();
-    let area = Rect::from_min_max(
-        inside.min + vec2(look::PAD, look::PAD - 10.0),
-        inside.max - vec2(look::PAD, look::BOTTOM),
-    );
     let spots = flat_layout(net);
-    let pos = |id: usize| {
-        let (x, y) = spots[id];
-        pos2(
-            (area.left() + area.width() * x).round(),
-            (area.top() + area.height() * y).round(),
-        )
-    };
+    let area = picture(inside);
+    let pos = |id: usize| place(area, spots[id]);
     let shown = |id: usize| fx.reveal(net.nodes[id].layer, layers) > 0.0;
     let reach = game.reachable();
 
-    // Links, each with a dotted shadow below and right of it.
-    for n in &net.nodes {
-        for &to in &n.links {
-            if !shown(n.id) || !shown(to) {
-                continue;
+    // Links, each with a dotted shadow below and right of it; a one-way link carries an
+    // arrowhead at its middle, pointing deeper.
+    for l in netview::links(game) {
+        if !shown(l.from) || !shown(l.to) {
+            continue;
+        }
+        let (a, b) = (
+            pos(l.from) + vec2(look::W / 2.0, 0.0),
+            pos(l.to) - vec2(look::W / 2.0, 0.0),
+        );
+        let known = visible(game, l.from) && visible(game, l.to);
+        let shadow = [a + vec2(3.0, 3.0), b + vec2(3.0, 3.0)];
+        painter.extend(Shape::dashed_line(
+            &shadow,
+            Stroke::new(1.0, c.ink),
+            1.0,
+            2.0,
+        ));
+        let width = if l.walked {
+            3.0
+        } else if l.route.is_some() {
+            2.0
+        } else {
+            1.0
+        };
+        if known {
+            painter.line_segment([a, b], Stroke::new(width, c.ink));
+            if l.one_way {
+                arrowhead(&painter, a + (b - a) * 0.5, b - a, look::ARROW, c.ink);
             }
-            let (a, b) = (
-                pos(n.id) + vec2(look::W / 2.0, 0.0),
-                pos(to) - vec2(look::W / 2.0, 0.0),
-            );
-            let known = visible(game, n.id) && visible(game, to);
-            let shadow = [a + vec2(3.0, 3.0), b + vec2(3.0, 3.0)];
+        } else {
             painter.extend(Shape::dashed_line(
-                &shadow,
+                &[a, b],
                 Stroke::new(1.0, c.ink),
-                1.0,
-                2.0,
+                4.0,
+                4.0,
             ));
-            let width = if game.travelled(n.id, to) {
-                3.0
-            } else if n.id == game.at && reach.contains(&to) {
-                2.0
-            } else {
-                1.0
-            };
-            if known {
-                painter.line_segment([a, b], Stroke::new(width, c.ink));
-            } else {
-                painter.extend(Shape::dashed_line(
-                    &[a, b],
-                    Stroke::new(1.0, c.ink),
-                    4.0,
-                    4.0,
-                ));
-            }
         }
     }
 
@@ -210,7 +232,12 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
             style(&game.data, k).paint.as_str()
         };
         paint(&painter, game, r, fill, c);
-        let edge = if can_go && hovered { 2.5 } else { 1.0 };
+        // A route, forward or back, is a heavier box; hovered, heavier still.
+        let edge = match (can_go, hovered) {
+            (true, true) => 2.5,
+            (true, false) => 2.0,
+            _ => 1.0,
+        };
         painter.rect_stroke(r, 0.0, Stroke::new(edge, c.ink), StrokeKind::Inside);
 
         // What's inside: a glyph on blank nodes, a `?` in the fog. Always on paper.
