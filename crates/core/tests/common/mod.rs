@@ -28,7 +28,8 @@ pub fn with_probe_row(head: &str, verbs: &str, program: &str) -> Result<Data, St
 
 /// The builtin data with one more net's AI in `ai.ron`: model `probe` (a sentry, cpu 1, ram 2,
 /// `verbs` as a model writes them, roomy HDD, every numbered verb 0 to 999) and its version 1.0
-/// running `program`. Its row in `Data::ice` is `probe-1.0`.
+/// running `program` (and a last `WAIT`, which a fight passes over: every version walks). Its
+/// row in `Data::ice` is `probe-1.0`.
 #[allow(dead_code)]
 pub fn with_probe_ai(verbs: &str, program: &str) -> Result<Data, String> {
     let ranges = verbs
@@ -41,10 +42,10 @@ pub fn with_probe_ai(verbs: &str, program: &str) -> Result<Data, String> {
     let ai = include_str!("../../../../data/ai.ron");
     let model = format!(
         "models: [\n        (id: \"probe\", company: \"Probe\", name: \"PROBE\", class: Sentry, \
-         cpu: 1, ram: 2, hdd: 40, verbs: [{verbs}], ranges: [{ranges}], walks: []),"
+         cpu: 1, ram: 2, hdd: 40, verbs: [{verbs}], ranges: [{ranges}], walks: [Wait]),"
     );
     let version = format!(
-        "versions: [\n        (model: \"probe\", version: \"1.0\", strength: 10, program: \"{program}\"),"
+        "versions: [\n        (model: \"probe\", version: \"1.0\", strength: 10, program: \"{program}\\n63999 WAIT\"),"
     );
     let ai = ai
         .replacen("models: [", &model, 1)
