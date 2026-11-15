@@ -197,7 +197,7 @@ fn button(ui: &mut Ui, p: &Panes, id: Id, text: &str, sub: &str, on: bool, ring:
 
 pub struct Stack;
 
-/// The alert card's width, in points.
+/// The alert card's narrowest width, in points: it grows to fit its words.
 const ALERT_W: f32 = 380.0;
 
 /// The Sense/Net's alert card: Liza's alert box (a shadowed box, a heavy-framed "!" mark, the
@@ -216,7 +216,13 @@ fn alert_card(ctx: &egui::Context, cx: &FrameCx, lines: &[String; 2], enter: boo
                 stripes: None,
                 gray: cx.game.data.pattern("p50"),
             };
-            let (r, _) = ui.allocate_exact_size(vec2(ALERT_W, 120.0), Sense::hover());
+            // Wide enough for its longest line: nothing is cut at the box's edge.
+            let widest = lines
+                .iter()
+                .map(|l| liza::text_width(ui.ctx(), l, &look.font))
+                .fold(0.0, f32::max);
+            let w = (16.0 + 32.0 + 14.0 + widest + 24.0).max(ALERT_W).ceil();
+            let (r, _) = ui.allocate_exact_size(vec2(w, 120.0), Sense::hover());
             let r = Rect::from_min_size(r.min.round(), r.size().round());
             liza::shadowed(ui.painter(), r, &look);
             // The alert's mark: a "!" in a heavy frame, left of the words.

@@ -1338,9 +1338,6 @@ impl App {
                 Phase::JackedOut => ("○ OFFLINE", pal.dim),
             };
             ui.label(RichText::new(state).color(col));
-            if let Some(ai) = ninsei_core::netview::ai_status(g) {
-                ui.label(RichText::new(ai).color(pal.bright).strong());
-            }
             if let Some(site) = &g.site {
                 let traits = if site.traits.is_empty() {
                     String::new()
@@ -2809,6 +2806,21 @@ mod tests {
             let lines = ninsei_core::stack_fight::ai_alert(&app.game).unwrap();
             assert_eq!(app.alerts.open.as_ref(), Some(&lines));
             assert!(painted(&h).contains(&lines[0]), "{:?}", painted(&h));
+            // The card fits its words: no line runs past the box OK sits at the right of.
+            let rect = |t: &str| {
+                h.painted_text()
+                    .into_iter()
+                    .find(|(s, _)| s == t)
+                    .map(|(_, r)| r)
+                    .unwrap()
+            };
+            let ok = rect("OK");
+            for l in &lines {
+                assert!(
+                    rect(l).right() <= ok.right() + 24.0,
+                    "{l} runs off the card"
+                );
+            }
             assert!(app.modal_up(), "it owns the keyboard");
             // Typing goes nowhere while it's up.
             let before = app.game.log.len();

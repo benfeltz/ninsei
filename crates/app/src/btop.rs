@@ -750,9 +750,9 @@ impl Panes<'_> {
 }
 
 /// The status bar's sparklines: trace and CPU, small.
-/// The alarm bar on the status line while the net's AI is up (`btop_fight::ai_banner`): its
-/// words inverse, `bright` on `bg`, blinking for the first seconds after it wakes and steady
-/// after.
+/// The alarm bar across the top of the map while the net's AI is up (`btop_fight::ai_banner`):
+/// a full-width inverse row, `bg` on `bright`, blinking for the first seconds after it wakes and
+/// steady after.
 pub fn ai_bar(ui: &mut Ui, p: &Palette, g: &ninsei_core::Game) {
     let Some(text) = ninsei_core::btop_fight::ai_banner(g) else {
         return;
@@ -769,11 +769,17 @@ pub fn ai_bar(ui: &mut Ui, p: &Palette, g: &ninsei_core::Game) {
     } else {
         (p.bright, p.bg)
     };
-    ui.label(
-        egui::RichText::new(format!(" {text} "))
-            .color(fg)
-            .background_color(bg)
-            .strong(),
+    let font = egui::TextStyle::Monospace.resolve(ui.style());
+    let h = (font.size * 1.5).round();
+    let (r, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), h), egui::Sense::hover());
+    let r = egui::Rect::from_min_size(r.min.round(), r.size().round());
+    ui.painter().rect_filled(r, 0.0, bg);
+    ui.painter().text(
+        r.left_center() + egui::vec2(8.0, 0.0),
+        egui::Align2::LEFT_CENTER,
+        text,
+        font,
+        fg,
     );
     if blinking {
         ui.ctx().request_repaint();
