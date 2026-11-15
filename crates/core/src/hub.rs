@@ -1300,8 +1300,10 @@ pub struct IceSource {
     /// Its program; empty for 1.0.0, the row's (so a change to the row doesn't strand it).
     #[serde(default)]
     pub program: String,
-    /// The board it came from (an id in `data/bbs/`): its header and remarks list with it.
-    /// Empty: from no board, and it lists bare.
+    /// Where it came from: a board (an id in `data/bbs/`), or a net's AI that gave it up when
+    /// it was beaten (its model's id in `ai.ron`; `Data::validate` keeps the two apart). Its
+    /// header and remarks list with it (`ice_listing::notes`). Empty: from neither, and it
+    /// lists bare.
     #[serde(default)]
     pub from: String,
 }

@@ -183,8 +183,8 @@ pub struct Combat {
     /// The deck owns the source of that version (`Game::owns_source`, as the fight opened or
     /// since): every screen and the log list its program. Never read by play.
     pub listed: bool,
-    /// The board that source came from (`IceSource::from`; empty: none): its header and
-    /// remarks list with the program. Never read by play.
+    /// Where that source came from (`IceSource::from`: a board's id, or a net's AI's model id;
+    /// empty: none): its header and remarks list with the program. Never read by play.
     pub source_from: String,
     pub strength: u32,
     pub strength_max: u32,
@@ -2397,7 +2397,8 @@ impl Game {
         let mut got = 0;
         for ice in kinds {
             let v = self.ice_version(ice);
-            if !self.owns_source(ice, v) && self.learn_source(ice, v, &model).is_ok() {
+            // Owned ones are refused: they stay as they are.
+            if self.learn_source(ice, v, &model).is_ok() {
                 got += 1;
             }
         }
@@ -2405,7 +2406,10 @@ impl Game {
             let name = self.data.ice[ai].name.clone();
             self.say(
                 LogKind::Loot,
-                format!("+ {got} sources from {name}'s revision store."),
+                format!(
+                    "+ {got} source{} from {name}'s revision store.",
+                    if got == 1 { "" } else { "s" }
+                ),
             );
         }
     }
