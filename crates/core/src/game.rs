@@ -1392,11 +1392,12 @@ impl Game {
     /// Nodes the runner may move to right now: deeper along a link first, then back along one
     /// that runs both ways. Exactly the moves [`Game::route`] allows.
     pub fn reachable(&self) -> Vec<usize> {
-        self.net
-            .routes(self.at)
-            .into_iter()
-            .filter(|&to| self.route(to).is_ok())
-            .collect()
+        if self.phase != Phase::Exploring {
+            return Vec::new();
+        }
+        let routes = self.net.routes(self.at);
+        debug_assert!(routes.iter().all(|&to| self.route(to).is_ok()));
+        routes
     }
 
     /// What a move to node `to` will do, or why it can't: the move's preview, and the move
