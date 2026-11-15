@@ -86,6 +86,16 @@ impl Program {
     }
 }
 
+/// The kinds the block map's legend names, in order: the fight programs' always, a hack only
+/// once one is on the disk or in the box, so the OS names nothing the player hasn't found.
+pub fn legend(on: &[Program], shelf: &[Program]) -> Vec<WarezKind> {
+    let found = on.iter().chain(shelf).any(|p| p.kind == WarezKind::Hack);
+    WarezKind::ALL
+        .into_iter()
+        .filter(|&k| k != WarezKind::Hack || found)
+        .collect()
+}
+
 /// What kind a binary's effect makes it.
 pub fn kind(spec: &Spec) -> WarezKind {
     match spec.effect {

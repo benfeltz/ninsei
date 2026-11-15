@@ -780,12 +780,13 @@ fn disk_panel(
     // Beside the map: the legend and the RAM strip.
     let x = 5 + w;
     let mut ly = y + 1;
-    for (kind, name) in [
-        (WarezKind::Breaker, "breaker"),
-        (WarezKind::Shield, "shield"),
-        (WarezKind::Utility, "utility"),
-        (WarezKind::Hack, "hack"),
-    ] {
+    for kind in disk::legend(on, shelf) {
+        let name = match kind {
+            WarezKind::Breaker => "breaker",
+            WarezKind::Shield => "shield",
+            WarezKind::Utility => "utility",
+            WarezKind::Hack => "hack",
+        };
         let (ch, fg) = glyph(kind);
         g.put(x, ly, &format!("{ch}{ch}"), fg);
         g.put(x + 3, ly, name, muted());

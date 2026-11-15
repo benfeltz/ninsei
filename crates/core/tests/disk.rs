@@ -205,3 +205,23 @@ fn a_fragmented_disk_keeps_its_mess_through_install_and_remove() {
         .count();
     assert_eq!(have, p.blocks());
 }
+
+/// The legend names a hack only once one is in the box or on the disk: the OS names nothing
+/// the player hasn't found.
+#[test]
+fn the_legend_names_a_hack_only_once_there_is_one() {
+    let d = data();
+    let mut s = fresh();
+    let fight = [WarezKind::Breaker, WarezKind::Shield, WarezKind::Utility];
+    let legend = |s: &Save| disk::legend(&disk::installed(s, &d), &disk::shelf(s, &d));
+    assert_eq!(legend(&s), fight);
+    let w = d.warez_ix("backlink").unwrap();
+    s.stash.push(StashItem {
+        id: 9,
+        origin: "backlink".into(),
+        hex: binary::to_hex(&binary::encode(&d.warez[w], s.key)),
+    });
+    assert_eq!(legend(&s), WarezKind::ALL, "in the box");
+    s.install(&d, &Disk::Stash(9)).unwrap();
+    assert_eq!(legend(&s), WarezKind::ALL, "on the disk");
+}
