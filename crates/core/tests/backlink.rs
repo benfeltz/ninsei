@@ -159,7 +159,7 @@ fn nothing_to_turn_turns_nothing() {
     }
 }
 
-/// The map draws a turned link from its deeper end, one way, so its arrow points back up.
+/// The map keeps a turned link's ends and marks it one way, back: its arrow points back up.
 #[test]
 fn the_map_draws_a_turned_link_pointing_back() {
     let d = data();
@@ -176,13 +176,15 @@ fn the_map_draws_a_turned_link_pointing_back() {
         let flips = g.net.backlink(to);
         drawn += flips.len();
         for (a, b) in flips {
+            // `a` is a layer up from here: the link keeps its ends, and runs back.
             let l = netview::links(&g)
                 .into_iter()
-                .find(|l| (l.from, l.to) == (b, a))
-                .expect("drawn from here to there");
-            assert!(l.one_way);
+                .find(|l| (l.from, l.to) == (a, b))
+                .expect("drawn between its shallow and deep ends");
+            assert!(l.one_way && l.back);
             assert_eq!(l.route, Some(a), "a route out of here");
         }
+        assert!(netview::links(&g).iter().all(|l| !l.back || l.one_way));
         let reach = g.reachable();
         for l in netview::links(&g) {
             if let Some(r) = l.route {

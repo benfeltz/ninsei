@@ -368,4 +368,57 @@ mod tests {
             }
         }
     }
+
+    /// Each filled triangle painted last frame: where its tip points, from its base's middle.
+    fn arrow_dirs(h: &Harness) -> Vec<egui::Vec2> {
+        h.painted()
+            .iter()
+            .filter_map(|s| match s {
+                egui::Shape::Path(p) if p.points.len() == 3 && p.closed => {
+                    let [tip, l, r] = [p.points[0], p.points[1], p.points[2]];
+                    Some(tip - egui::pos2((l.x + r.x) / 2.0, (l.y + r.y) / 2.0))
+                }
+                _ => None,
+            })
+            .collect()
+    }
+
+    /// A link a Backlink turned is drawn between the same two ends, and its arrow points the
+    /// other way: back up, toward the shallower node.
+    #[test]
+    fn every_map_points_a_turned_link_s_arrow_back() {
+        for view in VIEWS {
+            let mut one = one_in(5);
+            let here = one.at;
+            one.net.nodes[here].one_way = one.net.nodes[here].links.clone();
+            // No routes on either, so only the links' arrows differ.
+            one.phase = Phase::JackedOut;
+            let mut turned = one.clone();
+            let n = &mut turned.net.nodes[here];
+            n.reversed = std::mem::take(&mut n.one_way);
+            let (fwd, back) = (
+                arrow_dirs(&drawn(view, &one, "amber")),
+                arrow_dirs(&drawn(view, &turned, "amber")),
+            );
+            assert_eq!(fwd.len(), back.len(), "{view:?}");
+            let flipped = fwd
+                .iter()
+                .filter(|d| !back.iter().any(|b| (*b - **d).length() < 0.6))
+                .collect::<Vec<_>>();
+            let links = turned.net.nodes[here].links.len();
+            assert_eq!(
+                flipped.len(),
+                links,
+                "{view:?}: each turned link's arrow moved"
+            );
+            for d in flipped {
+                // Deeper runs left to right on every map's screen, so a turned arrow points
+                // left of where its forward one did.
+                assert!(
+                    back.iter().any(|b| b.x < 0.0 && b.x * d.x < 0.0),
+                    "{view:?}: {d:?} turned in {back:?}"
+                );
+            }
+        }
+    }
 }
