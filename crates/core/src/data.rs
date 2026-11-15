@@ -28,6 +28,17 @@ pub enum WarezKind {
     Breaker,
     Shield,
     Utility,
+    /// Run on the map, never in a fight: its only cost is the trace it adds.
+    Hack,
+}
+
+impl WarezKind {
+    pub const ALL: [WarezKind; 4] = [
+        WarezKind::Breaker,
+        WarezKind::Shield,
+        WarezKind::Utility,
+        WarezKind::Hack,
+    ];
 }
 
 #[derive(Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
@@ -42,6 +53,9 @@ pub enum Effect {
     Stun,
     /// Clears an ICE's SPOOF: its NEXT shows again.
     Sniff,
+    /// A hack: reverses the one-way links into the node the runner stands on, adding this
+    /// much trace.
+    Backlink(u32),
 }
 
 impl Effect {
@@ -54,7 +68,13 @@ impl Effect {
             Effect::Scrub(n) => format!("trace -{n}"),
             Effect::Stun => "stun ICE 1 turn".to_string(),
             Effect::Sniff => "clear a spoof".to_string(),
+            Effect::Backlink(n) => format!("reverse links in, trace +{n}"),
         }
+    }
+
+    /// A hack: run on the map, never in a fight, and paid for in trace alone.
+    pub fn is_hack(self) -> bool {
+        matches!(self, Effect::Backlink(_))
     }
 }
 
@@ -1666,6 +1686,14 @@ impl Data {
         }
         // Every factory program must be a legal binary, or the hex editor's rules lie.
         for w in &self.warez {
+            if (w.kind == WarezKind::Hack) != w.effect.is_hack() {
+                return Err(format!(
+                    "warez `{}` is a {:?} but its effect is {}a hack's",
+                    w.id,
+                    w.kind,
+                    if w.effect.is_hack() { "" } else { "not " }
+                ));
+            }
             let bin = crate::binary::encode(w, 0);
             if let Err(f) = crate::binary::check(&bin, 0) {
                 return Err(format!(

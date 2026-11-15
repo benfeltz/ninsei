@@ -568,6 +568,7 @@ fn paint_kind(
                 WarezKind::Breaker => accent(),
                 WarezKind::Shield => ink(),
                 WarezKind::Utility => fill(),
+                WarezKind::Hack => muted(),
             };
             p.rect_filled(r, 0.0, c);
         }
@@ -700,6 +701,7 @@ fn legend(ui: &mut Ui, data: &Data, look: Look) {
             (ninsei_core::WarezKind::Breaker, "Breaker"),
             (ninsei_core::WarezKind::Shield, "Shield"),
             (ninsei_core::WarezKind::Utility, "Utility"),
+            (ninsei_core::WarezKind::Hack, "Hack"),
         ] {
             let (r, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
             paint_kind(ui.painter(), data, look, kind, r);

@@ -36,7 +36,7 @@ impl DiskDef {
     }
 
     pub fn validate(&self, data: &Data) -> Result<(), String> {
-        for k in [WarezKind::Breaker, WarezKind::Shield, WarezKind::Utility] {
+        for k in WarezKind::ALL {
             let p = self
                 .fill(k)
                 .ok_or_else(|| format!("no fill for {k:?} programs"))?;
@@ -78,7 +78,9 @@ impl Program {
     pub fn power(&self) -> Option<u32> {
         match self.spec.effect {
             Effect::Break { power, .. } => Some(power),
-            Effect::Shield(n) | Effect::Repair(n) | Effect::Scrub(n) => Some(n),
+            Effect::Shield(n) | Effect::Repair(n) | Effect::Scrub(n) | Effect::Backlink(n) => {
+                Some(n)
+            }
             Effect::Stun | Effect::Sniff => None,
         }
     }
@@ -89,6 +91,7 @@ pub fn kind(spec: &Spec) -> WarezKind {
     match spec.effect {
         Effect::Break { .. } => WarezKind::Breaker,
         Effect::Shield(_) => WarezKind::Shield,
+        e if e.is_hack() => WarezKind::Hack,
         _ => WarezKind::Utility,
     }
 }

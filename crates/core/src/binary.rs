@@ -4,10 +4,10 @@
 //! ```text
 //! 00-01  'W' 'Z'      magic
 //! 02     01           format version
-//! 03     opcode       01 BRK  02 SHD  03 REP  04 SCR  05 STN  06 SNF
-//! 04     power
+//! 03     opcode       01 BRK  02 SHD  03 REP  04 SCR  05 STN  06 SNF  07 BKL (a hack)
+//! 04     power        a hack's is the trace it adds
 //! 05     vs class     00 any  01 barrier  02 code gate  03 sentry   (breakers only)
-//! 06     cpu cost     1..=MAX_CPU
+//! 06     cpu cost     1..=MAX_CPU; a hack's is 00 (it runs on the map, outside a fight)
 //! 07     reserved     must be 00 (was the RAM cost, before programs stopped loading)
 //! 08     opt level    raised only by optimizer fragments
 //! 09-0A  signature    u16 LE, signs the opt level with the run's key
@@ -15,6 +15,11 @@
 //! 10-1E  name         ASCII, zero padded
 //! 1F     checksum     sum of bytes 00-1E, mod 256
 //! ```
+//!
+//! The budget: an effect's [`cost`] must fit its [`budget_of`]. A fight program's budget is
+//! its cpu and opt level (`BUDGET_PER_CPU * cpu + BUDGET_PER_OPT * opt`); a hack's is the
+//! trace it adds and its opt level (`BUDGET_PER_TRACE * trace + BUDGET_PER_OPT * opt`), so
+//! the less trace a hack adds the less it may do, and only the optimizer buys trace off it.
 
 use crate::data::{Effect, IceClass, WarezDef};
 use crate::tuning::*;
@@ -135,13 +140,14 @@ type MakeEffect = fn(u32, Option<IceClass>) -> Effect;
 /// Every opcode: its byte, its name as the hex editor shows it, and the effect it decodes to
 /// with this power and vs class. `check`, `encode`'s reverse and the hex view all read this, so
 /// a new opcode is one row.
-const OPCODES: [(u8, &str, MakeEffect); 6] = [
+const OPCODES: [(u8, &str, MakeEffect); 7] = [
     (0x01, "BRK break", |power, vs| Effect::Break { power, vs }),
     (0x02, "SHD shield", |power, _| Effect::Shield(power)),
     (0x03, "REP repair", |power, _| Effect::Repair(power)),
     (0x04, "SCR scrub trace", |power, _| Effect::Scrub(power)),
     (0x05, "STN stun", |_, _| Effect::Stun),
     (0x06, "SNF sniff", |_, _| Effect::Sniff),
+    (0x07, "BKL backlink", |power, _| Effect::Backlink(power)),
 ];
 
 pub fn opcode_name(op: u8) -> &'static str {
@@ -190,6 +196,7 @@ pub fn encode(def: &WarezDef, key: u64) -> Bin {
         Effect::Scrub(n) => (4, n, 0),
         Effect::Stun => (5, 0, 0),
         Effect::Sniff => (6, 0, 0),
+        Effect::Backlink(n) => (7, n, 0),
     };
     b[OFF_OPCODE] = op;
     b[OFF_POWER] = power.min(255) as u8;
@@ -216,12 +223,22 @@ pub fn cost(effect: Effect) -> u32 {
         Effect::Repair(n) => n,
         Effect::Stun => COST_STUN,
         Effect::Sniff => COST_SNIFF,
+        Effect::Backlink(_) => COST_BACKLINK,
     }
 }
 
-/// Budget points a program with these costs may spend.
+/// Budget points a fight program with these costs may spend.
 pub fn budget(cpu: u32, opt: u32) -> u32 {
     BUDGET_PER_CPU * cpu + BUDGET_PER_OPT * opt
+}
+
+/// Budget points a program with this effect, cpu and opt level may spend: a fight program's
+/// is its cpu's, a hack's the trace it adds.
+pub fn budget_of(effect: Effect, cpu: u32, opt: u32) -> u32 {
+    match effect {
+        Effect::Backlink(trace) => BUDGET_PER_TRACE * trace + BUDGET_PER_OPT * opt,
+        _ => budget(cpu, opt),
+    }
 }
 
 /// Hex text for saving a binary.
@@ -276,7 +293,13 @@ pub fn check(b: &Bin, key: u64) -> Result<Spec, Vec<String>> {
     }
     let cpu = u32::from(b[OFF_CPU]);
     let opt = u32::from(b[OFF_OPT]);
-    if !(1..=MAX_CPU).contains(&cpu) {
+    if effect.is_some_and(Effect::is_hack) {
+        if cpu != 0 {
+            faults.push(format!(
+                "a hack runs outside a fight: cpu cost must be 00, not {cpu:02X}"
+            ));
+        }
+    } else if !(1..=MAX_CPU).contains(&cpu) {
         faults.push(format!("cpu cost {cpu} out of range (1-{MAX_CPU})"));
     }
     if b[OFF_SPARE] != 0 {
@@ -302,11 +325,10 @@ pub fn check(b: &Bin, key: u64) -> Result<Spec, Vec<String>> {
         faults.push("name must be zero padded".to_string());
     }
     if let Some(e) = effect {
-        let (c, bud) = (cost(e), budget(cpu, opt));
+        let (c, bud) = (cost(e), budget_of(e, cpu, opt));
+        let by = if e.is_hack() { "trace/opt" } else { "cpu/opt" };
         if c > bud {
-            faults.push(format!(
-                "over budget: effect costs {c}, cpu/opt allow {bud}"
-            ));
+            faults.push(format!("over budget: effect costs {c}, {by} allow {bud}"));
         }
     }
     let sum = checksum(b);

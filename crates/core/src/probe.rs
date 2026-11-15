@@ -700,6 +700,8 @@ fn worth(g: &Game, d: &Drop, known: &[String]) -> i64 {
                     Effect::Stun => 15,
                     // Nothing the careful bot fights with reads it yet.
                     Effect::Sniff => 10,
+                    // Nothing the bots do on the map runs a hack yet.
+                    Effect::Backlink(_) => 0,
                 },
                 None => 0,
             }

@@ -684,6 +684,7 @@ fn glyph(kind: WarezKind) -> (char, Color32) {
         WarezKind::Breaker => ('▓', accent()),
         WarezKind::Shield => ('▒', ink()),
         WarezKind::Utility => ('░', ink()),
+        WarezKind::Hack => ('▚', accent()),
     }
 }
 
@@ -783,6 +784,7 @@ fn disk_panel(
         (WarezKind::Breaker, "breaker"),
         (WarezKind::Shield, "shield"),
         (WarezKind::Utility, "utility"),
+        (WarezKind::Hack, "hack"),
     ] {
         let (ch, fg) = glyph(kind);
         g.put(x, ly, &format!("{ch}{ch}"), fg);

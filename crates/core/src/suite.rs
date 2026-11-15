@@ -195,6 +195,7 @@ pub fn formula(spec: &Spec) -> String {
         Effect::Scrub(n) => format!("=SCRUB(TRACE, {n})"),
         Effect::Stun => "=STUN(ICE, 1)".to_string(),
         Effect::Sniff => "=SNIFF(ICE)".to_string(),
+        Effect::Backlink(n) => format!("=BACKLINK(TRACE, {n})"),
     }
 }
 

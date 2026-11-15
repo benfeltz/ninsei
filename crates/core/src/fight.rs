@@ -57,6 +57,12 @@ impl Game {
             .get(slot)
             .ok_or_else(|| format!("no program in slot {slot}."))?;
         let w = &s.spec;
+        if w.effect.is_hack() && self.combat.is_some() {
+            return Err(format!(
+                "{} runs on the map. ICE is holding the connection.",
+                w.name
+            ));
+        }
         let Some(c) = self.combat.as_ref() else {
             return Err("nothing to run against.".into());
         };
@@ -85,6 +91,7 @@ impl Game {
             Effect::Scrub(n) => Outcome::Scrub(n),
             Effect::Stun => Outcome::Stun,
             Effect::Sniff => Outcome::Sniff,
+            Effect::Backlink(_) => unreachable!("a hack is refused in a fight"),
         };
         Ok(Preview {
             cpu: w.cpu,

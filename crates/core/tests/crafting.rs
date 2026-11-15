@@ -175,7 +175,7 @@ fn every_shipped_program_fits_its_budget() {
     let g = game();
     for def in &g.data.warez {
         assert!(
-            binary::cost(def.effect) <= binary::budget(def.cpu, 0),
+            binary::cost(def.effect) <= binary::budget_of(def.effect, def.cpu, 0),
             "{} costs {} on {} cpu",
             def.id,
             binary::cost(def.effect),
@@ -273,4 +273,89 @@ fn bad_vs_on_non_breaker_is_a_fault() {
     fix_checksum(&mut b);
     let faults = binary::check(&b, g.key()).unwrap_err();
     assert!(faults.iter().any(|f| f.contains("only valid on BRK")));
+}
+
+/// Backlink's factory binary, sealed with `key`.
+fn backlink(key: u64) -> binary::Bin {
+    let data = Data::builtin().unwrap();
+    let def = &data.warez[data.warez_ix("backlink").unwrap()];
+    binary::encode(def, key)
+}
+
+#[test]
+fn backlink_is_a_hack_that_round_trips_through_its_binary() {
+    let b = backlink(0x51);
+    let spec = binary::check(&b, 0x51).expect("the factory Backlink is legal");
+    assert_eq!(spec.effect, Effect::Backlink(tuning::COST_BACKLINK));
+    assert!(spec.effect.is_hack());
+    assert_eq!((spec.cpu, spec.opt), (0, 0), "a hack takes no cpu");
+    assert_eq!(b[binary::OFF_SPARE], 0, "byte 07 stays reserved");
+    assert_eq!(binary::from_hex(&binary::to_hex(&b)), Some(b));
+    assert_eq!(binary::opcode_name(b[OFF_OPCODE]), "BKL backlink");
+}
+
+#[test]
+fn a_hack_edited_to_add_less_trace_than_its_budget_allows_is_refused() {
+    let key = 0x51;
+    let mut b = backlink(key);
+    b[OFF_POWER] -= 1;
+    fix_checksum(&mut b);
+    let faults = binary::check(&b, key).unwrap_err();
+    assert!(
+        faults.iter().any(|f| f.contains("over budget")),
+        "{faults:?}"
+    );
+    // More trace than it needs is always allowed: a dearer hack, never a cheaper one.
+    let mut b = backlink(key);
+    b[OFF_POWER] += 5;
+    fix_checksum(&mut b);
+    assert_eq!(
+        binary::check(&b, key).unwrap().effect,
+        Effect::Backlink(tuning::COST_BACKLINK + 5)
+    );
+    // Only the optimizer buys trace off it: an opt level is worth BUDGET_PER_OPT trace.
+    let mut b = backlink(key);
+    b[OFF_OPT] = 1;
+    b[OFF_POWER] -= tuning::BUDGET_PER_OPT as u8;
+    binary::seal(&mut b, key);
+    assert!(binary::check(&b, key).is_ok());
+    b[OFF_POWER] -= 1;
+    fix_checksum(&mut b);
+    assert!(binary::check(&b, key).is_err());
+}
+
+#[test]
+fn a_hack_takes_no_cpu_and_a_fight_program_takes_some() {
+    let key = 0x51;
+    let mut b = backlink(key);
+    b[OFF_CPU] = 9;
+    fix_checksum(&mut b);
+    let faults = binary::check(&b, key).unwrap_err();
+    assert!(
+        faults.iter().any(|f| f.contains("cpu cost must be 00")),
+        "{faults:?}"
+    );
+    // Cpu buys a hack nothing, and a fight program can't be made a free hack.
+    let g = game();
+    let mut b = g.hdd[slot_of(&g, "icepick")].bin;
+    b[OFF_CPU] = 0;
+    fix_checksum(&mut b);
+    assert!(binary::check(&b, g.key()).is_err());
+}
+
+#[test]
+fn a_breaker_opcode_turned_into_a_hack_must_pay_the_hack_s_budget() {
+    // Torch is power 8 on 2 cpu: as a hack, 8 trace is under Backlink's budget.
+    let g = game();
+    let data = &g.data;
+    let def = &data.warez[data.warez_ix("torch").unwrap()];
+    let mut b = binary::encode(def, g.key());
+    b[OFF_OPCODE] = 0x07;
+    b[OFF_CPU] = 0;
+    fix_checksum(&mut b);
+    let faults = binary::check(&b, g.key()).unwrap_err();
+    assert!(
+        faults.iter().any(|f| f.contains("over budget")),
+        "{faults:?}"
+    );
 }
