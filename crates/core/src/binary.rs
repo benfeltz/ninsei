@@ -235,9 +235,9 @@ pub fn budget(cpu: u32, opt: u32) -> u32 {
 /// Budget points a program with this effect, cpu and opt level may spend: a fight program's
 /// is its cpu's, a hack's the trace it adds.
 pub fn budget_of(effect: Effect, cpu: u32, opt: u32) -> u32 {
-    match effect {
-        Effect::Backlink(trace) => BUDGET_PER_TRACE * trace + BUDGET_PER_OPT * opt,
-        _ => budget(cpu, opt),
+    match effect.hack_trace() {
+        Some(trace) => BUDGET_PER_TRACE * trace + BUDGET_PER_OPT * opt,
+        None => budget(cpu, opt),
     }
 }
 

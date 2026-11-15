@@ -359,3 +359,27 @@ fn a_breaker_opcode_turned_into_a_hack_must_pay_the_hack_s_budget() {
         "{faults:?}"
     );
 }
+
+#[test]
+fn every_hack_s_budget_is_its_trace_and_every_fight_program_s_its_cpu() {
+    let g = game();
+    for def in &g.data.warez {
+        let opt = 1;
+        let want = match def.effect.hack_trace() {
+            Some(t) => tuning::BUDGET_PER_TRACE * t + tuning::BUDGET_PER_OPT * opt,
+            None => binary::budget(def.cpu, opt),
+        };
+        assert_eq!(
+            binary::budget_of(def.effect, def.cpu, opt),
+            want,
+            "{}",
+            def.id
+        );
+        assert_eq!(
+            def.effect.is_hack(),
+            def.kind == WarezKind::Hack,
+            "{}",
+            def.id
+        );
+    }
+}

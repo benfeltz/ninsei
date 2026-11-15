@@ -74,7 +74,15 @@ impl Effect {
 
     /// A hack: run on the map, never in a fight, and paid for in trace alone.
     pub fn is_hack(self) -> bool {
-        matches!(self, Effect::Backlink(_))
+        self.hack_trace().is_some()
+    }
+
+    /// The trace a hack adds; `None` for a fight program.
+    pub fn hack_trace(self) -> Option<u32> {
+        match self {
+            Effect::Backlink(n) => Some(n),
+            _ => None,
+        }
     }
 }
 
