@@ -919,6 +919,10 @@ fn fate(g: &Game) -> Fate {
     if g.phase == Phase::JackedOut {
         return Fate::Exit;
     }
+    // Flatlined in the net's AI's fight (a flatline takes the fight off the game).
+    if g.killed_by().is_some_and(|k| g.data.ice[k].boss) {
+        return Fate::Ai;
+    }
     // A run that ends mid-fight is the ICE's doing, whether it took the deck's integrity or
     // kept it there until the trace ran out.
     let fighting =

@@ -128,7 +128,7 @@ fn validate_refuses_a_bad_ai() {
                 cpu: 1, ram: 2, hdd: 10, verbs: [Attack], ranges: [(Attack, 3, 7)], walks: []),"#,
             "model `watchman` is listed twice",
         ),
-        (r#"strength: 22,"#, r#"strength: 0,"#, "strength 0"),
+        (r#"strength: 30,"#, r#"strength: 0,"#, "strength 0"),
     ];
     for (find, replace, why) in bad {
         let err = ai_edited(find, replace).expect_err(why);

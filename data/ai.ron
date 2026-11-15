@@ -44,7 +44,7 @@
     ],
     versions: [
         // Walks to where it last saw you; there, it looks again.
-        (model: "watchman", version: "1.2", strength: 22, program: "
+        (model: "watchman", version: "1.2", strength: 30, program: "
             10 REM MAAS-NEOTEK WATCHMAN 1.2
             20 IF TARGET DIST > 0
             30 MOVE TOWARD TARGET
@@ -55,7 +55,7 @@
             80 TRACE 6
             90 ATTACK 5
             100 ATTACK 4"),
-        (model: "watchman", version: "1.4", strength: 25, program: "
+        (model: "watchman", version: "1.4", strength: 34, program: "
             10 REM MAAS-NEOTEK WATCHMAN 1.4
             20 IF TARGET DIST > 0
             30 MOVE TOWARD TARGET
@@ -68,7 +68,7 @@
             100 ATTACK 7
             110 ATTACK 5"),
         // Moves and looks in the same hop, and moves again on what it finds.
-        (model: "sentinel", version: "3.0", strength: 26, program: "
+        (model: "sentinel", version: "3.0", strength: 40, program: "
             10 REM MAAS-NEOTEK SENTINEL 3.0
             20 IF TARGET DIST > 0
             30 MOVE TOWARD TARGET
@@ -82,7 +82,7 @@
             110 ATTACK 6
             120 TRACE 4
             130 ATTACK 5"),
-        (model: "sentinel", version: "3.2", strength: 29, program: "
+        (model: "sentinel", version: "3.2", strength: 45, program: "
             10 REM MAAS-NEOTEK SENTINEL 3.2
             20 IF TARGET DIST > 0
             30 MOVE TOWARD TARGET
@@ -98,7 +98,7 @@
             130 ATTACK 6
             140 TRACE 5"),
         // Two hops a hop toward where it last saw you, and it looks when it gets there.
-        (model: "warden", version: "4.2", strength: 30, program: "
+        (model: "warden", version: "4.2", strength: 48, program: "
             10 REM HOSAKA WARDEN 4.2
             20 IF TARGET DIST > 0
             30 MOVE TOWARD TARGET
@@ -113,7 +113,7 @@
             120 TRACE 6
             130 ATTACK 7
             140 ATTACK 6"),
-        (model: "warden", version: "4.5", strength: 34, program: "
+        (model: "warden", version: "4.5", strength: 54, program: "
             10 REM HOSAKA WARDEN 4.5
             20 IF TARGET DIST > 0
             30 MOVE TOWARD TARGET
