@@ -870,14 +870,7 @@ fn info(
     let n = wrap(&mut sub, 0, n, &s.effect.describe(), ink());
     g.stamp(sub, x, y);
     y += n;
-    let mut line = format!("{:?} · cpu {}", prog.kind, s.cpu).to_lowercase();
-    if let Some(pw) = prog.power() {
-        line.push_str(&format!(" · power {pw}"));
-    }
-    if s.opt > 0 {
-        line.push_str(&format!(" · opt {}", s.opt));
-    }
-    g.put(x, y, &line, muted());
+    g.put(x, y, &prog.stats().to_lowercase(), muted());
     y += 2;
     if let Some(id) = st.confirm_scrap {
         let c = g.put(x, y, "scrap it for good?", ink());

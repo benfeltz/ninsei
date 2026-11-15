@@ -383,3 +383,11 @@ fn every_hack_s_budget_is_its_trace_and_every_fight_program_s_its_cpu() {
         );
     }
 }
+
+#[test]
+fn byte_04_is_a_hack_s_trace_and_everything_else_s_power() {
+    assert_eq!(binary::power_label(0x07), "trace");
+    for op in 1..=6u8 {
+        assert_eq!(binary::power_label(op), "power", "{op:02X}");
+    }
+}

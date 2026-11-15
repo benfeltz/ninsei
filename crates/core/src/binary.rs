@@ -166,6 +166,16 @@ pub fn effect_of(op: u8, power: u32, vs: Option<IceClass>) -> Option<Effect> {
         .map(|(_, _, make)| make(power, vs))
 }
 
+/// What byte 04 means under opcode `op`, as the hex editor's inspector labels it: a hack's is
+/// the trace it adds, everything else's its power.
+pub fn power_label(op: u8) -> &'static str {
+    if effect_of(op, 1, None).is_some_and(Effect::is_hack) {
+        "trace"
+    } else {
+        "power"
+    }
+}
+
 pub fn vs_name(vs: u8) -> &'static str {
     match vs {
         0 => "any",

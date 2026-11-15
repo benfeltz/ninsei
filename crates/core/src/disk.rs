@@ -74,14 +74,31 @@ impl Program {
         (binary::cost(self.spec.effect).div_ceil(2) as usize).clamp(1, BLOCKS_PER_SLOT)
     }
 
+    /// The info box's stats line: its kind, then what it costs (a fight program's cpu, a
+    /// hack's trace), its power and opt level: `Breaker · CPU 2 · power 8 · opt 1`,
+    /// `Hack · trace +12`.
+    pub fn stats(&self) -> String {
+        let s = &self.spec;
+        let mut line = match s.effect.hack_trace() {
+            Some(t) => format!("{:?} · trace +{t}", self.kind),
+            None => format!("{:?} · CPU {}", self.kind, s.cpu),
+        };
+        if let Some(pw) = self.power() {
+            line.push_str(&format!(" · power {pw}"));
+        }
+        if s.opt > 0 {
+            line.push_str(&format!(" · opt {}", s.opt));
+        }
+        line
+    }
+
     /// Power, for the info box: what a breaker breaks, a shield holds or a utility does.
     pub fn power(&self) -> Option<u32> {
         match self.spec.effect {
             Effect::Break { power, .. } => Some(power),
-            Effect::Shield(n) | Effect::Repair(n) | Effect::Scrub(n) | Effect::Backlink(n) => {
-                Some(n)
-            }
-            Effect::Stun | Effect::Sniff => None,
+            Effect::Shield(n) | Effect::Repair(n) | Effect::Scrub(n) => Some(n),
+            // A hack's number is the trace it adds, not a power (`stats` says so).
+            Effect::Stun | Effect::Sniff | Effect::Backlink(_) => None,
         }
     }
 }

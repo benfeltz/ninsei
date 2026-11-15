@@ -839,14 +839,7 @@ fn info(ui: &mut Ui, data: &Data, st: &SystemUi, on: &[Program], shelf: &[Progra
     ui.label(RichText::new(s.file()).color(ink()).strong());
     ui.label(dim(&data.warez[prog.warez].blurb));
     ui.label(RichText::new(s.effect.describe()).color(ink()));
-    let mut line = format!("{:?} · CPU {}", prog.kind, s.cpu);
-    if let Some(pw) = prog.power() {
-        line.push_str(&format!(" · power {pw}"));
-    }
-    if s.opt > 0 {
-        line.push_str(&format!(" · opt {}", s.opt));
-    }
-    ui.label(dim(line));
+    ui.label(dim(prog.stats()));
 }
 
 /// Keys, while the pointer is over the panel and nothing else is typing: ↑↓ move the pick

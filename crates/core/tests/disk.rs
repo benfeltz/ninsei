@@ -225,3 +225,25 @@ fn the_legend_names_a_hack_only_once_there_is_one() {
     s.install(&d, &Disk::Stash(9)).unwrap();
     assert_eq!(legend(&s), WarezKind::ALL, "on the disk");
 }
+
+/// The info box's stats line says a hack's trace as trace, never as power or CPU.
+#[test]
+fn a_hack_s_stats_say_its_trace() {
+    let (d, mut s, torch) = with_torch();
+    let w = d.warez_ix("backlink").unwrap();
+    s.stash.push(StashItem {
+        id: 9,
+        origin: "backlink".into(),
+        hex: binary::to_hex(&binary::encode(&d.warez[w], s.key)),
+    });
+    let shelf = disk::shelf(&s, &d);
+    let stats = |id: u32| {
+        shelf
+            .iter()
+            .find(|p| p.at == Disk::Stash(id))
+            .unwrap()
+            .stats()
+    };
+    assert_eq!(stats(9), "Hack · trace +12");
+    assert_eq!(stats(torch), "Breaker · CPU 2 · power 8");
+}

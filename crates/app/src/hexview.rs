@@ -361,7 +361,7 @@ fn inspector(ui: &mut Ui, key: u64, h: &mut HexBuffer, p: &Palette) {
         ),
         (
             binary::OFF_POWER,
-            "power",
+            binary::power_label(b[binary::OFF_OPCODE]),
             format!("{}", b[binary::OFF_POWER]),
         ),
         (
@@ -613,6 +613,10 @@ mod tests {
         assert!(said.contains(" cost 12 / 12"), "{said}");
         assert!(!said.contains("OVER"), "{said}");
         assert!(said.contains("budget = 1×trace + 2×opt"), "{said}");
+        assert!(
+            h.texts().contains(&"trace") && !h.texts().contains(&"power"),
+            "{said}"
+        );
         hb.buf[binary::OFF_POWER] = 11;
         h.frame(Vec::new(), |ui| inspector(ui, key, &mut hb, &p));
         let said = h.texts().join("|");
