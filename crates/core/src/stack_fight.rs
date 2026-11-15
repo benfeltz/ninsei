@@ -534,33 +534,3 @@ pub fn moved_to(g: &Game, no: u32, up: bool) -> Option<u32> {
     let j = if up { i.checked_sub(1)? } else { i + 1 };
     lines.get(j).map(|l| l.no)
 }
-
-/// The Sense/Net's alert card when the net's AI comes up, in its OS's friendly words:
-/// what started up, and that it's watching. `None` until it has woken.
-pub fn ai_alert(g: &Game) -> Option<[String; 2]> {
-    let (name, company) = g.ai_woke()?;
-    Some([
-        format!("{name} has started up on this network."),
-        format!("It's a {company} guardian, and it is watching."),
-    ])
-}
-
-/// Watches one run for the moment the Sense/Net puts up its alert card: the net's AI waking
-/// (`Boss::woke_at`, booked once). Feed it the game every frame; it only reads, and gives the
-/// card's words once. A new run starts a new watch (`App::dial`), so a replayed seed waking on
-/// the same hop gets its card again.
-#[derive(Clone, Debug, Default, PartialEq, Eq)]
-pub struct AlertWatch {
-    shown: bool,
-}
-
-impl AlertWatch {
-    pub fn step(&mut self, g: &Game) -> Option<[String; 2]> {
-        if self.shown {
-            return None;
-        }
-        let words = ai_alert(g)?;
-        self.shown = true;
-        Some(words)
-    }
-}

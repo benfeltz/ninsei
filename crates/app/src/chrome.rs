@@ -67,8 +67,6 @@ pub struct FrameCx<'a> {
     pub level: crate::volume::Level,
     /// The sound pop-out: open or not.
     pub popup: &'a mut crate::volume::Popup,
-    /// The alert card for the net's AI waking (the Stack's).
-    pub alerts: &'a mut crate::alert::Alerts,
 }
 
 pub trait ChromeView {
@@ -145,7 +143,7 @@ pub trait ChromeView {
         Vec::new()
     }
     /// Keys of its own, read every frame the run is on screen, before the shared hotkeys: a key
-    /// it consumes (an alert's Enter) never reaches them.
+    /// it consumes never reaches them.
     fn keys(&self, _ctx: &egui::Context, _cx: &mut FrameCx) -> Vec<Request> {
         Vec::new()
     }

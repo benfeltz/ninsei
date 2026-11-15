@@ -310,16 +310,14 @@ pub struct Notice {
     pub lines: Vec<String>,
 }
 
-/// Watches a run for the moments that get a dialog: a contract paid, the net's AI coming up,
-/// jacking out. (A flatline has the crash screen.)
+/// Watches a run for the moments that get a dialog: a contract paid, jacking out. (A flatline
+/// has the crash screen; the net's AI coming up is a line in the session log, never a dialog.)
 /// Feed it the game after every frame; it only reads.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Watch {
     seed: u64,
     phase: Option<Phase>,
     paid: usize,
-    /// The net's AI had woken.
-    ai: bool,
 }
 
 impl Watch {
@@ -338,7 +336,6 @@ impl Watch {
                 seed: g.seed,
                 phase: Some(g.phase),
                 paid,
-                ai: g.ai_woke().is_some(),
             };
             return Vec::new();
         }
@@ -364,10 +361,6 @@ impl Watch {
                 });
             }
         }
-        if let (Some(n), false) = (ai_notice(g), self.ai) {
-            out.push(n);
-        }
-        self.ai = g.ai_woke().is_some();
         if self.phase != Some(g.phase) && g.phase == Phase::JackedOut {
             out.push(Notice {
                 title: "SESSION ENDED".into(),
@@ -381,19 +374,6 @@ impl Watch {
         self.paid = paid;
         out
     }
-}
-
-/// The Hosaka's notice when the net's AI comes up, as the corporate OS files it: the product, by
-/// its maker, monitoring the network it's on. `None` until it has woken.
-pub fn ai_notice(g: &Game) -> Option<Notice> {
-    let (name, company) = g.ai_woke()?;
-    Some(Notice {
-        title: "SECURITY NOTICE".into(),
-        lines: vec![
-            format!("{company} {name} is now monitoring this network."),
-            "All sessions on this network are subject to review.".into(),
-        ],
-    })
 }
 
 /// The incident report's table of the ICE's procedure: step, statement.

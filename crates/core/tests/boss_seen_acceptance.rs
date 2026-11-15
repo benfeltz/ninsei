@@ -105,10 +105,8 @@ fn what_the_runner_sees_is_only_what_they_know_hop_by_hop() {
             if g.ai_woke().is_some() {
                 woke += 1;
                 assert!(said <= 1 && wake_cues <= 1, "seed {seed}");
-                assert!(suite::ai_notice(&g).is_some() && stack_fight::ai_alert(&g).is_some());
             } else {
                 assert_eq!((said, wake_cues), (0, 0));
-                assert!(suite::ai_notice(&g).is_none() && stack_fight::ai_alert(&g).is_none());
             }
         }
     }

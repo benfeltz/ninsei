@@ -1,6 +1,5 @@
 //! ninsei: a cyberspace hacking roguelike dressed as a retro IDE.
 
-mod alert;
 mod bbs_view;
 mod btop;
 mod chrome;
@@ -314,8 +313,6 @@ struct App {
     talk: EncounterView,
     /// The suite chrome's sheet cursor, sort and dialogs.
     suite: suite::State,
-    /// The alert card for the net's AI waking.
-    alerts: alert::Alerts,
     /// The run screen's sound pop-out.
     sound_popup: volume::Popup,
 }
@@ -403,7 +400,6 @@ impl App {
             hex_uid: 0,
             talk: EncounterView::default(),
             suite: suite::State::default(),
-            alerts: alert::Alerts::default(),
             sound_popup: volume::Popup::default(),
             last_phase: game.phase,
             game,
@@ -726,8 +722,6 @@ impl App {
         self.hex = None;
         self.talk = EncounterView::default();
         self.sound_popup.close();
-        // A new run watches for its own alerts: nothing left from the last one.
-        self.alerts = alert::Alerts::default();
         self.suite.watch = Default::default();
         self.suite.dialogs.clear();
         self.term.clear();
@@ -1316,10 +1310,7 @@ impl App {
     /// Whether something already has the keyboard (a BBS, a conversation, a suite dialog
     /// waiting to be dismissed), so the sound pop-out can't open over it.
     fn modal_up(&self) -> bool {
-        self.bbs.is_some()
-            || self.game.encounter.is_some()
-            || !self.suite.dialogs.is_empty()
-            || self.alerts.open.is_some()
+        self.bbs.is_some() || self.game.encounter.is_some() || !self.suite.dialogs.is_empty()
     }
 
     fn status_bar(&mut self, ui: &mut egui::Ui, pal: &theme::Palette) -> Vec<Request> {
@@ -1373,7 +1364,6 @@ impl App {
                 keys_free,
                 level,
                 popup: &mut self.sound_popup,
-                alerts: &mut self.alerts,
             };
             out.extend(v.status_extra(ui, &mut cx));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1564,7 +1554,7 @@ impl eframe::App for App {
     }
 }
 
-/// The run's keys this frame: the chrome's own first (an alert's Enter and Esc, which it takes),
+/// The run's keys this frame: the chrome's own first (a dialog's Enter, which it takes),
 /// then the shared hotkeys with what's left.
 fn run_keys(
     view: &dyn chrome::ChromeView,
@@ -1737,7 +1727,7 @@ impl App {
             self.bbs.is_none() && self.game.encounter.is_none() && !self.sound_popup.is_open();
         let level = volume::Level::of(&self.save);
         // A BBS, a conversation or the sound pop-out has the keyboard: no hotkeys.
-        let modal = self.bbs.is_some() || self.sound_popup.is_open() || self.alerts.open.is_some();
+        let modal = self.bbs.is_some() || self.sound_popup.is_open();
         let mut requests = if self.screen == Screen::Run {
             let mut cx = FrameCx {
                 game: &self.game,
@@ -1746,7 +1736,6 @@ impl App {
                 keys_free,
                 level,
                 popup: &mut self.sound_popup,
-                alerts: &mut self.alerts,
             };
             run_keys(view, &ctx, &mut cx, modal, &mut self.focus_input)
         } else {
@@ -1777,7 +1766,6 @@ impl App {
                         keys_free,
                         level,
                         popup: &mut self.sound_popup,
-                        alerts: &mut self.alerts,
                     };
                     requests.extend(view.legend(ui, &mut cx));
                 });
@@ -1805,12 +1793,10 @@ impl App {
             corrupt: self.glitch.corruption(),
             term: &mut self.term,
             focus_input: &mut self.focus_input,
-            // Any modal (BBS, talk, the sound pop-out, the AI's alert card) keeps the terminal
-            // from grabbing focus.
+            // Any modal (BBS, talk, the sound pop-out) keeps the terminal from grabbing focus.
             bbs_open: self.bbs.is_some()
                 || self.game.encounter.is_some()
-                || self.sound_popup.is_open()
-                || self.alerts.open.is_some(),
+                || self.sound_popup.is_open(),
             hex: &mut self.hex,
             keep: &mut self.keep,
             keep_room: (self.save.stash_cap(&self.data.rig) as usize)
@@ -1891,7 +1877,6 @@ impl App {
             keys_free,
             level: volume::Level::of(&self.save),
             popup: &mut self.sound_popup,
-            alerts: &mut self.alerts,
         };
         let mut over = view.overlay(&ctx, &mut cx);
         if cx.popup.is_open() {
@@ -2794,73 +2779,31 @@ mod tests {
         }
 
         #[test]
-        fn the_ai_waking_is_a_security_notice_on_the_hosaka() {
-            let (mut h, mut app) = running("hosaka");
-            wake_the_ai(&mut h, &mut app);
-            assert_eq!(app.suite.dialogs.len(), 1);
-            assert_eq!(app.suite.dialogs[0].title, "SECURITY NOTICE");
-            assert!(app.modal_up(), "it owns the keyboard");
-            frame(&mut h, &mut app, key(egui::Key::Enter));
-            frame(&mut h, &mut app, Vec::new());
-            assert!(app.suite.dialogs.is_empty() && !app.modal_up());
-        }
-
-        #[test]
-        fn the_ai_waking_is_an_alert_card_on_the_sense_net() {
-            let (mut h, mut app) = running("sensenet");
-            wake_the_ai(&mut h, &mut app);
-            let lines = ninsei_core::stack_fight::ai_alert(&app.game).unwrap();
-            assert_eq!(app.alerts.open.as_ref(), Some(&lines));
-            assert!(painted(&h).contains(&lines[0]), "{:?}", painted(&h));
-            // The card fits its words: no line runs past the box OK sits at the right of.
-            let rect = |t: &str| {
-                h.painted_text()
-                    .into_iter()
-                    .find(|(s, _)| s == t)
-                    .map(|(_, r)| r)
-                    .unwrap()
-            };
-            let ok = rect("OK");
-            for l in &lines {
+        fn the_ai_waking_takes_no_keys_on_any_deck_and_the_log_says_it() {
+            for deck in ["sensenet", "hosaka", "onosendai"] {
+                let (mut h, mut app) = running(deck);
+                wake_the_ai(&mut h, &mut app);
+                assert!(!app.modal_up(), "{deck}: nothing owns the keyboard");
+                assert!(app.suite.dialogs.is_empty(), "{deck}: no dialog filed");
+                let (name, _) = app.game.ai_woke().unwrap();
+                let line = format!("!! {name} is up on the net.");
                 assert!(
-                    rect(l).right() <= ok.right() + 24.0,
-                    "{l} runs off the card"
+                    app.game.log.iter().any(|l| l.text == line),
+                    "{deck}: the log has it"
+                );
+                assert!(
+                    !painted(&h).iter().any(|t| t.contains("has started up")),
+                    "{deck}: no card"
                 );
             }
-            assert!(app.modal_up(), "it owns the keyboard");
-            // Typing goes nowhere while it's up, and the Enter that puts it away submits
-            // nothing.
-            let before = app.game.log.len();
-            typed(&mut h, &mut app, "jack 0");
-            assert!(app.alerts.open.is_some());
-            assert_eq!(app.term.text(), "", "the command line let go");
-            frame(&mut h, &mut app, key(egui::Key::Enter));
-            frame(&mut h, &mut app, Vec::new());
-            assert!(app.alerts.open.is_none() && !app.modal_up());
-            assert_eq!(app.game.log.len(), before);
-            assert_eq!(app.term.text(), "");
-            // Once a wake: it doesn't come back.
-            frame(&mut h, &mut app, Vec::new());
-            assert!(app.alerts.open.is_none());
         }
 
         #[test]
-        fn a_new_run_on_the_same_seed_gets_its_own_alert_and_none_is_left_at_home() {
+        fn typing_goes_to_the_command_line_on_the_hop_the_ai_wakes() {
             let (mut h, mut app) = running("sensenet");
             wake_the_ai(&mut h, &mut app);
-            assert!(app.alerts.open.is_some());
-            // Walked out with the card still up (by mouse, which it doesn't hold): the run's
-            // over and the card goes with it.
-            app.game.phase = Phase::JackedOut;
-            frame(&mut h, &mut app, Vec::new());
-            assert!(app.alerts.open.is_none() && !app.modal_up());
-            // The same number and seed again: the same wake on the same hop, a card again.
-            let entry = app.save.phonebook[0].id;
-            app.dial(entry, Some(7));
-            app.screen = Screen::Run;
-            assert!(app.alerts.open.is_none());
-            wake_the_ai(&mut h, &mut app);
-            assert!(app.alerts.open.is_some());
+            typed(&mut h, &mut app, "jack 0");
+            assert_eq!(app.term.text(), "jack 0");
         }
 
         #[test]
@@ -2875,59 +2818,6 @@ mod tests {
                 let n = painted(&h).iter().filter(|t| **t == status).count();
                 assert_eq!(n, usize::from(mark), "{firmware}: {:?}", painted(&h));
             }
-        }
-
-        #[test]
-        fn a_conversation_s_enter_is_not_the_alert_card_s() {
-            let (mut h, mut app) = running("sensenet");
-            wake_the_ai(&mut h, &mut app);
-            assert!(app.alerts.open.is_some());
-            // Someone on the line too: their Enter doesn't put the card away. (The AI holds
-            // the exit, out of the way.)
-            let exit = ninsei_core::boss::exit(&app.game.net).unwrap();
-            if let Some(ninsei_core::game::BossState::Awake(hu)) =
-                app.game.boss.as_mut().map(|b| &mut b.state)
-            {
-                hu.at = exit;
-                hu.prog = ninsei_core::basic::parse_with("10 HOLD", app.data.ice[hu.ice].vocab());
-            }
-            let to = app.game.net.nodes[app.game.at].links[0];
-            app.game.net.nodes[to].kind = ninsei_core::NodeKind::Contact;
-            app.game.net.nodes[to].cleared = false;
-            app.game.apply(ninsei_core::Action::Move(to));
-            assert!(app.game.encounter.is_some());
-            frame(&mut h, &mut app, Vec::new());
-            frame(&mut h, &mut app, key(egui::Key::Enter));
-            frame(&mut h, &mut app, Vec::new());
-            assert!(
-                app.alerts.open.is_some(),
-                "still up: the Enter was the conversation's"
-            );
-        }
-
-        #[test]
-        fn the_alert_card_holds_the_hotbar_keys_in_a_fight_behind_it() {
-            let (mut h, mut app) = running("sensenet");
-            wake_the_ai(&mut h, &mut app);
-            assert!(app.alerts.open.is_some());
-            // A fight under the card: Space and the digits do nothing while it's up.
-            let ice = app.data.ice.iter().position(|i| i.id == "icewall").unwrap();
-            let to = app.game.net.nodes[app.game.at].links[0];
-            app.game.net.nodes[to].kind = ninsei_core::NodeKind::Ice;
-            app.game.net.nodes[to].ice = Some(ice);
-            app.game.net.nodes[to].cleared = false;
-            app.game.apply(ninsei_core::Action::Move(to));
-            assert_eq!(app.game.phase, Phase::Combat);
-            // The command line let go, as after a click on the map.
-            app.focus_input = false;
-            h.ctx.memory_mut(|m| m.stop_text_input());
-            frame(&mut h, &mut app, Vec::new());
-            let turn = app.game.combat.as_ref().unwrap().turn;
-            let cpu = app.game.combat.as_ref().unwrap().cpu;
-            frame(&mut h, &mut app, key(egui::Key::Space));
-            frame(&mut h, &mut app, key(egui::Key::Num2));
-            let c = app.game.combat.as_ref().unwrap();
-            assert_eq!((c.turn, c.cpu), (turn, cpu), "the card has the keyboard");
         }
 
         #[test]
@@ -3148,7 +3038,6 @@ mod tests {
                     volume: 100,
                 },
                 popup: &mut popup,
-                alerts: &mut Default::default(),
             };
             out = run_keys(&crate::stack::Stack, ui.ctx(), &mut cx, false, &mut focus);
         });
@@ -3196,7 +3085,6 @@ mod tests {
                     volume: 100,
                 },
                 popup: &mut popup,
-                alerts: &mut Default::default(),
             };
             out = run_keys(&chrome::Btop, ui.ctx(), &mut cx, false, &mut focus);
         });
@@ -3252,7 +3140,6 @@ mod tests {
                         volume: 100,
                     },
                     popup: &mut popup,
-                    alerts: &mut Default::default(),
                 };
                 out = run_keys(&crate::suite::Suite, ui.ctx(), &mut cx, false, &mut focus);
             });

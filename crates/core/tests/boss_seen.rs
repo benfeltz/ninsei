@@ -181,39 +181,22 @@ fn the_wake_is_said_and_sounded_once() {
 }
 
 #[test]
-fn every_deck_says_it_in_its_own_words_and_they_fit() {
+fn no_deck_files_a_dialog_when_it_wakes_and_the_marks_dont_coach() {
     let mut g = quiet_run(3, 6);
-    assert!(suite::ai_notice(&g).is_none() && stack_fight::ai_alert(&g).is_none());
     assert!(btop_fight::ai_banner(&g).is_none());
     let mut watch = suite::Watch::default();
     watch.step(&g);
     to_the_wake(&mut g);
-    let notices = watch.step(&g);
-    assert_eq!(notices.len(), 1, "{notices:?}");
-    assert_eq!(notices[0].title, "SECURITY NOTICE");
-    assert!(watch.step(&g).is_empty(), "filed once");
+    // The Hosaka files nothing: the wake is the session log's line.
+    assert!(watch.step(&g).is_empty());
     let (name, company) = g.ai_woke().unwrap();
     assert!(name.starts_with("WARDEN") && company == "Hosaka");
-    for l in &notices[0].lines {
-        assert!(l.chars().count() <= 60, "{l}");
-    }
-    let card = stack_fight::ai_alert(&g).unwrap();
-    assert!(card.iter().all(|l| l.chars().count() <= 48), "{card:?}");
-    assert!(
-        card[0].contains(name) && card[1].contains(company),
-        "{card:?}"
-    );
+    let line = format!("!! {name} is up on the net.");
+    assert_eq!(g.log.iter().filter(|l| l.text == line).count(), 1);
     let bar = btop_fight::ai_banner(&g).unwrap();
     assert!(bar.contains(name) && bar.chars().count() <= 60, "{bar}");
     // Nobody coaches: no keys, no advice.
-    let all: Vec<String> = notices[0]
-        .lines
-        .iter()
-        .cloned()
-        .chain(stack_fight::ai_alert(&g).unwrap())
-        .chain([bar])
-        .collect();
-    for l in all {
+    for l in [bar, line] {
         let low = l.to_ascii_lowercase();
         for w in ["press", "route", "avoid", "click", "esc", "run away"] {
             assert!(!low.contains(w), "{l}");
@@ -227,17 +210,10 @@ fn the_wake_is_one_moment_every_deck_reads() {
     assert!(!g.ai_woke_this_hop());
     to_the_wake(&mut g);
     assert!(g.ai_woke_this_hop(), "the hop it woke on");
-    let mut watch = stack_fight::AlertWatch::default();
-    assert!(watch.step(&g).is_some());
-    assert!(watch.step(&g).is_none(), "once a run");
     if g.phase == Phase::Exploring {
         g.apply(Action::Move(deeper(&g)));
         assert!(!g.ai_woke_this_hop(), "a hop on, it's past");
     }
-    // The same seed again, a new run: a new watch gives it its card again.
-    let mut again = quiet_run(1, 7);
-    to_the_wake(&mut again);
-    assert!(stack_fight::AlertWatch::default().step(&again).is_some());
 }
 
 #[test]

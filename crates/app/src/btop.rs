@@ -1284,7 +1284,6 @@ mod script_tests {
                     volume: 100,
                 },
                 popup: &mut popup,
-                alerts: &mut Default::default(),
             };
             out = crate::chrome::Btop.keys(ui.ctx(), &mut cx);
             let mut panes = Panes {
@@ -1701,7 +1700,6 @@ mod script_tests {
                     volume: 100,
                 },
                 popup: &mut popup,
-                alerts: &mut Default::default(),
             };
             crate::chrome::Btop.keys(ui.ctx(), &mut cx);
             left = ui.input(|i| i.key_pressed(egui::Key::Enter));

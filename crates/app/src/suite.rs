@@ -2037,7 +2037,6 @@ mod tests {
                         volume: 100,
                     },
                     popup: &mut popup,
-                    alerts: &mut Default::default(),
                 };
                 got = Suite.legend(ui, &mut cx);
             });
@@ -2120,7 +2119,6 @@ mod tests {
                         volume: 100,
                     },
                     popup: &mut popup,
-                    alerts: &mut Default::default(),
                 };
                 Suite.overlay(ui.ctx(), &mut cx);
             });
@@ -2356,7 +2354,6 @@ mod module_tests {
                     volume: 100,
                 },
                 popup: &mut popup,
-                alerts: &mut Default::default(),
             };
             out = Suite.keys(ui.ctx(), &mut cx);
             // The legend before the panes, as the run draws its bottom panel first.
