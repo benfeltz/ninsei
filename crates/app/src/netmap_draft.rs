@@ -222,7 +222,11 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
     }
 
     if let Some(m) = netview::ai_mark(game) {
-        ai_callout(&painter, pos(m.node), &m, p, rect);
+        let avoid: Vec<Rect> = (0..net.nodes.len())
+            .filter(|&id| id != m.node && shown(id))
+            .map(|id| annotated(pos(id)))
+            .collect();
+        ai_callout(&painter, pos(m.node), &m, p, rect, &avoid);
     }
 
     dimension(
@@ -525,57 +529,84 @@ fn revision_cloud(painter: &Painter, c: Pos2, p: &Palette) {
     );
 }
 
-/// The net's AI on the plan: a leader from the node it's on to a boxed callout, the node ringed
-/// twice. Where it was last known: the ring and the leader dashed, in `dim`.
-/// The callout goes up and to the left; near the sheet's left or top edge it goes the other
-/// way, so it never runs off the drawing.
-fn ai_callout(painter: &Painter, c: Pos2, m: &AiMark, p: &Palette, sheet: Rect) {
+/// A node's symbol with everything written round it: its number up and left, its host and tag
+/// under it. What another node's callout must keep off.
+fn annotated(c: Pos2) -> Rect {
+    Rect::from_min_max(c + vec2(-38.0, -R - 16.0), c + vec2(38.0, R + 30.0))
+}
+
+/// The net's AI on the plan: a revision box drawn round the node and all its annotations, and a
+/// leader from its corner to a boxed callout, placed clear of the other nodes and their labels
+/// (`place_clear`). Where it was last known: both dashed, in `dim`.
+fn ai_callout(painter: &Painter, c: Pos2, m: &AiMark, p: &Palette, sheet: Rect, avoid: &[Rect]) {
     let ink = if m.now { p.bright } else { p.dim };
     let font = FontId::new(10.0, FontFamily::Monospace);
     let g = painter.layout_no_wrap(netview::ai_caption(m, MapView::Draft), font, ink);
     let size = g.size() + vec2(10.0, 6.0);
-    let left = c.x - R * 3.4 - size.x >= sheet.left() + 4.0;
-    let up = c.y - R * 2.6 - size.y >= sheet.top() + 4.0;
-    let (sx, sy) = (if left { -1.0 } else { 1.0 }, if up { -1.0 } else { 1.0 });
-    let elbow = c + vec2(sx * R * 2.2, sy * R * 2.6);
-    let end = elbow + vec2(sx * R * 1.2, 0.0);
-    let ring = |r: f32| -> Vec<Pos2> {
-        (0..=32)
-            .map(|k| {
-                let a = std::f32::consts::TAU * k as f32 / 32.0;
-                c + vec2(a.cos(), a.sin()) * r
-            })
-            .collect()
-    };
+    let own = annotated(c).expand(4.0);
+    let own = Rect::from_min_size(own.min.round(), own.size().round());
+    // Up-left first, as the drawing's other callouts sit; then the other corners, further out.
+    let mut spots = Vec::new();
+    for reach in [1.0, 2.0, 3.0, 4.0] {
+        for (sx, sy) in [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)] {
+            let corner = pos2(
+                if sx < 0.0 { own.left() } else { own.right() },
+                if sy < 0.0 { own.top() } else { own.bottom() },
+            );
+            let off = vec2(
+                sx * (size.x / 2.0 + 10.0 * reach),
+                sy * (size.y / 2.0 + 14.0 * reach),
+            );
+            spots.push(corner + off);
+        }
+        // Straight out to either side, level with the node.
+        for sx in [-1.0, 1.0] {
+            let side = if sx < 0.0 { own.left() } else { own.right() };
+            spots.push(pos2(side + sx * (size.x / 2.0 + 12.0 * reach), c.y));
+        }
+    }
+    let mut keep_off = avoid.to_vec();
+    keep_off.push(own);
+    let r = crate::netmap::place_clear(&spots, size, &keep_off, sheet.shrink(4.0));
+    // The leader: from the box's corner nearest the callout to the callout's nearest point.
+    let from = pos2(
+        r.center().x.clamp(own.left(), own.right()),
+        r.center().y.clamp(own.top(), own.bottom()),
+    );
+    let to = pos2(
+        from.x.clamp(r.left(), r.right()),
+        from.y.clamp(r.top(), r.bottom()),
+    );
+    let corners = [
+        own.left_top(),
+        own.right_top(),
+        own.right_bottom(),
+        own.left_bottom(),
+        own.left_top(),
+    ];
     if m.now {
-        painter.circle_stroke(c, R * 1.45, Stroke::new(1.6, ink));
-        painter.circle_stroke(c, R * 1.75, Stroke::new(1.0, ink));
-        painter.line_segment(
-            [c + vec2(sx * R, sy * R * 1.1), elbow],
-            Stroke::new(1.2, ink),
+        painter.rect_stroke(own, 0.0, Stroke::new(1.6, ink), egui::StrokeKind::Inside);
+        painter.rect_stroke(
+            own.expand(3.0),
+            0.0,
+            Stroke::new(1.0, ink),
+            egui::StrokeKind::Inside,
         );
-        painter.line_segment([elbow, end], Stroke::new(1.2, ink));
+        painter.line_segment([from, to], Stroke::new(1.2, ink));
     } else {
         painter.extend(Shape::dashed_line(
-            &ring(R * 1.6),
+            &corners,
             Stroke::new(1.0, ink),
             4.0,
             3.0,
         ));
         painter.extend(Shape::dashed_line(
-            &[c + vec2(sx * R * 1.1, sy * R * 1.2), elbow, end],
+            &[from, to],
             Stroke::new(1.0, ink),
             4.0,
             3.0,
         ));
     }
-    let align = if left {
-        Align2::RIGHT_CENTER
-    } else {
-        Align2::LEFT_CENTER
-    };
-    let r = align.anchor_size(end, size);
-    let r = Rect::from_min_size(r.min.round(), r.size().round());
     painter.rect_filled(r, 0.0, p.bg);
     painter.rect_stroke(
         r,

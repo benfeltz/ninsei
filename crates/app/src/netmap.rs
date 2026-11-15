@@ -118,6 +118,28 @@ impl Anim {
     }
 }
 
+/// Where a callout of `size` goes: the first of `spots` (rects' centres, in the order a map
+/// prefers them) that lies inside `within` and clear of everything in `avoid`; else the first
+/// inside `within`, else the first. Whole pixels.
+pub fn place_clear(spots: &[egui::Pos2], size: egui::Vec2, avoid: &[Rect], within: Rect) -> Rect {
+    let rects: Vec<Rect> = spots
+        .iter()
+        .map(|&c| {
+            let r = Rect::from_center_size(c, size);
+            Rect::from_min_size(r.min.round(), r.size().round())
+        })
+        .collect();
+    let inside = |r: &&Rect| within.contains_rect(**r);
+    rects
+        .iter()
+        .filter(inside)
+        .find(|r| !avoid.iter().any(|a| a.intersects(**r)))
+        .or_else(|| rects.iter().find(inside))
+        .or(rects.first())
+        .copied()
+        .unwrap_or(Rect::NOTHING)
+}
+
 /// Mixes two theme colours.
 pub fn mix(a: Color32, b: Color32, k: f32) -> Color32 {
     let k = k.clamp(0.0, 1.0);
@@ -470,6 +492,36 @@ mod tests {
                         bounds.contains_rect(r),
                         "{view:?} node {at}: {cap} at {r:?}"
                     );
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn the_ai_s_callout_keeps_off_the_other_nodes_labels() {
+        for view in [MapView::Draft, MapView::Paint] {
+            for seed in 0..4 {
+                let g = one_in(seed);
+                // Every node in the second and third layers: the crowded middle.
+                let mid: Vec<usize> = g.net.layers[1..3].iter().flatten().copied().collect();
+                for at in mid {
+                    let mut a = with_ai(seed, at, true);
+                    a.net.nodes[at].name = "self-0000".into();
+                    let m = netview::ai_mark(&a).unwrap();
+                    let cap = netview::ai_caption(&m, view);
+                    let painted = drawn(view, &a, "amber").painted_text();
+                    let r = painted.iter().find(|(t, _)| *t == cap).unwrap().1;
+                    // Whatever else is written on the map, but the node's own words.
+                    let own = [a.net.nodes[at].name.clone(), at.to_string(), tag(&a, at)];
+                    for (t, other) in &painted {
+                        if *t == cap || own.contains(t) || t.starts_with("click") || t == "_" {
+                            continue;
+                        }
+                        assert!(
+                            !r.intersects(*other),
+                            "{view:?} seed {seed} node {at}: {cap} {r:?} over {t:?} {other:?}"
+                        );
+                    }
                 }
             }
         }

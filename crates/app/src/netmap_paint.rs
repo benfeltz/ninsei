@@ -101,26 +101,43 @@ fn label(painter: &Painter, at: Pos2, align: Align2, text: &str, c: Two) -> Rect
 
 /// The net's AI on the picture: a little card pinned over the node it's on, saying so, with its
 /// own hatched shadow; where it was last known, the card is dotted and says that.
-/// The card sits above the node, or below it when the card's top would leave the picture, and
-/// slides along to stay inside it.
-fn ai_card(painter: &Painter, at: Pos2, m: &AiMark, c: Two, inside: Rect) {
+/// A node's box with its shadow and the label under it: what the AI's card keeps off.
+fn on_card(at: Pos2) -> Rect {
+    Rect::from_min_max(
+        at + vec2(-look::W / 2.0 - 8.0, -look::H / 2.0 - 4.0),
+        at + vec2(look::W / 2.0 + 8.0, look::H / 2.0 + look::DROP + 20.0),
+    )
+}
+
+/// The net's AI on the picture: a little card pinned near the node it's on, saying so, with a
+/// line from the node to it and its own hatched shadow; where it was last known, the card is
+/// dotted and says that. The card goes where it keeps off every other node and its label
+/// (`place_clear`): above, below, right, left, then further out.
+fn ai_card(painter: &Painter, at: Pos2, m: &AiMark, c: Two, area: Rect, avoid: &[Rect]) {
     let text = netview::ai_caption(m, MapView::Paint);
     let g = painter.layout_no_wrap(text, small(), c.ink);
     let size = g.size() + vec2(12.0, 8.0);
-    let above = at.y - look::H / 2.0 - 14.0 - size.y >= inside.top() + 4.0;
-    let (pin, tip, align) = if above {
-        let pin = pos2(at.x, at.y - look::H / 2.0 - 6.0);
-        (pin, pin - vec2(0.0, 8.0), Align2::CENTER_BOTTOM)
-    } else {
-        let pin = pos2(at.x, at.y + look::H / 2.0 + look::DROP + 20.0);
-        (pin, pin + vec2(0.0, 8.0), Align2::CENTER_TOP)
-    };
-    let r = align.anchor_size(tip, size);
-    let dx =
-        (inside.left() + 4.0 - r.left()).max(0.0) - (r.right() - inside.right() + 4.0).max(0.0);
-    let r = r.translate(vec2(dx, 0.0));
-    let r = Rect::from_min_size(r.min.round(), r.size().round());
-    painter.line_segment([tip, pin], Stroke::new(1.0, c.ink));
+    let own = on_card(at);
+    let mut spots = Vec::new();
+    for gap in [10.0, 30.0, 60.0, 90.0] {
+        spots.push(pos2(at.x, own.top() - gap - size.y / 2.0));
+        spots.push(pos2(at.x, own.bottom() + gap + size.y / 2.0));
+        spots.push(pos2(own.right() + gap + size.x / 2.0, at.y));
+        spots.push(pos2(own.left() - gap - size.x / 2.0, at.y));
+    }
+    let mut keep_off = avoid.to_vec();
+    keep_off.push(own);
+    let r = crate::netmap::place_clear(&spots, size, &keep_off, area.shrink(4.0));
+    let tip = pos2(r.center().x.clamp(r.left(), r.right()), r.center().y);
+    let from = pos2(
+        tip.x.clamp(at.x - look::W / 2.0, at.x + look::W / 2.0),
+        tip.y.clamp(at.y - look::H / 2.0, at.y + look::H / 2.0),
+    );
+    let to = pos2(
+        from.x.clamp(r.left(), r.right()),
+        from.y.clamp(r.top(), r.bottom()),
+    );
+    painter.line_segment([from, to], Stroke::new(1.0, c.ink));
     if m.now {
         painter.rect_filled(r.translate(vec2(look::DROP, look::DROP)), 0.0, c.ink);
         painter.rect_filled(r, 0.0, c.paper);
@@ -344,7 +361,11 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
     }
 
     if let Some(m) = netview::ai_mark(game) {
-        ai_card(&painter, pos(m.node), &m, c, inside);
+        let avoid: Vec<Rect> = (0..net.nodes.len())
+            .filter(|&id| id != m.node && shown(id))
+            .map(|id| on_card(pos(id)))
+            .collect();
+        ai_card(&painter, pos(m.node), &m, c, inside, &avoid);
     }
 
     // The hint along the bottom of the card.
