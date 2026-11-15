@@ -30,6 +30,11 @@ pub enum Outcome {
     Stun,
     /// Clears the ICE's SPOOF.
     Sniff,
+    /// A hack on the map: turns `links` one-way links into here around, adding `trace`.
+    Backlink {
+        links: u32,
+        trace: u32,
+    },
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -57,11 +62,8 @@ impl Game {
             .get(slot)
             .ok_or_else(|| format!("no program in slot {slot}."))?;
         let w = &s.spec;
-        if w.effect.is_hack() && self.combat.is_some() {
-            return Err(format!(
-                "{} runs on the map. ICE is holding the connection.",
-                w.name
-            ));
+        if w.effect.is_hack() {
+            return self.hack(w);
         }
         let Some(c) = self.combat.as_ref() else {
             return Err("nothing to run against.".into());
@@ -91,12 +93,68 @@ impl Game {
             Effect::Scrub(n) => Outcome::Scrub(n),
             Effect::Stun => Outcome::Stun,
             Effect::Sniff => Outcome::Sniff,
-            Effect::Backlink(_) => unreachable!("a hack is refused in a fight"),
+            Effect::Backlink(_) => unreachable!("a hack previews in `hack`"),
         };
         Ok(Preview {
             cpu: w.cpu,
             outcome,
         })
+    }
+}
+
+impl Game {
+    /// What hack `w` would do on the map now, or why it can't: never in a fight, nor while
+    /// someone's talking. Its only cost is the trace it adds, scaled as a hop's is.
+    fn hack(&self, w: &crate::binary::Spec) -> Result<Preview, String> {
+        use crate::game::Phase;
+        match self.phase {
+            Phase::Flatlined | Phase::JackedOut => {
+                return Err("run is over. `newrun` to jack in again.".into());
+            }
+            Phase::Combat => {
+                return Err(format!(
+                    "{} runs on the map. ICE is holding the connection.",
+                    w.name
+                ));
+            }
+            Phase::Encounter => return Err("someone's still talking. answer them first.".into()),
+            Phase::Exploring => {}
+        }
+        let here = &self.net.nodes[self.at].name;
+        let outcome = match w.effect {
+            Effect::Backlink(n) => {
+                let links = self.net.backlinks(self.at).len() as u32;
+                if links == 0 {
+                    return Err(if self.net.one_way_into(self.at).is_empty() {
+                        format!("nothing runs one way into {here}.")
+                    } else {
+                        format!(
+                            "no link into {here} can turn without cutting a node off from the exit."
+                        )
+                    });
+                }
+                Outcome::Backlink {
+                    links,
+                    trace: self.mods.trace(n),
+                }
+            }
+            _ => unreachable!("only a hack previews here"),
+        };
+        Ok(Preview { cpu: 0, outcome })
+    }
+
+    /// The run control a programs list shows for HDD slot `slot`, and whether it's live: a
+    /// fight program's in a fight, live while the cycles last; a hack's on the map and in a
+    /// fight, live when its preview says it can run. `None`: no run control now.
+    pub fn run_control(&self, slot: usize) -> Option<bool> {
+        let s = self.hdd.get(slot)?;
+        let fighting = self.phase == crate::game::Phase::Combat && self.combat.is_some();
+        if s.spec.effect.is_hack() {
+            let shown = fighting || self.phase == crate::game::Phase::Exploring;
+            return shown.then(|| self.preview(slot).is_ok());
+        }
+        let c = self.combat.as_ref().filter(|_| fighting)?;
+        Some(c.cpu >= s.spec.cpu)
     }
 }
 
@@ -248,6 +306,7 @@ impl Game {
                     Outcome::Scrub(n) => format!("scrubs {n} trace"),
                     Outcome::Stun => "lags the ICE".to_string(),
                     Outcome::Sniff => "clears the spoof".to_string(),
+                    Outcome::Backlink { links, .. } => format!("turns {links} links around"),
                 };
                 format!("{no} {text}: {name} {did}.")
             }

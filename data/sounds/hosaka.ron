@@ -37,6 +37,8 @@
                                 (wave: Sine,     from: 784,  to: 784,  ms: 110, vol: 0.20),
                                 (wave: Sine,     from: 1046, to: 1046, ms: 110, vol: 0.20),
                                 (wave: Sine,     from: 1568, to: 1568, ms: 200, vol: 0.20)]),
+        (cue: Hack,     notes: [(wave: Sine,     from: 1200, to: 600,  ms: 90,  vol: 0.14),
+                                (wave: Sine,     from: 600,  to: 1200, ms: 90,  vol: 0.14)]),
     ],
     music: [
         // Tier 1, the lobby: F major at 96 bpm. A sine tune over a bossa bass, with soft

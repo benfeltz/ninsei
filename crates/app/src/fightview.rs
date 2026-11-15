@@ -513,6 +513,7 @@ fn hud(painter: &Painter, rect: Rect, p: &Palette, g: &Game, preview: Option<fig
             Outcome::Scrub(n) => format!("-{n} trace"),
             Outcome::Stun => "lags it: it skips its next move".to_string(),
             Outcome::Sniff => "clears its spoof: NEXT shows again".to_string(),
+            Outcome::Backlink { links, trace } => format!("turns {links} links: +{trace} trace"),
         };
         painter.text(
             pos2(x, y + 62.0),

@@ -590,6 +590,8 @@ pub struct Game {
     pub encounter: Option<Encounter>,
     /// Events already seen this run, so MSG nodes don't repeat while others remain.
     pub events_seen: Vec<usize>,
+    /// Hacks run this run, on the map.
+    pub hacks: u32,
     pub next_uid: u32,
     pub mods: RunMods,
     pub site: Option<Site>,
@@ -938,6 +940,7 @@ impl Game {
             contracts: Vec::new(),
             encounter: None,
             events_seen: Vec::new(),
+            hacks: 0,
             next_uid: 1,
             mods: kit.mods,
             hints: Vec::new(),
@@ -1300,15 +1303,17 @@ impl Game {
         }
     }
 
-    /// The RUNs that can never run on this deck: no such program on the disk, or one that
-    /// costs more than the deck's cycles a turn.
+    /// The RUNs that can never run on this deck: no such program on the disk, a hack (it runs
+    /// on the map, never in a fight), or one that costs more than the deck's cycles a turn.
     fn never_runs(&self) -> Vec<u32> {
         self.program
             .lines
             .iter()
             .filter(|l| match &l.stmt {
                 Stmt::Run(name) => self.slot_named(name).is_none_or(|slot| {
-                    crate::fight::short_of(&self.hdd[slot].spec, self.deck.cpu_max).is_some()
+                    let spec = &self.hdd[slot].spec;
+                    spec.effect.is_hack()
+                        || crate::fight::short_of(spec, self.deck.cpu_max).is_some()
                 }),
                 _ => false,
             })
@@ -1978,6 +1983,9 @@ impl Game {
         let p = self.preview(slot)?;
         let name = self.hdd[slot].spec.name.clone();
         let uid = self.hdd[slot].uid;
+        if let crate::fight::Outcome::Backlink { links, trace } = p.outcome {
+            return self.hack_backlink(&name, links, trace);
+        }
         let Some(c) = self.combat.as_mut() else {
             return Err("nothing to run against.".into());
         };
@@ -2016,6 +2024,7 @@ impl Game {
                     format!("{name} lags the ICE. it skips a beat."),
                 );
             }
+            crate::fight::Outcome::Backlink { .. } => unreachable!("a hack runs on the map"),
             crate::fight::Outcome::Sniff => {
                 c.spoofed = 0;
                 self.say(
@@ -2024,6 +2033,28 @@ impl Game {
                 );
             }
         }
+        Ok(())
+    }
+
+    /// A Backlink on the map, as its preview said: the one-way links into here turn around and
+    /// the trace goes on, through the one check that flatlines.
+    fn hack_backlink(&mut self, name: &str, links: u32, trace: u32) -> Result<(), String> {
+        let flips = self.net.backlink(self.at);
+        debug_assert_eq!(flips.len() as u32, links, "the run is the preview");
+        self.hacks += 1;
+        self.deck.trace += trace;
+        let here = self.net.nodes[self.at].name.clone();
+        let s = if links == 1 { "" } else { "s" };
+        self.say(
+            LogKind::Good,
+            format!(
+                "{name}: {links} link{s} into {here} turned around. they lead out of here now."
+            ),
+        );
+        if self.check_trace() {
+            return Ok(());
+        }
+        self.void_unreachable_contracts();
         Ok(())
     }
 

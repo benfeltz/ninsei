@@ -41,6 +41,8 @@
                                 (wave: Triangle, from: 659,  to: 659,  ms: 90,  vol: 0.20),
                                 (wave: Triangle, from: 784,  to: 784,  ms: 90,  vol: 0.20),
                                 (wave: Triangle, from: 1046, to: 1046, ms: 260, vol: 0.22)]),
+        (cue: Hack,     notes: [(wave: Square,   from: 990,  to: 495,  ms: 70,  vol: 0.12),
+                                (wave: Square,   from: 495,  to: 990,  ms: 70,  vol: 0.12)]),
     ],
     music: [
         // Tier 1: C major at 108 bpm, the home stack. A 16-bar square tune over a triangle bass, with

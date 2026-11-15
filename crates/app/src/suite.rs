@@ -544,8 +544,6 @@ impl Panes<'_> {
     fn suite_warez(&mut self, ui: &mut Ui) {
         let g = self.game;
         let p = self.pal;
-        let fighting = g.phase == Phase::Combat;
-        let cpu_left = g.combat.as_ref().map_or(0, |c| c.cpu);
         let mut acts: Vec<Request> = Vec::new();
         let st = &mut *self.suite;
         window(ui, &p, Tab::Warez.number(), "", |ui| {
@@ -722,7 +720,7 @@ impl Panes<'_> {
                                 st.col = SheetCol::ALL[k - 1];
                             }
                         }
-                        if resp.double_clicked() && fighting {
+                        if resp.double_clicked() && g.run_control(slot) == Some(true) {
                             acts.push(act(Action::Run(slot)));
                         }
                         let w = &s.spec;
@@ -733,10 +731,8 @@ impl Panes<'_> {
                             w.effect.describe()
                         ))
                         .context_menu(|ui| {
-                            if fighting
-                                && ui
-                                    .add_enabled(cpu_left >= w.cpu, egui::Button::new("Run"))
-                                    .clicked()
+                            if let Some(ok) = g.run_control(slot)
+                                && ui.add_enabled(ok, egui::Button::new("Run")).clicked()
                             {
                                 acts.push(act(Action::Run(slot)));
                             }
@@ -787,7 +783,7 @@ impl Panes<'_> {
                     );
                     if ui
                         .add_enabled(
-                            c.cpu >= w.cpu,
+                            g.run_control(i) == Some(true),
                             egui::Button::new(t(label, if class_hit { p.bright } else { p.fg })),
                         )
                         .on_hover_text(w.effect.describe())
@@ -1915,9 +1911,16 @@ mod tests {
     use ninsei_core::hub::Save;
 
     /// A run whose first program has a long name, the sheet drawn in a 900x500 window.
-    fn sheet(h: &mut Harness, d: &Data, g: &Game, st: &mut State, events: Vec<egui::Event>) {
+    fn sheet(
+        h: &mut Harness,
+        d: &Data,
+        g: &Game,
+        st: &mut State,
+        events: Vec<egui::Event>,
+    ) -> Vec<Request> {
         let (mut term, mut focus, mut hex, mut keep) =
             (ninsei_term::LineEditor::default(), false, None, Vec::new());
+        let mut out = Vec::new();
         for ev in [events, Vec::new()] {
             h.frame(ev, |ui| {
                 let mut child = ui.new_child(
@@ -1943,8 +1946,10 @@ mod tests {
                     out: Vec::new(),
                 };
                 panes.suite_warez(&mut child);
+                out.append(&mut panes.out);
             });
         }
+        out
     }
 
     /// Each row of single glyphs the last frame painted, left to right: (where the row was
@@ -1968,6 +1973,82 @@ mod tests {
             v.sort_by(|a, b| a.0.left().total_cmp(&b.0.left()));
         }
         rows
+    }
+
+    /// On the map, a double click on a hack's row runs it, as it runs a program in a fight;
+    /// a fight program's row runs nothing there.
+    #[test]
+    fn a_double_click_on_a_hack_s_row_runs_it_on_the_map() {
+        let d = Data::builtin().unwrap();
+        let mut s = Save::default();
+        s.ensure_hardware(&d);
+        let mut g = s.jack_in(&d, 1);
+        let seed = (0..200)
+            .find(|&seed| {
+                g.net.orient(seed, 70);
+                g.net.layers[1]
+                    .iter()
+                    .any(|&n| !g.net.backlinks(n).is_empty())
+            })
+            .unwrap();
+        g.net.orient(seed, 70);
+        g.at = *g.net.layers[1]
+            .iter()
+            .find(|&&n| !g.net.backlinks(n).is_empty())
+            .unwrap();
+        let mut slot = g.factory_slot(d.warez_ix("backlink").unwrap()).unwrap();
+        slot.uid = 900;
+        g.hdd.push(slot);
+        let hack = g.hdd.len() - 1;
+        let mut st = State::default();
+        let mut h = Harness::new(900.0, 500.0);
+        sheet(&mut h, &d, &g, &mut st, Vec::new());
+        let glyph = |h: &Harness, file: &str| {
+            let rows = glyph_rows(h);
+            let (_, row) = rows
+                .iter()
+                .find(|(_, v)| {
+                    v.iter()
+                        .map(|g| g.1.as_str())
+                        .collect::<String>()
+                        .contains(file)
+                })
+                .unwrap_or_else(|| panic!("{file}: {rows:?}"));
+            let joined: String = row.iter().map(|g| g.1.as_str()).collect();
+            row[joined[..joined.find(file).unwrap()].chars().count()].0
+        };
+        let ran = |out: Vec<Request>| -> Vec<Action> {
+            out.into_iter()
+                .filter_map(|r| match r {
+                    Request::Cmd(ninsei_core::Command::Game(a)) => Some(a),
+                    _ => None,
+                })
+                .collect()
+        };
+        let icepick = g.hdd[0].spec.file();
+        let at = glyph(&h, &icepick);
+        let out = sheet(
+            &mut h,
+            &d,
+            &g,
+            &mut st,
+            crate::uitest::double_click(at.center()),
+        );
+        assert!(
+            ran(out).is_empty(),
+            "a fight program runs nothing on the map"
+        );
+        // Long enough that the next two clicks are a double click, not a triple.
+        h.wait(1.0);
+        let at = glyph(&h, &g.hdd[hack].spec.file());
+        let out = sheet(
+            &mut h,
+            &d,
+            &g,
+            &mut st,
+            crate::uitest::double_click(at.center()),
+        );
+        assert_eq!(ran(out), [Action::Run(hack)]);
     }
 
     #[test]

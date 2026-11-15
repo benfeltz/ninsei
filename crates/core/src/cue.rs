@@ -35,10 +35,12 @@ pub enum Cue {
     Encounter,
     Flatline,
     JackOut,
+    /// A hack ran on the map.
+    Hack,
 }
 
 impl Cue {
-    pub const ALL: [Cue; 14] = [
+    pub const ALL: [Cue; 15] = [
         Cue::Hop,
         Cue::IceRez,
         Cue::Hit,
@@ -53,6 +55,7 @@ impl Cue {
         Cue::Encounter,
         Cue::Flatline,
         Cue::JackOut,
+        Cue::Hack,
     ];
 }
 
@@ -220,6 +223,7 @@ pub struct Snap {
     /// (node, ICE strength, shield) while fighting.
     fight: Option<(usize, u32, u32)>,
     encounter: bool,
+    hacks: u32,
 }
 
 impl Snap {
@@ -234,6 +238,7 @@ impl Snap {
             phase: g.phase,
             fight: g.combat.as_ref().map(|c| (c.node, c.strength, c.shield)),
             encounter: g.encounter.is_some(),
+            hacks: g.hacks,
         }
     }
 }
@@ -245,6 +250,9 @@ pub fn cues(was: &Snap, g: &Game, bought: bool) -> Vec<Cue> {
     let now = g.combat.as_ref().map(|c| (c.node, c.strength, c.shield));
     if g.hops > was.hops {
         out.push(Cue::Hop);
+    }
+    if g.hacks > was.hacks {
+        out.push(Cue::Hack);
     }
     match (was.fight, now) {
         (None, Some(_)) => out.push(Cue::IceRez),

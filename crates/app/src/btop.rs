@@ -389,8 +389,6 @@ impl Panes<'_> {
     pub(crate) fn btop_warez(&mut self, ui: &mut Ui) {
         let g = self.game;
         let p = self.pal;
-        let fighting = g.phase == Phase::Combat;
-        let cpu = g.combat.as_ref().map_or(0, |c| c.cpu);
         let note = format!("hdd {}/{}", g.hdd.len(), g.deck.hdd_max);
         let mut acts = Vec::new();
         let mut hex = None;
@@ -428,12 +426,9 @@ impl Panes<'_> {
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
                                 |ui| {
-                                    if fighting
+                                    if let Some(ok) = g.run_control(i)
                                         && ui
-                                            .add_enabled(
-                                                cpu >= w.cpu,
-                                                egui::Button::new("run").small(),
-                                            )
+                                            .add_enabled(ok, egui::Button::new("run").small())
                                             .clicked()
                                     {
                                         acts.push(Action::Run(i));
@@ -601,7 +596,7 @@ impl Panes<'_> {
                         let btn =
                             egui::Button::new(text(label, if class_hit { p.bright } else { p.fg }));
                         if ui
-                            .add_enabled(c.cpu >= w.cpu, btn)
+                            .add_enabled(g.run_control(i) == Some(true), btn)
                             .on_hover_text(w.effect.describe())
                             .clicked()
                         {

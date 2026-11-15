@@ -196,3 +196,149 @@ fn the_map_draws_a_turned_link_pointing_back() {
     }
     assert!(drawn > 5, "{drawn}");
 }
+
+/// A run with Backlink on the disk, stood a layer in on the node with the most to turn.
+fn on_the_map(seed: u64) -> (Game, usize) {
+    let mut g = Game::new(data(), seed);
+    g.net.orient(seed, 70);
+    let w = g.data.warez_ix("backlink").unwrap();
+    let mut s = g.factory_slot(w).unwrap();
+    s.uid = 900;
+    g.hdd.push(s);
+    let at = *g.net.layers[1]
+        .iter()
+        .max_by_key(|&&n| g.net.backlinks(n).len())
+        .unwrap();
+    g.at = at;
+    let slot = g.hdd.len() - 1;
+    (g, slot)
+}
+
+/// The first seed whose run has something to turn.
+fn ready() -> (Game, usize) {
+    (0..200)
+        .map(on_the_map)
+        .find(|(g, _)| !g.net.backlinks(g.at).is_empty())
+        .unwrap()
+}
+
+#[test]
+fn on_the_map_backlink_does_what_its_preview_said() {
+    let mut turned = 0;
+    for seed in 0..60 {
+        let (mut g, slot) = on_the_map(seed);
+        g.mods.trace_pct = 150;
+        let flips = g.net.backlinks(g.at);
+        let before = (g.deck.trace, g.hops, g.at);
+        match g.preview(slot) {
+            Ok(p) => {
+                let fight::Outcome::Backlink { links, trace } = p.outcome else {
+                    panic!("{p:?}")
+                };
+                assert_eq!(p.cpu, 0, "a hack spends no cpu");
+                assert_eq!(links as usize, flips.len());
+                assert_eq!(
+                    trace,
+                    g.mods.trace(tuning::COST_BACKLINK),
+                    "scaled as a hop is"
+                );
+                assert_eq!(trace, 18);
+                g.apply(Action::Run(slot));
+                assert_eq!(g.deck.trace, before.0 + trace, "its only cost is the trace");
+                assert_eq!((g.hops, g.at), (before.1, before.2), "it moves no one");
+                assert_eq!(g.hacks, 1);
+                for &(a, _) in &flips {
+                    assert!(g.reachable().contains(&a), "the turned link leads out");
+                }
+                assert!(g.cues.contains(&cue::Cue::Hack), "{:?}", g.cues);
+                assert_eq!(
+                    g.history.runs.last().map(|r| r.0),
+                    Some(900),
+                    "history has it"
+                );
+                turned += 1;
+            }
+            Err(why) => {
+                assert!(flips.is_empty(), "{why}");
+                g.apply(Action::Run(slot));
+                assert_eq!(g.deck.trace, before.0, "refused costs nothing");
+                assert_eq!(g.hacks, 0);
+                assert!(g.log.last().unwrap().text.contains(&why));
+            }
+        }
+    }
+    assert!(turned > 10, "{turned}");
+}
+
+#[test]
+fn a_backlink_can_trace_you_out() {
+    let (mut g, slot) = ready();
+    g.deck.trace = tuning::TRACE_MAX - 1;
+    g.apply(Action::Run(slot));
+    assert_eq!(g.phase, Phase::Flatlined);
+    assert!(g.cues.contains(&cue::Cue::Flatline));
+}
+
+#[test]
+fn nothing_to_turn_is_refused_in_the_preview_s_words() {
+    let (mut g, slot) = ready();
+    g.at = g.net.entry();
+    let why = g.preview(slot).unwrap_err();
+    assert!(why.starts_with("nothing runs one way into"), "{why}");
+    g.apply(Action::Run(slot));
+    assert_eq!(g.deck.trace, 0);
+}
+
+#[test]
+fn a_backlink_is_refused_in_a_fight_and_while_someone_talks() {
+    let (mut g, slot) = ready();
+    g.phase = Phase::Encounter;
+    assert_eq!(
+        g.preview(slot).unwrap_err(),
+        "someone's still talking. answer them first."
+    );
+    assert_eq!(g.run_control(slot), None);
+    g.phase = Phase::Exploring;
+    assert_eq!(g.run_control(slot), Some(true));
+    // Into a fight, on the node a link ahead.
+    let ahead = g.reachable()[0];
+    let ice = g.data.ice.iter().position(|i| i.tier == 1).unwrap();
+    let n = &mut g.net.nodes[ahead];
+    (n.kind, n.ice, n.cleared) = (NodeKind::Ice, Some(ice), false);
+    g.apply(Action::Move(ahead));
+    assert_eq!(g.phase, Phase::Combat);
+    let why = g.preview(slot).unwrap_err();
+    assert_eq!(
+        why,
+        "Backlink runs on the map. ICE is holding the connection."
+    );
+    assert_eq!(g.run_control(slot), Some(false), "shown, not live");
+    let (trace, net) = (g.deck.trace, format!("{:?}", g.net.nodes));
+    g.apply(Action::Run(slot));
+    assert_eq!((g.deck.trace, format!("{:?}", g.net.nodes)), (trace, net));
+    assert!(g.log.last().unwrap().text.contains(&why));
+    // A script line that runs it is skipped with the same words, and the pass goes on.
+    g.apply(Action::Program("10 RUN backlink\n20 RUN icepick".into()));
+    assert!(
+        g.starved().contains(&10),
+        "the editor marks it: it never runs here"
+    );
+    g.apply(Action::Step);
+    let said: Vec<String> = g.exec.trace.iter().map(|s| g.step_text(s)).collect();
+    assert!(
+        said.iter()
+            .any(|s| s == &format!("10 RUN backlink: skipped. {why}")),
+        "{said:?}"
+    );
+}
+
+#[test]
+fn other_programs_are_still_refused_on_the_map() {
+    let (g, _) = ready();
+    for slot in 0..g.hdd.len() {
+        if !g.hdd[slot].spec.effect.is_hack() {
+            assert_eq!(g.preview(slot).unwrap_err(), "nothing to run against.");
+            assert_eq!(g.run_control(slot), None);
+        }
+    }
+}

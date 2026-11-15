@@ -242,7 +242,6 @@ impl ChromeView for Stack {
 
     fn warez(&self, p: &mut Panes, ui: &mut Ui) {
         let g = p.game;
-        let fighting = g.phase == Phase::Combat;
         ui.label(
             RichText::new(format!("On disk  {}/{}", g.hdd.len(), g.deck.hdd_max))
                 .strong()
@@ -250,7 +249,7 @@ impl ChromeView for Stack {
         );
         for (i, s) in g.hdd.iter().enumerate() {
             let w = &s.spec;
-            let on = fighting && g.preview(i).is_ok();
+            let on = g.run_control(i).is_some() && g.preview(i).is_ok();
             let sub = format!("run · cpu {}", w.cpu);
             let id = ui.id().with(("stack-prog", s.uid));
             ui.horizontal(|ui| {
