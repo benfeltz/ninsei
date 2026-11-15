@@ -67,6 +67,8 @@ pub struct FrameCx<'a> {
     pub level: crate::volume::Level,
     /// The sound pop-out: open or not.
     pub popup: &'a mut crate::volume::Popup,
+    /// The alert card for the net's AI waking (the Stack's).
+    pub alerts: &'a mut crate::alert::Alerts,
 }
 
 pub trait ChromeView {
@@ -307,6 +309,7 @@ impl ChromeView for Btop {
     }
     fn status_extra(&self, ui: &mut Ui, cx: &mut FrameCx) -> Vec<Request> {
         crate::btop::status_sparks(ui, &cx.pal, cx.game);
+        crate::btop::ai_bar(ui, &cx.pal, cx.game);
         crate::btop::speaker(ui, cx)
     }
     fn sound(&self, ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {

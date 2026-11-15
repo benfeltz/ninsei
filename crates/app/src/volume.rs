@@ -310,6 +310,7 @@ pub mod tests {
                     keys_free: !popup.is_open(),
                     level,
                     popup: &mut *popup,
+                    alerts: &mut Default::default(),
                 };
                 ui.horizontal(|ui| out.extend(view.status_extra(ui, &mut cx)));
                 if cx.popup.is_open() {

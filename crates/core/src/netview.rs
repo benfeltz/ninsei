@@ -162,6 +162,13 @@ pub fn ai_mark(game: &Game) -> Option<AiMark> {
     })
 }
 
+/// The classic status line's mark while the net's AI is up: the OS's process list, short.
+pub fn ai_status(game: &Game) -> Option<String> {
+    game.hunter()?;
+    let (name, _) = game.ai_woke()?;
+    Some(format!("▲ {name} UP"))
+}
+
 /// What a map style writes beside the net's AI, in its own drawing's words: the Iso's tag, the
 /// Draft's callout in capitals, the Paint card's sentence. Last known says so.
 pub fn ai_caption(m: &AiMark, view: MapView) -> String {

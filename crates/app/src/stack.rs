@@ -197,7 +197,80 @@ fn button(ui: &mut Ui, p: &Panes, id: Id, text: &str, sub: &str, on: bool, ring:
 
 pub struct Stack;
 
+/// The alert card's width, in points.
+const ALERT_W: f32 = 380.0;
+
+/// The Sense/Net's alert card: Liza's alert box (a shadowed box, a heavy-framed "!" mark, the
+/// two lines and OK as the default button) over the run. Enter or OK puts it away. Returns
+/// whether it was dismissed this frame.
+fn alert_card(ctx: &egui::Context, cx: &FrameCx, lines: &[String; 2], enter: bool) -> bool {
+    let mut ok = enter;
+    egui::Area::new(Id::new("stack-ai-alert"))
+        .order(egui::Order::Foreground)
+        .anchor(Align2::CENTER_CENTER, vec2(0.0, -40.0))
+        .show(ctx, |ui| {
+            let look = liza::Look {
+                ink: cx.pal.fg,
+                paper: cx.pal.bg,
+                font: egui::TextStyle::Monospace.resolve(ui.style()),
+                stripes: None,
+                gray: cx.game.data.pattern("p50"),
+            };
+            let (r, _) = ui.allocate_exact_size(vec2(ALERT_W, 120.0), Sense::hover());
+            let r = Rect::from_min_size(r.min.round(), r.size().round());
+            liza::shadowed(ui.painter(), r, &look);
+            // The alert's mark: a "!" in a heavy frame, left of the words.
+            let mark = Rect::from_min_size(r.min + vec2(16.0, 16.0), vec2(32.0, 32.0));
+            ui.painter()
+                .rect_stroke(mark, 4.0, Stroke::new(3.0, look.ink), StrokeKind::Inside);
+            ui.painter().text(
+                mark.center(),
+                Align2::CENTER_CENTER,
+                "!",
+                egui::FontId::new(22.0, egui::FontFamily::Monospace),
+                look.ink,
+            );
+            for (i, l) in lines.iter().enumerate() {
+                ui.painter().text(
+                    pos2(mark.right() + 14.0, mark.top() + 4.0 + 18.0 * i as f32),
+                    Align2::LEFT_TOP,
+                    l,
+                    look.font.clone(),
+                    look.ink,
+                );
+            }
+            let w = liza::button_width(ctx, "OK", &look);
+            let face = Rect::from_min_size(
+                pos2(r.right() - w - 20.0, r.bottom() - 40.0).round(),
+                vec2(w, liza::size::BUTTON_H),
+            );
+            let id = Id::new("stack-ai-alert-ok");
+            if liza::button(ui, ui.painter(), face, id, "OK", true, true, &look).clicked() {
+                ok = true;
+            }
+        });
+    ok
+}
+
 impl ChromeView for Stack {
+    /// The alert card when the net's AI wakes; while it's up it owns the keyboard.
+    fn overlay(&self, ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
+        // Enter only puts away a card that was already up: the Enter that sent the hop that
+        // woke it mustn't close it in the same frame.
+        let was_up = cx.alerts.open.is_some();
+        if let Some(lines) = cx.alerts.watch.step(cx.game) {
+            cx.alerts.open = Some(lines);
+        }
+        let Some(lines) = cx.alerts.open.clone() else {
+            return Vec::new();
+        };
+        let enter = was_up && ctx.input(|i| i.key_pressed(egui::Key::Enter));
+        if alert_card(ctx, cx, &lines, enter) {
+            cx.alerts.open = None;
+        }
+        Vec::new()
+    }
+
     fn deck(&self, p: &mut Panes, ui: &mut Ui) {
         let g = p.game;
         let d = &g.deck;
@@ -489,7 +562,8 @@ impl ChromeView for Stack {
     fn keys(&self, ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
         // Free this frame and the last: egui lets go of a text field on the same Esc that
         // would reach us, and that Esc only meant to leave the field.
-        let free = cx.keys_free && !ctx.egui_wants_keyboard_input();
+        // The alert card has the keyboard while it's up.
+        let free = cx.keys_free && cx.alerts.open.is_none() && !ctx.egui_wants_keyboard_input();
         let was = Id::new("stack-keys-free");
         let last = ctx.data_mut(|d| std::mem::replace(d.get_temp_mut_or(was, false), free));
         if !(free && last) {
@@ -1416,6 +1490,7 @@ pub(crate) mod tests {
                     volume: 100,
                 },
                 popup: &mut popup,
+                alerts: &mut Default::default(),
             };
             out = Stack.keys(ui.ctx(), &mut cx);
         });
@@ -1495,6 +1570,7 @@ pub(crate) mod tests {
                     volume: 100,
                 },
                 popup: &mut popup,
+                alerts: &mut Default::default(),
             };
             out = Stack.keys(ui.ctx(), &mut cx);
             let mut child = ui.new_child(
@@ -1578,6 +1654,7 @@ pub(crate) mod tests {
                         volume: 100,
                     },
                     popup: &mut popup,
+                    alerts: &mut Default::default(),
                 };
                 out = Stack.keys(ui.ctx(), &mut cx);
                 // The Message box: a text field with the keyboard.

@@ -544,3 +544,23 @@ pub fn ai_alert(g: &Game) -> Option<[String; 2]> {
         format!("It's a {company} guardian, and it is watching."),
     ])
 }
+
+/// Watches a run for the moment the Sense/Net puts up its alert card: the net's AI waking.
+/// Feed it the game every frame; it only reads, and gives the card's words once per wake.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct AlertWatch {
+    /// The run and hop of the last wake it gave a card for.
+    seen: Option<(u64, u32)>,
+}
+
+impl AlertWatch {
+    pub fn step(&mut self, g: &Game) -> Option<[String; 2]> {
+        let woke = g.boss.as_ref()?.woke_at?;
+        let key = Some((g.seed, woke));
+        if self.seen == key {
+            return None;
+        }
+        self.seen = key;
+        ai_alert(g)
+    }
+}

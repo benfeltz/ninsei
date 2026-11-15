@@ -1,5 +1,6 @@
 //! ninsei: a cyberspace hacking roguelike dressed as a retro IDE.
 
+mod alert;
 mod bbs_view;
 mod btop;
 mod chrome;
@@ -313,6 +314,8 @@ struct App {
     talk: EncounterView,
     /// The suite chrome's sheet cursor, sort and dialogs.
     suite: suite::State,
+    /// The alert card for the net's AI waking.
+    alerts: alert::Alerts,
     /// The run screen's sound pop-out.
     sound_popup: volume::Popup,
 }
@@ -400,6 +403,7 @@ impl App {
             hex_uid: 0,
             talk: EncounterView::default(),
             suite: suite::State::default(),
+            alerts: alert::Alerts::default(),
             sound_popup: volume::Popup::default(),
             last_phase: game.phase,
             game,
@@ -1308,7 +1312,10 @@ impl App {
     /// Whether something already has the keyboard (a BBS, a conversation, a suite dialog
     /// waiting to be dismissed), so the sound pop-out can't open over it.
     fn modal_up(&self) -> bool {
-        self.bbs.is_some() || self.game.encounter.is_some() || !self.suite.dialogs.is_empty()
+        self.bbs.is_some()
+            || self.game.encounter.is_some()
+            || !self.suite.dialogs.is_empty()
+            || self.alerts.open.is_some()
     }
 
     fn status_bar(&mut self, ui: &mut egui::Ui, pal: &theme::Palette) -> Vec<Request> {
@@ -1331,6 +1338,9 @@ impl App {
                 Phase::JackedOut => ("○ OFFLINE", pal.dim),
             };
             ui.label(RichText::new(state).color(col));
+            if let Some(ai) = ninsei_core::netview::ai_status(g) {
+                ui.label(RichText::new(ai).color(pal.bright).strong());
+            }
             if let Some(site) = &g.site {
                 let traits = if site.traits.is_empty() {
                     String::new()
@@ -1362,6 +1372,7 @@ impl App {
                 keys_free,
                 level,
                 popup: &mut self.sound_popup,
+                alerts: &mut self.alerts,
             };
             out.extend(v.status_extra(ui, &mut cx));
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -1734,6 +1745,7 @@ impl App {
                 keys_free,
                 level,
                 popup: &mut self.sound_popup,
+                alerts: &mut self.alerts,
             };
             run_keys(view, &ctx, &mut cx, modal, &mut self.focus_input)
         } else {
@@ -1764,6 +1776,7 @@ impl App {
                         keys_free,
                         level,
                         popup: &mut self.sound_popup,
+                        alerts: &mut self.alerts,
                     };
                     requests.extend(view.legend(ui, &mut cx));
                 });
@@ -1875,6 +1888,7 @@ impl App {
             keys_free,
             level: volume::Level::of(&self.save),
             popup: &mut self.sound_popup,
+            alerts: &mut self.alerts,
         };
         let mut over = view.overlay(&ctx, &mut cx);
         if cx.popup.is_open() {
@@ -2749,6 +2763,79 @@ mod tests {
             assert!(app.extra_panes().contains(&Tab::Vis));
         }
 
+        /// `app`'s run made quiet (every node a looted vault) and walked to the hop that wakes
+        /// the net's AI.
+        fn wake_the_ai(h: &mut Harness, app: &mut App) {
+            for _ in 0..3 {
+                frame(h, app, Vec::new());
+            }
+            for n in &mut app.game.net.nodes {
+                if !matches!(
+                    n.kind,
+                    ninsei_core::NodeKind::Entry | ninsei_core::NodeKind::Exit
+                ) {
+                    (n.kind, n.ice, n.cleared) = (ninsei_core::NodeKind::Vault, None, true);
+                }
+            }
+            let to = app.game.net.nodes[app.game.at].links[0];
+            let hop = app.game.route(to).unwrap().trace;
+            app.game.deck.trace = app.game.boss.as_ref().unwrap().wake - hop;
+            app.game.apply(ninsei_core::Action::Move(to));
+            assert!(app.game.ai_woke().is_some());
+            frame(h, app, Vec::new());
+            frame(h, app, Vec::new());
+        }
+
+        fn painted(h: &Harness) -> Vec<String> {
+            h.painted_text().into_iter().map(|(t, _)| t).collect()
+        }
+
+        #[test]
+        fn the_ai_waking_is_a_security_notice_on_the_hosaka() {
+            let (mut h, mut app) = running("hosaka");
+            wake_the_ai(&mut h, &mut app);
+            assert_eq!(app.suite.dialogs.len(), 1);
+            assert_eq!(app.suite.dialogs[0].title, "SECURITY NOTICE");
+            assert!(app.modal_up(), "it owns the keyboard");
+            frame(&mut h, &mut app, key(egui::Key::Enter));
+            frame(&mut h, &mut app, Vec::new());
+            assert!(app.suite.dialogs.is_empty() && !app.modal_up());
+        }
+
+        #[test]
+        fn the_ai_waking_is_an_alert_card_on_the_sense_net() {
+            let (mut h, mut app) = running("sensenet");
+            wake_the_ai(&mut h, &mut app);
+            let lines = ninsei_core::stack_fight::ai_alert(&app.game).unwrap();
+            assert_eq!(app.alerts.open.as_ref(), Some(&lines));
+            assert!(painted(&h).contains(&lines[0]), "{:?}", painted(&h));
+            assert!(app.modal_up(), "it owns the keyboard");
+            // Typing goes nowhere while it's up.
+            let before = app.game.log.len();
+            typed(&mut h, &mut app, "x");
+            assert!(app.alerts.open.is_some());
+            assert_eq!(app.game.log.len(), before);
+            frame(&mut h, &mut app, key(egui::Key::Enter));
+            frame(&mut h, &mut app, Vec::new());
+            assert!(app.alerts.open.is_none() && !app.modal_up());
+            // Once a wake: it doesn't come back.
+            frame(&mut h, &mut app, Vec::new());
+            assert!(app.alerts.open.is_none());
+        }
+
+        #[test]
+        fn the_ai_waking_lights_the_alarm_bar_on_the_ono_sendai() {
+            let (mut h, mut app) = running("onosendai");
+            wake_the_ai(&mut h, &mut app);
+            let bar = ninsei_core::btop_fight::ai_banner(&app.game).unwrap();
+            assert!(
+                painted(&h).iter().any(|t| t.contains(&bar)),
+                "{:?}",
+                painted(&h)
+            );
+            assert!(!app.modal_up(), "a bar, not a dialog: the run plays on");
+        }
+
         #[test]
         fn the_suite_s_dialogs_come_one_at_a_time() {
             let (mut h, mut app) = running("hosaka");
@@ -2954,6 +3041,7 @@ mod tests {
                     volume: 100,
                 },
                 popup: &mut popup,
+                alerts: &mut Default::default(),
             };
             out = run_keys(&crate::stack::Stack, ui.ctx(), &mut cx, false, &mut focus);
         });
@@ -3001,6 +3089,7 @@ mod tests {
                     volume: 100,
                 },
                 popup: &mut popup,
+                alerts: &mut Default::default(),
             };
             out = run_keys(&chrome::Btop, ui.ctx(), &mut cx, false, &mut focus);
         });
@@ -3056,6 +3145,7 @@ mod tests {
                         volume: 100,
                     },
                     popup: &mut popup,
+                    alerts: &mut Default::default(),
                 };
                 out = run_keys(&crate::suite::Suite, ui.ctx(), &mut cx, false, &mut focus);
             });

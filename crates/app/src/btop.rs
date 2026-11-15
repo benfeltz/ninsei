@@ -750,6 +750,39 @@ impl Panes<'_> {
 }
 
 /// The status bar's sparklines: trace and CPU, small.
+/// The alarm bar on the status line while the net's AI is up (`btop_fight::ai_banner`): its
+/// words inverse, `bright` on `bg`, blinking for the first seconds after it wakes and steady
+/// after.
+pub fn ai_bar(ui: &mut Ui, p: &Palette, g: &ninsei_core::Game) {
+    let Some(text) = ninsei_core::btop_fight::ai_banner(g) else {
+        return;
+    };
+    let t = ui.input(|i| i.time);
+    let since = ui.ctx().data_mut(|d| {
+        let key = egui::Id::new(("btop-ai-bar", g.seed));
+        *d.get_temp_mut_or(key, t)
+    });
+    let blinking = t - since < AI_BLINK_SECS;
+    let lit = !blinking || (t * 3.0) as i64 % 2 == 0;
+    let (fg, bg) = if lit {
+        (p.bg, p.bright)
+    } else {
+        (p.bright, p.bg)
+    };
+    ui.label(
+        egui::RichText::new(format!(" {text} "))
+            .color(fg)
+            .background_color(bg)
+            .strong(),
+    );
+    if blinking {
+        ui.ctx().request_repaint();
+    }
+}
+
+/// How long the AI's alarm bar blinks after it wakes, in seconds. A display number.
+const AI_BLINK_SECS: f64 = 4.0;
+
 pub fn status_sparks(ui: &mut Ui, p: &Palette, g: &ninsei_core::Game) {
     let trace = g.history.series(|s| s.trace);
     let cpu = g.history.series(|s| s.cpu);
@@ -1251,6 +1284,7 @@ mod script_tests {
                     volume: 100,
                 },
                 popup: &mut popup,
+                alerts: &mut Default::default(),
             };
             out = crate::chrome::Btop.keys(ui.ctx(), &mut cx);
             let mut panes = Panes {
@@ -1667,6 +1701,7 @@ mod script_tests {
                     volume: 100,
                 },
                 popup: &mut popup,
+                alerts: &mut Default::default(),
             };
             crate::chrome::Btop.keys(ui.ctx(), &mut cx);
             left = ui.input(|i| i.key_pressed(egui::Key::Enter));
