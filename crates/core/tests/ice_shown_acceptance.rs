@@ -42,8 +42,16 @@ fn career(d: &Data, runs: u64) -> Save {
                 .find(|i| l.text.starts_with(&format!("!! {} ", i.name)))
             {
                 let (v, _) = s.ice_program(&row.id, d).unwrap();
+                // Or one its sysops shipped in the run, where it re-armed on a node beaten.
+                let landed = g
+                    .shipped
+                    .iter()
+                    .filter(|(id, ..)| *id == row.id)
+                    .filter_map(|(_, was, next)| next.bump.map(|b| was.bumped(b)));
                 assert!(
-                    l.text.starts_with(&format!("!! {} {v} rezzed", row.name)),
+                    std::iter::once(v)
+                        .chain(landed)
+                        .any(|v| l.text.starts_with(&format!("!! {} {v} rezzed", row.name))),
                     "{}",
                     l.text
                 );

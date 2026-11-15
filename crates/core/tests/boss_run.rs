@@ -340,3 +340,56 @@ fn an_ai_that_never_meets_the_runner_draws_nothing_from_the_run() {
         assert!(passes(&with) > 0);
     }
 }
+
+#[test]
+fn the_careful_bot_routes_around_an_ai_it_can_see() {
+    let mut tried = 0;
+    for seed in 0..30 {
+        let mut g = quiet_run(1, seed);
+        let links = g.net.nodes[g.at].links.clone();
+        if links.len() < 2 {
+            continue;
+        }
+        awake_at(&mut g, links[0], "10 HOLD");
+        assert!(g.route(links[0]).unwrap().meets);
+        let name = g.net.nodes[links[0]].name.clone();
+        let (g, log) = probe::play(g, probe::Bot::Smart);
+        let first = g
+            .log
+            .iter()
+            .find(|l| l.text.starts_with("> routing to"))
+            .unwrap();
+        assert!(!first.text.contains(&name), "seed {seed}: {}", first.text);
+        assert!(log.ai.is_some_and(|a| a.woke));
+        tried += 1;
+    }
+    assert!(tried > 3);
+}
+
+#[test]
+fn the_probe_reports_the_nets_ais_by_version() {
+    let d = data();
+    let mut p = probe::Probe::new(
+        &d,
+        probe::Config {
+            spot_runs: 3,
+            careers: 2,
+            career_runs: 12,
+            seed: 7,
+        },
+    );
+    while !p.step(50) {}
+    let s = p.stats();
+    let runs: u32 = s.ai.iter().map(|(_, t)| t.runs).sum();
+    assert_eq!(runs, s.career.iter().map(|t| t.runs).sum::<u32>());
+    let lines = p.report();
+    assert!(
+        lines
+            .iter()
+            .any(|l| l.contains("the nets' AIs, by version"))
+    );
+    assert!(
+        lines.iter().any(|l| l.contains("WATCHMAN 1.2")),
+        "{lines:#?}"
+    );
+}
