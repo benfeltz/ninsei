@@ -135,11 +135,12 @@ pub fn target(game: &Game, id: usize) -> bool {
 /// A link as the map shows it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LinkView {
-    /// Its shallower end.
+    /// The end it is walked from if it's one way, else its shallower end.
     pub from: usize,
-    /// Its deeper end.
+    /// The end it is walked to if it's one way, else its deeper end.
     pub to: usize,
-    /// Walked deeper only, never back: the map draws an arrow pointing deeper.
+    /// Walked from `from` to `to` only: the map draws an arrow pointing at `to`. Deeper, or
+    /// back up a link a Backlink turned around.
     pub one_way: bool,
     /// The runner came along it, either way: the hop trail.
     pub walked: bool,
@@ -165,12 +166,20 @@ pub fn links(game: &Game) -> Vec<LinkView> {
     net.nodes
         .iter()
         .flat_map(|n| {
-            n.links.iter().map(move |&to| LinkView {
-                from: n.id,
-                to,
-                one_way: net.one_way(n.id, to),
-                walked: game.travelled(n.id, to),
-                route: route(n.id, to),
+            n.links.iter().map(move |&to| {
+                // Turned around: drawn from its deeper end, so the arrow points back up.
+                let (a, b) = if net.reversed(n.id, to) {
+                    (to, n.id)
+                } else {
+                    (n.id, to)
+                };
+                LinkView {
+                    from: a,
+                    to: b,
+                    one_way: net.one_way(n.id, to) || net.reversed(n.id, to),
+                    walked: game.travelled(n.id, to),
+                    route: route(n.id, to),
+                }
             })
         })
         .collect()

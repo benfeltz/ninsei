@@ -59,6 +59,9 @@ pub struct Node {
     pub links: Vec<usize>,
     /// The links of `links` that are one way: walked from here deeper, never back.
     pub one_way: Vec<usize>,
+    /// The links of `links` a Backlink turned around ([`Network::backlink`]): walked from the
+    /// deeper end back here, never on. Never also in `one_way`.
+    pub reversed: Vec<usize>,
     /// The links of `links` the runner has walked, either way: the hop trail.
     pub walked: Vec<usize>,
     /// The version of its ICE the deck beat here, the last time it did: stepped back onto, the
@@ -123,6 +126,7 @@ impl Network {
                     cleared: kind == NodeKind::Entry,
                     links: Vec::new(),
                     one_way: Vec::new(),
+                    reversed: Vec::new(),
                     walked: Vec::new(),
                     beaten: None,
                 });
@@ -214,12 +218,104 @@ impl Network {
         self.nodes[a].one_way.contains(&b)
     }
 
-    /// The nodes a link lets the runner step to from `from`: deeper along its links, then back
-    /// along every link into it that isn't one way.
+    /// Whether the link from `a` to `b` (`b` one of `a`'s links) was turned around: it runs
+    /// one way, from `b` back to `a`.
+    pub fn reversed(&self, a: usize, b: usize) -> bool {
+        self.nodes[a].reversed.contains(&b)
+    }
+
+    /// The nodes a link lets the runner step to from `from`: deeper along every link that
+    /// wasn't turned around, then back along every link into it that isn't one way.
     pub fn routes(&self, from: usize) -> Vec<usize> {
-        let mut out = self.nodes[from].links.clone();
+        let n = &self.nodes[from];
+        let mut out: Vec<usize> = n
+            .links
+            .iter()
+            .copied()
+            .filter(|b| !n.reversed.contains(b))
+            .collect();
         out.extend(self.back(from));
         out
+    }
+
+    /// The one-way links that lead into `node`, as (from, to) with `to` always `node`: from
+    /// the layer before along a link that is one way, and from the layer after along one that
+    /// was turned around. In node order.
+    pub fn one_way_into(&self, node: usize) -> Vec<(usize, usize)> {
+        let mut out: Vec<(usize, usize)> = self
+            .nodes
+            .iter()
+            .filter(|a| a.one_way.contains(&node))
+            .map(|a| (a.id, node))
+            .collect();
+        out.extend(self.nodes[node].reversed.iter().map(|&b| (b, node)));
+        out.sort_unstable();
+        out
+    }
+
+    /// What a Backlink run on `node` turns around: every one-way link into it
+    /// ([`Network::one_way_into`]), in order, less any whose turn would leave some node with
+    /// no way to the exit. Each is judged with the ones before it turned. Draws nothing.
+    pub fn backlinks(&self, node: usize) -> Vec<(usize, usize)> {
+        let mut net = self.clone();
+        let mut out = Vec::new();
+        for (a, b) in self.one_way_into(node) {
+            net.turn(a, b);
+            if net.reaches_exit().iter().all(|&r| r) {
+                out.push((a, b));
+            } else {
+                net.turn(b, a);
+            }
+        }
+        out
+    }
+
+    /// Runs a Backlink on `node`: turns around what [`Network::backlinks`] says, so a link that
+    /// only led in now only leads out. Returns what it turned.
+    pub fn backlink(&mut self, node: usize) -> Vec<(usize, usize)> {
+        let flips = self.backlinks(node);
+        for &(a, b) in &flips {
+            self.turn(a, b);
+        }
+        flips
+    }
+
+    /// Turns the one-way link from `a` to `b` around, to run from `b` to `a`.
+    fn turn(&mut self, a: usize, b: usize) {
+        if self.nodes[a].links.contains(&b) {
+            // Deeper from `a`: now only back up from `b`.
+            self.nodes[a].one_way.retain(|&x| x != b);
+            self.nodes[a].reversed.push(b);
+        } else {
+            // Back up from `a` (deeper) to `b`: now only deeper again.
+            self.nodes[b].reversed.retain(|&x| x != a);
+            self.nodes[b].one_way.push(a);
+        }
+    }
+
+    /// The exit node.
+    pub fn exit(&self) -> usize {
+        self.layers[self.layers.len() - 1][0]
+    }
+
+    /// For every node, whether the runner could get from it to the exit along
+    /// [`Network::routes`].
+    pub fn reaches_exit(&self) -> Vec<bool> {
+        // Walked backwards from the exit: into each node from every node with a route to it.
+        let mut into: Vec<Vec<usize>> = vec![Vec::new(); self.nodes.len()];
+        for n in 0..self.nodes.len() {
+            for m in self.routes(n) {
+                into[m].push(n);
+            }
+        }
+        let mut seen = vec![false; self.nodes.len()];
+        let mut stack = vec![self.exit()];
+        while let Some(n) = stack.pop() {
+            if !std::mem::replace(&mut seen[n], true) {
+                stack.extend(&into[n]);
+            }
+        }
+        seen
     }
 
     /// The nodes in the layer before `from` whose link into it runs both ways.
@@ -257,13 +353,15 @@ impl Network {
         self.nodes[a].links.contains(&b) || self.nodes[b].links.contains(&a)
     }
 
-    /// Every node reachable from `from` (inclusive), following links forward.
+    /// Every node reachable from `from` (inclusive), following links forward (never one
+    /// that was turned around).
     pub fn reachable_from(&self, from: usize) -> Vec<bool> {
         let mut seen = vec![false; self.nodes.len()];
         let mut stack = vec![from];
         while let Some(n) = stack.pop() {
             if !std::mem::replace(&mut seen[n], true) {
-                stack.extend(&self.nodes[n].links);
+                let n = &self.nodes[n];
+                stack.extend(n.links.iter().filter(|b| !n.reversed.contains(b)));
             }
         }
         seen

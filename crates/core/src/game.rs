@@ -1450,6 +1450,12 @@ impl Game {
                 net.nodes[to].name, net.nodes[at].name
             ));
         }
+        if !back && net.reversed(at, to) {
+            return Err(format!(
+                "{} -> {} is one way. no route on.",
+                net.nodes[to].name, net.nodes[at].name
+            ));
+        }
         let n = &net.nodes[to];
         Ok(Hop {
             trace: self.mods.trace(TRACE_PER_HOP),
