@@ -1801,10 +1801,12 @@ impl App {
             corrupt: self.glitch.corruption(),
             term: &mut self.term,
             focus_input: &mut self.focus_input,
-            // Any modal (BBS, talk, the sound pop-out) keeps the terminal from grabbing focus.
+            // Any modal (BBS, talk, the sound pop-out, the AI's alert card) keeps the terminal
+            // from grabbing focus.
             bbs_open: self.bbs.is_some()
                 || self.game.encounter.is_some()
-                || self.sound_popup.is_open(),
+                || self.sound_popup.is_open()
+                || self.alerts.open.is_some(),
             hex: &mut self.hex,
             keep: &mut self.keep,
             keep_room: (self.save.stash_cap(&self.data.rig) as usize)
@@ -2822,17 +2824,48 @@ mod tests {
                 );
             }
             assert!(app.modal_up(), "it owns the keyboard");
-            // Typing goes nowhere while it's up.
+            // Typing goes nowhere while it's up, and the Enter that puts it away submits
+            // nothing.
             let before = app.game.log.len();
-            typed(&mut h, &mut app, "x");
+            typed(&mut h, &mut app, "jack 0");
             assert!(app.alerts.open.is_some());
-            assert_eq!(app.game.log.len(), before);
+            assert_eq!(app.term.text(), "", "the command line let go");
             frame(&mut h, &mut app, key(egui::Key::Enter));
             frame(&mut h, &mut app, Vec::new());
             assert!(app.alerts.open.is_none() && !app.modal_up());
+            assert_eq!(app.game.log.len(), before);
+            assert_eq!(app.term.text(), "");
             // Once a wake: it doesn't come back.
             frame(&mut h, &mut app, Vec::new());
             assert!(app.alerts.open.is_none());
+        }
+
+        #[test]
+        fn a_conversation_s_enter_is_not_the_alert_card_s() {
+            let (mut h, mut app) = running("sensenet");
+            wake_the_ai(&mut h, &mut app);
+            assert!(app.alerts.open.is_some());
+            // Someone on the line too: their Enter doesn't put the card away. (The AI holds
+            // the exit, out of the way.)
+            let exit = ninsei_core::boss::exit(&app.game.net).unwrap();
+            if let Some(ninsei_core::game::BossState::Awake(hu)) =
+                app.game.boss.as_mut().map(|b| &mut b.state)
+            {
+                hu.at = exit;
+                hu.prog = ninsei_core::basic::parse_with("10 HOLD", app.data.ice[hu.ice].vocab());
+            }
+            let to = app.game.net.nodes[app.game.at].links[0];
+            app.game.net.nodes[to].kind = ninsei_core::NodeKind::Contact;
+            app.game.net.nodes[to].cleared = false;
+            app.game.apply(ninsei_core::Action::Move(to));
+            assert!(app.game.encounter.is_some());
+            frame(&mut h, &mut app, Vec::new());
+            frame(&mut h, &mut app, key(egui::Key::Enter));
+            frame(&mut h, &mut app, Vec::new());
+            assert!(
+                app.alerts.open.is_some(),
+                "still up: the Enter was the conversation's"
+            );
         }
 
         #[test]

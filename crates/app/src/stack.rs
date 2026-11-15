@@ -270,7 +270,10 @@ impl ChromeView for Stack {
         let Some(lines) = cx.alerts.open.clone() else {
             return Vec::new();
         };
-        let enter = was_up && ctx.input(|i| i.key_pressed(egui::Key::Enter));
+        // It owns the keyboard: the command line lets go while it's up.
+        ctx.memory_mut(|m| m.stop_text_input());
+        // Another modal (a board, a conversation) has the keys: its Enter isn't ours.
+        let enter = was_up && cx.keys_free && ctx.input(|i| i.key_pressed(egui::Key::Enter));
         if alert_card(ctx, cx, &lines, enter) {
             cx.alerts.open = None;
         }
