@@ -1733,7 +1733,7 @@ impl App {
             self.bbs.is_none() && self.game.encounter.is_none() && !self.sound_popup.is_open();
         let level = volume::Level::of(&self.save);
         // A BBS, a conversation or the sound pop-out has the keyboard: no hotkeys.
-        let modal = self.bbs.is_some() || self.sound_popup.is_open();
+        let modal = self.bbs.is_some() || self.sound_popup.is_open() || self.alerts.open.is_some();
         let mut requests = if self.screen == Screen::Run {
             let mut cx = FrameCx {
                 game: &self.game,
@@ -2833,6 +2833,31 @@ mod tests {
             // Once a wake: it doesn't come back.
             frame(&mut h, &mut app, Vec::new());
             assert!(app.alerts.open.is_none());
+        }
+
+        #[test]
+        fn the_alert_card_holds_the_hotbar_keys_in_a_fight_behind_it() {
+            let (mut h, mut app) = running("sensenet");
+            wake_the_ai(&mut h, &mut app);
+            assert!(app.alerts.open.is_some());
+            // A fight under the card: Space and the digits do nothing while it's up.
+            let ice = app.data.ice.iter().position(|i| i.id == "icewall").unwrap();
+            let to = app.game.net.nodes[app.game.at].links[0];
+            app.game.net.nodes[to].kind = ninsei_core::NodeKind::Ice;
+            app.game.net.nodes[to].ice = Some(ice);
+            app.game.net.nodes[to].cleared = false;
+            app.game.apply(ninsei_core::Action::Move(to));
+            assert_eq!(app.game.phase, Phase::Combat);
+            // The command line let go, as after a click on the map.
+            app.focus_input = false;
+            h.ctx.memory_mut(|m| m.stop_text_input());
+            frame(&mut h, &mut app, Vec::new());
+            let turn = app.game.combat.as_ref().unwrap().turn;
+            let cpu = app.game.combat.as_ref().unwrap().cpu;
+            frame(&mut h, &mut app, key(egui::Key::Space));
+            frame(&mut h, &mut app, key(egui::Key::Num2));
+            let c = app.game.combat.as_ref().unwrap();
+            assert_eq!((c.turn, c.cpu), (turn, cpu), "the card has the keyboard");
         }
 
         #[test]
