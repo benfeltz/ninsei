@@ -182,3 +182,35 @@ fn validate_refuses_bad_ai_notes() {
         assert!(err.contains(why), "{why}: {err}");
     }
 }
+
+#[test]
+fn beaten_its_ice_db_page_lists_its_program_with_its_notes() {
+    let d = data();
+    let mut s = save(3);
+    let mut g = facing_it(&mut s, 6);
+    let ai = g.boss.as_ref().unwrap().ice;
+    beat(&mut g);
+    // The run ends (traced out on the next hop): what it gave up comes home all the same.
+    g.deck.trace = tuning::TRACE_MAX;
+    let to = g.net.nodes[g.at].links[0];
+    g.apply(Action::Move(to));
+    s.record(&g, &[], &d.rig).unwrap();
+    let entries = icedb::entries(&s, &d);
+    let e = entries.iter().find(|e| e.def.id == d.ice[ai].id).unwrap();
+    let page = e.lines(&s, &d).join("\n");
+    let model = d.boss_model(ai).unwrap();
+    assert!(page.contains("SEGFAULT"), "its own source lists: {page}");
+    assert!(
+        page.contains(&format!("PREPARED BY {}", model.name)),
+        "its notes: {page}"
+    );
+    // And a kind from its net, listed with the AI's notes rather than a crew's.
+    let kind = d
+        .ice
+        .iter()
+        .find(|i| !i.boss && s.ice_sources.iter().any(|x| x.id == i.id))
+        .unwrap();
+    let ke = entries.iter().find(|e| e.def.id == kind.id).unwrap();
+    let kp = ke.lines(&s, &d).join("\n");
+    assert!(kp.contains("REVIEWED AND APPROVED"), "{kp}");
+}

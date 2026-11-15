@@ -24,12 +24,16 @@ pub struct Entry<'a> {
     data: &'a Data,
 }
 
-/// Every ICE, in data order, with what you know of it. The nets' AIs aren't the bestiary's
-/// (`ai.ron`): it has no page for them.
+/// Every ICE, in data order, with what you know of it, and each net's AI you've met or own the
+/// source of (`ai.ron`): a corp's product isn't the bestiary's to list as `????`.
 pub fn entries<'a>(save: &'a Save, data: &'a Data) -> Vec<Entry<'a>> {
     data.ice
         .iter()
-        .filter(|def| !def.boss)
+        .filter(|def| {
+            !def.boss
+                || save.ice_seen.iter().any(|s| s.id == def.id)
+                || save.ice_sources.iter().any(|s| s.id == def.id)
+        })
         .map(|def| {
             let seen = save.ice_seen.iter().find(|s| s.id == def.id);
             // (version, program as booked, its text, the board it came from)
@@ -271,15 +275,30 @@ impl<'a> Entry<'a> {
             return ["????", "", none].map(|t| PageLine::plain(t.into())).into();
         }
         let d = self.def;
-        let kind = match d.tier {
-            2 => "black ICE",
-            0 => "a rogue",
-            _ => "ICE",
-        };
-        // The version last met, or the newest source when you've never met it.
-        let version = self.seen.map_or_else(|| self.sources[0].0, |s| s.version);
+        // A net's AI's name carries its product's version (`WARDEN 4.2`), and its kind its maker.
+        let company = data
+            .ai
+            .versions
+            .iter()
+            .find(|v| v.row_id() == d.id)
+            .and_then(|v| data.ai.models.iter().find(|m| m.id == v.model))
+            .map(|m| m.company.as_str());
         let mut out = vec![
-            format!("{} {version}  [{}]  {kind}", d.name, d.class.label()),
+            match company {
+                Some(company) => {
+                    format!("{}  [{}]  {company} network AI", d.name, d.class.label())
+                }
+                None => {
+                    let kind = match d.tier {
+                        2 => "black ICE",
+                        0 => "a rogue",
+                        _ => "ICE",
+                    };
+                    // The version last met, or the newest source when you've never met it.
+                    let version = self.seen.map_or_else(|| self.sources[0].0, |s| s.version);
+                    format!("{} {version}  [{}]  {kind}", d.name, d.class.label())
+                }
+            },
             String::new(),
         ];
         match self.seen {

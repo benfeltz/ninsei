@@ -423,9 +423,13 @@ fn the_hop_onto_the_exit_that_crosses_the_threshold_jacks_out() {
 }
 
 #[test]
-fn the_ice_db_has_no_page_for_an_ai_met_or_not() {
+fn the_ice_db_has_a_page_for_an_ai_only_once_met() {
     let d = data();
     let mut s = save(1, &[]);
+    assert!(
+        icedb::entries(&s, &d).iter().all(|e| !e.def.boss),
+        "none before"
+    );
     let mut g = s.dial(&d, 0, 9).unwrap();
     for n in &mut g.net.nodes {
         if !matches!(n.kind, NodeKind::Entry | NodeKind::Exit) {
@@ -437,22 +441,22 @@ fn the_ice_db_has_no_page_for_an_ai_met_or_not() {
     let to = deeper(&g);
     awake_at(&mut g, to, "10 HOLD");
     g.apply(Action::Move(to));
-    assert!(g.data.ice[g.combat.as_ref().unwrap().ice].boss);
+    let ai = g.combat.as_ref().unwrap().ice;
     g.deck.integrity = 1;
     while g.phase == Phase::Combat {
         g.apply(Action::EndTurn);
     }
     s.record(&g, &[], &d.rig).unwrap();
-    assert!(
-        s.ice_seen
-            .iter()
-            .all(|seen| !d.ice.iter().any(|i| i.boss && i.id == seen.id))
-    );
-    assert!(icedb::entries(&s, &d).iter().all(|e| !e.def.boss));
-    assert_eq!(
-        icedb::entries(&s, &d).len(),
-        d.ice.iter().filter(|i| !i.boss).count()
-    );
+    // Met and lost to: its page, with the record, and no code (no source).
+    let entries = icedb::entries(&s, &d);
+    let e = entries.iter().find(|e| e.def.id == d.ice[ai].id).unwrap();
+    let page = e.lines(&s, &d).join("\n");
+    let company = &d.boss_model(ai).unwrap().company;
+    assert!(page.contains(&format!("{company} network AI")), "{page}");
+    assert!(page.contains("met            1"), "{page}");
+    assert!(!page.contains("SEGFAULT"), "no source, no code: {page}");
+    // Only it: no other AI shows.
+    assert_eq!(entries.iter().filter(|e| e.def.boss).count(), 1);
 }
 
 #[test]

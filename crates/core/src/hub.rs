@@ -2788,8 +2788,7 @@ impl Save {
         // landed mid-run is met as a new one, and the last one before it kept as it was known.
         // The last fight is the one that ended a flatlined run.
         for (k, b) in game.bouts.iter().enumerate() {
-            // The ICE DB's record is the ICE's; the nets' AIs have none of their own yet.
-            let Some(def) = game.data.ice.get(b.ice).filter(|d| !d.boss) else {
+            let Some(def) = game.data.ice.get(b.ice) else {
                 continue;
             };
             let strength = b.start.strength;
