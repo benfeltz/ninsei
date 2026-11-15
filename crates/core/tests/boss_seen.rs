@@ -4,7 +4,7 @@
 use ninsei_core::boss::Hunter;
 use ninsei_core::game::BossState;
 use ninsei_core::hub::{Entry, Save};
-use ninsei_core::netview::{ai_mark, route_tip};
+use ninsei_core::netview::{self, ai_mark, route_tip};
 use ninsei_core::*;
 
 fn data() -> Data {
@@ -219,4 +219,35 @@ fn every_deck_says_it_in_its_own_words_and_they_fit() {
             assert!(!low.contains(w), "{l}");
         }
     }
+}
+
+#[test]
+fn the_wake_is_one_moment_every_deck_reads() {
+    let mut g = quiet_run(1, 7);
+    assert!(!g.ai_woke_this_hop());
+    to_the_wake(&mut g);
+    assert!(g.ai_woke_this_hop(), "the hop it woke on");
+    let mut watch = stack_fight::AlertWatch::default();
+    assert!(watch.step(&g).is_some());
+    assert!(watch.step(&g).is_none(), "once a run");
+    if g.phase == Phase::Exploring {
+        g.apply(Action::Move(deeper(&g)));
+        assert!(!g.ai_woke_this_hop(), "a hop on, it's past");
+    }
+    // The same seed again, a new run: a new watch gives it its card again.
+    let mut again = quiet_run(1, 7);
+    to_the_wake(&mut again);
+    assert!(stack_fight::AlertWatch::default().step(&again).is_some());
+}
+
+#[test]
+fn the_classic_status_marks_it_while_it_is_up() {
+    let mut g = quiet_run(1, 8);
+    assert_eq!(netview::ai_status(&g), None);
+    to_the_wake(&mut g);
+    let name = g.ai_woke().unwrap().0.to_string();
+    assert_eq!(netview::ai_status(&g), Some(format!("▲ {name} UP")));
+    g.boss.as_mut().unwrap().state = BossState::Down;
+    assert_eq!(netview::ai_status(&g), None, "down: not up");
+    assert_eq!(btop_fight::ai_banner(&g), None);
 }

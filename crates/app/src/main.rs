@@ -726,6 +726,10 @@ impl App {
         self.hex = None;
         self.talk = EncounterView::default();
         self.sound_popup.close();
+        // A new run watches for its own alerts: nothing left from the last one.
+        self.alerts = alert::Alerts::default();
+        self.suite.watch = Default::default();
+        self.suite.dialogs.clear();
         self.term.clear();
         self.focus_input = true;
         self.booked = None;
@@ -2838,6 +2842,39 @@ mod tests {
             // Once a wake: it doesn't come back.
             frame(&mut h, &mut app, Vec::new());
             assert!(app.alerts.open.is_none());
+        }
+
+        #[test]
+        fn a_new_run_on_the_same_seed_gets_its_own_alert_and_none_is_left_at_home() {
+            let (mut h, mut app) = running("sensenet");
+            wake_the_ai(&mut h, &mut app);
+            assert!(app.alerts.open.is_some());
+            // Walked out with the card still up (by mouse, which it doesn't hold): the run's
+            // over and the card goes with it.
+            app.game.phase = Phase::JackedOut;
+            frame(&mut h, &mut app, Vec::new());
+            assert!(app.alerts.open.is_none() && !app.modal_up());
+            // The same number and seed again: the same wake on the same hop, a card again.
+            let entry = app.save.phonebook[0].id;
+            app.dial(entry, Some(7));
+            app.screen = Screen::Run;
+            assert!(app.alerts.open.is_none());
+            wake_the_ai(&mut h, &mut app);
+            assert!(app.alerts.open.is_some());
+        }
+
+        #[test]
+        fn the_classic_chrome_marks_the_ai_once_and_btop_only_with_its_bar() {
+            for (deck, firmware, mark) in [("onosendai", "6.2", true), ("onosendai", "7.0", false)]
+            {
+                let (mut h, mut app) = running(deck);
+                app.save.firmware = firmware.into();
+                app.load_layout();
+                wake_the_ai(&mut h, &mut app);
+                let status = ninsei_core::netview::ai_status(&app.game).unwrap();
+                let n = painted(&h).iter().filter(|t| **t == status).count();
+                assert_eq!(n, usize::from(mark), "{firmware}: {:?}", painted(&h));
+            }
         }
 
         #[test]

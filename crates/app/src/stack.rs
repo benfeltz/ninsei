@@ -263,6 +263,10 @@ impl ChromeView for Stack {
     fn overlay(&self, ctx: &egui::Context, cx: &mut FrameCx) -> Vec<Request> {
         // Enter only puts away a card that was already up: the Enter that sent the hop that
         // woke it mustn't close it in the same frame.
+        // A run that's over drops it: home has no card to answer.
+        if matches!(cx.game.phase, Phase::JackedOut | Phase::Flatlined) {
+            cx.alerts.open = None;
+        }
         let was_up = cx.alerts.open.is_some();
         if let Some(lines) = cx.alerts.watch.step(cx.game) {
             cx.alerts.open = Some(lines);

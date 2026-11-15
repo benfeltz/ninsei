@@ -545,22 +545,22 @@ pub fn ai_alert(g: &Game) -> Option<[String; 2]> {
     ])
 }
 
-/// Watches a run for the moment the Sense/Net puts up its alert card: the net's AI waking.
-/// Feed it the game every frame; it only reads, and gives the card's words once per wake.
+/// Watches one run for the moment the Sense/Net puts up its alert card: the net's AI waking
+/// (`Boss::woke_at`, booked once). Feed it the game every frame; it only reads, and gives the
+/// card's words once. A new run starts a new watch (`App::dial`), so a replayed seed waking on
+/// the same hop gets its card again.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct AlertWatch {
-    /// The run and hop of the last wake it gave a card for.
-    seen: Option<(u64, u32)>,
+    shown: bool,
 }
 
 impl AlertWatch {
     pub fn step(&mut self, g: &Game) -> Option<[String; 2]> {
-        let woke = g.boss.as_ref()?.woke_at?;
-        let key = Some((g.seed, woke));
-        if self.seen == key {
+        if self.shown {
             return None;
         }
-        self.seen = key;
-        ai_alert(g)
+        let words = ai_alert(g)?;
+        self.shown = true;
+        Some(words)
     }
 }

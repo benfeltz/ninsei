@@ -1873,6 +1873,14 @@ impl Game {
         Some((self.data.ice[b.ice].name.as_str(), model.company.as_str()))
     }
 
+    /// Whether the net's AI woke on the hop the runner is on: the moment every deck's alert is
+    /// about, read from the one booking (`Boss::woke_at`).
+    pub fn ai_woke_this_hop(&self) -> bool {
+        self.boss
+            .as_ref()
+            .is_some_and(|b| b.woke_at == Some(self.hops))
+    }
+
     /// The net's AI on the map, if it's awake.
     pub fn hunter(&self) -> Option<&crate::boss::Hunter> {
         match &self.boss.as_ref()?.state {
