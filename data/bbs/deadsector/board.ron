@@ -121,6 +121,10 @@
         (name: "COMMS", stock: 1, always: true, files: [
             (file: "NIGHTCOM.ZIP", item: Tool("nightcomm"), price: 120, desc: "NiGHTCOMM 3.1. Know your lines"),
         ]),
+        // RAZORWIRE's hacks: for the map, not the fight. Always up, so the listing takes no roll.
+        (name: "LINE TRICKS", stock: 1, always: true, files: [
+            (file: "BKLNK-RW.ZIP", item: Warez("backlink"), price: 220, desc: "Backlink. Out the way you came. Loud"),
+        ]),
         (name: "WAREZ TOOLS", stock: 1, files: [
             (file: "FRAG-HOT.ZIP", item: Fragment(1),       price: 90,  desc: "Optimizer fragment, cracked"),
             (file: "FRAG2-X.ZIP",  item: Fragment(2),       price: 170, desc: "Fragments x2, no serials"),

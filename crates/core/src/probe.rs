@@ -21,11 +21,11 @@
 
 use crate::bbs::Line;
 use crate::data::{ChoiceEffect, Data, Drop, Effect, Penalty};
-use crate::fight::Outcome;
+use crate::fight::{Outcome, Preview};
 use crate::game::{Action, ContractStatus, ExecState, Game, Phase, StepWhat};
 use crate::hub::{Entry, RunEnd, Save, Upgrade};
 use crate::ice_study::Pace;
-use crate::network::NodeKind;
+use crate::network::{Network, NodeKind};
 use crate::rng::Rng;
 use crate::tuning::{BETRAY_PCT, TRACE_MAX, TRACE_PER_HOP};
 
@@ -260,6 +260,8 @@ pub struct RunLog {
     /// beaten.
     pub back: u32,
     pub rearmed: u32,
+    /// Hacks it ran on the map.
+    pub hacks: u32,
 }
 
 impl RunLog {
@@ -374,6 +376,15 @@ fn play_paced(
                         shop_bbs(&mut g, known, &mut log);
                     }
                 }
+                if bot != Bot::Dumb
+                    && let Some(slot) = backlink_for(&g)
+                {
+                    let ran = g.hacks;
+                    g.apply(Action::Run(slot));
+                    clock.see(&g, &mut log);
+                    log.hacks += g.hacks - ran;
+                    continue;
+                }
                 let to = match bot {
                     Bot::Dumb => g.reachable().first().copied(),
                     Bot::Smart | Bot::SafePick => best_route(&g),
@@ -465,10 +476,14 @@ const BACK_MARGIN: u32 = 20;
 /// the moves the game allows, never through a node whose ICE it beat (it would be back up), and
 /// how many hops the walk takes.
 fn walk(g: &Game, from: usize, to: usize) -> Option<(usize, u32)> {
+    walk_on(&g.net, from, to)
+}
+
+/// [`walk`] on network `net`.
+fn walk_on(net: &Network, from: usize, to: usize) -> Option<(usize, u32)> {
     if from == to {
         return Some((to, 0));
     }
-    let net = &g.net;
     let mut prev: Vec<Option<usize>> = vec![None; net.nodes.len()];
     let mut queue = std::collections::VecDeque::from([from]);
     prev[from] = Some(from);
@@ -500,8 +515,25 @@ fn walk(g: &Game, from: usize, to: usize) -> Option<(usize, u32)> {
 /// left, by the game's own hop cost, with [`BACK_MARGIN`] for the fights. The nearest, if any;
 /// the first hop toward it.
 fn back_for(g: &Game) -> Option<usize> {
+    let exit = g.net.exit();
+    let hop = g.mods.trace(TRACE_PER_HOP);
+    behind(g)
+        .into_iter()
+        .filter_map(|t| {
+            let (first, there) = walk(g, g.at, t)?;
+            let (_, out) = walk(g, t, exit)?;
+            let cost = g.deck.trace + (there + out) * hop + BACK_MARGIN;
+            (cost < TRACE_MAX).then_some((there, first))
+        })
+        .min()
+        .map(|(_, first)| first)
+}
+
+/// What a careful runner would walk back for, on the main network: a contract target it left
+/// behind, or the BBS it went past without calling.
+fn behind(g: &Game) -> Vec<usize> {
     if g.outer.is_some() {
-        return None;
+        return Vec::new();
     }
     let ahead = g.net.reachable_from(g.at);
     let mut goals: Vec<usize> = g
@@ -516,18 +548,44 @@ fn back_for(g: &Game) -> Option<usize> {
     {
         goals.push(b);
     }
-    let exit = *g.net.layers.last()?.first()?;
-    let hop = g.mods.trace(TRACE_PER_HOP);
+    goals
+}
+
+/// The HDD slot of a Backlink a careful runner runs here, if it pays by the game's own
+/// numbers: something it would walk back for ([`behind`]) has no walk back now, the links
+/// the preview says it turns open one, and the hack's trace and the walk there and on to the
+/// exit still leave [`BACK_MARGIN`] for the fights.
+fn backlink_for(g: &Game) -> Option<usize> {
+    let goals = behind(g);
+    if goals.is_empty() {
+        return None;
+    }
+    let slot = g
+        .hdd
+        .iter()
+        .position(|s| matches!(s.spec.effect, Effect::Backlink(_)))?;
+    let Ok(Preview {
+        outcome: Outcome::Backlink { trace, .. },
+        ..
+    }) = g.preview(slot)
+    else {
+        return None;
+    };
+    let mut net = g.net.clone();
+    net.backlink(g.at);
+    let (exit, hop) = (net.exit(), g.mods.trace(TRACE_PER_HOP));
     goals
         .into_iter()
-        .filter_map(|t| {
-            let (first, there) = walk(g, g.at, t)?;
-            let (_, out) = walk(g, t, exit)?;
-            let cost = g.deck.trace + (there + out) * hop + BACK_MARGIN;
-            (cost < TRACE_MAX).then_some((there, first))
+        .filter(|&t| walk(g, g.at, t).is_none())
+        .any(|t| {
+            let (Some((_, there)), Some((_, out))) =
+                (walk_on(&net, g.at, t), walk_on(&net, t, exit))
+            else {
+                return false;
+            };
+            g.deck.trace + trace + (there + out) * hop + BACK_MARGIN < TRACE_MAX
         })
-        .min()
-        .map(|(_, first)| first)
+        .then_some(slot)
 }
 
 /// The route a careful runner takes: back for a job or the board it left behind when the trace
@@ -700,8 +758,9 @@ fn worth(g: &Game, d: &Drop, known: &[String]) -> i64 {
                     Effect::Stun => 15,
                     // Nothing the careful bot fights with reads it yet.
                     Effect::Sniff => 10,
-                    // Nothing the bots do on the map runs a hack yet.
-                    Effect::Backlink(_) => 0,
+                    // The careful bots turn a one-way link around to walk back for a job or
+                    // the board it cut them off from ([`backlink_for`]).
+                    Effect::Backlink(_) => 120,
                 },
                 None => 0,
             }
@@ -907,6 +966,8 @@ pub struct TierStats {
     /// Hops back and fights with re-armed ICE in these runs.
     pub back: u32,
     pub rearmed: u32,
+    /// Hacks run on the map in these runs.
+    pub hacks: u32,
 }
 
 impl TierStats {
@@ -919,6 +980,7 @@ impl TierStats {
         self.segfaults += log.segfaults;
         self.back += log.back;
         self.rearmed += log.rearmed;
+        self.hacks += log.hacks;
         match f {
             Fate::Exit => self.exits += 1,
             Fate::Traced => self.traced += 1,
@@ -1861,6 +1923,15 @@ impl Probe {
                     let (b, r) = c.back_per_run();
                     format!("t{} {b:.2}/{r:.2}", t + 1)
                 })
+                .collect::<Vec<_>>()
+                .join("  ")
+        ));
+        out.push(format!(
+            "  hacks run: {}",
+            s.career
+                .iter()
+                .enumerate()
+                .map(|(t, c)| format!("t{} {}", t + 1, c.hacks))
                 .collect::<Vec<_>>()
                 .join("  ")
         ));
