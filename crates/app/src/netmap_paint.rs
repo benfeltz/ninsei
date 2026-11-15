@@ -101,13 +101,26 @@ fn label(painter: &Painter, at: Pos2, align: Align2, text: &str, c: Two) -> Rect
 
 /// The net's AI on the picture: a little card pinned over the node it's on, saying so, with its
 /// own hatched shadow; where it was last known, the card is dotted and says that.
-fn ai_card(painter: &Painter, at: Pos2, m: &AiMark, c: Two) {
+/// The card sits above the node, or below it when the card's top would leave the picture, and
+/// slides along to stay inside it.
+fn ai_card(painter: &Painter, at: Pos2, m: &AiMark, c: Two, inside: Rect) {
     let text = netview::ai_caption(m, MapView::Paint);
     let g = painter.layout_no_wrap(text, small(), c.ink);
-    let pin = pos2(at.x, at.y - look::H / 2.0 - 6.0);
-    let r = Align2::CENTER_BOTTOM.anchor_size(pin - vec2(0.0, 8.0), g.size() + vec2(12.0, 8.0));
+    let size = g.size() + vec2(12.0, 8.0);
+    let above = at.y - look::H / 2.0 - 14.0 - size.y >= inside.top() + 4.0;
+    let (pin, tip, align) = if above {
+        let pin = pos2(at.x, at.y - look::H / 2.0 - 6.0);
+        (pin, pin - vec2(0.0, 8.0), Align2::CENTER_BOTTOM)
+    } else {
+        let pin = pos2(at.x, at.y + look::H / 2.0 + look::DROP + 20.0);
+        (pin, pin + vec2(0.0, 8.0), Align2::CENTER_TOP)
+    };
+    let r = align.anchor_size(tip, size);
+    let dx =
+        (inside.left() + 4.0 - r.left()).max(0.0) - (r.right() - inside.right() + 4.0).max(0.0);
+    let r = r.translate(vec2(dx, 0.0));
     let r = Rect::from_min_size(r.min.round(), r.size().round());
-    painter.line_segment([pin - vec2(0.0, 8.0), pin], Stroke::new(1.0, c.ink));
+    painter.line_segment([tip, pin], Stroke::new(1.0, c.ink));
     if m.now {
         painter.rect_filled(r.translate(vec2(look::DROP, look::DROP)), 0.0, c.ink);
         painter.rect_filled(r, 0.0, c.paper);
@@ -331,7 +344,7 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
     }
 
     if let Some(m) = netview::ai_mark(game) {
-        ai_card(&painter, pos(m.node), &m, c);
+        ai_card(&painter, pos(m.node), &m, c, inside);
     }
 
     // The hint along the bottom of the card.

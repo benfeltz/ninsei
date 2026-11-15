@@ -237,7 +237,7 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
     }
 
     if let Some(m) = netview::ai_mark(game) {
-        ai_marker(&painter, &cam, game, &m, t, p);
+        ai_marker(&painter, &cam, game, &m, t, p, rect);
     }
 
     painter.text(
@@ -256,7 +256,15 @@ const AI_LIFT: f32 = 0.8;
 /// The net's AI over the node the runner knows it is on: its own wireframe, lit and turning,
 /// and its tag. Where it was last known: the same shape, hollow and dim, tethered by a dashed
 /// line.
-fn ai_marker(painter: &Painter, cam: &Iso, game: &Game, m: &AiMark, t: f32, p: &Palette) {
+fn ai_marker(
+    painter: &Painter,
+    cam: &Iso,
+    game: &Game,
+    m: &AiMark,
+    t: f32,
+    p: &Palette,
+    view: Rect,
+) {
     let w = world(&game.net, m.node);
     let at = [w[0], HOVER + AI_LIFT + (t * 1.5).sin() * 0.05, w[2]];
     let mesh = Mesh::of(MeshKind::Ai);
@@ -290,13 +298,17 @@ fn ai_marker(painter: &Painter, cam: &Iso, game: &Game, m: &AiMark, t: f32, p: &
         (t * if m.now { 1.2 } else { 0.3 }, 0.5),
         ink,
     );
-    painter.text(
-        head - vec2(0.0, 26.0),
-        Align2::CENTER_BOTTOM,
+    // Its tag above it, kept inside the map.
+    let ink = if m.now { p.bright } else { p.dim };
+    let g = painter.layout_no_wrap(
         netview::ai_caption(m, MapView::Iso),
         FontId::new(11.0, FontFamily::Monospace),
-        if m.now { p.bright } else { p.dim },
+        ink,
     );
+    let r = Align2::CENTER_BOTTOM.anchor_size(head - vec2(0.0, 26.0), g.size());
+    let dx = (view.left() + 4.0 - r.left()).max(0.0) - (r.right() - view.right() + 4.0).max(0.0);
+    let dy = (view.top() + 4.0 - r.top()).max(0.0);
+    painter.galley(r.min.round() + vec2(dx, dy).round(), g, ink);
 }
 
 /// The camera that fits the network into `rect`, leaving the hint's line below.

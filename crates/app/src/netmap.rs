@@ -445,4 +445,33 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn the_ai_s_caption_stays_on_the_map_at_its_edges() {
+        let bounds = Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 640.0));
+        for view in VIEWS {
+            let g = one_in(3);
+            // The left column and the top of every column: the edges a caption could leave by.
+            let mut edge: Vec<usize> = g.net.layers[0].clone();
+            edge.extend(g.net.layers.iter().filter_map(|l| l.first().copied()));
+            for at in edge {
+                for now in [true, false] {
+                    let a = with_ai(3, at, now);
+                    let m = netview::ai_mark(&a).unwrap();
+                    let cap = netview::ai_caption(&m, view);
+                    let h = drawn(view, &a, "amber");
+                    let r = h
+                        .painted_text()
+                        .into_iter()
+                        .find(|(t, _)| *t == cap)
+                        .map(|(_, r)| r)
+                        .unwrap_or_else(|| panic!("{view:?}: no {cap}"));
+                    assert!(
+                        bounds.contains_rect(r),
+                        "{view:?} node {at}: {cap} at {r:?}"
+                    );
+                }
+            }
+        }
+    }
 }

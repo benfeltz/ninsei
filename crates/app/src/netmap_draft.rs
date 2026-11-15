@@ -222,7 +222,7 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
     }
 
     if let Some(m) = netview::ai_mark(game) {
-        ai_callout(&painter, pos(m.node), &m, p);
+        ai_callout(&painter, pos(m.node), &m, p, rect);
     }
 
     dimension(
@@ -527,10 +527,18 @@ fn revision_cloud(painter: &Painter, c: Pos2, p: &Palette) {
 
 /// The net's AI on the plan: a leader from the node it's on to a boxed callout, the node ringed
 /// twice. Where it was last known: the ring and the leader dashed, in `dim`.
-fn ai_callout(painter: &Painter, c: Pos2, m: &AiMark, p: &Palette) {
+/// The callout goes up and to the left; near the sheet's left or top edge it goes the other
+/// way, so it never runs off the drawing.
+fn ai_callout(painter: &Painter, c: Pos2, m: &AiMark, p: &Palette, sheet: Rect) {
     let ink = if m.now { p.bright } else { p.dim };
-    let elbow = c + vec2(-R * 2.2, -R * 2.6);
-    let end = elbow - vec2(R * 1.2, 0.0);
+    let font = FontId::new(10.0, FontFamily::Monospace);
+    let g = painter.layout_no_wrap(netview::ai_caption(m, MapView::Draft), font, ink);
+    let size = g.size() + vec2(10.0, 6.0);
+    let left = c.x - R * 3.4 - size.x >= sheet.left() + 4.0;
+    let up = c.y - R * 2.6 - size.y >= sheet.top() + 4.0;
+    let (sx, sy) = (if left { -1.0 } else { 1.0 }, if up { -1.0 } else { 1.0 });
+    let elbow = c + vec2(sx * R * 2.2, sy * R * 2.6);
+    let end = elbow + vec2(sx * R * 1.2, 0.0);
     let ring = |r: f32| -> Vec<Pos2> {
         (0..=32)
             .map(|k| {
@@ -542,7 +550,10 @@ fn ai_callout(painter: &Painter, c: Pos2, m: &AiMark, p: &Palette) {
     if m.now {
         painter.circle_stroke(c, R * 1.45, Stroke::new(1.6, ink));
         painter.circle_stroke(c, R * 1.75, Stroke::new(1.0, ink));
-        painter.line_segment([c + vec2(-R * 1.0, -R * 1.1), elbow], Stroke::new(1.2, ink));
+        painter.line_segment(
+            [c + vec2(sx * R, sy * R * 1.1), elbow],
+            Stroke::new(1.2, ink),
+        );
         painter.line_segment([elbow, end], Stroke::new(1.2, ink));
     } else {
         painter.extend(Shape::dashed_line(
@@ -552,15 +563,18 @@ fn ai_callout(painter: &Painter, c: Pos2, m: &AiMark, p: &Palette) {
             3.0,
         ));
         painter.extend(Shape::dashed_line(
-            &[c + vec2(-R * 1.1, -R * 1.2), elbow, end],
+            &[c + vec2(sx * R * 1.1, sy * R * 1.2), elbow, end],
             Stroke::new(1.0, ink),
             4.0,
             3.0,
         ));
     }
-    let font = FontId::new(10.0, FontFamily::Monospace);
-    let g = painter.layout_no_wrap(netview::ai_caption(m, MapView::Draft), font, ink);
-    let r = Align2::RIGHT_CENTER.anchor_size(end, g.size() + vec2(10.0, 6.0));
+    let align = if left {
+        Align2::RIGHT_CENTER
+    } else {
+        Align2::LEFT_CENTER
+    };
+    let r = align.anchor_size(end, size);
     let r = Rect::from_min_size(r.min.round(), r.size().round());
     painter.rect_filled(r, 0.0, p.bg);
     painter.rect_stroke(
