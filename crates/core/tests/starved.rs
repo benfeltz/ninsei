@@ -204,9 +204,11 @@ fn the_forecast_never_reads_a_next_its_own_runs_may_have_changed() {
 #[test]
 fn the_forecast_key_moves_whenever_the_forecast_could() {
     let data = Data::builtin().unwrap();
-    let mut seen: Vec<(game::ForecastKey, Vec<u32>)> = Vec::new();
+    // Keyed by the ICE too: a screen keeps its key through one fight, against one ICE.
+    let mut seen: Vec<((usize, game::ForecastKey), Vec<u32>)> = Vec::new();
     let mut check = |g: &Game| {
-        let (key, starved) = (g.forecast_key(), g.starved());
+        let ice = g.combat.as_ref().map_or(usize::MAX, |c| c.ice);
+        let (key, starved) = ((ice, g.forecast_key()), g.starved());
         if let Some((_, was)) = seen.iter().find(|(k, _)| *k == key) {
             assert_eq!(*was, starved, "same key, another forecast");
         } else {

@@ -38,6 +38,7 @@ fn career(d: &Data, runs: u64) -> Save {
             if let Some(row) = d
                 .ice
                 .iter()
+                .filter(|i| !i.boss)
                 .find(|i| l.text.starts_with(&format!("!! {} ", i.name)))
             {
                 let (v, _) = s.ice_program(&row.id, d).unwrap();
