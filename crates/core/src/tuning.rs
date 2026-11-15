@@ -73,6 +73,21 @@ pub const MODEM_BAUD: f32 = 600.0;
 pub const MODEM_RAMP_SECS: f32 = 0.004;
 /// Peak loudness, 0-1.
 pub const MODEM_VOLUME: f32 = 0.25;
+
+/// A board reached in a run is an X.25 call through the net's PAD, not a modem call: one short
+/// burst of packet data (`modem::Handshake::x25`), then `COM` and a beat before the splash, in
+/// seconds. Any key skips it.
+pub const X25_BURST_SECS: f32 = 0.25;
+pub const X25_SETTLE_SECS: f32 = 0.2;
+/// The burst comes in packets: this long on, then a gap.
+pub const X25_PACKET_SECS: f32 = 0.05;
+pub const X25_PACKET_GAP_SECS: f32 = 0.02;
+/// Bits per second in a packet (scrambled, so it hisses rather than sings).
+pub const X25_BITS: f32 = 4800.0;
+/// Peak loudness of the burst, 0-1.
+pub const X25_VOLUME: f32 = 0.15;
+/// Leaving a run's board: the goodbye and the PAD's clear line show this long, or until a key.
+pub const X25_CLEAR_SECS: f32 = 0.3;
 /// The run's music reads the trace in two coarse steps (`music::arrangement`): from
 /// `MUSIC_DROP_AT` percent the tune's drop track falls silent, and from `MUSIC_TEMPO_AT` it
 /// plays `MUSIC_TEMPO_BPM` faster. Look only: no play depends on it.

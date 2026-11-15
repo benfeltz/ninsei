@@ -18,6 +18,7 @@ Every text in the game has an author inside the world, and it knows only what th
 | CorpLink's help desk | policy, requisitions, memos, who's logged in | that anyone outside the company is reading |
 | The OS (menus, windows, System) | its own windows, the tools you own and the files on its disk (an ICE's source, when you have one; a fight shows it nothing else of the ICE's code) | what a magazine printed, what you haven't found, where a missing file might be got |
 | A contract client (MSG nodes, the Jobs board) | its grudge and its target | more than it needs you to know |
+| The net's PAD (a run's board connect and clear, the run log's call line) | addresses and call states: the call, `COM`, `CLR` | your deck, a key to press, a board's menus or callers |
 
 When a screen needs to tell the player something its author couldn't know, it's the wrong screen: put it where the in-world author would.
 
@@ -144,5 +145,7 @@ The corporations behind the networks (`data/hub/networks.ron`), as the phonebook
 Traits are how a company's habits show on a run (`networks.ron`): graveyard shifts, night shifts, a pirate board on the backbone. A textfile can hint at them in the company's own terms; the OS never explains them.
 
 ## Numbers
+
+Every network you dial sits on one packet net (DNIC 4409, `x25` in `hub/networks.ron`). Its PAD gives each network's board an X.121 address: the DNIC, the network's own number, the board's node (`4409 5550199 07`). You never dial one; in a run you're already on the net and the PAD places the call.
 
 The 555 exchange is the whole world. Ranges are the digits you know (`555-7` is Brightwater's block). Two boards never share a number. A new deck knows exactly two: CustomerLink (555-0001) and the college (555-0420); everything else is read, scanned, looted or given. Hotlines in the magazine are 1-800 decoration and never dial.

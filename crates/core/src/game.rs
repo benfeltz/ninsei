@@ -363,6 +363,8 @@ impl RunMods {
 pub struct Site {
     /// Phonebook entry id.
     pub entry: u32,
+    /// The number it was dialed on: its board's X.25 address is built from it.
+    pub number: String,
     pub name: String,
     pub tier: u32,
     /// Trait labels.
@@ -1357,6 +1359,19 @@ impl Game {
             .unwrap_or(&self.data.boards[self.board])
     }
 
+    /// The X.121 address of this network's board, as the net's PAD calls it: the DNIC from
+    /// `hub/networks.ron`, the number the run was dialed on (a plain run, dialed on nothing,
+    /// uses its board's own) and the BBS node's place (one per network, in the main one). Read
+    /// from what the run has; never rolled.
+    pub fn bbs_address(&self) -> String {
+        let number = self
+            .site
+            .as_ref()
+            .map_or(self.bbs().phone.as_str(), |s| s.number.as_str());
+        let node = self.root().bbs().unwrap_or(0);
+        self.data.networks.x25.address(number, node)
+    }
+
     pub fn root(&self) -> &Network {
         self.outer.as_ref().map_or(&self.net, |o| &o.net)
     }
@@ -1688,8 +1703,9 @@ impl Game {
                 // The same board on a revisit, with the same jobs: they're rolled once.
                 let first = !node.cleared;
                 self.net.nodes[to].cleared = true;
-                let b = self.bbs();
-                let line = format!("ATDT {} ... CONNECT {} to {}", b.phone, b.baud, b.name);
+                // Already on the net: an X.25 call through its PAD, the address the BBS window
+                // shows (`bbs::Line::connect`).
+                let line = (self.data.networks.x25).log_line(&self.bbs_address(), &self.bbs().name);
                 self.say(LogKind::Good, line);
                 if !self.bbs_seen {
                     let note = format!(

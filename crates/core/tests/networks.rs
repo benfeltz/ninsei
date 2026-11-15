@@ -329,3 +329,107 @@ fn nightcomm_comes_from_dead_sector() {
                 .any(|f| f.item == ninsei_core::data::Drop::Tool("nightcomm".into()))
     }));
 }
+
+#[test]
+fn a_board_in_a_run_has_an_x25_address_from_what_the_run_has() {
+    let (d, mut s) = book();
+    let (a, b) = (s.phonebook[0].clone(), s.phonebook[1].clone());
+    let x25 = &d.networks.x25;
+    let ga = s.dial(&d, a.id, 5).unwrap();
+    let node = ga.root().bbs().unwrap();
+    let addr = ga.bbs_address();
+    assert_eq!(addr, x25.address(&a.number, node));
+    assert!(addr.starts_with(&format!("{} ", x25.dnic)), "{addr}");
+    assert!(
+        addr.ends_with(&format!(" {node:02}")),
+        "the node's place: {addr}"
+    );
+    let digits: String = a.number.chars().filter(char::is_ascii_digit).collect();
+    let tail = &digits[digits.len().saturating_sub(data::X25_NUMBER_DIGITS)..];
+    assert!(addr.contains(tail), "the network's own number: {addr}");
+    // The same run, the same address; a replay of it too.
+    assert_eq!(ga.bbs_address(), addr);
+    assert_eq!(s.dial(&d, a.id, 5).unwrap().bbs_address(), addr);
+    // Another network, another address.
+    assert_ne!(s.dial(&d, b.id, 5).unwrap().bbs_address(), addr);
+    // A plain run, dialed on nothing, uses its board's number.
+    let plain = Game::new(d.clone(), 3);
+    assert_eq!(
+        plain.bbs_address(),
+        x25.address(&plain.bbs().phone, plain.net.bbs().unwrap())
+    );
+}
+
+#[test]
+fn the_address_draws_nothing_from_the_run() {
+    let (d, mut s) = book();
+    let id = s.phonebook[0].id;
+    let mut asked = s.dial(&d, id, 9).unwrap();
+    let mut not = s.dial(&d, id, 9).unwrap();
+    for _ in 0..50 {
+        let _ = asked.bbs_address();
+    }
+    // The run goes on the same: the same fights and rolls from the same seed.
+    let to = asked.net.nodes[asked.at].links[0];
+    asked.apply(Action::Move(to));
+    not.apply(Action::Move(to));
+    assert_eq!(asked.log, not.log);
+    assert_eq!(asked.deck, not.deck);
+}
+
+#[test]
+fn an_x25_address_is_written_the_x121_way() {
+    let x = data::X25Def {
+        dnic: "4409".into(),
+        call: "CALL {address}".into(),
+        connected: "{address} COM".into(),
+        clear: "{address} CLR DTE".into(),
+        log: "CALL {address} ... COM to {board}".into(),
+    };
+    assert_eq!(x.address("555-0199", 7), "4409 5550199 07");
+    assert_eq!(x.address("1-555-867-5309", 123), "4409 58675309 23");
+    // The longest the screens are checked at is the longest it builds.
+    let longest = x.address("1-999-999-9999", 99);
+    assert_eq!(longest.len(), data::LONG_X25_ADDRESS.len(), "{longest}");
+    assert_eq!(longest[4..], data::LONG_X25_ADDRESS[4..]);
+    assert!(x.validate().is_ok());
+    assert!(
+        ansi::visible_len(&data::X25Def::say(&x.call, data::LONG_X25_ADDRESS))
+            <= ninsei_core::bbs::COLS
+    );
+    assert_eq!(
+        x.log_line("4409 5550199 07", "GUTTER"),
+        "CALL 4409 5550199 07 ... COM to GUTTER"
+    );
+}
+
+#[test]
+fn a_bad_x25_block_is_refused() {
+    let base = include_str!("../../../data/hub/networks.ron");
+    for (from, to) in [
+        ("dnic: \"4409\"", "dnic: \"44a9\""),
+        ("dnic: \"4409\"", "dnic: \"\""),
+        ("dnic: \"4409\"", "dnic: \"44090\""),
+        ("call: \"CALL {address}\"", "call: \"\""),
+        (
+            "clear: \"{address} CLR DTE\"",
+            "clear: \"{address} CLEARED BY THE REMOTE DTE AFTER A VERY LONG SESSION ON THE NET!!\"",
+        ),
+        (
+            "log: \"CALL {address} ... COM to {board}\"",
+            "log: \"CALL\"",
+        ),
+    ] {
+        assert!(base.contains(from), "{from}");
+        let src = base.replace(from, to);
+        let err = Data::parse(data::Sources {
+            networks: &src,
+            ..data::Sources::builtin()
+        })
+        .err();
+        assert!(
+            err.as_deref().is_some_and(|e| e.contains("x25")),
+            "{to}: {err:?}"
+        );
+    }
+}

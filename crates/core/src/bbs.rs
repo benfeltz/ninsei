@@ -1,12 +1,14 @@
-//! A BBS session: dial-in, splash, menus, file areas, Zmodem downloads, hang-up.
+//! A BBS session: the connect, splash, menus, file areas, Zmodem downloads, hang-up.
 //! Pure navigation logic. [`Session::render`] returns pipe-coded lines for the app to paint,
-//! [`Session::key`] takes single keypresses like a real board, [`Session::tick`] runs the modem clock.
+//! [`Session::key`] takes single keypresses like a real board, [`Session::tick`] runs the line's
+//! clock. How the line was made is the [`Line`]'s [`Call`]: a modem call from home, an X.25 call
+//! through the net's PAD in a run. The session never asks where it is, only its line.
 
-use crate::data::{BbsDef, BulletinDef, Drop, HeaderStyle, Look};
+use crate::data::{BbsDef, BulletinDef, Drop, HeaderStyle, Look, X25Def};
 use crate::game::{Action, ContractStatus, Game, Reading, StockFile};
 use crate::ice_version::Version;
 use crate::modem::Handshake;
-use crate::tuning::{BBS_CPS, BBS_HANGUP_SECS};
+use crate::tuning::{BBS_CPS, BBS_HANGUP_SECS, X25_CLEAR_SECS};
 
 /// Screen width in columns.
 pub const COLS: usize = 78;
@@ -14,6 +16,63 @@ pub const COLS: usize = 78;
 pub const ROWS: usize = 24;
 /// Seconds after CONNECT the ANSI line shows.
 const MODEM_ANSI_AFTER: f32 = 0.15;
+
+/// How a session's line was made: what its connect screen prints, how long it takes and how it
+/// sounds (the app renders the same [`Handshake`] the session ticks against), and how it ends.
+/// It borrows the PAD's words from the line's data, so asking for it every frame copies none.
+#[derive(Clone, Debug, PartialEq)]
+pub enum Call<'a> {
+    /// Dialed by modem: the full handshake to the board's number. It can't be hurried, and it
+    /// hangs up with `+++`, `ATH0` and `NO CARRIER`.
+    Modem(Handshake),
+    /// An X.25 call through the net's PAD to the board at `address`: a burst of packets, `COM`,
+    /// the board. Any key skips it, and the board's goodbye clears the call at once.
+    Packet {
+        timeline: Handshake,
+        address: String,
+        pad: &'a X25Def,
+    },
+}
+
+impl Call<'_> {
+    /// The timeline the screen and the sound both follow.
+    pub fn timeline(&self) -> &Handshake {
+        match self {
+            Call::Modem(h) | Call::Packet { timeline: h, .. } => h,
+        }
+    }
+
+    /// Whether a key may cut the connect short (and the clear).
+    pub fn skippable(&self) -> bool {
+        matches!(self, Call::Packet { .. })
+    }
+
+    /// What the caller's own screen says once the window has closed: the modem's `NO CARRIER`,
+    /// or the PAD's clear.
+    pub fn dropped(&self) -> String {
+        match self {
+            Call::Modem(_) => "NO CARRIER".into(),
+            Call::Packet { address, pad, .. } => X25Def::say(&pad.clear, address),
+        }
+    }
+
+    /// How long the hang-up shows before the window closes.
+    pub fn clear_secs(&self) -> f32 {
+        match self {
+            Call::Modem(_) => BBS_HANGUP_SECS,
+            Call::Packet { .. } => X25_CLEAR_SECS,
+        }
+    }
+}
+
+/// How the line to the board is placed, in its own words: a modem's `ATDT <number>`, or the
+/// PAD's call line with the board's address. For a screen that offers to call it again.
+pub fn placing(line: &dyn Line) -> String {
+    match line.connect() {
+        Call::Modem(_) => format!("ATDT {}", line.board().phone),
+        Call::Packet { address, pad, .. } => X25Def::say(&pad.call, &address),
+    }
+}
 
 /// One post on a jobs board, wherever the board was reached from.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -55,6 +114,11 @@ pub trait Line {
     /// Whether you own the source of version `version` of ICE kind `ice` (an id in `ice.ron`):
     /// it lists as yours, like a tool.
     fn has_source(&self, ice: &str, version: Version) -> bool;
+    /// How the line was made. By default a modem call to the board's number, as from home.
+    fn connect(&self) -> Call<'_> {
+        Call::Modem(Handshake::new(&self.board().phone))
+    }
+
     /// The board's news of new ICE versions, if it hears any ([`news_bulletin`]): none by
     /// default.
     fn news(&self) -> Option<&BulletinDef> {
@@ -92,6 +156,15 @@ impl Line for Game {
 
     fn news(&self) -> Option<&BulletinDef> {
         self.news.as_ref()
+    }
+
+    /// In a run you're already on the net: the board is an X.25 call through its PAD.
+    fn connect(&self) -> Call<'_> {
+        Call::Packet {
+            timeline: Handshake::x25(),
+            address: self.bbs_address(),
+            pad: &self.data.networks.x25,
+        }
     }
 
     fn stock(&self) -> &[Vec<StockFile>] {
@@ -196,6 +269,8 @@ pub enum Outcome {
     /// Nothing for the game to do.
     None,
     Act(Action),
+    /// The connect was skipped: the line's sound stops with it (the modem channel only).
+    Cut,
     /// The line dropped; close the window.
     Closed,
 }
@@ -221,12 +296,12 @@ impl Session {
         }
     }
 
-    /// Advances modem time by `dt` seconds.
+    /// Advances the line's clock by `dt` seconds.
     pub fn tick(&mut self, game: &dyn Line, dt: f32) -> Outcome {
         match &mut self.screen {
             Screen::Dialing { t } => {
                 *t += dt;
-                if *t >= Handshake::new(&game.board().phone).end {
+                if *t >= game.connect().timeline().end {
                     self.screen = Screen::Splash;
                 }
             }
@@ -247,13 +322,46 @@ impl Session {
             }
             Screen::Hangup { t } => {
                 *t += dt;
-                if *t >= BBS_HANGUP_SECS {
+                if *t >= game.connect().clear_secs() {
                     return Outcome::Closed;
                 }
             }
             _ => {}
         }
         Outcome::None
+    }
+
+    /// Whether the line is still connecting (the call is on screen, the board isn't yet).
+    pub fn connecting(&self) -> bool {
+        matches!(self.screen, Screen::Dialing { .. })
+    }
+
+    /// A key or a click that only hurries the line: a call that can be skipped goes straight to
+    /// the splash (`Cut`: its sound stops) and its clear closes at once (`Closed`). A modem
+    /// call can't be hurried, and nothing else is a skip.
+    pub fn skip(&mut self, game: &dyn Line) -> Outcome {
+        if !game.connect().skippable() {
+            return Outcome::None;
+        }
+        match self.screen {
+            Screen::Dialing { .. } => {
+                self.go(Screen::Splash);
+                Outcome::Cut
+            }
+            Screen::Hangup { .. } => Outcome::Closed,
+            _ => Outcome::None,
+        }
+    }
+
+    /// The terminal's title bar: the program, the board and the line it's on (a modem's baud
+    /// and framing, or the X.25 address).
+    pub fn title(game: &dyn Line) -> String {
+        let b = game.board();
+        let line = match game.connect() {
+            Call::Modem(_) => format!("{} 8N1", b.baud),
+            Call::Packet { address, .. } => address,
+        };
+        format!("TELIX 3.51 — {}  {line}  ANSI-BBS", b.name)
     }
 
     /// The hotkeys the current screen accepts, with labels (for clickable buttons).
@@ -309,7 +417,9 @@ impl Session {
         let back = k == 'Q' || k == '\x1b';
         let digit = k.to_digit(10).map(|d| d as usize);
         match self.screen {
-            Screen::Dialing { .. } | Screen::Download { .. } | Screen::Hangup { .. } => {}
+            // A key only hurries the line, and only once: the splash waits for one of its own.
+            Screen::Dialing { .. } | Screen::Hangup { .. } => return self.skip(game),
+            Screen::Download { .. } => {}
             Screen::Splash => self.go(Screen::Main),
             Screen::Main => match k {
                 'F' => self.go(Screen::Areas),
@@ -429,25 +539,40 @@ impl Session {
         let pick = |what: &str| prompt(&format!("{what} {} {tx}or {}{tx}uit", hot("#"), hot("Q")));
         let mut out: Vec<String> = Vec::new();
         match self.screen {
-            Screen::Dialing { t } => {
-                let h = Handshake::new(&b.phone);
-                out.push("|07ATZ".into());
-                if t >= h.offhook {
-                    out.push(format!("|07ATDT {}", b.phone));
-                }
-                for &ring in &h.rings {
-                    if t >= ring {
-                        out.push("|08~~ RING ~~".into());
+            Screen::Dialing { t } => match game.connect() {
+                Call::Modem(h) => {
+                    out.push("|07ATZ".into());
+                    if t >= h.offhook {
+                        out.push(format!("|07ATDT {}", b.phone));
+                    }
+                    for &ring in &h.rings {
+                        if t >= ring {
+                            out.push("|08~~ RING ~~".into());
+                        }
+                    }
+                    if t >= h.connect {
+                        out.push(format!("|15CONNECT {}/ARQ/V42BIS", b.baud));
+                    }
+                    if t >= h.connect + MODEM_ANSI_AFTER {
+                        out.push("|07Negotiating ANSI... |10OK".into());
+                        out.push(format!("|08{}", l.software));
                     }
                 }
-                if t >= h.connect {
-                    out.push(format!("|15CONNECT {}/ARQ/V42BIS", b.baud));
+                // The PAD's words: the call, then the far end's accept, then the board.
+                Call::Packet {
+                    timeline: h,
+                    address,
+                    pad,
+                } => {
+                    out.push(format!("|07{}", X25Def::say(&pad.call, &address)));
+                    if t >= h.connect {
+                        out.push(format!("|15{}", X25Def::say(&pad.connected, &address)));
+                    }
+                    if t >= (h.connect + h.end) / 2.0 {
+                        out.push(format!("|08{}", l.software));
+                    }
                 }
-                if t >= h.connect + MODEM_ANSI_AFTER {
-                    out.push("|07Negotiating ANSI... |10OK".into());
-                    out.push(format!("|08{}", l.software));
-                }
-            }
+            },
             Screen::Splash => {
                 out.extend(b.splash.lines().map(String::from));
                 out.push(String::new());
@@ -727,14 +852,22 @@ impl Session {
             }
             Screen::Hangup { t } => {
                 out.push(format!("|07{}", l.goodbye.replace("{board}", &b.name)));
-                if t > 0.2 {
-                    out.push("|08+++".into());
-                }
-                if t > 0.5 {
-                    out.push("|08ATH0".into());
-                }
-                if t > 0.8 {
-                    out.push("|15NO CARRIER".into());
+                match game.connect() {
+                    Call::Modem(_) => {
+                        if t > 0.2 {
+                            out.push("|08+++".into());
+                        }
+                        if t > 0.5 {
+                            out.push("|08ATH0".into());
+                        }
+                        if t > 0.8 {
+                            out.push("|15NO CARRIER".into());
+                        }
+                    }
+                    // The board cleared the call: the PAD says so at once.
+                    Call::Packet { address, pad, .. } => {
+                        out.push(format!("|15{}", X25Def::say(&pad.clear, &address)));
+                    }
                 }
             }
         }
@@ -745,7 +878,7 @@ impl Session {
             out.push(format!("   {s}"));
         }
         out.truncate(ROWS);
-        // A l33t board speaks 31337. The modem (dialing, hang-up) and the splash art don't.
+        // A l33t board speaks 31337. The line (the modem or the PAD) and the splash art don't.
         if l.leet
             && !matches!(
                 self.screen,

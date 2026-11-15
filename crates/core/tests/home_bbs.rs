@@ -362,3 +362,113 @@ fn every_home_screen_fits() {
         );
     }
 }
+
+/// What a call from home showed at `t` seconds into its dial, as it always has: written out
+/// here from the board's own data and the handshake, apart from the code that draws it.
+fn dial_lines(b: &data::BbsDef, h: &ninsei_core::modem::Handshake, t: f32) -> Vec<String> {
+    let mut v = vec!["|07ATZ".to_string()];
+    if t >= h.offhook {
+        v.push(format!("|07ATDT {}", b.phone));
+    }
+    for &ring in &h.rings {
+        if t >= ring {
+            v.push("|08~~ RING ~~".into());
+        }
+    }
+    if t >= h.connect {
+        v.push(format!("|15CONNECT {}/ARQ/V42BIS", b.baud));
+    }
+    if t >= h.connect + 0.15 {
+        v.push("|07Negotiating ANSI... |10OK".into());
+        v.push(format!("|08{}", b.look.software));
+    }
+    v
+}
+
+/// And at `t` seconds into its hang-up.
+fn hangup_lines(b: &data::BbsDef, t: f32) -> Vec<String> {
+    let mut v = vec![format!("|07{}", b.look.goodbye.replace("{board}", &b.name))];
+    for (after, line) in [(0.2, "|08+++"), (0.5, "|08ATH0"), (0.8, "|15NO CARRIER")] {
+        if t > after {
+            v.push(line.into());
+        }
+    }
+    v
+}
+
+#[test]
+fn the_home_call_dials_and_hangs_up_as_it_always_did() {
+    // Every board's dial and hang-up from home, a frame every 50 ms, line for line against what
+    // they showed before the run's X.25 call came (140): the full handshake, keys ignored
+    // throughout, then +++, ATH0 and NO CARRIER over BBS_HANGUP_SECS.
+    use ninsei_core::bbs::Outcome;
+    let d = data();
+    let s = knows_all(500);
+    for board in 0..d.boards.len() {
+        let call = s.home_call(&d, &d.rig, board);
+        let b = call.board();
+        let h = ninsei_core::modem::Handshake::new(&b.phone);
+        let mut sess = Session::new();
+        let mut t = 0.0f32;
+        while sess.connecting() {
+            assert_eq!(sess.render(&call), dial_lines(b, &h, t), "{} at {t}", b.id);
+            let mut tried = sess.clone();
+            assert_eq!(tried.key(&call, 'x'), Outcome::None);
+            assert_eq!(tried.screen, sess.screen, "a key doesn't hurry it");
+            assert_eq!(sess.tick(&call, 0.05), Outcome::None);
+            t += 0.05;
+        }
+        assert!(
+            t >= h.end && t < h.end + 0.06,
+            "{}: the splash at the call's end",
+            b.id
+        );
+        assert_eq!(sess.screen, Screen::Splash);
+        sess.screen = Screen::Main;
+        sess.key(&call, 'G');
+        let mut t = 0.0f32;
+        loop {
+            assert_eq!(sess.render(&call), hangup_lines(b, t), "{} at {t}", b.id);
+            let mut tried = sess.clone();
+            assert_eq!(tried.key(&call, 'x'), Outcome::None, "nor its hang-up");
+            let o = sess.tick(&call, 0.05);
+            t += 0.05;
+            if o == Outcome::Closed {
+                break;
+            }
+            assert!(t < tuning::BBS_HANGUP_SECS, "{}", b.id);
+        }
+        assert!((tuning::BBS_HANGUP_SECS..tuning::BBS_HANGUP_SECS + 0.06).contains(&t));
+    }
+}
+
+#[test]
+fn a_home_call_is_a_modem_call_and_can_t_be_hurried() {
+    use ninsei_core::bbs::{Call, Outcome};
+    let d = data();
+    let s = knows_all(500);
+    for board in 0..d.boards.len() {
+        let call = s.home_call(&d, &d.rig, board);
+        let b = call.board();
+        let h = ninsei_core::modem::Handshake::new(&b.phone);
+        assert_eq!(call.connect(), Call::Modem(h.clone()), "{}", b.id);
+        assert!(!call.connect().skippable());
+        assert_eq!(call.connect().dropped(), "NO CARRIER");
+        assert_eq!(
+            ninsei_core::bbs::placing(&call),
+            format!("ATDT {}", b.phone)
+        );
+        assert_eq!(
+            Session::title(&call),
+            format!("TELIX 3.51 — {}  {} 8N1  ANSI-BBS", b.name, b.baud),
+            "the title as it was"
+        );
+        let mut sess = Session::new();
+        assert_eq!(sess.skip(&call), Outcome::None, "a click doesn't hurry it");
+        assert_eq!(sess.key(&call, ' '), Outcome::None);
+        sess.tick(&call, h.end - 0.01);
+        assert!(sess.connecting(), "the full handshake");
+        sess.tick(&call, 0.02);
+        assert_eq!(sess.screen, Screen::Splash);
+    }
+}

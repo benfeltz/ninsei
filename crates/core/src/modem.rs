@@ -4,6 +4,8 @@
 //!
 //! [`Handshake::new`] lays out the timeline (the dial screens print their lines from it, so text
 //! and sound stay in step); [`Handshake::render`] synthesizes it as mono samples in -1..=1.
+//! [`Handshake::x25`] is the other call on the same timeline: a board reached in a run, through
+//! the net's PAD, one short burst of packet data and no telephone at all.
 //! Pure maths, no audio device: the app plays the samples.
 
 use std::f32::consts::TAU;
@@ -23,6 +25,8 @@ pub enum Tone {
     Answer,
     /// Both carriers at once (1200 Hz originate, 2400 Hz answer), phase-hopping at 600 baud.
     Carrier,
+    /// Packets on a data line: scrambled bits in short bursts. No tone, no carrier.
+    Data,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -32,7 +36,8 @@ pub struct Part {
     pub tone: Tone,
 }
 
-/// One dial-up call, start to CONNECT.
+/// One call, start to CONNECT: a dial-up handshake ([`Handshake::new`]) or an X.25 call
+/// ([`Handshake::x25`], which has no off-hook, rings or answer: they're all at 0).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Handshake {
     /// When the modem goes off hook and dials (`ATDT`).
@@ -86,6 +91,24 @@ impl Handshake {
         }
     }
 
+    /// An X.25 call through the net's PAD: one burst of packet data, then the far end accepts
+    /// (`connect`, the PAD's `COM`) and a short settle. Under a second; the same every time.
+    pub fn x25() -> Self {
+        let connect = X25_BURST_SECS;
+        Self {
+            offhook: 0.0,
+            rings: Vec::new(),
+            answer: 0.0,
+            connect,
+            end: connect + X25_SETTLE_SECS,
+            parts: vec![Part {
+                at: 0.0,
+                secs: X25_BURST_SECS,
+                tone: Tone::Data,
+            }],
+        }
+    }
+
     /// The whole call as mono samples at `rate` Hz, `end` seconds long.
     pub fn render(&self, rate: u32) -> Vec<f32> {
         let rate_f = rate as f32;
@@ -98,6 +121,10 @@ impl Handshake {
             let ramp = ((MODEM_RAMP_SECS * rate_f) as usize).max(1);
             // Carrier phase: hops by a multiple of 90° every symbol (scrambled data).
             let symbol = (rate_f / MODEM_BAUD) as usize;
+            // Packet data: a new bit every `bit` samples, in packets with gaps between.
+            let bit = ((rate_f / X25_BITS) as usize).max(1);
+            let packet = X25_PACKET_SECS + X25_PACKET_GAP_SECS;
+            let mut level = 1.0f32;
             let (mut ph_o, mut ph_a) = (0.0f32, 0.0f32);
             for i in 0..len {
                 let s = i as f32 / rate_f;
@@ -119,10 +146,28 @@ impl Handshake {
                             + 0.45 * (TAU * 2400.0 * s + ph_a).sin()
                             + 0.1 * hiss
                     }
+                    Tone::Data => {
+                        if i % bit == 0 {
+                            level = if rng.below(2) == 0 { -1.0 } else { 1.0 };
+                        }
+                        // Silent between packets, with the same short fades as a tone.
+                        let into = s % packet;
+                        let edge = into.min(X25_PACKET_SECS - into) * rate_f / ramp as f32;
+                        if into < X25_PACKET_SECS {
+                            level * edge.clamp(0.0, 1.0)
+                        } else {
+                            0.0
+                        }
+                    }
                 };
                 // Short fades so tones start and stop without clicks.
                 let env = (i.min(len - 1 - i) as f32 / ramp as f32).min(1.0);
-                out[start + i] = v * env * MODEM_VOLUME;
+                let volume = if p.tone == Tone::Data {
+                    X25_VOLUME
+                } else {
+                    MODEM_VOLUME
+                };
+                out[start + i] = v * env * volume;
             }
         }
         out
@@ -214,6 +259,121 @@ mod tests {
         let carrier = &samples[at(h.connect - 0.5)..at(h.connect - 0.05)];
         assert!(power(carrier, rate, 1200.0) > 4.0 * power(carrier, rate, 2225.0));
         assert!(samples[at(h.connect) + 1..].iter().all(|&s| s == 0.0));
+    }
+
+    /// What a call sounds like, as numbers that move smoothly with the samples: its energy and
+    /// three random ±1 projections of them. libm's last bit (macOS against CI's Linux) moves
+    /// them by millionths; any change to a tone, a timing or the noise moves them by whole units.
+    fn fingerprint(samples: &[f32]) -> [f64; 4] {
+        let mut f = [0.0f64; 4];
+        let mut rngs = [1u64, 2, 3].map(|k| Rng::new(0x5A5A_0000 + k));
+        for &s in samples {
+            let s = f64::from(s);
+            f[0] += s * s;
+            for (i, r) in rngs.iter_mut().enumerate() {
+                f[i + 1] += if r.below(2) == 0 { -s } else { s };
+            }
+        }
+        f
+    }
+
+    /// The fingerprints of the home calls below, taken on main before the X.25 call came.
+    const PINS: [[f64; 4]; 3] = [
+        [456.148_671, -22.518_445, 0.651_385, 4.549_628],
+        [456.159_393, -16.051_906, -6.816_023, 7.737_968],
+        [488.405_961, -11.172_469, -0.213_174, 16.822_283],
+    ];
+
+    #[test]
+    fn the_home_call_is_what_it_was() {
+        // Pinned on main before the X.25 call came (140): the dial-up handshake's timeline, its
+        // parts, and how it sounds, unchanged.
+        for (k, (n, answer, connect, end)) in [
+            ("555-0199", 2.74, 4.34, 4.69),
+            ("555-0142", 2.74, 4.34, 4.69),
+            ("1-555-867-5309", 3.22, 4.82, 5.17),
+        ]
+        .into_iter()
+        .enumerate()
+        {
+            let h = Handshake::new(n);
+            let got = fingerprint(&h.render(8000));
+            for (g, want) in got.iter().zip(PINS[k]) {
+                assert!((g - want).abs() < 1e-3, "{n} sounds as it did: {got:?}");
+            }
+            assert!((h.offhook - 0.3).abs() < 1e-4, "{n}");
+            assert!((h.answer - answer).abs() < 1e-4, "{n}");
+            assert!((h.connect - connect).abs() < 1e-4, "{n}");
+            assert!((h.end - end).abs() < 1e-4, "{n}");
+            assert_eq!(h.rings.len(), 2, "{n}");
+            // Dial tone, a key per digit, two rings, the answer tone, the carrier: that long.
+            let digits: Vec<Tone> = n
+                .chars()
+                .filter(|c| c.is_ascii_digit())
+                .map(Tone::Digit)
+                .collect();
+            let mut tones = vec![Tone::DialTone];
+            tones.extend(digits);
+            tones.extend([Tone::Ringback, Tone::Ringback, Tone::Answer, Tone::Carrier]);
+            assert_eq!(h.parts.iter().map(|p| p.tone).collect::<Vec<_>>(), tones);
+            for p in &h.parts {
+                let secs = match p.tone {
+                    Tone::DialTone => 0.3,
+                    Tone::Digit(_) => 0.07,
+                    Tone::Ringback => 0.4,
+                    Tone::Answer => 0.7,
+                    Tone::Carrier => 0.9,
+                    Tone::Data => unreachable!("no data on a phone call"),
+                };
+                assert!((p.secs - secs).abs() < 1e-6, "{n} {p:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_x25_call_is_one_short_burst_and_no_telephone() {
+        let h = Handshake::x25();
+        assert!(h.end < 1.0, "well under a second: {}", h.end);
+        assert!((h.end - (X25_BURST_SECS + X25_SETTLE_SECS)).abs() < 1e-6);
+        assert!((h.connect - X25_BURST_SECS).abs() < 1e-6);
+        assert!(h.rings.is_empty());
+        assert_eq!(
+            h.parts,
+            vec![Part {
+                at: 0.0,
+                secs: X25_BURST_SECS,
+                tone: Tone::Data
+            }],
+            "no dial tone, digits, ringback, answer tone or carrier"
+        );
+        assert_eq!(h, Handshake::x25(), "the same every time");
+    }
+
+    #[test]
+    fn the_burst_hisses_in_packets_then_goes_quiet() {
+        let rate = 8000.0;
+        let h = Handshake::x25();
+        let samples = h.render(rate as u32);
+        assert_eq!(samples.len(), (h.end * rate) as usize);
+        assert!(samples.iter().all(|s| s.abs() <= 1.0));
+        let at = |t: f32| (t * rate) as usize;
+        let first = &samples[at(0.01)..at(X25_PACKET_SECS - 0.01)];
+        assert!(first.iter().any(|s| s.abs() > 0.05), "a packet is heard");
+        // Noise, not a tone: no telephone frequency stands out of it.
+        let band: Vec<f32> = (4..76)
+            .map(|i| power(first, rate, i as f32 * 50.0))
+            .collect();
+        let flat = band.iter().sum::<f32>() / band.len() as f32;
+        for f in [350.0, 440.0, 480.0, 1200.0, 2225.0, 2400.0] {
+            assert!(power(first, rate, f) < 12.0 * flat, "{f} Hz");
+        }
+        let gap = X25_PACKET_SECS + X25_PACKET_GAP_SECS / 2.0;
+        assert!(
+            samples[at(gap) - 2..at(gap) + 2].iter().all(|&s| s == 0.0),
+            "a gap between packets"
+        );
+        assert!(samples[at(h.connect) + 1..].iter().all(|&s| s == 0.0));
+        assert_eq!(samples, h.render(rate as u32), "the same every time");
     }
 
     #[test]

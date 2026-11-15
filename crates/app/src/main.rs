@@ -652,7 +652,8 @@ impl App {
         if let Some(id) = self.home.dial_started.take()
             && let Some(number) = self.save.entry(id).map(|e| e.number.clone())
         {
-            self.speaker.dial(&number);
+            self.speaker
+                .dial(&ninsei_core::modem::Handshake::new(&number));
         }
         // Hung up mid-handshake: the modem goes quiet with it.
         if std::mem::take(&mut self.home.dial_cut) {
@@ -672,16 +673,26 @@ impl App {
         }
         let open = self.bbs.is_some() || self.home_bbs.is_some();
         if open && !self.bbs_heard {
-            // A call from home dials that board's number; in a run, the network's board.
-            let phone = match &self.home_bbs {
-                Some((_, call)) => ninsei_core::bbs::Line::board(call).phone.clone(),
-                None => self.game.bbs().phone.clone(),
-            };
-            self.speaker.dial(&phone);
+            // The line's own call, the one its window ticks against: a call from home dials
+            // that board's number; in a run, the net's PAD calls the network's board.
+            if let Some(timeline) = self.bbs_call().map(|c| c.timeline().clone()) {
+                self.speaker.dial(&timeline);
+            }
         } else if !open && self.bbs_heard {
             self.speaker.stop();
         }
         self.bbs_heard = open;
+    }
+
+    /// The call on the BBS window's line, if one is up: a board called from home, else the
+    /// run's.
+    fn bbs_call(&self) -> Option<ninsei_core::bbs::Call<'_>> {
+        use ninsei_core::bbs::Line;
+        match (&self.home_bbs, &self.bbs) {
+            (Some((_, call)), _) => Some(call.connect()),
+            (None, Some(_)) => Some(self.game.connect()),
+            (None, None) => None,
+        }
     }
 
     fn toggle_crt(&mut self) {
@@ -835,7 +846,9 @@ impl App {
                 }
                 Outcome::Closed => {
                     self.home_bbs = None;
-                    self.home.say("NO CARRIER");
+                    // What the line says once it's dropped (a modem's NO CARRIER).
+                    self.home
+                        .say(ninsei_core::bbs::Line::connect(&shown).dropped());
                     return;
                 }
                 _ => continue,
@@ -1835,9 +1848,18 @@ impl App {
                     Outcome::Act(a) => self.game.apply(a),
                     Outcome::Closed => {
                         self.bbs = None;
-                        self.game.say(LogKind::Sys, "NO CARRIER");
+                        // The PAD cleared the call: the run's log says so in its words.
+                        let dropped = ninsei_core::bbs::Line::connect(&self.game).dropped();
+                        self.game.say(LogKind::Sys, dropped);
                         self.focus_input = true;
                         break;
+                    }
+                    // The connect was skipped: the modem channel goes quiet, the run's tune and
+                    // cues play on. Its sound counts as heard, so a dial that hadn't started yet
+                    // never plays over the splash.
+                    Outcome::Cut => {
+                        self.speaker.stop();
+                        self.bbs_heard = true;
                     }
                     Outcome::None => {}
                 }
@@ -2558,6 +2580,128 @@ mod tests {
             assert!(!app.sound_popup.is_open());
             typed(&mut h, &mut app, "d");
             assert_eq!(app.term.text(), "abcd");
+        }
+
+        #[test]
+        fn the_bbs_sounds_its_own_line() {
+            use ninsei_core::bbs::Call;
+            use ninsei_core::modem::Handshake;
+            let (_, mut app) = running("onosendai");
+            assert_eq!(app.bbs_call(), None, "no line, no sound");
+            // A run's board: the net's PAD, the X.25 call its window ticks against.
+            app.bbs = Some(BbsView::new());
+            let call = app.bbs_call().unwrap();
+            assert!(matches!(call, Call::Packet { .. }));
+            assert_eq!(call.timeline(), &Handshake::x25());
+            // A board called from home: the full handshake to its number.
+            app.bbs = None;
+            let rig = app.data.rig.clone();
+            let home = app.save.home_call(&app.data, &rig, 0);
+            let phone = ninsei_core::bbs::Line::board(&home).phone.clone();
+            app.home_bbs = Some((BbsView::new(), home));
+            assert_eq!(app.bbs_call(), Some(Call::Modem(Handshake::new(&phone))));
+        }
+
+        #[test]
+        fn the_enter_that_jacks_onto_the_board_doesn_t_skip_its_connect() {
+            let (mut h, mut app) = running("onosendai");
+            for _ in 0..3 {
+                frame(&mut h, &mut app, Vec::new());
+            }
+            // One hop short of the board.
+            let bbs = app.game.net.bbs().unwrap();
+            let from = (app.game.net.nodes.iter())
+                .find(|n| n.links.contains(&bbs))
+                .unwrap()
+                .id;
+            app.game.at = from;
+            app.last_at = from;
+            app.game.net.nodes[from].cleared = true;
+            let mut ev = text(&format!("jack {bbs}"));
+            ev.extend(key(egui::Key::Enter));
+            frame(&mut h, &mut app, ev);
+            assert_eq!(app.game.at, bbs, "jacked onto the board");
+            let view = app.bbs.as_ref().expect("its window opened");
+            assert!(view.session.connecting(), "and the call plays");
+        }
+
+        #[test]
+        fn a_skip_before_the_dial_leaves_nothing_to_dial() {
+            let (mut h, mut app) = running("onosendai");
+            let bbs = app.game.net.bbs().unwrap();
+            app.game.at = bbs;
+            app.last_at = bbs;
+            app.bbs = Some(BbsView::new());
+            assert!(!app.bbs_heard, "its sound hasn't started");
+            frame(&mut h, &mut app, Vec::new());
+            frame(&mut h, &mut app, text("x"));
+            assert!(!app.bbs.as_ref().unwrap().session.connecting(), "skipped");
+            assert!(app.bbs_heard, "so sync_sound won't dial it now");
+            assert_eq!(app.bbs_call().map(|c| c.skippable()), Some(true));
+        }
+
+        #[test]
+        fn a_home_call_still_hangs_up_with_no_carrier() {
+            let (mut h, mut app) = running("onosendai");
+            let rig = app.data.rig.clone();
+            let call = app.save.home_call(&app.data, &rig, 0);
+            let mut v = BbsView::new();
+            v.session.screen = ninsei_core::bbs::Screen::Hangup { t: 0.0 };
+            app.home_bbs = Some((v, call));
+            let ctx = h.ctx.clone();
+            let pal = app.pal;
+            for _ in 0..40 {
+                h.frame(Vec::new(), |_| app.home_bbs_ui(&ctx, &pal));
+                if app.home_bbs.is_none() {
+                    break;
+                }
+            }
+            assert!(app.home_bbs.is_none(), "it hung up");
+            assert!(app.home.shell_has("NO CARRIER"));
+        }
+
+        #[test]
+        fn the_target_pane_offers_the_pad_s_call_not_a_modem_s() {
+            let (mut h, mut app) = running("onosendai");
+            let bbs = app.game.net.bbs().unwrap();
+            app.game.at = bbs;
+            app.last_at = bbs;
+            if let Some(path) = app.dock.find_tab(&Tab::Target) {
+                let _ = app.dock.set_active_tab(path);
+            }
+            for _ in 0..3 {
+                frame(&mut h, &mut app, Vec::new());
+            }
+            // Closed, the pane offers to call it again.
+            app.bbs = None;
+            frame(&mut h, &mut app, Vec::new());
+            app.bbs = None;
+            frame(&mut h, &mut app, Vec::new());
+            let call = format!("CALL {}", app.game.bbs_address());
+            assert!(h.find(&call).is_some(), "{:?}", h.texts());
+            assert!(
+                !h.texts().iter().any(|t| t.contains("ATDT")),
+                "{:?}",
+                h.texts()
+            );
+        }
+
+        #[test]
+        fn leaving_a_run_s_board_logs_the_pad_s_clear() {
+            let (mut h, mut app) = running("onosendai");
+            let bbs = app.game.net.bbs().unwrap();
+            app.game.at = bbs;
+            app.last_at = bbs;
+            let mut v = BbsView::new();
+            v.session.screen = ninsei_core::bbs::Screen::Hangup { t: 0.0 };
+            app.bbs = Some(v);
+            frame(&mut h, &mut app, Vec::new());
+            frame(&mut h, &mut app, text("x"));
+            assert!(app.bbs.is_none(), "a key closes the clear");
+            let last = &app.game.log.last().unwrap().text;
+            let clear = (app.data.networks.x25.clear).replace("{address}", &app.game.bbs_address());
+            assert_eq!(last, &clear);
+            assert!(!app.game.log.iter().any(|l| l.text.contains("NO CARRIER")));
         }
 
         #[test]

@@ -440,11 +440,9 @@ impl Panes<'_> {
                     ui.label(
                         RichText::new(format!("{} // sysop {}", b.name, b.sysop)).color(p.bright),
                     );
-                    if !self.bbs_open
-                        && ui
-                            .button(format!(" ATDT {}  (dial in) ", b.phone))
-                            .clicked()
-                    {
+                    // The line's own words: in a run, the PAD's call to the board's address.
+                    let placing = ninsei_core::bbs::placing(g);
+                    if !self.bbs_open && ui.button(format!(" {placing}  (connect) ")).clicked() {
                         self.out.push(Request::OpenBbs);
                     }
                 } else {
