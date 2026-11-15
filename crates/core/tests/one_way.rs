@@ -1,6 +1,7 @@
 //! Links both ways, and some one way (task 143.1).
 
 use ninsei_core::hub::{self, Save};
+use ninsei_core::rng::Rng;
 use ninsei_core::*;
 
 fn data() -> Data {
@@ -187,4 +188,194 @@ fn a_bad_one_way_share_is_refused() {
     };
     assert_eq!(p.one_way(), 90, "the shape's share wins over the tier's");
     assert_eq!(NetParams::default().one_way(), tuning::NET_ONE_WAY_PCT);
+}
+
+/// A bare run on `seed` with every node but the entry an empty, cleared vault (no fights, no
+/// talks, no loot) and every link two way.
+fn quiet(seed: u64) -> Game {
+    let mut g = Game::new(data(), seed);
+    for n in &mut g.net.nodes {
+        if !matches!(n.kind, NodeKind::Entry | NodeKind::Exit) {
+            n.kind = NodeKind::Vault;
+            n.cleared = true;
+            n.ice = None;
+        }
+    }
+    g.net.orient(seed, 0);
+    g
+}
+
+fn rng_at(g: &Game) -> u64 {
+    g.rng.clone().next_u64()
+}
+
+/// Forward, back and forward again over a two-way link: three hops, each `TRACE_PER_HOP`.
+#[test]
+fn a_hop_back_costs_a_hop() {
+    for seed in 0..20 {
+        let mut g = quiet(seed);
+        let entry = g.at;
+        let a = g.reachable()[0];
+        assert!(g.reachable().iter().all(|&n| g.net.nodes[n].layer == 1));
+        g.apply(Action::Move(a));
+        assert!(g.reachable().contains(&entry), "the entry is a step back");
+        g.apply(Action::Move(entry));
+        assert_eq!(g.at, entry);
+        g.apply(Action::Move(a));
+        assert_eq!(g.at, a);
+        assert_eq!(g.hops, 3);
+        assert_eq!(g.deck.trace, 3 * tuning::TRACE_PER_HOP, "seed {seed}");
+        assert!(g.travelled(entry, a) && g.travelled(a, entry));
+    }
+}
+
+/// A one-way link is walked deeper and never back: the preview, `reachable` and the move
+/// agree, and the refusal says why in the deck's words.
+#[test]
+fn a_one_way_link_refuses_the_way_back() {
+    for seed in 0..20 {
+        let mut g = quiet(seed);
+        g.net.orient(seed, 100);
+        let entry = g.at;
+        let a = g.reachable()[0];
+        g.apply(Action::Move(a));
+        let (trace, hops, at) = (g.deck.trace, g.hops, g.at);
+        assert!(!g.reachable().contains(&entry));
+        let why = g.route(entry).unwrap_err();
+        assert!(why.contains("one way"), "{why}");
+        g.apply(Action::Move(entry));
+        assert_eq!(
+            (g.deck.trace, g.hops, g.at),
+            (trace, hops, at),
+            "nothing moved"
+        );
+        assert!(g.log.last().unwrap().text.contains(&why));
+    }
+}
+
+/// Over many networks and every tier: a node is reachable exactly when the preview lets the
+/// move through, and the move goes exactly where the preview says.
+#[test]
+fn the_preview_reachable_and_the_move_agree() {
+    let d = std::sync::Arc::new(data());
+    for tier in 1..=3 {
+        for seed in 0..40u64 {
+            let mut g = site(tier, &[]).dial(&d, 0, seed).unwrap();
+            for n in &mut g.net.nodes {
+                if n.kind != NodeKind::Exit && n.kind != NodeKind::Entry {
+                    n.kind = NodeKind::Vault;
+                    n.cleared = true;
+                    n.ice = None;
+                }
+            }
+            let mut walk = Rng::new(seed);
+            for _ in 0..12 {
+                if g.phase != Phase::Exploring {
+                    break;
+                }
+                let reach = g.reachable();
+                for n in 0..g.net.nodes.len() {
+                    assert_eq!(reach.contains(&n), g.route(n).is_ok(), "node {n}");
+                    if g.route(n).is_err() {
+                        let mut h = g.clone();
+                        h.apply(Action::Move(n));
+                        assert_eq!(
+                            (h.at, h.hops),
+                            (g.at, g.hops),
+                            "a refused move moves nothing"
+                        );
+                    }
+                }
+                let to = reach[walk.below(reach.len())];
+                g.apply(Action::Move(to));
+                assert_eq!(g.at, to);
+            }
+        }
+    }
+}
+
+/// Stepping back onto the BBS reconnects to the same board with the same jobs, and draws
+/// nothing from the run's RNG.
+#[test]
+fn the_bbs_keeps_its_jobs_on_a_revisit() {
+    let mut checked = 0;
+    for seed in 0..30 {
+        let mut g = Game::new(data(), seed);
+        g.net.orient(seed, 0);
+        let bbs = g.net.bbs().unwrap();
+        // Quiet the way there, and leave ICE beyond it for the jobs to target.
+        for n in &mut g.net.nodes {
+            if n.id != bbs && n.layer > 0 && n.layer <= tuning::BBS_LAYER {
+                n.kind = NodeKind::Vault;
+                n.cleared = true;
+                n.ice = None;
+            }
+        }
+        while g.at != bbs {
+            let next = *g.net.nodes[g.at]
+                .links
+                .iter()
+                .find(|&&n| g.net.reachable_from(n)[bbs])
+                .unwrap();
+            g.apply(Action::Move(next));
+        }
+        if g.bbs_jobs.is_empty() {
+            continue;
+        }
+        let jobs = g.bbs_jobs.clone();
+        let rng = rng_at(&g);
+        let on = g.net.back(bbs).next().unwrap();
+        g.apply(Action::Move(on));
+        g.apply(Action::Move(bbs));
+        assert_eq!(g.at, bbs);
+        assert_eq!(g.bbs_jobs, jobs, "seed {seed}: the same jobs");
+        assert_eq!(rng_at(&g), rng, "seed {seed}: nothing drawn");
+        checked += 1;
+    }
+    assert!(checked > 10);
+}
+
+/// An earlier node never visited, stepped onto over a two-way link, pays as a first visit
+/// would, and only the first time.
+#[test]
+fn an_earlier_vault_pays_once() {
+    let mut checked = 0;
+    for seed in 0..40 {
+        let mut g = quiet(seed);
+        // Two nodes on layer 1 that both link into one node on layer 2.
+        let l1 = g.net.layers[1].clone();
+        let Some((a, b, c)) = l1.iter().find_map(|&a| {
+            l1.iter().filter(|&&b| b != a).find_map(|&b| {
+                let c = g.net.nodes[a]
+                    .links
+                    .iter()
+                    .find(|x| g.net.nodes[b].links.contains(x))?;
+                Some((a, b, *c))
+            })
+        }) else {
+            continue;
+        };
+        g.net.nodes[b].cleared = false;
+        let unlocked = |g: &Game| {
+            g.log
+                .iter()
+                .filter(|l| l.text.contains("vault unlocked"))
+                .count()
+        };
+        g.apply(Action::Move(a));
+        g.apply(Action::Move(c));
+        assert_eq!(unlocked(&g), 0);
+        g.apply(Action::Move(b));
+        assert_eq!(g.at, b);
+        assert_eq!(
+            unlocked(&g),
+            1,
+            "seed {seed}: the vault pays on its first visit"
+        );
+        g.apply(Action::Move(c));
+        g.apply(Action::Move(b));
+        assert_eq!(unlocked(&g), 1, "seed {seed}: and only then");
+        checked += 1;
+    }
+    assert!(checked > 10);
 }

@@ -1348,15 +1348,16 @@ impl Game {
         crate::glitch::level(self.deck.integrity, self.deck.integrity_max)
     }
 
-    /// Whether the runner has been on node `id` of the network they're on. Routes only run
-    /// forward and every node clears once you've been there, so visited nodes are your path.
+    /// Whether the runner has been on node `id` of the network they're on: every node clears
+    /// once you've been there (an ICE node once beaten), so visited nodes are where you've been.
     pub fn visited(&self, id: usize) -> bool {
         id == self.at || self.net.nodes.get(id).is_some_and(|n| n.cleared)
     }
 
-    /// Whether the runner came along the link from `a` to `b`: the hop trail on the map.
+    /// Whether the runner came along the link between `a` and `b`, either way: the hop trail
+    /// on the map.
     pub fn travelled(&self, a: usize, b: usize) -> bool {
-        self.visited(a) && self.visited(b) && self.net.nodes[a].links.contains(&b)
+        a < self.net.nodes.len() && b < self.net.nodes.len() && self.net.walked(a, b)
     }
 
     /// What a node on the current network is called in the UI: a subnet's exit is its uplink.
@@ -1373,13 +1374,39 @@ impl Game {
         (base + self.net.nodes[node].layer) as u32
     }
 
-    /// Nodes the runner may move to right now.
-    pub fn reachable(&self) -> &[usize] {
-        if self.phase == Phase::Exploring {
-            &self.net.nodes[self.at].links
-        } else {
-            &[]
+    /// Nodes the runner may move to right now: deeper along a link first, then back along one
+    /// that runs both ways. Exactly the moves [`Game::route`] allows.
+    pub fn reachable(&self) -> Vec<usize> {
+        self.net
+            .routes(self.at)
+            .into_iter()
+            .filter(|&to| self.route(to).is_ok())
+            .collect()
+    }
+
+    /// What a move to node `to` will do, or why it can't: the move's preview, and the move
+    /// resolves through it.
+    pub fn route(&self, to: usize) -> Result<(), String> {
+        if matches!(self.phase, Phase::Flatlined | Phase::JackedOut) {
+            return Err("run is over. `newrun` to jack in again.".into());
         }
+        if self.phase == Phase::Combat {
+            return Err("ICE is holding the connection. break it first.".into());
+        }
+        if self.phase == Phase::Encounter {
+            return Err("someone's still talking. answer them first.".into());
+        }
+        let (net, at) = (&self.net, self.at);
+        if to >= net.nodes.len() || !net.linked(at, to) {
+            return Err(format!("no route to node {to}."));
+        }
+        if net.nodes[at].layer > net.nodes[to].layer && net.one_way(to, at) {
+            return Err(format!(
+                "{} -> {} is one way. no route back.",
+                net.nodes[to].name, net.nodes[at].name
+            ));
+        }
+        Ok(())
     }
 
     pub fn say(&mut self, kind: LogKind, text: impl Into<String>) {
@@ -1559,15 +1586,8 @@ impl Game {
     }
 
     fn move_to(&mut self, to: usize) -> Result<(), String> {
-        if self.phase == Phase::Combat {
-            return Err("ICE is holding the connection. break it first.".into());
-        }
-        if self.phase == Phase::Encounter {
-            return Err("someone's still talking. answer them first.".into());
-        }
-        if !self.net.nodes[self.at].links.contains(&to) {
-            return Err(format!("no route to node {to}."));
-        }
+        self.route(to)?;
+        self.net.walk(self.at, to);
         self.at = to;
         self.hops += 1;
         self.encounter = None;
@@ -1594,6 +1614,8 @@ impl Game {
                 self.roll_loot(&table);
             }
             NodeKind::Bbs => {
+                // The same board on a revisit, with the same jobs: they're rolled once.
+                let first = !node.cleared;
                 self.net.nodes[to].cleared = true;
                 let b = self.bbs();
                 let line = format!("ATDT {} ... CONNECT {} to {}", b.phone, b.baud, b.name);
@@ -1606,9 +1628,11 @@ impl Game {
                     self.say(LogKind::Info, note);
                 }
                 self.bbs_seen = true;
-                self.bbs_jobs = (0..BBS_JOBS)
-                    .filter_map(|_| self.roll_contract(true))
-                    .collect();
+                if first {
+                    self.bbs_jobs = (0..BBS_JOBS)
+                        .filter_map(|_| self.roll_contract(true))
+                        .collect();
+                }
             }
             NodeKind::Contact if !node.cleared => {
                 self.net.nodes[to].cleared = true;
@@ -2818,10 +2842,10 @@ impl Game {
 
     // ---- contracts -----------------------------------------------------------
 
-    /// ICE nodes ahead that nobody has a contract on yet.
+    /// ICE nodes the runner can still get to that nobody has a contract on yet.
     fn contract_targets(&self) -> Vec<usize> {
         let (net, at) = (self.root(), self.root_at());
-        let reach = net.reachable_from(at);
+        let reach = net.routes_from(at);
         let taken = |n: usize| {
             self.contracts
                 .iter()
@@ -3053,7 +3077,7 @@ impl Game {
 
     /// Fails active contracts whose target can no longer be reached.
     fn void_unreachable_contracts(&mut self) {
-        let reach = self.root().reachable_from(self.root_at());
+        let reach = self.root().routes_from(self.root_at());
         let mut lost = Vec::new();
         for k in &mut self.contracts {
             if k.status == ContractStatus::Active && !reach[k.node] {

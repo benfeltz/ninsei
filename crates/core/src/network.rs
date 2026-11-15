@@ -59,6 +59,8 @@ pub struct Node {
     pub links: Vec<usize>,
     /// The links of `links` that are one way: walked from here deeper, never back.
     pub one_way: Vec<usize>,
+    /// The links of `links` the runner has walked, either way: the hop trail.
+    pub walked: Vec<usize>,
 }
 
 #[derive(Clone, Debug)]
@@ -118,6 +120,7 @@ impl Network {
                     cleared: kind == NodeKind::Entry,
                     links: Vec::new(),
                     one_way: Vec::new(),
+                    walked: Vec::new(),
                 });
                 ids.push(id);
             }
@@ -225,6 +228,23 @@ impl Network {
             .iter()
             .copied()
             .filter(move |&a| self.nodes[a].links.contains(&from) && !self.one_way(a, from))
+    }
+
+    /// Books a hop between `a` and `b` on the link that joins them, whichever way it went.
+    pub fn walk(&mut self, a: usize, b: usize) {
+        let (from, to) = if self.nodes[a].links.contains(&b) {
+            (a, b)
+        } else {
+            (b, a)
+        };
+        if !self.nodes[from].walked.contains(&to) {
+            self.nodes[from].walked.push(to);
+        }
+    }
+
+    /// Whether the runner has walked the link between `a` and `b`, either way.
+    pub fn walked(&self, a: usize, b: usize) -> bool {
+        self.nodes[a].walked.contains(&b) || self.nodes[b].walked.contains(&a)
     }
 
     /// Whether a link runs from `a` to `b` either way: `b` deeper on one of `a`'s links, or

@@ -452,7 +452,7 @@ impl Panes<'_> {
                 }
                 ui.add_space(4.0);
                 ui.label(RichText::new("routes:").color(p.dim));
-                for &to in g.reachable() {
+                for to in g.reachable() {
                     let t = &g.net.nodes[to];
                     if ui
                         .button(format!("jack {to}  {}  [{}]", t.name, g.node_label(to)))

@@ -463,7 +463,9 @@ fn best_route(g: &Game) -> Option<usize> {
     } else {
         Vec::new()
     };
-    g.reachable().iter().copied().max_by_key(|&to| {
+    // Deeper only, for now: the way back is taught in step 4 of 143.1.
+    let deeper = |to: &usize| g.net.nodes[*to].layer > g.net.nodes[g.at].layer;
+    g.reachable().into_iter().filter(deeper).max_by_key(|&to| {
         let pull: i64 = if targets.contains(&to) {
             150
         } else if !targets.is_empty() {
