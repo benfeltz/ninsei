@@ -222,6 +222,8 @@ pub struct Combat {
     pub bonus: Vec<Drop>,
     /// Speaks l33t (it came from a l33t encounter).
     pub leet: bool,
+    /// A node's ICE back up after the deck beat it there: beating it again pays nothing.
+    pub rearmed: bool,
 }
 
 /// What the runner brings into a run: the deck's numbers (its base plus RIG, up to its caps)
@@ -781,6 +783,19 @@ impl StepWhat {
             self,
             StepWhat::OutOfCpu | StepWhat::OutOfRam | StepWhat::End
         )
+    }
+}
+
+/// ICE `ice`'s version in force in a run whose versions are `versions`, and its program: 1.0.0
+/// and its row's when the sysops haven't shipped one.
+fn in_force(
+    data: &Data,
+    versions: &[(usize, Version, Program, Option<crate::ice_version::Bump>)],
+    ice: usize,
+) -> (Version, String) {
+    match versions.iter().find(|(i, ..)| *i == ice) {
+        Some((_, v, p, _)) => (*v, p.text()),
+        None => (Version::default(), data.ice[ice].program.clone()),
     }
 }
 
@@ -1552,14 +1567,16 @@ impl Game {
             self.study_key,
             steps,
             drafts,
-            |id| {
-                let ice = data.ice_by_id(id)?;
-                Some(match versions.iter().find(|(i, ..)| *i == ice) {
-                    Some((_, v, p, _)) => (*v, p.text()),
-                    None => (Version::default(), data.ice[ice].program.clone()),
-                })
-            },
+            |id| Some(in_force(data, versions, data.ice_by_id(id)?)),
         );
+        self.ship(shipped);
+    }
+
+    /// What the sysops shipped goes in force: the kind's version from the next fight with it,
+    /// the scene starts cracking its source, the board hears of it and it goes home with the
+    /// run (`shipped`, for `Save::record`), even on a flatline. The one way a version ships in
+    /// a run, by the clock or by a node re-arming.
+    fn ship(&mut self, shipped: Vec<(String, Version, crate::ice_version::Next)>) {
         if shipped.is_empty() {
             return;
         }
@@ -1585,6 +1602,33 @@ impl Game {
         );
     }
 
+    /// The deck steps back onto `node`, whose ICE `ice` it beat there: the ICE comes back up.
+    /// If the version it beat is still in force and its sysops are at work on it, they work
+    /// through every draft they have left at once, as their clock would, and what they find
+    /// ships: the node meets it. A newer version already in force is met as it is, and with
+    /// their patience spent it's the version in force. Nothing here draws from the run's RNG.
+    fn rearm(&mut self, node: usize, ice: usize) {
+        let v = self.ice_version(ice);
+        let id = &self.data.ice[ice].id;
+        let study = self
+            .ice_study
+            .iter()
+            .position(|s| s.id == *id && s.version == v && !s.rest);
+        if let Some(i) = study.filter(|_| self.net.nodes[node].beaten == Some(v)) {
+            let data = std::sync::Arc::clone(&self.data);
+            let (_, program) = in_force(&data, &self.ice_versions, ice);
+            let next = self.ice_study[i].finish(&data, &program, self.study_key);
+            if let Some(next) = next {
+                self.ship(vec![(data.ice[ice].id.clone(), v, next)]);
+            }
+        }
+        self.net.nodes[node].cleared = false;
+        self.start_combat(node, ice);
+        if let Some(c) = self.combat.as_mut() {
+            c.rearmed = true;
+        }
+    }
+
     fn move_to(&mut self, to: usize) -> Result<(), String> {
         self.route(to)?;
         self.net.walk(self.at, to);
@@ -1605,6 +1649,12 @@ impl Game {
             NodeKind::Ice | NodeKind::BlackIce if !node.cleared => {
                 if let Some(ice) = node.ice {
                     self.start_combat(to, ice);
+                }
+            }
+            // Beaten here before: it's back up.
+            NodeKind::Ice | NodeKind::BlackIce if node.beaten.is_some() => {
+                if let Some(ice) = node.ice {
+                    self.rearm(to, ice);
                 }
             }
             NodeKind::Vault if !node.cleared => {
@@ -1849,6 +1899,7 @@ impl Game {
             ifs: self.deck.ram_max,
             bonus: Vec::new(),
             leet: false,
+            rearmed: false,
         });
         self.phase = Phase::Combat;
         // Every fight opens with the program loaded and the cursor on its first line.
@@ -1966,7 +2017,11 @@ impl Game {
         self.wake_study(c.ice, c.ice_version);
         self.end_pass();
         self.phase = Phase::Exploring;
-        self.net.nodes[c.node].cleared = true;
+        let n = &mut self.net.nodes[c.node];
+        n.cleared = true;
+        if matches!(n.kind, NodeKind::Ice | NodeKind::BlackIce) {
+            n.beaten = Some(c.ice_version);
+        }
         let def = &self.data.ice[c.ice];
         let name = def.name.clone();
         let table = if def.tier >= 2 {
@@ -1976,6 +2031,11 @@ impl Game {
         };
         if c.strength == 0 {
             self.say(LogKind::Good, format!("{name} derezzed. node clear."));
+        }
+        // Back up after you beat it here: whatever it guarded is gone already.
+        if c.rearmed {
+            self.say(LogKind::Info, "nothing left on this node.");
+            return;
         }
         self.roll_loot(&table);
         if !c.bonus.is_empty() {

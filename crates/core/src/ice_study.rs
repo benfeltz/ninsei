@@ -184,6 +184,17 @@ impl Study {
         ship
     }
 
+    /// Every draft left, at once, by [`Study::step`]: what the clock would ship from here, or
+    /// nothing if their patience runs out first. They rest either way.
+    pub fn finish(&mut self, data: &Arc<Data>, program: &str, key: u64) -> Option<Next> {
+        while !self.rest {
+            if let Some(next) = self.step(data, program, key) {
+                return Some(next);
+            }
+        }
+        None
+    }
+
     /// `program` fought from every start, each duel from its own seed (the same for every
     /// draft, so they're judged on the same luck).
     fn fights(

@@ -61,6 +61,9 @@ pub struct Node {
     pub one_way: Vec<usize>,
     /// The links of `links` the runner has walked, either way: the hop trail.
     pub walked: Vec<usize>,
+    /// The version of its ICE the deck beat here, the last time it did: stepped back onto, the
+    /// node re-arms.
+    pub beaten: Option<crate::ice_version::Version>,
 }
 
 #[derive(Clone, Debug)]
@@ -121,6 +124,7 @@ impl Network {
                     links: Vec::new(),
                     one_way: Vec::new(),
                     walked: Vec::new(),
+                    beaten: None,
                 });
                 ids.push(id);
             }
