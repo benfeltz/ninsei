@@ -482,6 +482,32 @@ mod tests {
     }
 
     #[test]
+    fn the_draft_never_stamps_a_node_the_ai_holds_void() {
+        let quiet = one_in(3);
+        let next = quiet.net.nodes[quiet.at].links[0];
+        let mut g = with_ai(3, next, true);
+        // ICE beaten there before; then the AI walked onto it in sight.
+        let ice = g.data.ice.iter().position(|i| !i.boss).unwrap();
+        let n = &mut g.net.nodes[next];
+        (n.kind, n.ice, n.cleared) = (NodeKind::Ice, Some(ice), true);
+        let said: Vec<String> = drawn(MapView::Draft, &g, "amber")
+            .painted_text()
+            .into_iter()
+            .map(|(t, _)| t)
+            .collect();
+        assert!(!said.iter().any(|t| t == "VOID"), "{said:?}");
+        // Without the AI there, the beaten ICE is stamped.
+        let mut bare = g.clone();
+        bare.boss = None;
+        let said: Vec<String> = drawn(MapView::Draft, &bare, "amber")
+            .painted_text()
+            .into_iter()
+            .map(|(t, _)| t)
+            .collect();
+        assert!(said.iter().any(|t| t == "VOID"), "{said:?}");
+    }
+
+    #[test]
     fn the_ai_s_caption_stays_on_the_map_at_its_edges() {
         let bounds = Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 640.0));
         for view in VIEWS {

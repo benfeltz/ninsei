@@ -151,8 +151,9 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
                     k == MapNode::BlackIce,
                 );
             }
-            let derezzed = done && matches!(n.kind, NodeKind::Ice | NodeKind::BlackIce);
-            if let Some(b) = fx.burst(n.id) {
+            // Stamped and struck through only as itself: a node the AI holds is the AI's.
+            let derezzed = done && !held && matches!(n.kind, NodeKind::Ice | NodeKind::BlackIce);
+            if let Some(b) = fx.burst(n.id).filter(|_| !held) {
                 // Struck through: a quick hatch fill over the symbol, fading.
                 hatch_flash(&painter, c, p.bright.gamma_multiply(1.0 - b));
             }
