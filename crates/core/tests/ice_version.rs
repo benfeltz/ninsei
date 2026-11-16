@@ -97,16 +97,13 @@ fn a_bad_range_is_rejected() {
         let err = ice_edited(find, replace).expect_err(why);
         assert!(err.contains("icewall") && err.contains(why), "{why}: {err}");
     }
-    // SEGFAULT takes no number, so it has no range.
+    // SEGFAULT is a net's AI's: an ordinary row can't have it.
     let err = ice_edited(
-        "(Trace, 4, 6), (Attack, 3, 5), (Fortify, 1, 3)]",
-        "(Trace, 4, 6), (Attack, 3, 5), (Fortify, 1, 3), (Segfault, 0, 1)]",
+        "verbs: [Trace, Attack, Fortify, Spoof]",
+        "verbs: [Trace, Attack, Fortify, Spoof, Segfault]",
     )
     .unwrap_err();
-    assert!(
-        err.contains("hydra") && err.contains("takes no number"),
-        "{err}"
-    );
+    assert!(err.contains("hydra") && err.contains("SEGFAULT"), "{err}");
 }
 
 /// The builtin data with `ice_grammar.ron` edited (a find, which must be there, and its
@@ -246,9 +243,9 @@ fn versions_count_and_print_as_semver() {
 
 #[test]
 fn every_builtin_ice_round_trips_through_blocks() {
-    // Every kind can be patched: its program is in block form.
+    // Every kind can be patched: its program is in block form. A net's AI is never patched.
     let d = Data::builtin().unwrap();
-    for ice in &d.ice {
+    for ice in d.ice.iter().filter(|i| !i.boss) {
         let vocab = basic::Vocab::Ice(&ice.verbs);
         let p = basic::parse_with(&ice.program, vocab);
         let blocks = ice_version::blocks(&p).unwrap_or_else(|| panic!("{}", ice.id));
@@ -314,7 +311,7 @@ fn every_version_is_valid_and_the_change_it_says() {
     use ice_version::{Bump, next_version};
     let d = Data::builtin().unwrap();
     let ice = block_form(&d);
-    assert_eq!(ice.len(), d.ice.len());
+    assert_eq!(ice.len(), d.ice.iter().filter(|i| !i.boss).count());
     for row in ice {
         let before = blocks_of(row, &row.program);
         for bump in [Bump::Patch, Bump::Minor, Bump::Major] {

@@ -3,7 +3,8 @@
 // replaced (see `crates/core/src/ice_version.rs`), and it always fits its row's machine in
 // `ice.ron` (cpu, ram, hdd, ranges).
 //
-// program_attacks: the verbs whose lines attack the deck's program rather than the deck.
+// program_attacks: the verbs whose lines attack the deck's program rather than the deck. SEGFAULT
+//       is a net's AI's verb (`ai.ron`), so no response here offers it.
 // fair: (tier: t, most: n) no version of a tier-t ICE holds more than n lines of those verbs.
 //       Every tier in `ice.ron` is listed, and every row's own program keeps to it.
 // classes: per ICE class, the reads a new block may open with:
@@ -35,8 +36,8 @@
         ]),
         (class: CodeGate, reads: [
             (read: "TARGET SHIELD > n", n: Some((0, 2)),  weight: 3, responses: [(Trace, 3), (Spoof, 1), (Attack, 1)]),
-            (read: "TARGET RAN patch",  n: None,          weight: 3, responses: [(Trace, 3), (Segfault, 1)]),
-            (read: "TARGET RAN firewall", n: None,        weight: 2, responses: [(Trace, 2), (Segfault, 1)]),
+            (read: "TARGET RAN patch",  n: None,          weight: 3, responses: [(Trace, 3)]),
+            (read: "TARGET RAN firewall", n: None,        weight: 2, responses: [(Trace, 2)]),
             (read: "TARGET CPU > n",    n: Some((0, 2)),  weight: 1, responses: [(Trace, 2)]),
             (read: "TARGET INTEG < n",  n: Some((4, 8)),  weight: 1, responses: [(Attack, 2)]),
             (read: "TURN > n",          n: Some((2, 6)),  weight: 1, responses: [(Trace, 2), (Attack, 1)]),

@@ -27,11 +27,25 @@ fn deck() -> Save {
     s
 }
 
-/// The log lines in which an ICE's step names a line of its program: `<name> <number> ...`.
+/// Whether a source came from a beaten net's AI (138.3), not a board: what fighting ICE gives
+/// is the subject here, and a beaten AI gives up its net's sources.
+fn from_ai(d: &Data, from: &str) -> bool {
+    d.ai.models.iter().any(|m| m.id == from)
+}
+
+/// The log lines in which an ICE's step names a line of its program: `<name> <number> ...`,
+/// but for the kinds whose source a beaten AI gave up this run.
 fn lined<'a>(g: &'a Game, d: &Data) -> Vec<&'a str> {
+    let given: Vec<&str> = g
+        .sources_got
+        .iter()
+        .filter(|s| from_ai(d, &s.from))
+        .filter_map(|s| d.ice.iter().find(|i| i.id == s.id).map(|i| i.name.as_str()))
+        .collect();
     g.log
         .iter()
         .map(|l| l.text.as_str())
+        .filter(|t| !given.iter().any(|n| t.starts_with(&format!("{n} "))))
         .filter(|t| {
             d.ice.iter().any(|i| {
                 t.strip_prefix(&format!("{} ", i.name))
@@ -53,6 +67,8 @@ fn career(s: &mut Save, d: &Data, runs: u64, seed: u64, mut check: impl FnMut(&S
         let (g, _) = probe::play(g, Bot::SafePick);
         check(s, &g);
         s.record(&g, &[], &d.rig).unwrap();
+        // What a beaten AI gave up isn't what fighting ICE gives: the career keeps only the rest.
+        s.ice_sources.retain(|x| !from_ai(d, &x.from));
         s.study(&arc, tuning::STUDY_PATIENCE, u32::MAX);
     }
 }

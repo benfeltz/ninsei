@@ -19,7 +19,8 @@ fn with_row(program: &str, cpu: u32, ram: u32, verbs: &str) -> Result<Data, Stri
 fn every_builtin_ice_has_a_program_that_parses() {
     let d = Data::builtin().unwrap();
     for ice in &d.ice {
-        let p = basic::parse_with(&ice.program, basic::Vocab::Ice(&ice.verbs));
+        // In its own words: a net's AI's walk the map too.
+        let p = basic::parse_with(&ice.program, ice.vocab());
         assert!(!p.lines.is_empty(), "{}", ice.id);
         assert!(
             p.lines.iter().all(|l| p.fault(l.no).is_none()),

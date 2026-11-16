@@ -41,6 +41,10 @@
                                 (wave: Triangle, from: 659,  to: 659,  ms: 90,  vol: 0.20),
                                 (wave: Triangle, from: 784,  to: 784,  ms: 90,  vol: 0.20),
                                 (wave: Triangle, from: 1046, to: 1046, ms: 260, vol: 0.22)]),
+        // The net's AI wakes: the alert beep, low and twice.
+        (cue: AiWake,   notes: [(wave: Square,   from: 330,  to: 330,  ms: 180, vol: 0.22),
+                                (wave: Sine,     from: 0,    to: 0,    ms: 80,  vol: 0.0),
+                                (wave: Square,   from: 262,  to: 262,  ms: 260, vol: 0.22)]),
     ],
     music: [
         // Tier 1: C major at 108 bpm, the home stack. A 16-bar square tune over a triangle bass, with

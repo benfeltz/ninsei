@@ -5,10 +5,10 @@
 use egui::{
     Align2, Color32, FontFamily, FontId, Painter, Pos2, Rect, Sense, Shape, Stroke, Ui, pos2, vec2,
 };
-use ninsei_core::netview::{self, MapNode, Symbol, style};
+use ninsei_core::netview::{self, AiMark, MapNode, MapView, Symbol, style};
 use ninsei_core::{Game, NodeKind, Phase};
 
-use crate::netmap::{Anim, arrowhead, board_ink, hint, interact, kind, mix, tag, target, visible};
+use crate::netmap::{Anim, arrowhead, board_ink, hint, interact, kind, mix, target, visible};
 use crate::theme::Palette;
 
 /// How long the flow arrow on a one-way wire is, in pixels.
@@ -102,6 +102,8 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
 
     let mut clicked = None;
     let t = fx.t;
+    // Where the runner knows the net's AI is, worked out once for the frame.
+    let ai = netview::ai_mark(game);
     let (board_edge, board_label) = board_ink(game, p);
     for n in &net.nodes {
         if !shown(n.id) {
@@ -119,6 +121,8 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         let seen = visible(game, n.id);
         let can_go = reach.contains(&n.id);
         let done = n.cleared && !here;
+        // A node the net's AI holds is drawn as the AI, its name for the tag.
+        let held = ai.as_ref().is_some_and(|m| m.holds(n.id));
         let ink = if here || (can_go && hovered) {
             p.bright
         } else if can_go {
@@ -135,16 +139,21 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
             } else {
                 ink
             };
-            symbol(
-                &painter,
-                c,
-                style(&game.data, k).symbol,
-                ink,
-                p,
-                k == MapNode::BlackIce,
-            );
-            let derezzed = done && matches!(n.kind, NodeKind::Ice | NodeKind::BlackIce);
-            if let Some(b) = fx.burst(n.id) {
+            if held {
+                ai_symbol(&painter, c, p);
+            } else {
+                symbol(
+                    &painter,
+                    c,
+                    style(&game.data, k).symbol,
+                    ink,
+                    p,
+                    k == MapNode::BlackIce,
+                );
+            }
+            // Stamped and struck through only as itself: a node the AI holds is the AI's.
+            let derezzed = done && !held && matches!(n.kind, NodeKind::Ice | NodeKind::BlackIce);
+            if let Some(b) = fx.burst(n.id).filter(|_| !held) {
                 // Struck through: a quick hatch fill over the symbol, fading.
                 hatch_flash(&painter, c, p.bright.gamma_multiply(1.0 - b));
             }
@@ -185,8 +194,8 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
             if done { p.dim } else { p.fg },
         );
         let bbs = seen && kind(game, n.id) == MapNode::Bbs;
-        let mut label = tag(game, n.id);
-        if done && n.kind != NodeKind::Entry {
+        let mut label = netview::tag_with(game, n.id, ai.as_ref());
+        if done && !held && n.kind != NodeKind::Entry {
             label.push_str(" ok");
         }
         painter.text(
@@ -194,7 +203,13 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
             Align2::CENTER_TOP,
             label,
             small.clone(),
-            if bbs { board_label } else { p.dim },
+            if held {
+                p.bright
+            } else if bbs {
+                board_label
+            } else {
+                p.dim
+            },
         );
 
         if here {
@@ -219,6 +234,43 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
             );
             painter.circle_stroke(c, R * 1.7, Stroke::new(1.0, p.bright));
         }
+    }
+
+    // Where it holds a node, the node is drawn as it; anywhere else a callout marks it.
+    if let Some(m) = ai.filter(|m| !m.held) {
+        // The revision cloud round the runner, and its delta, are annotations too.
+        let cloud = pos(game.at) + vec2(0.0, 9.0);
+        // And the sheet's own furniture: the grid bubbles over it, the dimension line and the
+        // hint under it, the title block in the corner.
+        let mut avoid: Vec<Rect> = vec![
+            Rect::from_center_size(cloud, vec2(R * 5.4, R * 5.4)),
+            Rect::from_min_max(rect.left_top(), pos2(rect.right(), inner.top())),
+            Rect::from_min_max(
+                pos2(rect.left(), inner.bottom() + 8.0),
+                pos2(rect.right(), inner.bottom() + 30.0),
+            ),
+            title_block_rect(rect),
+            Rect::from_min_max(rect.left_bottom() - vec2(0.0, 22.0), rect.right_bottom()),
+        ];
+        avoid.extend(
+            (0..net.nodes.len())
+                .filter(|&id| id != m.node)
+                .flat_map(|id| {
+                    let seen = visible(game, id);
+                    let host = if seen {
+                        net.nodes[id].name.clone()
+                    } else {
+                        "????-????".into()
+                    };
+                    written(
+                        &painter,
+                        pos(id),
+                        &[host, netview::tag_with(game, id, Some(&m)) + " ok"],
+                        &small,
+                    )
+                }),
+        );
+        ai_callout(&painter, pos(m.node), &m, p, rect.shrink(6.0), &avoid);
     }
 
     dimension(
@@ -521,6 +573,203 @@ fn revision_cloud(painter: &Painter, c: Pos2, p: &Palette) {
     );
 }
 
+/// A node's symbol with everything written round it: its number up and left, its host and tag
+/// under it. What another node's callout must keep off.
+fn annotated(c: Pos2) -> Rect {
+    Rect::from_min_max(c + vec2(-38.0, -R - 16.0), c + vec2(38.0, R + 30.0))
+}
+
+/// What's drawn at a node, piece by piece: its number's circle, its symbol, and its `lines` of
+/// labels under it as wide as they're set in `font`. A callout keeps off each.
+fn written(painter: &Painter, c: Pos2, lines: &[String], font: &FontId) -> Vec<Rect> {
+    let mut out = vec![
+        Rect::from_center_size(c + vec2(-R - 7.0, -R - 7.0), vec2(17.0, 17.0)),
+        Rect::from_center_size(c, vec2(R * 2.0 + 4.0, R * 2.0 + 4.0)),
+    ];
+    for (i, l) in lines.iter().enumerate() {
+        let w = painter
+            .layout_no_wrap(l.clone(), font.clone(), Color32::WHITE)
+            .size()
+            .x;
+        let top = c.y + R + 4.0 + 11.0 * i as f32;
+        out.push(Rect::from_min_size(
+            pos2(c.x - w / 2.0 - 2.0, top),
+            vec2(w + 4.0, 13.0),
+        ));
+    }
+    out
+}
+
+/// The net's AI on the plan where it doesn't hold a node in sight: a double box drawn tight
+/// round the node's symbol (between it and its labels), and a leader from it to a boxed
+/// callout, placed on the sheet (under the grid bubbles) clear of the other nodes and their
+/// labels (`place_clear`): there now in the fog, solid; where it was last known, both dashed, in
+/// `dim`. Where it holds a node in sight, the node is drawn as it ([`ai_symbol`]).
+fn ai_callout(painter: &Painter, c: Pos2, m: &AiMark, p: &Palette, sheet: Rect, avoid: &[Rect]) {
+    let Some(caption) = netview::ai_caption(m, MapView::Draft) else {
+        return;
+    };
+    let ink = if m.now { p.bright } else { p.dim };
+    let font = FontId::new(10.0, FontFamily::Monospace);
+    let g = painter.layout_no_wrap(caption, font, ink);
+    let size = g.size() + vec2(10.0, 6.0);
+    let own = Rect::from_center_size(c, vec2(R * 2.0 + 6.0, R * 2.0 + 4.0));
+    let own = Rect::from_min_size(own.min.round(), own.size().round());
+    let taken = annotated(c);
+    // Up-left first, as the drawing's other callouts sit; then the other corners, further out.
+    let mut spots = Vec::new();
+    for reach in [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 8.0] {
+        for (sx, sy) in [(-1.0, -1.0), (1.0, -1.0), (-1.0, 1.0), (1.0, 1.0)] {
+            let corner = pos2(
+                if sx < 0.0 {
+                    taken.left()
+                } else {
+                    taken.right()
+                },
+                if sy < 0.0 {
+                    taken.top()
+                } else {
+                    taken.bottom()
+                },
+            );
+            let off = vec2(
+                sx * (size.x / 2.0 + 10.0 * reach),
+                sy * (size.y / 2.0 + 14.0 * reach),
+            );
+            spots.push(corner + off);
+        }
+        // Straight up and down from it.
+        for sy in [-1.0, 1.0] {
+            let edge = if sy < 0.0 {
+                taken.top()
+            } else {
+                taken.bottom()
+            };
+            spots.push(pos2(c.x, edge + sy * (size.y / 2.0 + 10.0 * reach)));
+        }
+        // Straight out to either side, level with the node.
+        for sx in [-1.0, 1.0] {
+            let side = if sx < 0.0 {
+                taken.left()
+            } else {
+                taken.right()
+            };
+            spots.push(pos2(side + sx * (size.x / 2.0 + 12.0 * reach), c.y));
+        }
+    }
+    // Then anywhere on the sheet, nearest first.
+    let mut rest: Vec<Pos2> = (0..=(sheet.width() / 8.0) as i32)
+        .flat_map(|i| {
+            (0..=(sheet.height() / 8.0) as i32)
+                .map(move |j| pos2(sheet.left() + 8.0 * i as f32, sheet.top() + 8.0 * j as f32))
+        })
+        .collect();
+    rest.sort_by(|a, b| (*a - c).length().total_cmp(&(*b - c).length()));
+    spots.extend(rest);
+    let mut keep_off = avoid.to_vec();
+    keep_off.push(taken);
+    // A leader that runs clear too: of the spots whose box is clear, the first whose straight
+    // line from the node's box crosses nothing else on the sheet; else the first clear box.
+    let leader_clear = |r: &Rect| {
+        let from = pos2(
+            r.center().x.clamp(own.left(), own.right()),
+            r.center().y.clamp(own.top(), own.bottom()),
+        );
+        let to = pos2(
+            from.x.clamp(r.left(), r.right()),
+            from.y.clamp(r.top(), r.bottom()),
+        );
+        let n = ((to - from).length() / 4.0).ceil().max(1.0) as i32;
+        (1..n).all(|k| {
+            let q = from + (to - from) * (k as f32 / n as f32);
+            !avoid.iter().any(|a| a.contains(q))
+        })
+    };
+    let boxes = spots.iter().map(|&s| {
+        let r = Rect::from_center_size(s, size);
+        Rect::from_min_size(r.min.round(), r.size().round())
+    });
+    let clear: Vec<Rect> = boxes
+        .filter(|r| {
+            sheet.contains_rect(*r) && !keep_off.iter().any(|a| a.expand(2.0).intersects(*r))
+        })
+        .collect();
+    let r = clear
+        .iter()
+        .find(|r| leader_clear(r))
+        .or(clear.first())
+        .copied()
+        .unwrap_or_else(|| crate::netmap::place_clear(&spots, size, &keep_off, sheet));
+    // The leader: from the box's corner nearest the callout to the callout's nearest point.
+    let from = pos2(
+        r.center().x.clamp(own.left(), own.right()),
+        r.center().y.clamp(own.top(), own.bottom()),
+    );
+    let to = pos2(
+        from.x.clamp(r.left(), r.right()),
+        from.y.clamp(r.top(), r.bottom()),
+    );
+    let corners = [
+        own.left_top(),
+        own.right_top(),
+        own.right_bottom(),
+        own.left_bottom(),
+        own.left_top(),
+    ];
+    if m.now {
+        painter.rect_stroke(own, 0.0, Stroke::new(1.6, ink), egui::StrokeKind::Inside);
+        painter.rect_stroke(
+            own.shrink(3.0),
+            0.0,
+            Stroke::new(1.0, ink),
+            egui::StrokeKind::Inside,
+        );
+        painter.line_segment([from, to], Stroke::new(1.2, ink));
+    } else {
+        painter.extend(Shape::dashed_line(
+            &corners,
+            Stroke::new(1.0, ink),
+            4.0,
+            3.0,
+        ));
+        painter.extend(Shape::dashed_line(
+            &[from, to],
+            Stroke::new(1.0, ink),
+            4.0,
+            3.0,
+        ));
+    }
+    painter.rect_filled(r, 0.0, p.bg);
+    painter.rect_stroke(
+        r,
+        0.0,
+        Stroke::new(if m.now { 1.4 } else { 1.0 }, ink),
+        egui::StrokeKind::Inside,
+    );
+    painter.galley(r.min + vec2(5.0, 3.0), g, ink);
+}
+
+/// The net's AI drawn in a node's place on the plan: a double box, and in it a ring round a
+/// core, the Iso's eye laid flat. In `bright`: it's the one live thing on the sheet.
+fn ai_symbol(painter: &Painter, c: Pos2, p: &Palette) {
+    let sq = Rect::from_center_size(c, vec2(R * 2.0, R * 2.0));
+    painter.rect_filled(sq, 0.0, p.bg);
+    painter.rect_stroke(
+        sq,
+        0.0,
+        Stroke::new(1.6, p.bright),
+        egui::StrokeKind::Middle,
+    );
+    painter.rect_stroke(
+        sq.shrink(3.0),
+        0.0,
+        Stroke::new(1.0, p.bright),
+        egui::StrokeKind::Middle,
+    );
+    painter.circle_stroke(c, R * 0.55, Stroke::new(1.2, p.bright));
+    painter.circle_filled(c, 2.5, p.bright);
+}
+
 /// A dimension line with architectural ticks and its figure.
 fn dimension(painter: &Painter, x0: f32, x1: f32, y: f32, label: &str, p: &Palette) {
     let st = Stroke::new(1.0, p.dim);
@@ -540,12 +789,17 @@ fn dimension(painter: &Painter, x0: f32, x1: f32, y: f32, label: &str, p: &Palet
 }
 
 /// The title block in the corner: what this sheet is.
-fn title_block(painter: &Painter, rect: Rect, game: &Game, p: &Palette) {
+/// Where the title block sits in the drawing's corner.
+fn title_block_rect(rect: Rect) -> Rect {
     let (w, h) = (250.0, 76.0);
-    let r = Rect::from_min_size(rect.right_bottom() - vec2(w + 8.0, h + 8.0), vec2(w, h));
+    Rect::from_min_size(rect.right_bottom() - vec2(w + 8.0, h + 8.0), vec2(w, h))
+}
+
+fn title_block(painter: &Painter, rect: Rect, game: &Game, p: &Palette) {
+    let r = title_block_rect(rect);
     painter.rect_filled(r, 0.0, p.bg);
     painter.rect_stroke(r, 0.0, Stroke::new(1.5, p.dim), egui::StrokeKind::Middle);
-    let row = h / 4.0;
+    let row = r.height() / 4.0;
     for i in 1..4 {
         let y = r.top() + row * i as f32;
         painter.line_segment(

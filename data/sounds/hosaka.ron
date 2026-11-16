@@ -37,6 +37,10 @@
                                 (wave: Sine,     from: 784,  to: 784,  ms: 110, vol: 0.20),
                                 (wave: Sine,     from: 1046, to: 1046, ms: 110, vol: 0.20),
                                 (wave: Sine,     from: 1568, to: 1568, ms: 200, vol: 0.20)]),
+        // The net's AI wakes: the building's three-tone announcement, falling.
+        (cue: AiWake,   notes: [(wave: Sine,     from: 1047, to: 1047, ms: 220, vol: 0.24),
+                                (wave: Sine,     from: 784,  to: 784,  ms: 220, vol: 0.24),
+                                (wave: Sine,     from: 523,  to: 523,  ms: 380, vol: 0.24)]),
     ],
     music: [
         // Tier 1, the lobby: F major at 96 bpm. A sine tune over a bossa bass, with soft

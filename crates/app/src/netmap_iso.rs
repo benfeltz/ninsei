@@ -5,12 +5,12 @@
 use egui::{
     Align2, Color32, FontFamily, FontId, Painter, Pos2, Rect, Sense, Shape, Stroke, Ui, pos2, vec2,
 };
-use ninsei_core::netview::{self, HOVER, Iso, MapNode, Mesh, SPACING, style, world};
+use ninsei_core::netview::{
+    self, AiMark, HOVER, Iso, MapNode, MapView, Mesh, MeshKind, SPACING, style, world,
+};
 use ninsei_core::{Game, Phase};
 
-use crate::netmap::{
-    Anim, anim, arrowhead, board_ink, hint, interact, kind, mix, tag, target, visible,
-};
+use crate::netmap::{Anim, anim, arrowhead, board_ink, hint, interact, kind, mix, target, visible};
 use crate::theme::Palette;
 
 /// Clickable area around each shape, in pixels.
@@ -37,6 +37,8 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
     grid(&painter, &cam, game, p, fx.pressure(game.deck.trace));
 
     let reach = game.reachable();
+    // Where the runner knows the net's AI is, worked out once for the frame.
+    let ai = netview::ai_mark(game);
     let layers = net.layers.len();
     let shown = |id: usize| fx.reveal(net.nodes[id].layer, layers);
     // A hovered route lifts; its click area stays where it was.
@@ -155,6 +157,8 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         let can_go = reach.contains(&id);
         let done = n.cleared && !here;
         let k = kind(game, id);
+        // A node the net's AI holds is drawn as the AI, its name for the tag.
+        let held = ai.as_ref().is_some_and(|m| m.holds(id));
         let (board_edge, board_label) = board_ink(game, p);
         let edge = if here || (can_go && hovered) {
             p.bright
@@ -165,7 +169,11 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         } else {
             p.fg
         };
-        let mesh = Mesh::of(style(&game.data, k).mesh);
+        let mesh = Mesh::of(if held {
+            MeshKind::Ai
+        } else {
+            style(&game.data, k).mesh
+        });
         let spin = t
             * 0.5
             * if hovered && can_go {
@@ -179,7 +187,7 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
             burst(&painter, &cam, &mesh, top(id), spin, b, p.bright);
         }
         let black = k == MapNode::BlackIce;
-        let fill = match (done, black) {
+        let fill = match (done && !held, black || held) {
             (true, _) => None,
             (false, true) => Some(p.faint.gamma_multiply(0.85)),
             (false, false) => Some(p.dim.gamma_multiply(0.22)),
@@ -188,9 +196,9 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         // While bursting, the cleared outline fades back in under the pieces.
         let fade = fx.burst(id).map_or(1.0, |b| (b * 2.0 - 1.0).max(0.0)) * show;
         let ink = Ink {
-            edge: edge.gamma_multiply(fade),
+            edge: if held { p.bright } else { edge }.gamma_multiply(fade),
             fill: fill.map(|f| f.gamma_multiply(fade)),
-            lit: !done,
+            lit: !done || held,
         };
         draw_mesh(&painter, &cam, &mesh, top(id), (spin, tilt), ink);
 
@@ -209,8 +217,8 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
             body.clone(),
             name,
         );
-        let mut label = tag(game, id);
-        if done {
+        let mut label = netview::tag_with(game, id, ai.as_ref());
+        if done && !held {
             label.push_str(" ok");
         }
         painter.text(
@@ -218,7 +226,7 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
             Align2::CENTER_TOP,
             label,
             small.clone(),
-            if done { p.dim } else { p.bright },
+            if done && !held { p.dim } else { p.bright },
         );
         if target(game, id) {
             bounty(&painter, head, p);
@@ -234,6 +242,11 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         }
     }
 
+    // Where it holds a node, the node is drawn as it; anywhere else it floats.
+    if let Some(m) = ai.filter(|m| !m.held) {
+        ai_marker(&painter, &cam, game, &m, t, p, rect);
+    }
+
     painter.text(
         rect.left_bottom() + vec2(8.0, -6.0),
         Align2::LEFT_BOTTOM,
@@ -242,6 +255,67 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         p.dim,
     );
     clicked
+}
+
+/// How high over its node the net's AI floats, in world units, above the node's own shape.
+const AI_LIFT: f32 = 0.8;
+
+/// The net's AI floating over a node it doesn't hold: where it is now in the fog (its scan
+/// heard), its own wireframe lit and turning, tethered to the `?`, with its tag; where it was
+/// last known, the same shape hollow and dim. Where it holds a node in sight, the node is drawn
+/// as it and there's nothing to float.
+fn ai_marker(
+    painter: &Painter,
+    cam: &Iso,
+    game: &Game,
+    m: &AiMark,
+    t: f32,
+    p: &Palette,
+    view: Rect,
+) {
+    let Some(caption) = netview::ai_caption(m, MapView::Iso) else {
+        return;
+    };
+    let w = world(&game.net, m.node);
+    let at = [w[0], HOVER + AI_LIFT + (t * 1.5).sin() * 0.05, w[2]];
+    let mesh = Mesh::of(MeshKind::Ai);
+    let ink = if m.now {
+        Ink {
+            edge: p.bright,
+            fill: Some(p.dim.gamma_multiply(0.3)),
+            lit: true,
+        }
+    } else {
+        Ink {
+            edge: p.dim,
+            fill: None,
+            lit: false,
+        }
+    };
+    let head = cam.project(at);
+    let foot = cam.project([w[0], HOVER, w[2]]);
+    let (head, foot) = (pos2(head[0], head[1]), pos2(foot[0], foot[1]));
+    painter.extend(Shape::dashed_line(
+        &[head, foot],
+        Stroke::new(1.0, if m.now { p.fg } else { p.faint }),
+        2.0,
+        3.0,
+    ));
+    draw_mesh(
+        painter,
+        cam,
+        &mesh,
+        at,
+        (t * if m.now { 1.2 } else { 0.3 }, 0.5),
+        ink,
+    );
+    // Its tag above it, kept inside the map.
+    let ink = if m.now { p.bright } else { p.dim };
+    let g = painter.layout_no_wrap(caption, FontId::new(11.0, FontFamily::Monospace), ink);
+    let r = Align2::CENTER_BOTTOM.anchor_size(head - vec2(0.0, 26.0), g.size());
+    let dx = (view.left() + 4.0 - r.left()).max(0.0) - (r.right() - view.right() + 4.0).max(0.0);
+    let dy = (view.top() + 4.0 - r.top()).max(0.0);
+    painter.galley(r.min.round() + vec2(dx, dy).round(), g, ink);
 }
 
 /// The camera that fits the network into `rect`, leaving the hint's line below.

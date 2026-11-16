@@ -168,8 +168,9 @@ pub fn guide(ui: &mut Ui, data: &Data, at: &mut ninsei_core::cards::Place) {
 }
 
 /// The ICE database: every ICE down the left (`????` until you've met it), the picked one's
-/// page on the right. Read-only; the save fills it in after each run.
-pub fn icedb(ui: &mut Ui, data: &Data, save: &Save, sel: &mut Option<usize>) {
+/// page on the right. Read-only; the save fills it in after each run. The pick is held by the
+/// entry's id: the list grows as nets' AIs are met, and a pick stays on its entry.
+pub fn icedb(ui: &mut Ui, data: &Data, save: &Save, sel: &mut Option<String>) {
     let all = ninsei_core::icedb::entries(save, data);
     let known = all.iter().filter(|e| e.known()).count();
     ui.label(
@@ -182,8 +183,8 @@ pub fn icedb(ui: &mut Ui, data: &Data, save: &Save, sel: &mut Option<usize>) {
     ui.horizontal_top(|ui| {
         ui.vertical(|ui| {
             ui.set_width(170.0);
-            for (i, e) in all.iter().enumerate() {
-                let on = *sel == Some(i);
+            for e in &all {
+                let on = sel.as_deref() == Some(e.def.id.as_str());
                 // A picked row is filled with the accent, so its text takes the selection's
                 // own colour (as `wb_visuals` sets it), never the ink it would vanish into.
                 let colour = match (on, e.known()) {
@@ -195,27 +196,40 @@ pub fn icedb(ui: &mut Ui, data: &Data, save: &Save, sel: &mut Option<usize>) {
                     .monospace()
                     .color(colour);
                 if ui.selectable_label(on, label).clicked() {
-                    *sel = Some(i);
+                    *sel = Some(e.def.id.clone());
                 }
             }
         });
         ui.separator();
-        ui.vertical(|ui| match sel.and_then(|i| all.get(i)) {
-            Some(e) => {
-                for (n, l) in e.page(save, data).iter().enumerate() {
-                    let t = RichText::new(&l.text).monospace();
-                    // What isn't on disk recedes, as an unmet entry does.
-                    ui.label(if n == 0 {
-                        t.strong().color(accent())
-                    } else if l.muted {
-                        t.color(muted())
-                    } else {
-                        t.color(ink())
-                    });
+        ui.vertical(|ui| {
+            match all
+                .iter()
+                .find(|e| sel.as_deref() == Some(e.def.id.as_str()))
+            {
+                Some(e) => {
+                    // The page in whole cells: a line too long for the window hangs under its
+                    // text (`ice_listing::hang`), never back under the line numbers.
+                    let font = egui::TextStyle::Monospace.resolve(ui.style());
+                    let cell = ui.fonts_mut(|f| f.glyph_width(&font, 'M')).max(1.0);
+                    let cols = ((ui.available_width() / cell).floor() as usize).max(16);
+                    for (n, l) in e.page(save, data).iter().enumerate() {
+                        for part in ninsei_core::ice_listing::hang(&l.text, cols) {
+                            let t = RichText::new(part).monospace();
+                            // What isn't on disk recedes, as an unmet entry does.
+                            let t = if n == 0 {
+                                t.strong().color(accent())
+                            } else if l.muted {
+                                t.color(muted())
+                            } else {
+                                t.color(ink())
+                            };
+                            ui.add(egui::Label::new(t).wrap_mode(egui::TextWrapMode::Extend));
+                        }
+                    }
                 }
-            }
-            None => {
-                ui.label(RichText::new("pick an entry.").monospace().color(muted()));
+                None => {
+                    ui.label(RichText::new("pick an entry.").monospace().color(muted()));
+                }
             }
         });
     });
@@ -1024,8 +1038,7 @@ mod icedb_tests {
                 from: String::new(),
             });
         }
-        let enigma = data.ice.iter().position(|i| i.id == "enigma");
-        let mut sel = enigma;
+        let mut sel = Some("enigma".to_string());
         let mut h = Harness::new(900.0, 900.0);
         for _ in 0..2 {
             h.frame(vec![], |ui| icedb(ui, &data, &save, &mut sel));
@@ -1042,5 +1055,84 @@ mod icedb_tests {
                 "{want:?} in {texts:#?}"
             );
         }
+    }
+
+    #[test]
+    fn a_long_note_keeps_its_hanging_indent_in_a_narrow_window() {
+        let data = Data::builtin().unwrap();
+        let mut save = Save::default();
+        let ai = data.boss_for(3, 0).unwrap();
+        let id = data.ice[ai].id.clone();
+        let model = data.boss_model(ai).unwrap().id.clone();
+        save.ice_sources.push(IceSource {
+            id: id.clone(),
+            version: ninsei_core::ice_version::Version::FIRST,
+            program: String::new(),
+            from: model,
+        });
+        let mut sel = Some(id);
+        let mut h = Harness::new(420.0, 900.0);
+        for _ in 0..2 {
+            h.frame(vec![], |ui| icedb(ui, &data, &save, &mut sel));
+        }
+        let texts = h.texts();
+        let note = texts
+            .iter()
+            .find(|t| t.trim_start().starts_with("REM LICENSED"))
+            .unwrap_or_else(|| panic!("{texts:#?}"));
+        // It didn't fit: the rest of its words hang under its text, past `REM `.
+        assert!(!note.contains("RESALE."), "{texts:#?}");
+        let rest = texts
+            .iter()
+            .find(|t| t.trim_end().ends_with("RESALE.") && !t.contains("LICENSED"))
+            .unwrap_or_else(|| panic!("{texts:#?}"));
+        assert!(rest.starts_with(&" ".repeat(11)), "{rest:?}");
+    }
+
+    #[test]
+    fn the_pick_stays_on_its_entry_when_an_ai_joins_the_list() {
+        let data = Data::builtin().unwrap();
+        let mut save = Save::default();
+        let ai = |n: usize| {
+            data.ice
+                .iter()
+                .filter(|i| i.boss)
+                .nth(n)
+                .unwrap()
+                .id
+                .clone()
+        };
+        // One AI met, and picked.
+        let met = |save: &mut Save, id: String| {
+            save.ice_seen.push(ninsei_core::hub::IceSeen {
+                id,
+                met: 1,
+                ..Default::default()
+            });
+        };
+        met(&mut save, ai(2));
+        let mut sel = Some(ai(2));
+        let mut h = Harness::new(900.0, 900.0);
+        h.frame(vec![], |ui| icedb(ui, &data, &save, &mut sel));
+        let name = |n: usize| {
+            data.ice
+                .iter()
+                .find(|i| i.id == ai(n))
+                .unwrap()
+                .name
+                .clone()
+        };
+        assert!(h.texts().iter().any(|t| t.starts_with(&name(2))));
+        // Another, earlier in the list, is met: the page is still the first one's.
+        met(&mut save, ai(0));
+        h.frame(vec![], |ui| icedb(ui, &data, &save, &mut sel));
+        h.frame(vec![], |ui| icedb(ui, &data, &save, &mut sel));
+        let heading = h
+            .texts()
+            .into_iter()
+            .find(|t| t.contains("network AI"))
+            .map(str::to_string)
+            .unwrap();
+        assert!(heading.starts_with(&name(2)), "{heading}");
     }
 }

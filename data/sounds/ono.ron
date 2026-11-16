@@ -51,6 +51,11 @@
                                 (wave: Square,   from: 659,  to: 659,  ms: 70,  vol: 0.22),
                                 (wave: Square,   from: 784,  to: 784,  ms: 70,  vol: 0.22),
                                 (wave: Square,   from: 1047, to: 1047, ms: 160, vol: 0.22)]),
+        // The net's AI wakes: a klaxon, twice.
+        (cue: AiWake,   notes: [(wave: Saw,      from: 220,  to: 880,  ms: 200, vol: 0.30),
+                                (wave: Saw,      from: 880,  to: 220,  ms: 200, vol: 0.30),
+                                (wave: Saw,      from: 220,  to: 880,  ms: 200, vol: 0.30),
+                                (wave: Saw,      from: 880,  to: 220,  ms: 200, vol: 0.30)]),
     ],
     music: [
         // Tier 1: A minor, light on its feet. The drums drop out when the trace runs high.

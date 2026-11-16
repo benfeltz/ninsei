@@ -24,10 +24,16 @@ pub struct Entry<'a> {
     data: &'a Data,
 }
 
-/// Every ICE, in data order, with what you know of it.
+/// Every ICE, in data order, with what you know of it, and each net's AI you've met or own the
+/// source of (`ai.ron`): a corp's product isn't the bestiary's to list as `????`.
 pub fn entries<'a>(save: &'a Save, data: &'a Data) -> Vec<Entry<'a>> {
     data.ice
         .iter()
+        .filter(|def| {
+            !def.boss
+                || save.ice_seen.iter().any(|s| s.id == def.id)
+                || save.ice_sources.iter().any(|s| s.id == def.id)
+        })
         .map(|def| {
             let seen = save.ice_seen.iter().find(|s| s.id == def.id);
             // (version, program as booked, its text, the board it came from)
@@ -178,7 +184,13 @@ impl<'a> Entry<'a> {
         let prev = self.sources.get(k + 1);
         let rows = crate::ice_listing::changes(&self.def.verbs, prev.map(|p| p.1), program);
         let against = prev.map_or(String::new(), |p| format!(", against {}", p.0));
-        let mut out = vec![PageLine::plain(format!("{heading}{v}{against}"))];
+        // A net's AI's program is its maker's release: its name carries the version.
+        let shown = if self.def.boss {
+            "on file".to_string()
+        } else {
+            v.to_string()
+        };
+        let mut out = vec![PageLine::plain(format!("{heading}{shown}{against}"))];
         // The board it came from puts its header above it and a remark under each read it
         // knows: muted, as the fight's decks dim them. A removed line takes none.
         let lines: Vec<(PageLine, Option<String>)> = rows
@@ -189,7 +201,7 @@ impl<'a> Entry<'a> {
                 (line, stmt)
             })
             .collect();
-        let notes = crate::ice_listing::notes(self.data, self.from[k], &self.def.name, v);
+        let notes = crate::ice_listing::notes(self.data, self.from[k], self.def, v);
         let lines = match notes {
             Some((header, sources)) => {
                 let rem = |t: String| {
@@ -269,15 +281,24 @@ impl<'a> Entry<'a> {
             return ["????", "", none].map(|t| PageLine::plain(t.into())).into();
         }
         let d = self.def;
-        let kind = match d.tier {
-            2 => "black ICE",
-            0 => "a rogue",
-            _ => "ICE",
-        };
-        // The version last met, or the newest source when you've never met it.
-        let version = self.seen.map_or_else(|| self.sources[0].0, |s| s.version);
+        // A net's AI's name carries its product's version (`WARDEN 4.2`), and its kind its maker.
+        let company = data.boss_model_of(d).map(|m| m.company.as_str());
         let mut out = vec![
-            format!("{} {version}  [{}]  {kind}", d.name, d.class.label()),
+            match company {
+                Some(company) => {
+                    format!("{}  [{}]  {company} network AI", d.name, d.class.label())
+                }
+                None => {
+                    let kind = match d.tier {
+                        2 => "black ICE",
+                        0 => "a rogue",
+                        _ => "ICE",
+                    };
+                    // The version last met, or the newest source when you've never met it.
+                    let version = self.seen.map_or_else(|| self.sources[0].0, |s| s.version);
+                    format!("{} {version}  [{}]  {kind}", d.name, d.class.label())
+                }
+            },
             String::new(),
         ];
         match self.seen {

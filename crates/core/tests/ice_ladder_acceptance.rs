@@ -146,7 +146,12 @@ fn a_new_version_is_met_unknown_and_the_last_one_is_kept() {
     career(&mut s, &d, 80);
     // Every kind past 1.0.0 that a run has met since: its record is that version's, and the
     // versions it was met at before are kept, oldest first. Fighting got it no source.
-    assert!(s.ice_sources.is_empty());
+    // Fighting ICE got it no source; a beaten net's AI gives up its net's (138.3).
+    assert!(
+        s.ice_sources
+            .iter()
+            .all(|x| d.ai.models.iter().any(|m| m.id == x.from))
+    );
     for seen in &s.ice_seen {
         let (now, _) = s.ice_program(&seen.id, &d).unwrap();
         assert!(seen.version <= now, "{}", seen.id);

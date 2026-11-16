@@ -81,7 +81,8 @@ fn unmet_ice_is_question_marks() {
     let d = data();
     let s = fresh(&d);
     let all = icedb::entries(&s, &d);
-    assert_eq!(all.len(), d.ice.len());
+    // Every ICE kind; the nets' AIs aren't the bestiary's.
+    assert_eq!(all.len(), d.ice.iter().filter(|i| !i.boss).count());
     for e in &all {
         assert_eq!(e.name(), "????");
         assert!(e.lines(&s, &d).iter().all(|l| !l.contains(&e.def.name)));

@@ -38,17 +38,29 @@ fn career(d: &Data, runs: u64) -> Save {
             if let Some(row) = d
                 .ice
                 .iter()
+                .filter(|i| !i.boss)
                 .find(|i| l.text.starts_with(&format!("!! {} ", i.name)))
             {
                 let (v, _) = s.ice_program(&row.id, d).unwrap();
+                // Or one its sysops shipped in the run, where it re-armed on a node beaten.
+                let landed = g
+                    .shipped
+                    .iter()
+                    .filter(|(id, ..)| *id == row.id)
+                    .filter_map(|(_, was, next)| next.bump.map(|b| was.bumped(b)));
                 assert!(
-                    l.text.starts_with(&format!("!! {} {v} rezzed", row.name)),
+                    std::iter::once(v)
+                        .chain(landed)
+                        .any(|v| l.text.starts_with(&format!("!! {} {v} rezzed", row.name))),
                     "{}",
                     l.text
                 );
             }
         }
         s.record(&g, &[], &d.rig).unwrap();
+        // What a beaten net's AI gave up isn't what fighting ICE gives (138.3): not kept here.
+        s.ice_sources
+            .retain(|x| !d.ai.models.iter().any(|m| m.id == x.from));
         s.study(
             &std::sync::Arc::new(d.clone()),
             tuning::STUDY_PATIENCE,
@@ -91,8 +103,9 @@ fn the_ice_db_shows_only_the_sources_you_own() {
             .map(|l| l.text.clone())
             .collect()
     };
-    // No source: the record of every version met, and none of any version's code.
-    for e in icedb::entries(&s, &d) {
+    // No source: the record of every version met, and none of any version's code. (A net's
+    // AI's page is its maker's product: `boss_payout` covers it.)
+    for e in icedb::entries(&s, &d).into_iter().filter(|e| !e.def.boss) {
         let Some(seen) = e.seen else { continue };
         let page = e.lines(&s, &d);
         assert!(
@@ -120,7 +133,7 @@ fn the_ice_db_shows_only_the_sources_you_own() {
             from: String::new(),
         });
     }
-    for e in icedb::entries(&s, &d) {
+    for e in icedb::entries(&s, &d).into_iter().filter(|e| !e.def.boss) {
         if e.seen.is_none() {
             continue;
         }

@@ -4,7 +4,7 @@
 //! player clicked.
 
 use egui::{Color32, Rect, Sense, Ui};
-use ninsei_core::netview::{MapNode, MapView, style};
+use ninsei_core::netview::{MapNode, MapView};
 use ninsei_core::{Game, NodeKind, Phase};
 
 use crate::theme::Palette;
@@ -118,6 +118,28 @@ impl Anim {
     }
 }
 
+/// Where a callout of `size` goes: the first of `spots` (rects' centres, in the order a map
+/// prefers them) that lies inside `within` and clear of everything in `avoid`; else the first
+/// inside `within`, else the first. Whole pixels.
+pub fn place_clear(spots: &[egui::Pos2], size: egui::Vec2, avoid: &[Rect], within: Rect) -> Rect {
+    let rects: Vec<Rect> = spots
+        .iter()
+        .map(|&c| {
+            let r = Rect::from_center_size(c, size);
+            Rect::from_min_size(r.min.round(), r.size().round())
+        })
+        .collect();
+    let inside = |r: &&Rect| within.contains_rect(**r);
+    rects
+        .iter()
+        .filter(inside)
+        .find(|r| !avoid.iter().any(|a| a.expand(2.0).intersects(**r)))
+        .or_else(|| rects.iter().find(inside))
+        .or(rects.first())
+        .copied()
+        .unwrap_or(Rect::NOTHING)
+}
+
 /// Mixes two theme colours.
 pub fn mix(a: Color32, b: Color32, k: f32) -> Color32 {
     let k = k.clamp(0.0, 1.0);
@@ -178,21 +200,6 @@ pub fn kind(game: &Game, id: usize) -> MapNode {
     MapNode::of(&game.net, id, &game.data)
 }
 
-/// The short label under a node.
-pub fn tag(game: &Game, id: usize) -> String {
-    if !visible(game, id) {
-        return "???".into();
-    }
-    let k = kind(game, id);
-    if k == MapNode::Exit && game.in_subnet() {
-        return "UPLINK".into();
-    }
-    if k == MapNode::Bbs {
-        return game.bbs().name.clone();
-    }
-    style(&game.data, k).tag.clone()
-}
-
 /// Makes a node's screen area clickable when it's a route, with a tooltip. Returns the node
 /// if it was clicked, and whether it's hovered.
 pub fn interact(ui: &mut Ui, game: &Game, id: usize, r: Rect) -> (Option<usize>, bool) {
@@ -229,6 +236,7 @@ pub fn hint(game: &Game) -> &'static str {
 mod tests {
     use super::*;
     use crate::uitest::{Harness, click};
+    use ninsei_core::netview;
     use ninsei_core::{Action, Data};
 
     const VIEWS: [MapView; 3] = [MapView::Iso, MapView::Draft, MapView::Paint];
@@ -365,6 +373,266 @@ mod tests {
                     new.iter().all(|c| roles.contains(c)),
                     "{view:?} {theme}: arrows in the theme's ink: {new:?}"
                 );
+            }
+        }
+    }
+
+    /// `one_in(seed)` with the net's AI awake on node `at`; `now` false moves it out of sight,
+    /// leaving `at` where it was last known.
+    fn with_ai(seed: u64, at: usize, now: bool) -> Game {
+        use ninsei_core::boss::Hunter;
+        use ninsei_core::game::BossState;
+        let d = Data::builtin().unwrap();
+        let ice = d.boss_for(1, 0).unwrap();
+        let kit = ninsei_core::Kit {
+            tools: ninsei_core::data::TOOLS
+                .iter()
+                .map(|t| t.to_string())
+                .collect(),
+            boss: Some((ice, 25)),
+            ..ninsei_core::Kit::default()
+        };
+        let mut g = Game::start(d, seed, &kit);
+        g.net.orient(seed, 0);
+        for n in &mut g.net.nodes {
+            if !matches!(n.kind, NodeKind::Entry | NodeKind::Exit) {
+                (n.kind, n.ice, n.cleared) = (NodeKind::Vault, None, true);
+            }
+        }
+        let a = g.net.nodes[g.at].links[0];
+        g.apply(Action::Move(a));
+        let far = ninsei_core::boss::exit(&g.net).unwrap();
+        let mut h = Hunter::wake(ice, &g.data.ice[ice], if now { at } else { far }, g.at);
+        h.prog = ninsei_core::basic::parse_with("10 HOLD", g.data.ice[ice].vocab());
+        let b = g.boss.as_mut().unwrap();
+        b.state = BossState::Awake(h);
+        b.known = Some(at);
+        g
+    }
+
+    #[test]
+    fn every_map_draws_the_ai_as_the_node_it_holds_and_captions_where_it_was() {
+        for theme in ["amber", "synthwave"] {
+            for view in VIEWS {
+                let quiet = one_in(3);
+                let next = quiet.net.nodes[quiet.at].links[0];
+                let seen = with_ai(3, next, true);
+                let last = with_ai(3, next, false);
+                let (m_now, m_last) = (
+                    netview::ai_mark(&seen).unwrap(),
+                    netview::ai_mark(&last).unwrap(),
+                );
+                assert!(m_now.now && !m_last.now && m_last.node == next);
+                let said = |g: &Game| -> Vec<String> {
+                    drawn(view, g, theme)
+                        .painted_text()
+                        .into_iter()
+                        .map(|(t, _)| t)
+                        .collect()
+                };
+                // Where it is: its name where the node's tag goes, and no caption beside it.
+                assert_eq!(netview::ai_caption(&m_now, view), None);
+                let now = said(&seen);
+                assert!(now.contains(&m_now.label), "{view:?} {theme}: {now:?}");
+                assert!(
+                    !now.iter().any(|t| t.contains("is on this card")),
+                    "{view:?} {theme}: {now:?}"
+                );
+                let last_cap = netview::ai_caption(&m_last, view).unwrap();
+                assert!(
+                    said(&last).contains(&last_cap),
+                    "{view:?} {theme}: {last_cap}"
+                );
+                let none = said(&quiet);
+                assert!(
+                    !none
+                        .iter()
+                        .any(|t| t.contains(&m_now.label) || t == &last_cap),
+                    "{view:?} {theme}: nothing to mark"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn every_map_marks_an_ai_heard_in_the_fog_by_name() {
+        for view in VIEWS {
+            let quiet = one_in(3);
+            let next = quiet.net.nodes[quiet.at].links[0];
+            let far = quiet.net.nodes[next].links[0];
+            let mut g = with_ai(3, far, true);
+            g.boss.as_mut().unwrap().last = vec![ninsei_core::boss::Step {
+                line: 10,
+                did: ninsei_core::boss::Did::Scanned {
+                    from: far,
+                    reach: 9,
+                    found: true,
+                },
+            }];
+            let m = netview::ai_mark(&g).unwrap();
+            assert!(m.now && !m.held, "{view:?}: {m:?}");
+            let cap = netview::ai_caption(&m, view).unwrap();
+            let said: Vec<String> = drawn(view, &g, "amber")
+                .painted_text()
+                .into_iter()
+                .map(|(t, _)| t)
+                .collect();
+            assert!(said.contains(&cap), "{view:?}: {said:?}");
+        }
+    }
+
+    #[test]
+    fn the_draft_never_stamps_a_node_the_ai_holds_void() {
+        let quiet = one_in(3);
+        let next = quiet.net.nodes[quiet.at].links[0];
+        let mut g = with_ai(3, next, true);
+        // ICE beaten there before; then the AI walked onto it in sight.
+        let ice = g.data.ice.iter().position(|i| !i.boss).unwrap();
+        let n = &mut g.net.nodes[next];
+        (n.kind, n.ice, n.cleared) = (NodeKind::Ice, Some(ice), true);
+        let said: Vec<String> = drawn(MapView::Draft, &g, "amber")
+            .painted_text()
+            .into_iter()
+            .map(|(t, _)| t)
+            .collect();
+        assert!(!said.iter().any(|t| t == "VOID"), "{said:?}");
+        // Without the AI there, the beaten ICE is stamped.
+        let mut bare = g.clone();
+        bare.boss = None;
+        let said: Vec<String> = drawn(MapView::Draft, &bare, "amber")
+            .painted_text()
+            .into_iter()
+            .map(|(t, _)| t)
+            .collect();
+        assert!(said.iter().any(|t| t == "VOID"), "{said:?}");
+    }
+
+    #[test]
+    fn the_paint_writes_the_ai_s_name_in_the_node_it_holds_never_under_it() {
+        let mut checked = 0;
+        for seed in 0..4 {
+            let g = one_in(seed);
+            let mid: Vec<usize> = g.net.layers[1..3].iter().flatten().copied().collect();
+            for at in mid {
+                let mut a = with_ai(seed, at, true);
+                let m = netview::ai_mark(&a).unwrap();
+                if !m.holds(at) {
+                    continue;
+                }
+                checked += 1;
+                a.net.nodes[at].name = "self-0000".into();
+                let label = m.label;
+                let painted = drawn(MapView::Paint, &a, "amber").painted_text();
+                let find = |t: &str| painted.iter().find(|(s, _)| s == t).map(|(_, r)| *r);
+                let (name, host) = (find(&label).unwrap(), find("self-0000").unwrap());
+                assert!(
+                    name.bottom() < host.top(),
+                    "seed {seed} node {at}: {name:?} over or under {host:?}"
+                );
+            }
+        }
+        assert!(checked > 3, "{checked}");
+    }
+
+    #[test]
+    fn the_paint_fits_every_ai_s_name_inside_the_node_it_holds() {
+        let g = with_ai(3, one_in(3).net.nodes[one_in(3).at].links[0], true);
+        let at = netview::ai_mark(&g).unwrap().node;
+        let ais: Vec<usize> = (0..g.data.ice.len())
+            .filter(|&i| g.data.ice[i].boss)
+            .collect();
+        assert!(ais.len() > 3);
+        for ice in ais {
+            let mut a = g.clone();
+            a.boss.as_mut().unwrap().ice = ice;
+            let m = netview::ai_mark(&a).unwrap();
+            assert!(m.holds(at), "{m:?}");
+            let h = drawn(MapView::Paint, &a, "amber");
+            let name = h
+                .painted_text()
+                .into_iter()
+                .find(|(t, _)| *t == m.label)
+                .map(|(_, r)| r)
+                .unwrap_or_else(|| panic!("no {}", m.label));
+            // The paper rule round the all-ink box: the smallest outline round the name.
+            let rule = h
+                .rects()
+                .into_iter()
+                .filter(|(r, fill, line)| {
+                    *fill == Color32::TRANSPARENT
+                        && *line != Color32::TRANSPARENT
+                        && r.contains(name.center())
+                })
+                .map(|(r, _, _)| r)
+                .min_by(|a, b| a.area().total_cmp(&b.area()))
+                .unwrap();
+            assert!(
+                rule.contains_rect(name.expand2(egui::vec2(3.0, 0.0))),
+                "{}: {name:?} past {rule:?}",
+                m.label
+            );
+            assert_eq!(rule.min, rule.min.round(), "{}: whole pixels", m.label);
+            assert_eq!(rule.max, rule.max.round(), "{}: whole pixels", m.label);
+        }
+    }
+
+    #[test]
+    fn the_ai_s_caption_stays_on_the_map_at_its_edges() {
+        let bounds = Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 640.0));
+        for view in VIEWS {
+            let g = one_in(3);
+            // The left column and the top of every column: the edges a caption could leave by.
+            let mut edge: Vec<usize> = g.net.layers[0].clone();
+            edge.extend(g.net.layers.iter().filter_map(|l| l.first().copied()));
+            for at in edge {
+                let a = with_ai(3, at, false);
+                let m = netview::ai_mark(&a).unwrap();
+                let cap = netview::ai_caption(&m, view).unwrap();
+                let h = drawn(view, &a, "amber");
+                let r = h
+                    .painted_text()
+                    .into_iter()
+                    .find(|(t, _)| *t == cap)
+                    .map(|(_, r)| r)
+                    .unwrap_or_else(|| panic!("{view:?}: no {cap}"));
+                assert!(
+                    bounds.contains_rect(r),
+                    "{view:?} node {at}: {cap} at {r:?}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_ai_s_callout_keeps_off_the_other_nodes_labels() {
+        for view in [MapView::Draft, MapView::Paint] {
+            for seed in 0..4 {
+                let g = one_in(seed);
+                // Every node in the second and third layers: the crowded middle.
+                let mid: Vec<usize> = g.net.layers[1..3].iter().flatten().copied().collect();
+                for at in mid {
+                    let mut a = with_ai(seed, at, false);
+                    a.net.nodes[at].name = "self-0000".into();
+                    let m = netview::ai_mark(&a).unwrap();
+                    let cap = netview::ai_caption(&m, view).unwrap();
+                    let painted = drawn(view, &a, "amber").painted_text();
+                    let r = painted.iter().find(|(t, _)| *t == cap).unwrap().1;
+                    // Whatever else is written on the map, but the node's own words.
+                    let own = [
+                        a.net.nodes[at].name.clone(),
+                        at.to_string(),
+                        netview::tag(&a, at),
+                    ];
+                    for (t, other) in &painted {
+                        if *t == cap || own.contains(t) || t.starts_with("click") || t == "_" {
+                            continue;
+                        }
+                        assert!(
+                            !r.intersects(*other),
+                            "{view:?} seed {seed} node {at}: {cap} {r:?} over {t:?} {other:?}"
+                        );
+                    }
+                }
             }
         }
     }

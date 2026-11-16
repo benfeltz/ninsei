@@ -29,6 +29,18 @@ pub enum NodeKind {
 }
 
 impl NodeKind {
+    /// Every kind, in the order the map's legend lists them.
+    pub const ALL: [NodeKind; 8] = [
+        NodeKind::Entry,
+        NodeKind::Ice,
+        NodeKind::BlackIce,
+        NodeKind::Vault,
+        NodeKind::Bbs,
+        NodeKind::Contact,
+        NodeKind::Subnet,
+        NodeKind::Exit,
+    ];
+
     pub fn label(self) -> &'static str {
         match self {
             NodeKind::Entry => "ENTRY",
@@ -64,6 +76,9 @@ pub struct Node {
     /// The version of its ICE the deck beat here, the last time it did: stepped back onto, the
     /// node re-arms.
     pub beaten: Option<crate::ice_version::Version>,
+    /// The net's AI stood here in its ICE's place and was beaten on it: the ICE is gone for
+    /// the run, never fights and never re-arms.
+    pub replaced: bool,
 }
 
 #[derive(Clone, Debug)]
@@ -125,6 +140,7 @@ impl Network {
                     one_way: Vec::new(),
                     walked: Vec::new(),
                     beaten: None,
+                    replaced: false,
                 });
                 ids.push(id);
             }

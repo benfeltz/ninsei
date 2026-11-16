@@ -81,6 +81,8 @@ pub enum MeshKind {
     Nested,
     Pad,
     Portal,
+    /// The net's AI: an eye of a ring round a core. Never a node's; the map floats it over one.
+    Ai,
 }
 
 /// Drafting symbols for the flat view. The app draws them.
@@ -132,6 +134,102 @@ pub fn target(game: &Game, id: usize) -> bool {
             .any(|k| k.node == id && k.status == ContractStatus::Active)
 }
 
+/// The net's AI as the map marks it: where the runner knows it to be.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct AiMark {
+    /// The node it is on, or was last known on.
+    pub node: usize,
+    /// The runner knows it is there now (in sight, or its scan was heard); otherwise it's
+    /// where it was last known.
+    pub now: bool,
+    /// It is there now and the node is in sight: the node is the AI's, drawn as it, its name
+    /// for the node's tag. There now in the fog (its scan heard), it's marked over the `?`.
+    pub held: bool,
+    /// What the map writes beside it: its product name and version (`WATCHMAN 1.2`).
+    pub label: String,
+}
+
+impl AiMark {
+    /// Whether it holds node `id` ([`AiMark::held`]).
+    pub fn holds(&self, id: usize) -> bool {
+        self.held && self.node == id
+    }
+}
+
+/// Where the map marks the net's AI, from what the runner knows of it (`Game::sighting`).
+/// Nothing while it's asleep or down, before they ever knew where it was, or inside a subnet:
+/// it's on the main network, and the map shows the subnet.
+pub fn ai_mark(game: &Game) -> Option<AiMark> {
+    if game.in_subnet() {
+        return None;
+    }
+    let s = game.sighting()?;
+    let ice = game.boss.as_ref()?.ice;
+    Some(AiMark {
+        node: s.node(),
+        now: s.now(),
+        held: s.now() && visible(game, s.node()),
+        label: game.data.ice[ice].name.clone(),
+    })
+}
+
+/// The classic status line's mark while the net's AI is up: the OS's process list, short.
+pub fn ai_status(game: &Game) -> Option<String> {
+    game.hunter()?;
+    let (name, _) = game.ai_woke()?;
+    Some(format!("▲ {name} UP"))
+}
+
+/// The net's AI where the runner knows it holds node `id` now, in sight: the node is the AI's,
+/// and the map draws the AI in place of what's there, its name where the node's tag goes. Its
+/// name, or `None` when it isn't there, the runner doesn't know it is, or the node's in the fog.
+pub fn ai_holds(game: &Game, id: usize) -> Option<String> {
+    ai_mark(game).filter(|m| m.holds(id)).map(|m| m.label)
+}
+
+/// The short label under a node on the map: its kind's tag, the board's name, a subnet's exit
+/// as its uplink, `???` in the fog, and the net's AI's name on a node it holds.
+pub fn tag(game: &Game, id: usize) -> String {
+    tag_with(game, id, ai_mark(game).as_ref())
+}
+
+/// [`tag`] with the frame's [`ai_mark`] already worked out: a map asks it once a frame, not
+/// once a node.
+pub fn tag_with(game: &Game, id: usize, ai: Option<&AiMark>) -> String {
+    if !visible(game, id) {
+        return "???".into();
+    }
+    if let Some(m) = ai.filter(|m| m.holds(id)) {
+        return m.label.clone();
+    }
+    let k = MapNode::of(&game.net, id, &game.data);
+    if k == MapNode::Exit && game.in_subnet() {
+        return "UPLINK".into();
+    }
+    if k == MapNode::Bbs {
+        return game.bbs().name.clone();
+    }
+    style(&game.data, k).tag.clone()
+}
+
+/// What a map style writes beside the net's AI, in its own drawing's words: the Iso's tag, the
+/// Draft's callout in capitals, the Paint card. Last known says so. Where it holds a node in
+/// sight there's nothing beside it: the node is drawn as the AI, its name as the tag
+/// ([`AiMark::held`]); there now in the fog, its name.
+pub fn ai_caption(m: &AiMark, view: MapView) -> Option<String> {
+    if m.held {
+        return None;
+    }
+    let l = &m.label;
+    Some(match (view, m.now) {
+        (MapView::Iso | MapView::Paint, true) => l.clone(),
+        (MapView::Draft, true) => l.to_uppercase(),
+        (MapView::Iso, false) => format!("{l}  last seen"),
+        (MapView::Draft, false) => format!("{} (LAST SEEN)", l.to_uppercase()),
+        (MapView::Paint, false) => format!("{l} was last seen here"),
+    })
+}
+
 /// A link as the map shows it.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct LinkView {
@@ -177,18 +275,30 @@ pub fn links(game: &Game) -> Vec<LinkView> {
 }
 
 /// The line a route says, where the map's hover and the route list name it: `jack 3  →  VAULT`
-/// deeper, `jack 1  ←  ENTRY` back, and `, back up` where ICE beaten there wakes. `None` when
-/// node `id` isn't a route from here.
+/// deeper, `jack 1  ←  ENTRY` back, `, back up` where ICE beaten there wakes, and
+/// `, WATCHMAN 1.2 there` where the runner knows the net's AI is; on an ICE node the AI stands in
+/// for, its name in the ICE's place (`jack 3  →  WATCHMAN 1.2`), the only fight there. `None`
+/// when node `id` isn't a route from here.
 pub fn route_tip(game: &Game, id: usize) -> Option<String> {
     if !game.reachable().contains(&id) {
         return None;
     }
     // A route is a layer either side of the runner, so never in the fog.
     let hop = game.route(id).ok()?;
-    let what = game.node_label(id);
     let way = if hop.back { "←" } else { "→" };
     let up = if hop.rearms { ", back up" } else { "" };
-    Some(format!("jack {id}  {way}  {what}{up}"))
+    // The net's AI, where the runner knows it is: the step meets it, and on an ICE node its
+    // fight is the only one there, so nothing of the ICE is named, not even its coming back up.
+    let (what, up, ai) = match (hop.meets, ai_mark(game)) {
+        (true, Some(m)) if game.ice_replaced(id, true) => (m.label, "", String::new()),
+        (true, Some(m)) => (
+            game.node_label(id).to_string(),
+            up,
+            format!(", {} there", m.label),
+        ),
+        _ => (game.node_label(id).to_string(), up, String::new()),
+    };
+    Some(format!("jack {id}  {way}  {what}{up}{ai}"))
 }
 
 /// Paint fills that aren't patterns.
@@ -289,6 +399,7 @@ impl Mesh {
             MeshKind::Nested => cube().scaled(0.45).merge(cube().scaled(0.2)),
             MeshKind::Pad => pad(0.55),
             MeshKind::Portal => torus(0.5, 0.07, 20, 6, true),
+            MeshKind::Ai => octa().scaled(0.28).merge(torus(0.48, 0.05, 20, 6, false)),
         }
     }
 }

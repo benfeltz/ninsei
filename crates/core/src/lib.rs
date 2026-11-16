@@ -7,6 +7,7 @@ pub mod basic;
 pub mod bbs;
 pub mod binary;
 pub mod book;
+pub mod boss;
 pub mod btop_fight;
 pub mod cards;
 pub mod command;

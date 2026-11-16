@@ -722,6 +722,8 @@ impl App {
         self.hex = None;
         self.talk = EncounterView::default();
         self.sound_popup.close();
+        self.suite.watch = Default::default();
+        self.suite.dialogs.clear();
         self.term.clear();
         self.focus_input = true;
         self.booked = None;
@@ -1552,7 +1554,7 @@ impl eframe::App for App {
     }
 }
 
-/// The run's keys this frame: the chrome's own first (an alert's Enter and Esc, which it takes),
+/// The run's keys this frame: the chrome's own first (a dialog's Enter, which it takes),
 /// then the shared hotkeys with what's left.
 fn run_keys(
     view: &dyn chrome::ChromeView,
@@ -2747,6 +2749,88 @@ mod tests {
             assert!(app.dock.find_tab(&Tab::Vis).is_some());
             // And this deck's layout keeps it.
             assert!(app.extra_panes().contains(&Tab::Vis));
+        }
+
+        /// `app`'s run made quiet (every node a looted vault) and walked to the hop that wakes
+        /// the net's AI.
+        fn wake_the_ai(h: &mut Harness, app: &mut App) {
+            for _ in 0..3 {
+                frame(h, app, Vec::new());
+            }
+            for n in &mut app.game.net.nodes {
+                if !matches!(
+                    n.kind,
+                    ninsei_core::NodeKind::Entry | ninsei_core::NodeKind::Exit
+                ) {
+                    (n.kind, n.ice, n.cleared) = (ninsei_core::NodeKind::Vault, None, true);
+                }
+            }
+            let to = app.game.net.nodes[app.game.at].links[0];
+            let hop = app.game.route(to).unwrap().trace;
+            app.game.deck.trace = app.game.boss.as_ref().unwrap().wake - hop;
+            app.game.apply(ninsei_core::Action::Move(to));
+            assert!(app.game.ai_woke().is_some());
+            frame(h, app, Vec::new());
+            frame(h, app, Vec::new());
+        }
+
+        fn painted(h: &Harness) -> Vec<String> {
+            h.painted_text().into_iter().map(|(t, _)| t).collect()
+        }
+
+        #[test]
+        fn the_ai_waking_takes_no_keys_on_any_deck_and_the_log_says_it() {
+            for deck in ["sensenet", "hosaka", "onosendai"] {
+                let (mut h, mut app) = running(deck);
+                wake_the_ai(&mut h, &mut app);
+                assert!(!app.modal_up(), "{deck}: nothing owns the keyboard");
+                assert!(app.suite.dialogs.is_empty(), "{deck}: no dialog filed");
+                let (name, _) = app.game.ai_woke().unwrap();
+                let line = format!("!! {name} is up on the net.");
+                assert!(
+                    app.game.log.iter().any(|l| l.text == line),
+                    "{deck}: the log has it"
+                );
+                assert!(
+                    !painted(&h).iter().any(|t| t.contains("has started up")),
+                    "{deck}: no card"
+                );
+            }
+        }
+
+        #[test]
+        fn typing_goes_to_the_command_line_on_the_hop_the_ai_wakes() {
+            let (mut h, mut app) = running("sensenet");
+            wake_the_ai(&mut h, &mut app);
+            typed(&mut h, &mut app, "jack 0");
+            assert_eq!(app.term.text(), "jack 0");
+        }
+
+        #[test]
+        fn the_classic_chrome_marks_the_ai_once_and_btop_only_with_its_bar() {
+            for (deck, firmware, mark) in [("onosendai", "6.2", true), ("onosendai", "7.0", false)]
+            {
+                let (mut h, mut app) = running(deck);
+                app.save.firmware = firmware.into();
+                app.load_layout();
+                wake_the_ai(&mut h, &mut app);
+                let status = ninsei_core::netview::ai_status(&app.game).unwrap();
+                let n = painted(&h).iter().filter(|t| **t == status).count();
+                assert_eq!(n, usize::from(mark), "{firmware}: {:?}", painted(&h));
+            }
+        }
+
+        #[test]
+        fn the_ai_waking_lights_the_alarm_bar_on_the_ono_sendai() {
+            let (mut h, mut app) = running("onosendai");
+            wake_the_ai(&mut h, &mut app);
+            let bar = ninsei_core::btop_fight::ai_banner(&app.game).unwrap();
+            assert!(
+                painted(&h).iter().any(|t| t.contains(&bar)),
+                "{:?}",
+                painted(&h)
+            );
+            assert!(!app.modal_up(), "a bar, not a dialog: the run plays on");
         }
 
         #[test]

@@ -173,7 +173,7 @@ fn button(ui: &mut Ui, p: &Panes, id: Id, text: &str, sub: &str, on: bool, ring:
         StrokeKind::Inside,
     );
     if ring {
-        // The default button's heavy outline, the same as the alert's.
+        // The default button's heavy outline, Liza's.
         liza::default_ring(&painter, face, look::BUTTON_R, ink);
     }
     let font = egui::TextStyle::Monospace.resolve(ui.style());

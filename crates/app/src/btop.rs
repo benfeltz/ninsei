@@ -749,6 +749,39 @@ impl Panes<'_> {
     }
 }
 
+/// The alarm bar across the top of the map while the net's AI is up (`btop_fight::ai_banner`):
+/// a full-width inverse row, `bg` on `bright`, blinking through the hop it woke on and steady
+/// after.
+pub fn ai_bar(ui: &mut Ui, p: &Palette, g: &ninsei_core::Game) {
+    let Some(text) = ninsei_core::btop_fight::ai_banner(g) else {
+        return;
+    };
+    // It blinks through the hop the AI woke on, steady after: the game's own clock.
+    let blinking = g.ai_woke_this_hop();
+    let t = ui.input(|i| i.time);
+    let lit = !blinking || (t * 3.0) as i64 % 2 == 0;
+    let (fg, bg) = if lit {
+        (p.bg, p.bright)
+    } else {
+        (p.bright, p.bg)
+    };
+    let font = egui::TextStyle::Monospace.resolve(ui.style());
+    let h = (font.size * 1.5).round();
+    let (r, _) = ui.allocate_exact_size(egui::vec2(ui.available_width(), h), egui::Sense::hover());
+    let r = egui::Rect::from_min_size(r.min.round(), r.size().round());
+    ui.painter().rect_filled(r, 0.0, bg);
+    ui.painter().text(
+        r.left_center() + egui::vec2(8.0, 0.0),
+        egui::Align2::LEFT_CENTER,
+        text,
+        font,
+        fg,
+    );
+    if blinking {
+        ui.ctx().request_repaint();
+    }
+}
+
 /// The status bar's sparklines: trace and CPU, small.
 pub fn status_sparks(ui: &mut Ui, p: &Palette, g: &ninsei_core::Game) {
     let trace = g.history.series(|s| s.trace);

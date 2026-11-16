@@ -1009,7 +1009,7 @@ pub fn source_area(
         .ice
         .iter()
         .enumerate()
-        .filter(|(_, row)| s.tiers.contains(&row.tier))
+        .filter(|(_, row)| s.tiers.contains(&row.tier) && !row.boss)
         .map(|(i, row)| {
             let v = newest(i);
             let first = v == Version::FIRST;

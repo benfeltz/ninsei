@@ -36,17 +36,33 @@ impl IceRow {
     }
 }
 
-/// A source's notes: the header and remarks its board (`IceSource::from`) puts on kind `ice`
-/// at `version`, if that board has a `sources` block. `None` for a source from no board.
+/// A source's notes: the header and remarks where it came from (`IceSource::from`) puts on the
+/// kind `row` at `version`: a board with a `sources` block, or a net's AI (its model's id in
+/// `ai.ron`), which gave it up when it was beaten. Over the AI's own program, the model's `own`
+/// header in its maker's voice, with no version (its name carries it) and no remarks. `None`
+/// for a source from neither.
 pub fn notes<'a>(
     data: &'a crate::data::Data,
     from: &str,
-    ice: &str,
+    row: &crate::data::IceDef,
     version: crate::ice_version::Version,
-) -> Option<(Vec<String>, &'a crate::data::SourcesDef)> {
+) -> Option<(Vec<String>, &'a [crate::data::RemarkDef])> {
+    if let Some(m) = data.ai.models.iter().find(|m| m.id == from) {
+        let n = &m.notes;
+        if data.boss_model_of(row).is_some_and(|own| own.id == m.id) {
+            return Some((n.own_lines(&row.name, &m.company), &[]));
+        }
+        return Some((
+            n.header_lines(&row.name, &version.to_string(), &m.name),
+            &n.remarks,
+        ));
+    }
     let b = data.boards.get(data.board(from)?)?;
     let s = b.sources.as_ref()?;
-    Some((s.header_lines(ice, &version.to_string(), &b.name), s))
+    Some((
+        s.header_lines(&row.name, &version.to_string(), &b.name),
+        &s.remarks,
+    ))
 }
 
 /// `rows` with a source's notes, whatever a row is: the header first, then each row, a remark
@@ -55,13 +71,15 @@ pub fn notes<'a>(
 pub fn interleave<T>(
     rows: Vec<T>,
     header: Vec<String>,
-    sources: &crate::data::SourcesDef,
+    remarks: &[crate::data::RemarkDef],
     text: impl Fn(&T) -> Option<&str>,
     rem: impl Fn(String) -> T,
 ) -> Vec<T> {
     let mut out: Vec<T> = header.into_iter().map(&rem).collect();
     for r in rows {
-        let remark = text(&r).and_then(|t| sources.remark(t)).map(str::to_string);
+        let remark = text(&r)
+            .and_then(|t| crate::data::remark_on(remarks, t))
+            .map(str::to_string);
         out.push(r);
         out.extend(remark.map(&rem));
     }
@@ -73,12 +91,12 @@ pub fn interleave<T>(
 pub fn annotate(
     rows: Vec<IceRow>,
     header: Vec<String>,
-    sources: &crate::data::SourcesDef,
+    remarks: &[crate::data::RemarkDef],
 ) -> Vec<IceRow> {
     interleave(
         rows,
         header,
-        sources,
+        remarks,
         |r| Some(r.text.as_str()),
         IceRow::remark,
     )
@@ -87,6 +105,57 @@ pub fn annotate(
 /// A note as the full listings print it (the ICE card, the ICE DB), under the statements.
 pub fn rem_line(text: &str) -> String {
     format!("       REM {text}")
+}
+
+/// A listing's line laid out in `cols` cells: as it is when it fits, else broken at spaces with
+/// every continuation hung under where its text starts (past the line's indent, and past a
+/// `REM `), so a long note never runs back under the line numbers. A word longer than the room
+/// is broken where the room ends. Whole cells; nothing is cut.
+pub fn hang(line: &str, cols: usize) -> Vec<String> {
+    if line.chars().count() <= cols {
+        return vec![line.to_string()];
+    }
+    let indent = line.len() - line.trim_start().len();
+    let body = line.trim_start();
+    let lead = indent + if body.starts_with("REM ") { 4 } else { 0 };
+    let hang = " ".repeat(lead.min(cols.saturating_sub(8)));
+    let room = |first: bool| {
+        if first {
+            cols
+        } else {
+            cols.saturating_sub(hang.len()).max(1)
+        }
+    };
+    let mut out: Vec<String> = Vec::new();
+    let mut cur = line[..lead.min(line.len())].to_string();
+    let mut first = true;
+    for word in line[lead.min(line.len())..].split(' ') {
+        let width = |s: &str| s.chars().count();
+        let used = width(&cur) - if first { 0 } else { hang.len() };
+        let gap = usize::from(used > 0 && !cur.ends_with(' '));
+        if used + gap + width(word) > room(first) && used > 0 {
+            out.push(cur.trim_end().to_string());
+            cur = hang.clone();
+            first = false;
+        } else if gap == 1 {
+            cur.push(' ');
+        }
+        let mut w: Vec<char> = word.chars().collect();
+        // A word too long for the room is broken where the room ends.
+        while w.len() > room(first) {
+            let used = width(&cur) - if first { 0 } else { hang.len() };
+            let take = room(first).saturating_sub(used).max(1);
+            cur.extend(w.drain(..take.min(w.len())));
+            out.push(cur.clone());
+            cur = hang.clone();
+            first = false;
+        }
+        cur.extend(w);
+    }
+    if !cur.trim().is_empty() {
+        out.push(cur.trim_end().to_string());
+    }
+    out
 }
 
 /// An ICE's program listed whole, every line numbered. No marks.
@@ -131,12 +200,7 @@ pub fn rows(g: &Game) -> Vec<IceRow> {
         r.next = Some(r.no) == next;
     }
     // The source's board's notes, if it came from one.
-    let notes = notes(
-        &g.data,
-        &c.source_from,
-        &g.data.ice[c.ice].name,
-        c.ice_version,
-    );
+    let notes = notes(&g.data, &c.source_from, &g.data.ice[c.ice], c.ice_version);
     match notes {
         Some((header, sources)) => annotate(rows, header, sources),
         None => rows,
