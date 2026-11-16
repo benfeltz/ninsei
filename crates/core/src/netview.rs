@@ -237,8 +237,10 @@ pub struct LinkView {
     pub from: usize,
     /// Its deeper end.
     pub to: usize,
-    /// Walked deeper only, never back: the map draws an arrow pointing deeper.
+    /// Walked one way only: the map draws an arrow pointing the way it runs.
     pub one_way: bool,
+    /// The way it runs, if one way, is back up from `to` to `from`: a Backlink turned it.
+    pub back: bool,
     /// The runner came along it, either way: the hop trail.
     pub walked: bool,
     /// The end the runner would step to along it from where it stands, either way; `None`
@@ -266,7 +268,8 @@ pub fn links(game: &Game) -> Vec<LinkView> {
             n.links.iter().map(move |&to| LinkView {
                 from: n.id,
                 to,
-                one_way: net.one_way(n.id, to),
+                one_way: net.one_way(n.id, to) || net.reversed(n.id, to),
+                back: net.reversed(n.id, to),
                 walked: game.travelled(n.id, to),
                 route: route(n.id, to),
             })

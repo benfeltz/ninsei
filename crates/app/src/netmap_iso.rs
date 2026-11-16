@@ -106,7 +106,7 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
             arrowhead(
                 &painter,
                 a + (b - a) * 0.5,
-                b - a,
+                if l.back { a - b } else { b - a },
                 CHEVRON,
                 mark.gamma_multiply(show),
             );

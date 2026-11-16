@@ -44,7 +44,7 @@ pub struct History {
     pub ice: Vec<u32>,
     /// This fight's (or the last fight's) turns, oldest first.
     pub turns: Vec<TurnRow>,
-    /// Programs run: (slot uid, tick).
+    /// Programs run: (slot uid, tick). Hacks too.
     pub runs: Vec<(u32, u32)>,
     /// The last time something hit the deck, for the damage glitches.
     pub last_hit: Option<Hit>,
@@ -81,6 +81,8 @@ pub struct Snap {
     integrity: u32,
     /// (node, ICE strength, shield, CPU left, which ICE, turn) while fighting.
     fight: Option<(usize, u32, u32, u32, usize, u32)>,
+    /// Hacks run.
+    hacks: u32,
 }
 
 impl Snap {
@@ -92,6 +94,7 @@ impl Snap {
                 .combat
                 .as_ref()
                 .map(|c| (c.node, c.strength, c.shield, c.cpu, c.ice, c.turn)),
+            hacks: g.hacks,
         }
     }
 }
@@ -182,11 +185,11 @@ impl History {
         if matches!(action, Action::EndTurn) && was.fight.is_some() && now.is_some() {
             self.close_turn(g, was);
         }
-        // A program ran if it cost CPU (or ended the fight).
+        // A program ran if it cost CPU (or ended the fight), or a hack ran on the map.
         let spent = match (was.fight, now) {
             (Some(a), Some(b)) => b.3 < a.3,
             (Some(_), None) => true,
-            _ => false,
+            _ => g.hacks > was.hacks,
         };
         if let (Action::Run(_), Some(uid), true) = (action, uid, spent) {
             push(&mut self.runs, (uid, self.tick));

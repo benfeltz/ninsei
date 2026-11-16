@@ -252,7 +252,7 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
     let reach = game.reachable();
 
     // Links, each with a dotted shadow below and right of it; a one-way link carries an
-    // arrowhead at its middle, pointing deeper.
+    // arrowhead at its middle, pointing the way it runs.
     for l in netview::links(game) {
         if !shown(l.from) || !shown(l.to) {
             continue;
@@ -279,7 +279,8 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         if known {
             painter.line_segment([a, b], Stroke::new(width, c.ink));
             if l.one_way {
-                arrowhead(&painter, a + (b - a) * 0.5, b - a, look::ARROW, c.ink);
+                let way = if l.back { a - b } else { b - a };
+                arrowhead(&painter, a + (b - a) * 0.5, way, look::ARROW, c.ink);
             }
         } else {
             painter.extend(Shape::dashed_line(

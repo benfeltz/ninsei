@@ -57,7 +57,7 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
 
     // Wires: right-angled runs. Your routes are heavy, known ones light, the rest hidden lines.
     // A route's end arrowhead points where it leads; a one-way wire carries a flow arrow
-    // pointing deeper on its last run.
+    // pointing deeper on its last run, or back up on its first if a Backlink turned it.
     let reach = game.reachable();
     for l in netview::links(game) {
         if !shown(l.from) || !shown(l.to) {
@@ -93,7 +93,11 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
             ));
             continue;
         };
-        if l.one_way {
+        if l.back {
+            // Turned around: on the first run, pointing back into its shallower end.
+            let flow = pos2(((a.x + mid) / 2.0).round(), a.y.round());
+            arrowhead(&painter, flow, vec2(-1.0, 0.0), FLOW, ink);
+        } else if l.one_way {
             // On the last run, into its own end: the runs out of a node are shared.
             let flow = pos2(((mid + b.x) / 2.0).round(), b.y.round());
             arrowhead(&painter, flow, vec2(1.0, 0.0), FLOW, ink);

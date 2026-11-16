@@ -486,7 +486,7 @@ fn disk_panel(
     // program's details and its buttons.
     block_map(ui, data, look, st, &on, &shelf, &map);
     ui.add_space(4.0);
-    legend(ui, data, look);
+    legend(ui, data, look, &disk::legend(&on, &shelf));
     ui.add_space(8.0);
     ui.horizontal_top(|ui| {
         ui.vertical(|ui| {
@@ -568,6 +568,7 @@ fn paint_kind(
                 WarezKind::Breaker => accent(),
                 WarezKind::Shield => ink(),
                 WarezKind::Utility => fill(),
+                WarezKind::Hack => muted(),
             };
             p.rect_filled(r, 0.0, c);
         }
@@ -694,13 +695,16 @@ fn dashed(p: &egui::Painter, r: egui::Rect) {
 }
 
 /// Which pattern means which kind of program.
-fn legend(ui: &mut Ui, data: &Data, look: Look) {
+fn legend(ui: &mut Ui, data: &Data, look: Look, kinds: &[ninsei_core::WarezKind]) {
+    use ninsei_core::WarezKind;
     ui.horizontal(|ui| {
-        for (kind, label) in [
-            (ninsei_core::WarezKind::Breaker, "Breaker"),
-            (ninsei_core::WarezKind::Shield, "Shield"),
-            (ninsei_core::WarezKind::Utility, "Utility"),
-        ] {
+        for &kind in kinds {
+            let label = match kind {
+                WarezKind::Breaker => "Breaker",
+                WarezKind::Shield => "Shield",
+                WarezKind::Utility => "Utility",
+                WarezKind::Hack => "Hack",
+            };
             let (r, _) = ui.allocate_exact_size(egui::vec2(14.0, 14.0), egui::Sense::hover());
             paint_kind(ui.painter(), data, look, kind, r);
             ui.painter().rect_stroke(
@@ -835,14 +839,7 @@ fn info(ui: &mut Ui, data: &Data, st: &SystemUi, on: &[Program], shelf: &[Progra
     ui.label(RichText::new(s.file()).color(ink()).strong());
     ui.label(dim(&data.warez[prog.warez].blurb));
     ui.label(RichText::new(s.effect.describe()).color(ink()));
-    let mut line = format!("{:?} · CPU {}", prog.kind, s.cpu);
-    if let Some(pw) = prog.power() {
-        line.push_str(&format!(" · power {pw}"));
-    }
-    if s.opt > 0 {
-        line.push_str(&format!(" · opt {}", s.opt));
-    }
-    ui.label(dim(line));
+    ui.label(dim(prog.stats()));
 }
 
 /// Keys, while the pointer is over the panel and nothing else is typing: ↑↓ move the pick

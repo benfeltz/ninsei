@@ -684,6 +684,7 @@ fn glyph(kind: WarezKind) -> (char, Color32) {
         WarezKind::Breaker => ('▓', accent()),
         WarezKind::Shield => ('▒', ink()),
         WarezKind::Utility => ('░', ink()),
+        WarezKind::Hack => ('▄', accent()),
     }
 }
 
@@ -779,11 +780,13 @@ fn disk_panel(
     // Beside the map: the legend and the RAM strip.
     let x = 5 + w;
     let mut ly = y + 1;
-    for (kind, name) in [
-        (WarezKind::Breaker, "breaker"),
-        (WarezKind::Shield, "shield"),
-        (WarezKind::Utility, "utility"),
-    ] {
+    for kind in disk::legend(on, shelf) {
+        let name = match kind {
+            WarezKind::Breaker => "breaker",
+            WarezKind::Shield => "shield",
+            WarezKind::Utility => "utility",
+            WarezKind::Hack => "hack",
+        };
         let (ch, fg) = glyph(kind);
         g.put(x, ly, &format!("{ch}{ch}"), fg);
         g.put(x + 3, ly, name, muted());
@@ -867,14 +870,7 @@ fn info(
     let n = wrap(&mut sub, 0, n, &s.effect.describe(), ink());
     g.stamp(sub, x, y);
     y += n;
-    let mut line = format!("{:?} · cpu {}", prog.kind, s.cpu).to_lowercase();
-    if let Some(pw) = prog.power() {
-        line.push_str(&format!(" · power {pw}"));
-    }
-    if s.opt > 0 {
-        line.push_str(&format!(" · opt {}", s.opt));
-    }
-    g.put(x, y, &line, muted());
+    g.put(x, y, &prog.stats().to_lowercase(), muted());
     y += 2;
     if let Some(id) = st.confirm_scrap {
         let c = g.put(x, y, "scrap it for good?", ink());

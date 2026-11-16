@@ -331,8 +331,6 @@ impl Panes<'_> {
     pub(crate) fn warez(&mut self, ui: &mut Ui) {
         let g = self.game;
         let p = self.pal;
-        let fighting = g.phase == Phase::Combat;
-        let cpu = g.combat.as_ref().map_or(0, |c| c.cpu);
         let note = format!("{}/{} slots", g.hdd.len(), g.deck.hdd_max);
         ui.horizontal(|ui| {
             ui.label(RichText::new("▾ hdd/").color(p.bright));
@@ -372,14 +370,12 @@ impl Panes<'_> {
                     {
                         self.out.push(Request::OpenHex(i));
                     }
-                    if fighting {
-                        let ok = cpu >= w.cpu;
-                        if ui
+                    if let Some(ok) = g.run_control(i)
+                        && ui
                             .add_enabled(ok, egui::Button::new("run").small())
                             .clicked()
-                        {
-                            self.act(Action::Run(i));
-                        }
+                    {
+                        self.act(Action::Run(i));
                     }
                     ui.with_layout(egui::Layout::left_to_right(egui::Align::Center), |ui| {
                         ui.add(egui::Label::new(name).truncate())
@@ -537,7 +533,7 @@ impl Panes<'_> {
                     p.fg
                 }));
                 if ui
-                    .add_enabled(c.cpu >= w.cpu, btn)
+                    .add_enabled(self.game.run_control(i) == Some(true), btn)
                     .on_hover_text(w.effect.describe())
                     .clicked()
                 {
@@ -1031,5 +1027,109 @@ mod tests {
         picker(&mut h, &d, &g, &mut keep, 2, ev);
         assert!(!keep.contains(&free));
         assert_eq!(keep.len(), 2);
+    }
+
+    /// Chrome `chrome`'s programs list on `g`, once with `ev`; what it asked for.
+    fn warez_pane(h: &mut Harness, g: &Game, chrome: Ch, ev: Vec<egui::Event>) -> Vec<Request> {
+        let d = Data::builtin().unwrap();
+        let (mut term, mut focus, mut hex, mut keep) =
+            (ninsei_term::LineEditor::default(), false, None, Vec::new());
+        let mut suite = crate::suite::State::default();
+        let mut out = Vec::new();
+        h.frame(ev, |ui| {
+            let mut panes = Panes {
+                game: g,
+                pal: Palette::from_def(&d.themes[0]),
+                map: MapView::Iso,
+                deck: String::new(),
+                chrome,
+                corrupt: (0.0, 0),
+                term: &mut term,
+                focus_input: &mut focus,
+                bbs_open: false,
+                hex: &mut hex,
+                keep: &mut keep,
+                keep_room: 0,
+                suite: &mut suite,
+                hear: &Vec::new,
+                scope_rate: 0,
+                out: Vec::new(),
+            };
+            crate::chrome::view(chrome).warez(&mut panes, ui);
+            out = std::mem::take(&mut panes.out);
+        });
+        out
+    }
+
+    /// A run with Backlink on the disk, stood on a node with one-way links into it to turn.
+    fn backlink_run() -> (Game, usize) {
+        let d = std::sync::Arc::new(Data::builtin().unwrap());
+        for seed in 0..200 {
+            let mut g = Game::new(d.clone(), seed);
+            g.net.orient(seed, 70);
+            let Some(at) = g.net.layers[1]
+                .iter()
+                .copied()
+                .find(|&n| !g.net.backlinks(n).is_empty())
+            else {
+                continue;
+            };
+            g.at = at;
+            let w = d.warez_ix("backlink").unwrap();
+            let mut slot = g.factory_slot(w).unwrap();
+            slot.uid = 900;
+            g.hdd.push(slot);
+            let i = g.hdd.len() - 1;
+            return (g, i);
+        }
+        unreachable!("some seed has a link to turn")
+    }
+
+    /// Every deck's programs list runs a hack on the map by the gesture that runs a program in
+    /// a fight, and the map's routes change; a fight program there gets no run control.
+    #[test]
+    fn every_deck_runs_a_hack_on_the_map_from_its_programs_list() {
+        for chrome in Ch::ALL {
+            let (mut g, slot) = backlink_run();
+            let before = g.reachable();
+            let mut h = Harness::new(1100.0, 800.0);
+            warez_pane(&mut h, &g, chrome, Vec::new());
+            let file = g.hdd[slot].spec.file();
+            let ev = match chrome {
+                // The sheet's rows are painted cells: suite.rs double-clicks its row.
+                Ch::Suite => continue,
+                // The program's own button, a painted face.
+                Ch::Stack => {
+                    assert!(
+                        h.painted_text().iter().any(|(t, _)| t == "run · trace +12"),
+                        "a hack's button says its trace, never cpu"
+                    );
+                    let (_, r) = h
+                        .painted_text()
+                        .into_iter()
+                        .find(|(t, _)| *t == file)
+                        .unwrap_or_else(|| panic!("no {file}: {:?}", h.painted_text()));
+                    crate::uitest::click(r.center())
+                }
+                // Its row's run button: the last one, the hack's.
+                _ => {
+                    let runs = h.all("run");
+                    assert_eq!(runs.len(), 1, "{chrome:?}: only the hack can run here");
+                    crate::uitest::click(runs[0].center())
+                }
+            };
+            let out = warez_pane(&mut h, &g, chrome, ev);
+            let acts: Vec<Action> = out
+                .into_iter()
+                .filter_map(|r| match r {
+                    Request::Cmd(Command::Game(a)) => Some(a),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(acts, [Action::Run(slot)], "{chrome:?}");
+            g.apply(Action::Run(slot));
+            assert_eq!(g.hacks, 1, "{chrome:?}");
+            assert_ne!(g.reachable(), before, "{chrome:?}: the routes changed");
+        }
     }
 }

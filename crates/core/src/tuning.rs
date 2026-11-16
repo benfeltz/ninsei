@@ -118,6 +118,12 @@ pub const BUDGET_PER_OPT: u32 = 2;
 pub const COST_STUN: u32 = 7;
 /// Budget points a sniffer costs (it clears an ICE's SPOOF).
 pub const COST_SNIFF: u32 = 3;
+/// Budget points a Backlink costs. A hack's budget is the trace it adds
+/// (`BUDGET_PER_TRACE * trace + BUDGET_PER_OPT * opt`), so this is the least trace a factory
+/// Backlink can add: three hops' worth, dearer than the hops it saves.
+pub const COST_BACKLINK: u32 = 12;
+/// Budget a hack earns per point of trace it adds.
+pub const BUDGET_PER_TRACE: u32 = 1;
 pub const MAX_POWER: u32 = 40;
 pub const MAX_CPU: u32 = 9;
 pub const MAX_OPT: u32 = 5;

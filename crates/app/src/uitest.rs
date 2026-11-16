@@ -253,3 +253,10 @@ pub fn click(at: Pos2) -> Vec<Event> {
     };
     vec![Event::PointerMoved(at), b(true), b(false)]
 }
+
+/// A left double click at `at`: two clicks in one frame.
+pub fn double_click(at: Pos2) -> Vec<Event> {
+    let mut ev = click(at);
+    ev.extend(click(at));
+    ev
+}

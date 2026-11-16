@@ -361,7 +361,7 @@ fn inspector(ui: &mut Ui, key: u64, h: &mut HexBuffer, p: &Palette) {
         ),
         (
             binary::OFF_POWER,
-            "power",
+            binary::power_label(b[binary::OFF_OPCODE]),
             format!("{}", b[binary::OFF_POWER]),
         ),
         (
@@ -431,8 +431,12 @@ fn inspector(ui: &mut Ui, key: u64, h: &mut HexBuffer, p: &Palette) {
     // Budget: what the effect costs against what cpu/opt allow.
     let power = u32::from(b[binary::OFF_POWER]);
     let effect = binary::effect_of(b[binary::OFF_OPCODE], power, None);
-    let budget = binary::budget(u32::from(b[binary::OFF_CPU]), u32::from(b[binary::OFF_OPT]));
     if let Some(e) = effect {
+        let budget = binary::budget_of(
+            e,
+            u32::from(b[binary::OFF_CPU]),
+            u32::from(b[binary::OFF_OPT]),
+        );
         let cost = binary::cost(e);
         let cells = 20usize;
         let scale = cost.max(budget).max(1) as usize;
@@ -462,15 +466,7 @@ fn inspector(ui: &mut Ui, key: u64, h: &mut HexBuffer, p: &Palette) {
                 }),
             );
         });
-        ui.label(
-            RichText::new(format!(
-                "budget = {}×cpu + {}×opt",
-                tuning::BUDGET_PER_CPU,
-                tuning::BUDGET_PER_OPT
-            ))
-            .small()
-            .color(p.dim),
-        );
+        ui.label(RichText::new(binary::budget_rule(e)).small().color(p.dim));
     }
 }
 
@@ -599,5 +595,31 @@ mod tests {
             .find(|(_, st)| st.color == p.bg && st.width == 2.0)
             .expect("the nibble mark");
         assert!(under(&nibble.0, a) && !under(&nibble.0, five), "{nibble:?}");
+    }
+
+    /// The inspector's budget bar reads a hack's budget off its trace, as the linker does: a
+    /// factory Backlink is in budget, and one edited a point cheaper is over.
+    #[test]
+    fn the_budget_bar_reads_a_hack_s_trace() {
+        let data = ninsei_core::Data::builtin().unwrap();
+        let p = Palette::from_def(&data.themes[0]);
+        let key = 0x51;
+        let def = &data.warez[data.warez_ix("backlink").unwrap()];
+        let bin = binary::encode(def, key);
+        let mut hb = HexBuffer::open(0, bin);
+        let mut h = Harness::new(1000.0, 700.0);
+        h.frame(Vec::new(), |ui| inspector(ui, key, &mut hb, &p));
+        let said = h.texts().join("|");
+        assert!(said.contains(" cost 12 / 12"), "{said}");
+        assert!(!said.contains("OVER"), "{said}");
+        assert!(said.contains("budget = 1×trace + 2×opt"), "{said}");
+        assert!(
+            h.texts().contains(&"trace") && !h.texts().contains(&"power"),
+            "{said}"
+        );
+        hb.buf[binary::OFF_POWER] = 11;
+        h.frame(Vec::new(), |ui| inspector(ui, key, &mut hb, &p));
+        let said = h.texts().join("|");
+        assert!(said.contains(" cost 12 / 11  OVER"), "{said}");
     }
 }

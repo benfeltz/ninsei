@@ -299,12 +299,13 @@ fn segfault_keeps_its_target_through_a_hang_and_never_hits_a_dead_line_twice() {
 #[test]
 fn every_opcode_has_a_name_and_an_effect() {
     use ninsei_core::binary;
-    for op in 1..=6u8 {
+    for op in 1..=7u8 {
         assert_ne!(binary::opcode_name(op), "??? unknown", "{op:02X}");
         assert!(binary::effect_of(op, 3, None).is_some(), "{op:02X}");
     }
     assert_eq!(binary::opcode_name(0x06), "SNF sniff");
-    assert_eq!(binary::effect_of(0x07, 3, None), None);
+    assert_eq!(binary::opcode_name(0x07), "BKL backlink");
+    assert_eq!(binary::effect_of(0x08, 3, None), None);
 }
 
 #[test]

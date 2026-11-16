@@ -505,3 +505,28 @@ fn the_careful_bot_never_walks_back_for_nothing() {
         assert_eq!(g.phase, Phase::JackedOut);
     }
 }
+
+/// With Backlink on the disk and a share of links one way, the careful bot runs it now and then
+/// (only when the game's numbers say a turned link opens a walk back for a job or the board),
+/// the report counts it, and every run still ends.
+#[test]
+fn the_careful_bot_runs_backlink_when_it_pays() {
+    let d = std::sync::Arc::new(Data::builtin().unwrap());
+    let w = d.warez_ix("backlink").unwrap();
+    let mut hacks = 0;
+    for seed in 0..120u64 {
+        let mut g = Game::new(d.clone(), seed);
+        g.net.orient(seed, 60);
+        let mut slot = g.factory_slot(w).unwrap();
+        slot.uid = 900;
+        g.hdd.push(slot);
+        let (g, log) = probe::play(g, Bot::Smart);
+        assert!(
+            matches!(g.phase, Phase::JackedOut | Phase::Flatlined),
+            "seed {seed} ends"
+        );
+        assert_eq!(log.hacks, g.hacks, "the log counts what the game ran");
+        hacks += log.hacks;
+    }
+    assert!(hacks > 0, "it ran Backlink at least once");
+}

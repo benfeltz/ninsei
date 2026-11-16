@@ -1,6 +1,7 @@
 // Warez: the programs on your deck.
 // cpu = cost to run it once.
 // A breaker with `vs` hits ICE of that class for double damage.
+// A hack runs on the map, never in a fight: cpu 0, and its effect's number is the trace it adds.
 [
     (id: "icepick",  name: "IcePick",   kind: Breaker, cpu: 1, effect: Break(power: 3, vs: None),           blurb: "Generic breaker. Chips at anything."),
     (id: "decoder",  name: "Decoder",   kind: Breaker, cpu: 1, effect: Break(power: 4, vs: Some(CodeGate)), blurb: "Cracks code gates wide open."),
@@ -14,4 +15,5 @@
     (id: "scrubber", name: "Scrubber",  kind: Utility, cpu: 1, effect: Scrub(6),                            blurb: "Wipes your trail. Lowers trace."),
     (id: "lagspike", name: "LagSpike",  kind: Utility, cpu: 2, effect: Stun,                                blurb: "ICE skips its next action."),
     (id: "sniffer",  name: "Sniffer",   kind: Utility, cpu: 1, effect: Sniff,                               blurb: "Sees through an ICE's spoof."),
+    (id: "backlink", name: "Backlink",  kind: Hack,    cpu: 0, effect: Backlink(12),                        blurb: "Turns one-way links into here around. Loud."),
 ]

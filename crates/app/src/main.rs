@@ -1570,7 +1570,8 @@ fn run_keys(
 }
 
 /// Hotkeys work whenever the terminal isn't taking typing: Space ends the turn, a digit runs
-/// that slot, and Enter or / go to the Message box. A Script pane holding the keyboard
+/// that slot (a hack's only in a fight, where it's refused), and Enter or / go to the Message
+/// box. A Script pane holding the keyboard
 /// (`script`) isn't typing: the hotbar's keys still work over it.
 fn hotkeys(
     ctx: &egui::Context,
@@ -1602,8 +1603,12 @@ fn hotkeys(
             Key::Num8,
             Key::Num9,
         ];
+        // The hotbar is the fight's: a hack's digit off the fight does nothing, so a stray
+        // key on the map never spends trace. Its programs list runs it there.
+        let fighting = game.phase == ninsei_core::Phase::Combat;
         for (n, k) in digits.iter().enumerate() {
-            if i.key_pressed(*k) {
+            let hack = game.hdd.get(n).is_some_and(|s| s.spec.effect.is_hack());
+            if i.key_pressed(*k) && (fighting || !hack) {
                 out.push(Request::Cmd(Command::Game(Action::Run(n))));
             }
         }
@@ -3089,6 +3094,39 @@ mod tests {
             out = run_keys(&chrome::Btop, ui.ctx(), &mut cx, false, &mut focus);
         });
         (out, focus)
+    }
+
+    /// On the map a digit on a hack's slot does nothing (a stray key spends no trace); the
+    /// other slots' digits send as they always did.
+    #[test]
+    fn a_digit_never_runs_a_hack_on_the_map() {
+        let d = std::sync::Arc::new(Data::builtin().unwrap());
+        let mut g = ninsei_core::Game::new(d.clone(), 3);
+        let mut slot = g.factory_slot(d.warez_ix("backlink").unwrap()).unwrap();
+        slot.uid = 900;
+        g.hdd.push(slot);
+        let hack = g.hdd.len() - 1;
+        let key = [
+            Key::Num0,
+            Key::Num1,
+            Key::Num2,
+            Key::Num3,
+            Key::Num4,
+            Key::Num5,
+        ][hack];
+        let mut h = crate::uitest::Harness::new(1280.0, 800.0);
+        let game = |out: &[Request]| -> Vec<Action> {
+            out.iter()
+                .filter_map(|r| match r {
+                    Request::Cmd(Command::Game(a)) => Some(a.clone()),
+                    _ => None,
+                })
+                .collect()
+        };
+        let (out, _) = ice_bas_keys(&mut h, &g, crate::uitest::key(key));
+        assert!(game(&out).is_empty(), "{:?}", game(&out));
+        let (out, _) = ice_bas_keys(&mut h, &g, crate::uitest::key(Key::Num0));
+        assert_eq!(game(&out), [Action::Run(0)]);
     }
 
     #[test]
