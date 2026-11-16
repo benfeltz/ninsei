@@ -99,6 +99,23 @@ fn label(painter: &Painter, at: Pos2, align: Align2, text: &str, c: Two) -> Rect
     r
 }
 
+/// The box of a node the net's AI holds, centred on `at`: a node's height, and as wide as its
+/// `name`'s label with room for the paper rule round it (never narrower than a node), in whole
+/// pixels.
+pub fn held_box(painter: &Painter, at: Pos2, name: &str) -> Rect {
+    let text = painter
+        .layout_no_wrap(name.to_string(), small(), Color32::WHITE)
+        .size()
+        .x;
+    // The label's own 3 points of paper each side, then the rule's 3 and a point of ink.
+    let w = (text + 6.0 + 2.0 * HELD_PAD).ceil().max(look::W);
+    let r = Rect::from_center_size(at, vec2(w, look::H));
+    Rect::from_min_size(r.min.round(), r.size())
+}
+
+/// Ink each side of a held node's name label, inside the box: the paper rule and a point clear.
+const HELD_PAD: f32 = 6.0;
+
 /// A node's box with its shadow and the label under it: what the AI's card keeps off.
 fn on_card(at: Pos2) -> Rect {
     Rect::from_min_max(
@@ -283,7 +300,13 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
             continue;
         }
         let ctr = pos(n.id);
-        let r = Rect::from_center_size(ctr, vec2(look::W, look::H));
+        // A node the net's AI holds is drawn as the AI: all ink, its name across it, the box as
+        // wide as the name needs.
+        let held = ai.as_ref().filter(|m| m.holds(n.id)).map(|m| &m.label);
+        let r = match held {
+            Some(name) => held_box(&painter, ctr, name),
+            None => Rect::from_center_size(ctr, vec2(look::W, look::H)),
+        };
         let (hit, hovered) = interact(ui, game, n.id, r.expand(6.0));
         clicked = clicked.or(hit);
         let here = n.id == game.at;
@@ -291,8 +314,6 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         let can_go = reach.contains(&n.id);
         let done = n.cleared && !here && n.kind != NodeKind::Entry;
         let k = kind(game, n.id);
-        // A node the net's AI holds is drawn as the AI: all ink, its name across it.
-        let held = ai.as_ref().filter(|m| m.holds(n.id)).map(|m| &m.label);
 
         // The hatched drop shadow, then the box.
         paint(
@@ -339,10 +360,10 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         }
         if let Some(ai) = held {
             // All ink in a paper rule, its name on paper across the middle, as a blank node
-            // writes its tag: wider than the box, never below it, so it keeps off the rows.
+            // writes its tag: inside the rule, never below the box, so it keeps off the rows.
             let s = Stroke::new(1.0, c.paper);
             painter.rect_stroke(r.shrink(3.0), 0.0, s, StrokeKind::Inside);
-            label(&painter, ctr, Align2::CENTER_CENTER, ai, c);
+            label(&painter, r.center(), Align2::CENTER_CENTER, ai, c);
         } else if seen && k == MapNode::Subnet && !done {
             // A box in the box: the private network behind the door.
             let inner = r.shrink2(vec2(16.0, 9.0));

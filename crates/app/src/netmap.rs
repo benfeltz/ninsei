@@ -535,6 +535,48 @@ mod tests {
     }
 
     #[test]
+    fn the_paint_fits_every_ai_s_name_inside_the_node_it_holds() {
+        let g = with_ai(3, one_in(3).net.nodes[one_in(3).at].links[0], true);
+        let at = netview::ai_mark(&g).unwrap().node;
+        let ais: Vec<usize> = (0..g.data.ice.len())
+            .filter(|&i| g.data.ice[i].boss)
+            .collect();
+        assert!(ais.len() > 3);
+        for ice in ais {
+            let mut a = g.clone();
+            a.boss.as_mut().unwrap().ice = ice;
+            let m = netview::ai_mark(&a).unwrap();
+            assert!(m.holds(at), "{m:?}");
+            let h = drawn(MapView::Paint, &a, "amber");
+            let name = h
+                .painted_text()
+                .into_iter()
+                .find(|(t, _)| *t == m.label)
+                .map(|(_, r)| r)
+                .unwrap_or_else(|| panic!("no {}", m.label));
+            // The paper rule round the all-ink box: the smallest outline round the name.
+            let rule = h
+                .rects()
+                .into_iter()
+                .filter(|(r, fill, line)| {
+                    *fill == Color32::TRANSPARENT
+                        && *line != Color32::TRANSPARENT
+                        && r.contains(name.center())
+                })
+                .map(|(r, _, _)| r)
+                .min_by(|a, b| a.area().total_cmp(&b.area()))
+                .unwrap();
+            assert!(
+                rule.contains_rect(name.expand2(egui::vec2(3.0, 0.0))),
+                "{}: {name:?} past {rule:?}",
+                m.label
+            );
+            assert_eq!(rule.min, rule.min.round(), "{}: whole pixels", m.label);
+            assert_eq!(rule.max, rule.max.round(), "{}: whole pixels", m.label);
+        }
+    }
+
+    #[test]
     fn the_ai_s_caption_stays_on_the_map_at_its_edges() {
         let bounds = Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 640.0));
         for view in VIEWS {
