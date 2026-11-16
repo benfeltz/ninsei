@@ -262,3 +262,29 @@ fn a_node_the_ai_holds_is_tagged_as_the_ai_and_last_seen_still_captions() {
         assert!(!cap.contains("is on this card"));
     }
 }
+
+#[test]
+fn heard_in_the_fog_it_is_marked_by_name_and_the_node_stays_unknown() {
+    let mut g = quiet_run(1, 2);
+    // Two layers on: past sight.
+    let next = deeper(&g);
+    let far = g.net.nodes[next].links[0];
+    assert!(!netview::visible(&g, far));
+    awake_at(&mut g, far, "10 HOLD");
+    g.boss.as_mut().unwrap().last = vec![ninsei_core::boss::Step {
+        line: 10,
+        did: ninsei_core::boss::Did::Scanned {
+            from: far,
+            reach: 9,
+            found: true,
+        },
+    }];
+    let m = ai_mark(&g).unwrap();
+    assert!(m.now && !m.held && m.node == far);
+    assert_eq!(netview::ai_holds(&g, far), None);
+    assert_eq!(netview::tag(&g, far), "???");
+    for view in [MapView::Iso, MapView::Draft, MapView::Paint] {
+        let cap = netview::ai_caption(&m, view).unwrap();
+        assert_eq!(cap.to_uppercase(), m.label.to_uppercase(), "{view:?}");
+    }
+}

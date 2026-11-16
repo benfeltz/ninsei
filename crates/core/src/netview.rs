@@ -142,8 +142,18 @@ pub struct AiMark {
     /// The runner knows it is there now (in sight, or its scan was heard); otherwise it's
     /// where it was last known.
     pub now: bool,
+    /// It is there now and the node is in sight: the node is the AI's, drawn as it, its name
+    /// for the node's tag. There now in the fog (its scan heard), it's marked over the `?`.
+    pub held: bool,
     /// What the map writes beside it: its product name and version (`WATCHMAN 1.2`).
     pub label: String,
+}
+
+impl AiMark {
+    /// Whether it holds node `id` ([`AiMark::held`]).
+    pub fn holds(&self, id: usize) -> bool {
+        self.held && self.node == id
+    }
 }
 
 /// Where the map marks the net's AI, from what the runner knows of it (`Game::sighting`).
@@ -158,6 +168,7 @@ pub fn ai_mark(game: &Game) -> Option<AiMark> {
     Some(AiMark {
         node: s.node(),
         now: s.now(),
+        held: s.now() && visible(game, s.node()),
         label: game.data.ice[ice].name.clone(),
     })
 }
@@ -169,23 +180,27 @@ pub fn ai_status(game: &Game) -> Option<String> {
     Some(format!("▲ {name} UP"))
 }
 
-/// The net's AI where the runner knows it holds node `id` now: the node is the AI's, and the
-/// map draws the AI in place of what's there, its name where the node's tag goes. Its name,
-/// or `None` when it isn't there or the runner doesn't know it is.
+/// The net's AI where the runner knows it holds node `id` now, in sight: the node is the AI's,
+/// and the map draws the AI in place of what's there, its name where the node's tag goes. Its
+/// name, or `None` when it isn't there, the runner doesn't know it is, or the node's in the fog.
 pub fn ai_holds(game: &Game, id: usize) -> Option<String> {
-    ai_mark(game)
-        .filter(|m| m.now && m.node == id)
-        .map(|m| m.label)
+    ai_mark(game).filter(|m| m.holds(id)).map(|m| m.label)
 }
 
 /// The short label under a node on the map: its kind's tag, the board's name, a subnet's exit
 /// as its uplink, `???` in the fog, and the net's AI's name on a node it holds.
 pub fn tag(game: &Game, id: usize) -> String {
+    tag_with(game, id, ai_mark(game).as_ref())
+}
+
+/// [`tag`] with the frame's [`ai_mark`] already worked out: a map asks it once a frame, not
+/// once a node.
+pub fn tag_with(game: &Game, id: usize, ai: Option<&AiMark>) -> String {
     if !visible(game, id) {
         return "???".into();
     }
-    if let Some(name) = ai_holds(game, id) {
-        return name;
+    if let Some(m) = ai.filter(|m| m.holds(id)) {
+        return m.label.clone();
     }
     let k = MapNode::of(&game.net, id, &game.data);
     if k == MapNode::Exit && game.in_subnet() {
@@ -197,19 +212,21 @@ pub fn tag(game: &Game, id: usize) -> String {
     style(&game.data, k).tag.clone()
 }
 
-/// What a map style writes beside the net's AI where it was last known, in its own drawing's
-/// words: the Iso's tag, the Draft's callout in capitals, the Paint card's sentence. Where it
-/// is now there's nothing beside it: the node is drawn as the AI, its name as the tag
-/// ([`ai_holds`]).
+/// What a map style writes beside the net's AI, in its own drawing's words: the Iso's tag, the
+/// Draft's callout in capitals, the Paint card. Last known says so. Where it holds a node in
+/// sight there's nothing beside it: the node is drawn as the AI, its name as the tag
+/// ([`AiMark::held`]); there now in the fog, its name.
 pub fn ai_caption(m: &AiMark, view: MapView) -> Option<String> {
-    if m.now {
+    if m.held {
         return None;
     }
     let l = &m.label;
-    Some(match view {
-        MapView::Iso => format!("{l}  last seen"),
-        MapView::Draft => format!("{} (LAST SEEN)", l.to_uppercase()),
-        MapView::Paint => format!("{l} was last seen here"),
+    Some(match (view, m.now) {
+        (MapView::Iso | MapView::Paint, true) => l.clone(),
+        (MapView::Draft, true) => l.to_uppercase(),
+        (MapView::Iso, false) => format!("{l}  last seen"),
+        (MapView::Draft, false) => format!("{} (LAST SEEN)", l.to_uppercase()),
+        (MapView::Paint, false) => format!("{l} was last seen here"),
     })
 }
 

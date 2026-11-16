@@ -11,7 +11,7 @@ use ninsei_core::netview::{
 };
 use ninsei_core::{Game, NodeKind, Phase};
 
-use crate::netmap::{Anim, arrowhead, hint, interact, kind, tag, target, visible};
+use crate::netmap::{Anim, arrowhead, hint, interact, kind, target, visible};
 use crate::patterns;
 use crate::theme::Palette;
 
@@ -107,10 +107,11 @@ fn on_card(at: Pos2) -> Rect {
     )
 }
 
-/// The net's AI where it was last known on the picture: a dotted card pinned near the node,
-/// saying so, with a line from the node to it. Where it is now the node is drawn as it. The
-/// card goes where it keeps off every other node and its label
-/// (`place_clear`): above, below, right, left, then further out.
+/// The net's AI on the picture where it doesn't hold a node in sight: a little card pinned near
+/// the node, with a line from the node to it: there now in the fog, its name on a card with its
+/// own hatched shadow; where it was last known, the card is dotted and says that. Where it holds
+/// a node in sight, the node is drawn as it. The card goes where it keeps off every other node
+/// and its label (`place_clear`): above, below, right, left, then further out.
 fn ai_card(painter: &Painter, at: Pos2, m: &AiMark, c: Two, area: Rect, avoid: &[Rect]) {
     let Some(text) = netview::ai_caption(m, MapView::Paint) else {
         return;
@@ -157,15 +158,21 @@ fn ai_card(painter: &Painter, at: Pos2, m: &AiMark, c: Two, area: Rect, avoid: &
         from.y.clamp(r.top(), r.bottom()),
     );
     painter.line_segment([from, to], Stroke::new(1.0, c.ink));
-    painter.rect_filled(r, 0.0, c.paper);
-    let pts = [
-        r.left_top(),
-        r.right_top(),
-        r.right_bottom(),
-        r.left_bottom(),
-        r.left_top(),
-    ];
-    painter.extend(Shape::dashed_line(&pts, Stroke::new(1.0, c.ink), 1.0, 2.0));
+    if m.now {
+        painter.rect_filled(r.translate(vec2(look::DROP, look::DROP)), 0.0, c.ink);
+        painter.rect_filled(r, 0.0, c.paper);
+        painter.rect_stroke(r, 0.0, Stroke::new(2.0, c.ink), StrokeKind::Inside);
+    } else {
+        painter.rect_filled(r, 0.0, c.paper);
+        let pts = [
+            r.left_top(),
+            r.right_top(),
+            r.right_bottom(),
+            r.left_bottom(),
+            r.left_top(),
+        ];
+        painter.extend(Shape::dashed_line(&pts, Stroke::new(1.0, c.ink), 1.0, 2.0));
+    }
     painter.galley(r.min + vec2(6.0, 4.0), g, c.ink);
 }
 
@@ -268,6 +275,8 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
     }
 
     let mut clicked = None;
+    // Where the runner knows the net's AI is, worked out once for the frame.
+    let ai = netview::ai_mark(game);
     let danger = game.deck.trace >= crate::netmap::anim::TRACE_FAST || game.phase == Phase::Combat;
     for n in &net.nodes {
         if !shown(n.id) {
@@ -284,7 +293,7 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         let k = kind(game, n.id);
         // A node the net's AI holds is drawn as the AI: all ink, its eye in paper, its name
         // under the node's.
-        let held = netview::ai_holds(game, n.id);
+        let held = ai.as_ref().filter(|m| m.holds(n.id)).map(|m| &m.label);
 
         // The hatched drop shadow, then the box.
         paint(
@@ -321,7 +330,7 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         if !seen {
             label(&painter, ctr, Align2::CENTER_CENTER, "?", c);
         } else if fill == PAINT_PAPER {
-            let text = tag(game, n.id);
+            let text = netview::tag_with(game, n.id, ai.as_ref());
             let text = if k == MapNode::Bbs {
                 "BBS".to_string()
             } else {
@@ -392,8 +401,8 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         }
     }
 
-    // Where it was last known, a dotted card says so; where it is, the node is drawn as it.
-    if let Some(m) = netview::ai_mark(game).filter(|m| !m.now) {
+    // Where it holds a node, the node is drawn as it; anywhere else a card marks it.
+    if let Some(m) = ai.filter(|m| !m.held) {
         let avoid: Vec<Rect> = (0..net.nodes.len())
             .filter(|&id| id != m.node)
             .map(|id| on_card(pos(id)))

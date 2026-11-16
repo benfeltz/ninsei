@@ -8,7 +8,7 @@ use egui::{
 use ninsei_core::netview::{self, AiMark, MapNode, MapView, Symbol, style};
 use ninsei_core::{Game, NodeKind, Phase};
 
-use crate::netmap::{Anim, arrowhead, board_ink, hint, interact, kind, mix, tag, target, visible};
+use crate::netmap::{Anim, arrowhead, board_ink, hint, interact, kind, mix, target, visible};
 use crate::theme::Palette;
 
 /// How long the flow arrow on a one-way wire is, in pixels.
@@ -102,6 +102,8 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
 
     let mut clicked = None;
     let t = fx.t;
+    // Where the runner knows the net's AI is, worked out once for the frame.
+    let ai = netview::ai_mark(game);
     let (board_edge, board_label) = board_ink(game, p);
     for n in &net.nodes {
         if !shown(n.id) {
@@ -120,7 +122,7 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         let can_go = reach.contains(&n.id);
         let done = n.cleared && !here;
         // A node the net's AI holds is drawn as the AI, its name for the tag.
-        let held = netview::ai_holds(game, n.id).is_some();
+        let held = ai.as_ref().is_some_and(|m| m.holds(n.id));
         let ink = if here || (can_go && hovered) {
             p.bright
         } else if can_go {
@@ -191,7 +193,7 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
             if done { p.dim } else { p.fg },
         );
         let bbs = seen && kind(game, n.id) == MapNode::Bbs;
-        let mut label = tag(game, n.id);
+        let mut label = netview::tag_with(game, n.id, ai.as_ref());
         if done && !held && n.kind != NodeKind::Entry {
             label.push_str(" ok");
         }
@@ -233,8 +235,8 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         }
     }
 
-    // Where it was last known, a callout says so; where it is, the node is drawn as it.
-    if let Some(m) = netview::ai_mark(game).filter(|m| !m.now) {
+    // Where it holds a node, the node is drawn as it; anywhere else a callout marks it.
+    if let Some(m) = ai.filter(|m| !m.held) {
         // The revision cloud round the runner, and its delta, are annotations too.
         let cloud = pos(game.at) + vec2(0.0, 9.0);
         // And the sheet's own furniture: the grid bubbles over it, the dimension line and the
@@ -259,7 +261,12 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
                     } else {
                         "????-????".into()
                     };
-                    written(&painter, pos(id), &[host, tag(game, id) + " ok"], &small)
+                    written(
+                        &painter,
+                        pos(id),
+                        &[host, netview::tag_with(game, id, Some(&m)) + " ok"],
+                        &small,
+                    )
                 }),
         );
         ai_callout(&painter, pos(m.node), &m, p, rect.shrink(6.0), &avoid);
@@ -592,15 +599,16 @@ fn written(painter: &Painter, c: Pos2, lines: &[String], font: &FontId) -> Vec<R
     out
 }
 
-/// The net's AI where it was last known on the plan: a dashed box drawn tight round the node's
-/// symbol (between it and its labels), and a dashed leader from it to a boxed callout, in `dim`,
-/// placed on the sheet (under the grid bubbles) clear of the other nodes and their labels
-/// (`place_clear`). Where it is now the node is drawn as it ([`ai_symbol`]).
+/// The net's AI on the plan where it doesn't hold a node in sight: a double box drawn tight
+/// round the node's symbol (between it and its labels), and a leader from it to a boxed
+/// callout, placed on the sheet (under the grid bubbles) clear of the other nodes and their
+/// labels (`place_clear`): there now in the fog, solid; where it was last known, both dashed, in
+/// `dim`. Where it holds a node in sight, the node is drawn as it ([`ai_symbol`]).
 fn ai_callout(painter: &Painter, c: Pos2, m: &AiMark, p: &Palette, sheet: Rect, avoid: &[Rect]) {
     let Some(caption) = netview::ai_caption(m, MapView::Draft) else {
         return;
     };
-    let ink = p.dim;
+    let ink = if m.now { p.bright } else { p.dim };
     let font = FontId::new(10.0, FontFamily::Monospace);
     let g = painter.layout_no_wrap(caption, font, ink);
     let size = g.size() + vec2(10.0, 6.0);
@@ -707,20 +715,36 @@ fn ai_callout(painter: &Painter, c: Pos2, m: &AiMark, p: &Palette, sheet: Rect, 
         own.left_bottom(),
         own.left_top(),
     ];
-    painter.extend(Shape::dashed_line(
-        &corners,
-        Stroke::new(1.0, ink),
-        4.0,
-        3.0,
-    ));
-    painter.extend(Shape::dashed_line(
-        &[from, to],
-        Stroke::new(1.0, ink),
-        4.0,
-        3.0,
-    ));
+    if m.now {
+        painter.rect_stroke(own, 0.0, Stroke::new(1.6, ink), egui::StrokeKind::Inside);
+        painter.rect_stroke(
+            own.shrink(3.0),
+            0.0,
+            Stroke::new(1.0, ink),
+            egui::StrokeKind::Inside,
+        );
+        painter.line_segment([from, to], Stroke::new(1.2, ink));
+    } else {
+        painter.extend(Shape::dashed_line(
+            &corners,
+            Stroke::new(1.0, ink),
+            4.0,
+            3.0,
+        ));
+        painter.extend(Shape::dashed_line(
+            &[from, to],
+            Stroke::new(1.0, ink),
+            4.0,
+            3.0,
+        ));
+    }
     painter.rect_filled(r, 0.0, p.bg);
-    painter.rect_stroke(r, 0.0, Stroke::new(1.0, ink), egui::StrokeKind::Inside);
+    painter.rect_stroke(
+        r,
+        0.0,
+        Stroke::new(if m.now { 1.4 } else { 1.0 }, ink),
+        egui::StrokeKind::Inside,
+    );
     painter.galley(r.min + vec2(5.0, 3.0), g, ink);
 }
 

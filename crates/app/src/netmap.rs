@@ -200,11 +200,6 @@ pub fn kind(game: &Game, id: usize) -> MapNode {
     MapNode::of(&game.net, id, &game.data)
 }
 
-/// The short label under a node (`netview::tag`).
-pub fn tag(game: &Game, id: usize) -> String {
-    ninsei_core::netview::tag(game, id)
-}
-
 /// Makes a node's screen area clickable when it's a route, with a tooltip. Returns the node
 /// if it was clicked, and whether it's hovered.
 pub fn interact(ui: &mut Ui, game: &Game, id: usize, r: Rect) -> (Option<usize>, bool) {
@@ -460,6 +455,33 @@ mod tests {
     }
 
     #[test]
+    fn every_map_marks_an_ai_heard_in_the_fog_by_name() {
+        for view in VIEWS {
+            let quiet = one_in(3);
+            let next = quiet.net.nodes[quiet.at].links[0];
+            let far = quiet.net.nodes[next].links[0];
+            let mut g = with_ai(3, far, true);
+            g.boss.as_mut().unwrap().last = vec![ninsei_core::boss::Step {
+                line: 10,
+                did: ninsei_core::boss::Did::Scanned {
+                    from: far,
+                    reach: 9,
+                    found: true,
+                },
+            }];
+            let m = netview::ai_mark(&g).unwrap();
+            assert!(m.now && !m.held, "{view:?}: {m:?}");
+            let cap = netview::ai_caption(&m, view).unwrap();
+            let said: Vec<String> = drawn(view, &g, "amber")
+                .painted_text()
+                .into_iter()
+                .map(|(t, _)| t)
+                .collect();
+            assert!(said.contains(&cap), "{view:?}: {said:?}");
+        }
+    }
+
+    #[test]
     fn the_ai_s_caption_stays_on_the_map_at_its_edges() {
         let bounds = Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 640.0));
         for view in VIEWS {
@@ -501,7 +523,11 @@ mod tests {
                     let painted = drawn(view, &a, "amber").painted_text();
                     let r = painted.iter().find(|(t, _)| *t == cap).unwrap().1;
                     // Whatever else is written on the map, but the node's own words.
-                    let own = [a.net.nodes[at].name.clone(), at.to_string(), tag(&a, at)];
+                    let own = [
+                        a.net.nodes[at].name.clone(),
+                        at.to_string(),
+                        netview::tag(&a, at),
+                    ];
                     for (t, other) in &painted {
                         if *t == cap || own.contains(t) || t.starts_with("click") || t == "_" {
                             continue;

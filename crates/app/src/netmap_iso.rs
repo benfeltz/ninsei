@@ -10,9 +10,7 @@ use ninsei_core::netview::{
 };
 use ninsei_core::{Game, Phase};
 
-use crate::netmap::{
-    Anim, anim, arrowhead, board_ink, hint, interact, kind, mix, tag, target, visible,
-};
+use crate::netmap::{Anim, anim, arrowhead, board_ink, hint, interact, kind, mix, target, visible};
 use crate::theme::Palette;
 
 /// Clickable area around each shape, in pixels.
@@ -39,6 +37,8 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
     grid(&painter, &cam, game, p, fx.pressure(game.deck.trace));
 
     let reach = game.reachable();
+    // Where the runner knows the net's AI is, worked out once for the frame.
+    let ai = netview::ai_mark(game);
     let layers = net.layers.len();
     let shown = |id: usize| fx.reveal(net.nodes[id].layer, layers);
     // A hovered route lifts; its click area stays where it was.
@@ -158,7 +158,7 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         let done = n.cleared && !here;
         let k = kind(game, id);
         // A node the net's AI holds is drawn as the AI, its name for the tag.
-        let held = netview::ai_holds(game, id).is_some();
+        let held = ai.as_ref().is_some_and(|m| m.holds(id));
         let (board_edge, board_label) = board_ink(game, p);
         let edge = if here || (can_go && hovered) {
             p.bright
@@ -217,7 +217,7 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
             body.clone(),
             name,
         );
-        let mut label = tag(game, id);
+        let mut label = netview::tag_with(game, id, ai.as_ref());
         if done && !held {
             label.push_str(" ok");
         }
@@ -242,8 +242,8 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         }
     }
 
-    // Where it was last known, it floats there hollow; where it is, the node is drawn as it.
-    if let Some(m) = netview::ai_mark(game).filter(|m| !m.now) {
+    // Where it holds a node, the node is drawn as it; anywhere else it floats.
+    if let Some(m) = ai.filter(|m| !m.held) {
         ai_marker(&painter, &cam, game, &m, t, p, rect);
     }
 
@@ -260,9 +260,10 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
 /// How high over its node the net's AI floats, in world units, above the node's own shape.
 const AI_LIFT: f32 = 0.8;
 
-/// The net's AI where the runner last knew it to be: its own wireframe, hollow and dim, floating
-/// over the node and tethered to it by a dashed line, with its tag above it. Where it is now
-/// the node itself is drawn as it.
+/// The net's AI floating over a node it doesn't hold: where it is now in the fog (its scan
+/// heard), its own wireframe lit and turning, tethered to the `?`, with its tag; where it was
+/// last known, the same shape hollow and dim. Where it holds a node in sight, the node is drawn
+/// as it and there's nothing to float.
 fn ai_marker(
     painter: &Painter,
     cam: &Iso,
@@ -278,27 +279,43 @@ fn ai_marker(
     let w = world(&game.net, m.node);
     let at = [w[0], HOVER + AI_LIFT + (t * 1.5).sin() * 0.05, w[2]];
     let mesh = Mesh::of(MeshKind::Ai);
-    let ink = Ink {
-        edge: p.dim,
-        fill: None,
-        lit: false,
+    let ink = if m.now {
+        Ink {
+            edge: p.bright,
+            fill: Some(p.dim.gamma_multiply(0.3)),
+            lit: true,
+        }
+    } else {
+        Ink {
+            edge: p.dim,
+            fill: None,
+            lit: false,
+        }
     };
     let head = cam.project(at);
     let foot = cam.project([w[0], HOVER, w[2]]);
     let (head, foot) = (pos2(head[0], head[1]), pos2(foot[0], foot[1]));
     painter.extend(Shape::dashed_line(
         &[head, foot],
-        Stroke::new(1.0, p.faint),
+        Stroke::new(1.0, if m.now { p.fg } else { p.faint }),
         2.0,
         3.0,
     ));
-    draw_mesh(painter, cam, &mesh, at, (t * 0.3, 0.5), ink);
+    draw_mesh(
+        painter,
+        cam,
+        &mesh,
+        at,
+        (t * if m.now { 1.2 } else { 0.3 }, 0.5),
+        ink,
+    );
     // Its tag above it, kept inside the map.
-    let g = painter.layout_no_wrap(caption, FontId::new(11.0, FontFamily::Monospace), p.dim);
+    let ink = if m.now { p.bright } else { p.dim };
+    let g = painter.layout_no_wrap(caption, FontId::new(11.0, FontFamily::Monospace), ink);
     let r = Align2::CENTER_BOTTOM.anchor_size(head - vec2(0.0, 26.0), g.size());
     let dx = (view.left() + 4.0 - r.left()).max(0.0) - (r.right() - view.right() + 4.0).max(0.0);
     let dy = (view.top() + 4.0 - r.top()).max(0.0);
-    painter.galley(r.min.round() + vec2(dx, dy).round(), g, p.dim);
+    painter.galley(r.min.round() + vec2(dx, dy).round(), g, ink);
 }
 
 /// The camera that fits the network into `rect`, leaving the hint's line below.
