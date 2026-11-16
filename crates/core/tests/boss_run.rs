@@ -576,7 +576,13 @@ fn the_ice_the_ai_stood_in_for_never_rearms() {
         g.net.nodes[to].cleared = true;
         g.net.nodes[to].beaten = Some(v);
         let hop = g.route(to).unwrap();
-        assert!(hop.meets && !hop.rearms, "seed {seed}: {hop:?}");
+        assert!(hop.meets, "seed {seed}: {hop:?}");
+        // The preview names only the AI: nothing of the ICE, not its coming back up.
+        let name = g.data.ice[g.boss.as_ref().unwrap().ice].name.clone();
+        assert_eq!(
+            netview::route_tip(&g, to).unwrap(),
+            format!("jack {to}  →  {name}")
+        );
         beat_ai_on(&mut g, to);
         assert_eq!(g.phase, Phase::Exploring, "seed {seed}");
         // On, and back by a link that runs both ways: nothing wakes.
@@ -628,4 +634,35 @@ fn an_ai_that_walked_off_unbeaten_leaves_the_nodes_ice_as_it_was() {
         "the node's own ICE"
     );
     assert!(!g.net.nodes[to].replaced);
+}
+
+#[test]
+fn a_beaten_ice_the_runner_only_thinks_the_ai_is_on_still_rearms() {
+    let (mut g, to) = ai_on_ice(5);
+    let v = g.ice_version(g.net.nodes[to].ice.unwrap());
+    g.net.nodes[to].cleared = true;
+    g.net.nodes[to].beaten = Some(v);
+    // Its scan found the runner from `to`, and then it walked off to the exit.
+    let exit = ninsei_core::boss::exit(&g.net).unwrap();
+    let b = g.boss.as_mut().unwrap();
+    if let BossState::Awake(h) = &mut b.state {
+        h.at = exit;
+    }
+    b.last = vec![ninsei_core::boss::Step {
+        line: 10,
+        did: ninsei_core::boss::Did::Scanned {
+            from: to,
+            reach: 9,
+            found: true,
+        },
+    }];
+    let hop = g.route(to).unwrap();
+    assert!(hop.meets && hop.rearms, "{hop:?}");
+    g.apply(Action::Move(to));
+    assert_eq!(g.phase, Phase::Combat);
+    let c = g.combat.as_ref().unwrap();
+    assert!(
+        c.rearmed && !g.data.ice[c.ice].boss,
+        "the node's own ICE, back up"
+    );
 }

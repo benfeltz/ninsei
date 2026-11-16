@@ -1537,12 +1537,14 @@ impl Game {
         Ok(Hop {
             trace: self.mods.trace(TRACE_PER_HOP),
             back,
-            // The AI's fight there is the only one: the ICE it stands in for never wakes.
+            // Beaten with the AI on it, the ICE is gone for the run. Where the AI is now has no
+            // say: the runner may only think it's there (`meets`), and the move resolves with
+            // this.
             rearms: matches!(n.kind, NodeKind::Ice | NodeKind::BlackIce)
                 && n.cleared
                 && n.beaten.is_some()
                 && n.ice.is_some()
-                && !self.ice_replaced(to, meets),
+                && !n.replaced,
             meets,
         })
     }

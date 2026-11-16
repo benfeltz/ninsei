@@ -271,14 +271,15 @@ pub fn route_tip(game: &Game, id: usize) -> Option<String> {
     let way = if hop.back { "←" } else { "→" };
     let up = if hop.rearms { ", back up" } else { "" };
     // The net's AI, where the runner knows it is: the step meets it, and on an ICE node its
-    // fight is the only one there.
-    let (what, ai) = match (hop.meets, ai_mark(game)) {
-        (true, Some(m)) if game.ice_replaced(id, true) => (m.label, String::new()),
+    // fight is the only one there, so nothing of the ICE is named, not even its coming back up.
+    let (what, up, ai) = match (hop.meets, ai_mark(game)) {
+        (true, Some(m)) if game.ice_replaced(id, true) => (m.label, "", String::new()),
         (true, Some(m)) => (
             game.node_label(id).to_string(),
+            up,
             format!(", {} there", m.label),
         ),
-        _ => (game.node_label(id).to_string(), String::new()),
+        _ => (game.node_label(id).to_string(), up, String::new()),
     };
     Some(format!("jack {id}  {way}  {what}{up}{ai}"))
 }
