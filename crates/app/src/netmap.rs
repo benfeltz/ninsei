@@ -508,6 +508,33 @@ mod tests {
     }
 
     #[test]
+    fn the_paint_writes_the_ai_s_name_in_the_node_it_holds_never_under_it() {
+        let mut checked = 0;
+        for seed in 0..4 {
+            let g = one_in(seed);
+            let mid: Vec<usize> = g.net.layers[1..3].iter().flatten().copied().collect();
+            for at in mid {
+                let mut a = with_ai(seed, at, true);
+                let m = netview::ai_mark(&a).unwrap();
+                if !m.holds(at) {
+                    continue;
+                }
+                checked += 1;
+                a.net.nodes[at].name = "self-0000".into();
+                let label = m.label;
+                let painted = drawn(MapView::Paint, &a, "amber").painted_text();
+                let find = |t: &str| painted.iter().find(|(s, _)| s == t).map(|(_, r)| *r);
+                let (name, host) = (find(&label).unwrap(), find("self-0000").unwrap());
+                assert!(
+                    name.bottom() < host.top(),
+                    "seed {seed} node {at}: {name:?} over or under {host:?}"
+                );
+            }
+        }
+        assert!(checked > 3, "{checked}");
+    }
+
+    #[test]
     fn the_ai_s_caption_stays_on_the_map_at_its_edges() {
         let bounds = Rect::from_min_size(egui::Pos2::ZERO, egui::vec2(1000.0, 640.0));
         for view in VIEWS {

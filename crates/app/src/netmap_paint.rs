@@ -291,8 +291,7 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         let can_go = reach.contains(&n.id);
         let done = n.cleared && !here && n.kind != NodeKind::Entry;
         let k = kind(game, n.id);
-        // A node the net's AI holds is drawn as the AI: all ink, its eye in paper, its name
-        // under the node's.
+        // A node the net's AI holds is drawn as the AI: all ink, its name across it.
         let held = ai.as_ref().filter(|m| m.holds(n.id)).map(|m| &m.label);
 
         // The hatched drop shadow, then the box.
@@ -338,11 +337,12 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
             };
             painter.text(ctr, Align2::CENTER_CENTER, text, small(), c.ink);
         }
-        if held.is_some() {
+        if let Some(ai) = held {
+            // All ink in a paper rule, its name on paper across the middle, as a blank node
+            // writes its tag: wider than the box, never below it, so it keeps off the rows.
             let s = Stroke::new(1.0, c.paper);
             painter.rect_stroke(r.shrink(3.0), 0.0, s, StrokeKind::Inside);
-            painter.circle_stroke(ctr, 9.0, Stroke::new(1.5, c.paper));
-            painter.circle_filled(ctr, 3.0, c.paper);
+            label(&painter, ctr, Align2::CENTER_CENTER, ai, c);
         } else if seen && k == MapNode::Subnet && !done {
             // A box in the box: the private network behind the door.
             let inner = r.shrink2(vec2(16.0, 9.0));
@@ -357,22 +357,13 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         } else {
             name.to_string()
         };
-        let below = label(
+        label(
             &painter,
             pos2(ctr.x, r.bottom() + look::DROP + 3.0),
             Align2::CENTER_TOP,
             &under,
             c,
         );
-        if let Some(ai) = &held {
-            label(
-                &painter,
-                pos2(ctr.x, below.bottom()),
-                Align2::CENTER_TOP,
-                ai,
-                c,
-            );
-        }
 
         if here {
             let speed = if danger {
