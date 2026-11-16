@@ -358,3 +358,69 @@ fn other_programs_are_still_refused_on_the_map() {
         }
     }
 }
+
+/// `ready()`'s run with the net's AI on it: awake far off and holding still when `awake`,
+/// else asleep until the trace reaches `wake`.
+fn with_ai(awake: bool, wake: u32) -> (Game, usize) {
+    use ninsei_core::boss::Hunter;
+    use ninsei_core::game::BossState;
+    let (bare, slot) = ready();
+    let d = data();
+    let ice = d.boss_for(1, 0).unwrap();
+    let kit = Kit {
+        boss: Some((ice, wake)),
+        ..Kit::default()
+    };
+    let mut g = Game::start(d, bare.seed, &kit);
+    (g.net, g.at, g.hdd) = (bare.net.clone(), bare.at, bare.hdd.clone());
+    if awake {
+        let far = ninsei_core::boss::exit(&g.net).unwrap();
+        let mut h = Hunter::wake(ice, &g.data.ice[ice], far, g.at);
+        h.prog = ninsei_core::basic::parse_with("10 HOLD", g.data.ice[ice].vocab());
+        g.boss.as_mut().unwrap().state = BossState::Awake(h);
+    }
+    (g, slot)
+}
+
+/// With the net's AI on it, a hack previews and runs as it does on a bare net, and isn't a
+/// hop: the AI takes no pass for it, and the next hop takes exactly one.
+#[test]
+fn a_backlink_is_no_hop_for_the_net_s_ai() {
+    let (mut g, slot) = with_ai(true, 25);
+    let p = g.preview(slot).expect("it previews with the AI on the net");
+    let fight::Outcome::Backlink { links, .. } = p.outcome else {
+        panic!("{p:?}")
+    };
+    let passes = g.boss.as_ref().unwrap().passes;
+    g.apply(Action::Run(slot));
+    assert_eq!(g.hacks, 1);
+    assert_eq!(g.phase, Phase::Exploring);
+    assert!(links > 0);
+    assert_eq!(
+        g.boss.as_ref().unwrap().passes,
+        passes,
+        "no pass for a hack"
+    );
+    let next = g.reachable()[0];
+    g.apply(Action::Move(next));
+    assert_eq!(g.hops, 1);
+    assert_eq!(
+        g.boss.as_ref().unwrap().passes,
+        passes + 1,
+        "one pass a hop"
+    );
+}
+
+/// A hack that takes the trace past the AI's threshold wakes it on the next hop, as any trace
+/// does: never on the hack itself, and never skipped.
+#[test]
+fn a_backlink_s_trace_wakes_the_ai_on_the_next_hop() {
+    let (mut g, slot) = with_ai(false, 1);
+    g.apply(Action::Run(slot));
+    assert_eq!(g.hacks, 1);
+    assert!(g.deck.trace >= 1);
+    assert!(g.ai_woke().is_none(), "a hack isn't a hop");
+    let next = g.reachable()[0];
+    g.apply(Action::Move(next));
+    assert!(g.ai_woke().is_some(), "the next hop wakes it");
+}
