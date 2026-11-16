@@ -143,7 +143,7 @@ pub trait ChromeView {
         Vec::new()
     }
     /// Keys of its own, read every frame the run is on screen, before the shared hotkeys: a key
-    /// it consumes (an alert's Enter) never reaches them.
+    /// it consumes never reaches them.
     fn keys(&self, _ctx: &egui::Context, _cx: &mut FrameCx) -> Vec<Request> {
         Vec::new()
     }
@@ -202,7 +202,15 @@ pub fn base_layout(extra: &[Tab]) -> DockState<Tab> {
 }
 
 pub struct Classic;
-impl ChromeView for Classic {}
+impl ChromeView for Classic {
+    /// The OS's mark for the net's AI while it's up, on the classic status line.
+    fn status_extra(&self, ui: &mut Ui, cx: &mut FrameCx) -> Vec<Request> {
+        if let Some(ai) = ninsei_core::netview::ai_status(cx.game) {
+            ui.label(egui::RichText::new(ai).color(cx.pal.bright).strong());
+        }
+        Vec::new()
+    }
+}
 
 /// Where the three-column layout splits, as shares: the panes over the bottom row (the
 /// terminal, the Message box, the activity log), the left column's share of them, the deck's
@@ -255,6 +263,8 @@ impl ChromeView for Btop {
         if p.game.phase == ninsei_core::Phase::Combat {
             crate::fightview::show(ui, p);
         } else {
+            // The alarm bar across the top of the map while the net's AI is up.
+            crate::btop::ai_bar(ui, &p.pal, p.game);
             p.network(ui);
         }
     }

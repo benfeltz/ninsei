@@ -312,7 +312,7 @@ pub struct Notice {
 }
 
 /// Watches a run for the moments that get a dialog: a contract paid, jacking out. (A flatline
-/// has the crash screen.)
+/// has the crash screen; the net's AI coming up is a line in the session log, never a dialog.)
 /// Feed it the game after every frame; it only reads.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Watch {

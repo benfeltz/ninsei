@@ -54,6 +54,11 @@
         (cue: Hack,     notes: [(wave: Saw,      from: 1400, to: 300,  ms: 80,  vol: 0.16),
                                 (wave: Noise,    from: 4000, to: 4000, ms: 40,  vol: 0.10),
                                 (wave: Saw,      from: 300,  to: 1400, ms: 80,  vol: 0.16)]),
+        // The net's AI wakes: a klaxon, twice.
+        (cue: AiWake,   notes: [(wave: Saw,      from: 220,  to: 880,  ms: 200, vol: 0.30),
+                                (wave: Saw,      from: 880,  to: 220,  ms: 200, vol: 0.30),
+                                (wave: Saw,      from: 220,  to: 880,  ms: 200, vol: 0.30),
+                                (wave: Saw,      from: 880,  to: 220,  ms: 200, vol: 0.30)]),
     ],
     music: [
         // Tier 1: A minor, light on its feet. The drums drop out when the trace runs high.

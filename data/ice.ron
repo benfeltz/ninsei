@@ -1,14 +1,16 @@
 // ICE: intrusion countermeasures. Each one runs its own program, in the deck's BASIC with the
 // ICE's vocabulary, at the end of every turn of a fight, from where it left off last turn.
-// tier: 1 = ordinary ICE, 2 = black ICE, 0 = never on the map (only met in encounters).
+// tier: 1 = ordinary ICE, 2 = black ICE, 0 = never on the map (only met in encounters). A net's
+//       AI is written in `ai.ron`, not here, and fights as tier 3.
 // strength: what breakers have to take off it (plus ICE_STRENGTH_PER_LAYER a layer deep).
 // verbs: what its program may do, any of
 //          Attack   `ATTACK n`  hits the deck for n, less its shield
 //          Trace    `TRACE n`   raises the trace by n
 //          Fortify  `FORTIFY n` adds n to its strength
 //          Spoof    `SPOOF n`   hides its NEXT from the deck for n turns (a sniffer clears it)
-//          Segfault `SEGFAULT`  garbles the deck's line that last ran a program (no number)
 //        n is 0 to 999; a verb not on the list is a bad line, which `Data::validate` refuses.
+//        SEGFAULT (garbles a line of the deck's program) is a net's AI's verb (`ai.ron`): no
+//        row here may have it.
 // program: line-numbered: its verbs, `IF <condition>` (false skips the next line), `GOTO n`,
 //          `STOP` (ends its turn) and `REM`. Its conditions read the deck it's fighting:
 //          `TARGET INTEG|SHIELD|CPU <|>|= n`, `TARGET RAN <program>` (the deck ran it this
@@ -23,7 +25,7 @@
 // Every program is in block form (each IF guards one verb, no GOTO or STOP), so every kind can
 // be patched.
 // ranges: [(Verb, lo, hi)] the numbers each verb's line may carry, one range for every verb on
-//         `verbs` that takes a number (Segfault takes none). cpu, ram, hdd and the ranges are
+//         `verbs` that takes a number. cpu, ram, hdd and the ranges are
 //         the ICE's machine: every version of its program (1.0.0 is the one here; the sysops
 //         write the next ones between runs, see `ice_grammar.ron`) fits it, and no version
 //         raises it. A bigger machine is a stronger ICE.
@@ -101,30 +103,30 @@
             40 ATTACK 6
             50 ATTACK 4
             60 TRACE 3"),
-    // Black ICE. A code gate that garbles the line that raised your firewall, traces you while
-    // you're shielded, rebuilds itself when it's hurt, and otherwise hits. It sits deep, where
-    // every layer adds to its strength.
+    // Black ICE. A code gate that hides its next move from a deck that just raised a firewall,
+    // traces you while you're shielded, rebuilds itself when it's hurt, and otherwise hits. It
+    // sits deep, where every layer adds to its strength.
     (id: "hydra",      name: "Hydra",      class: CodeGate, tier: 2, strength: 11,
-        cpu: 1, ram: 3, verbs: [Trace, Attack, Fortify, Segfault],
-        hdd: 10, ranges: [(Trace, 4, 6), (Attack, 3, 5), (Fortify, 1, 3)],
+        cpu: 1, ram: 3, verbs: [Trace, Attack, Fortify, Spoof],
+        hdd: 10, ranges: [(Trace, 4, 6), (Attack, 3, 5), (Fortify, 1, 3), (Spoof, 1, 3)],
         program: "
             10 IF TARGET RAN firewall
-            20 SEGFAULT
+            20 SPOOF 2
             30 IF TARGET SHIELD > 0
             40 TRACE 5
             50 IF SELF STR < 8
             60 FORTIFY 2
             70 ATTACK 4"),
-    // A rival on the line, not the map: it hides its moves from a firewall, garbles a patcher's
-    // program, hits, and gives up when it's losing.
+    // A rival on the line, not the map: it hides its moves from a firewall, hits a patcher
+    // hard, and gives up when it's losing.
     (id: "rival",      name: "kr4ken",     class: CodeGate, tier: 0, strength: 20,
-        cpu: 1, ram: 2, verbs: [Attack, Trace, Fortify, Spoof, Segfault],
+        cpu: 1, ram: 2, verbs: [Attack, Trace, Fortify, Spoof],
         hdd: 9, ranges: [(Attack, 3, 6), (Trace, 2, 5), (Fortify, 2, 4), (Spoof, 1, 3)],
         program: "
             10 IF TARGET SHIELD > 0
             20 SPOOF 2
             30 IF TARGET RAN patch
-            40 SEGFAULT
+            40 ATTACK 6
             50 ATTACK 4
             60 FORTIFY 3
             70 ATTACK 5",

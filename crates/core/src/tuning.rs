@@ -19,6 +19,15 @@ pub const TRACE_MAX: u32 = 100;
 pub const TRACE_PER_HOP: u32 = 4;
 pub const TRACE_PER_COMBAT_TURN: u32 = 2;
 
+/// A net's AI wakes this many hops ahead of the runner, along their shortest route to the exit
+/// (the exit itself if that's nearer). Its wake threshold is the net's (`hub/networks.ron`).
+pub const BOSS_WAKE_AHEAD: u32 = 2;
+/// The runner sees the net's AI when it is this many hops away or nearer.
+pub const BOSS_SEEN_HOPS: u32 = 1;
+/// Credits for beating a net's AI, by the net's tier (1 to 3), before the net's pay: the net's
+/// big payout.
+pub const AI_PAY: [u32; 3] = [60, 100, 150];
+
 /// Network shape: entry layer, `NET_MID_LAYERS` layers of nodes, exit layer.
 pub const NET_MID_LAYERS: usize = 5;
 pub const NET_MIN_WIDTH: usize = 2;

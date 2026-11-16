@@ -6,10 +6,12 @@
 
 use egui::{Align2, Color32, FontFamily, FontId, Painter, Pos2, Rect, Sense, Shape, Stroke, Ui};
 use egui::{StrokeKind, pos2, vec2};
-use ninsei_core::netview::{self, MapNode, PAINT_PAPER, PAINT_SOLID, flat_layout, style};
+use ninsei_core::netview::{
+    self, AiMark, MapNode, MapView, PAINT_PAPER, PAINT_SOLID, flat_layout, style,
+};
 use ninsei_core::{Game, NodeKind, Phase};
 
-use crate::netmap::{Anim, arrowhead, hint, interact, kind, tag, target, visible};
+use crate::netmap::{Anim, arrowhead, hint, interact, kind, target, visible};
 use crate::patterns;
 use crate::theme::Palette;
 
@@ -95,6 +97,100 @@ fn label(painter: &Painter, at: Pos2, align: Align2, text: &str, c: Two) -> Rect
     painter.rect_filled(r, 0.0, c.paper);
     painter.galley(r.min + vec2(3.0, 1.0), g, c.ink);
     r
+}
+
+/// The box of a node the net's AI holds, centred on `at`: a node's height, and as wide as its
+/// `name`'s label with room for the paper rule round it (never narrower than a node), in whole
+/// pixels.
+pub fn held_box(painter: &Painter, at: Pos2, name: &str) -> Rect {
+    let text = painter
+        .layout_no_wrap(name.to_string(), small(), Color32::WHITE)
+        .size()
+        .x;
+    // The label's own 3 points of paper each side, then the rule's 3 and a point of ink.
+    let w = (text + 6.0 + 2.0 * HELD_PAD).ceil().max(look::W);
+    let r = Rect::from_center_size(at, vec2(w, look::H));
+    Rect::from_min_size(r.min.round(), r.size())
+}
+
+/// Ink each side of a held node's name label, inside the box: the paper rule and a point clear.
+const HELD_PAD: f32 = 6.0;
+
+/// A node's box with its shadow and the label under it: what the AI's card keeps off.
+fn on_card(at: Pos2) -> Rect {
+    Rect::from_min_max(
+        at + vec2(-look::W / 2.0 - 8.0, -look::H / 2.0 - 4.0),
+        at + vec2(look::W / 2.0 + 8.0, look::H / 2.0 + look::DROP + 20.0),
+    )
+}
+
+/// The net's AI on the picture where it doesn't hold a node in sight: a little card pinned near
+/// the node, with a line from the node to it: there now in the fog, its name on a card with its
+/// own hatched shadow; where it was last known, the card is dotted and says that. Where it holds
+/// a node in sight, the node is drawn as it. The card goes where it keeps off every other node
+/// and its label (`place_clear`): above, below, right, left, then further out.
+fn ai_card(painter: &Painter, at: Pos2, m: &AiMark, c: Two, area: Rect, avoid: &[Rect]) {
+    let Some(text) = netview::ai_caption(m, MapView::Paint) else {
+        return;
+    };
+    let g = painter.layout_no_wrap(text, small(), c.ink);
+    let size = g.size() + vec2(12.0, 8.0);
+    let own = on_card(at);
+    let mut spots = Vec::new();
+    for gap in [10.0, 30.0, 60.0, 90.0] {
+        spots.push(pos2(at.x, own.top() - gap - size.y / 2.0));
+        spots.push(pos2(at.x, own.bottom() + gap + size.y / 2.0));
+        spots.push(pos2(own.right() + gap + size.x / 2.0, at.y));
+        spots.push(pos2(own.left() - gap - size.x / 2.0, at.y));
+    }
+    // Then anywhere on the card, nearest first.
+    let within = area.shrink(4.0);
+    let mut rest: Vec<Pos2> = (0..=(within.width() / 8.0) as i32)
+        .flat_map(|i| {
+            (0..=(within.height() / 8.0) as i32).map(move |j| {
+                pos2(
+                    within.left() + 8.0 * i as f32,
+                    within.top() + 8.0 * j as f32,
+                )
+            })
+        })
+        .collect();
+    rest.sort_by(|a, b| (*a - at).length().total_cmp(&(*b - at).length()));
+    spots.extend(rest);
+    let mut keep_off = avoid.to_vec();
+    keep_off.push(own);
+    // The hint along the card's bottom.
+    keep_off.push(Rect::from_min_max(
+        pos2(area.left(), area.bottom() - 24.0),
+        area.right_bottom(),
+    ));
+    let r = crate::netmap::place_clear(&spots, size, &keep_off, within);
+    let tip = pos2(r.center().x.clamp(r.left(), r.right()), r.center().y);
+    let from = pos2(
+        tip.x.clamp(at.x - look::W / 2.0, at.x + look::W / 2.0),
+        tip.y.clamp(at.y - look::H / 2.0, at.y + look::H / 2.0),
+    );
+    let to = pos2(
+        from.x.clamp(r.left(), r.right()),
+        from.y.clamp(r.top(), r.bottom()),
+    );
+    painter.line_segment([from, to], Stroke::new(1.0, c.ink));
+    if m.now {
+        painter.rect_filled(r.translate(vec2(look::DROP, look::DROP)), 0.0, c.ink);
+        painter.rect_filled(r, 0.0, c.paper);
+        painter.rect_stroke(r, 0.0, Stroke::new(2.0, c.ink), StrokeKind::Inside);
+    } else {
+        painter.rect_filled(r, 0.0, c.paper);
+        let pts = [
+            r.left_top(),
+            r.right_top(),
+            r.right_bottom(),
+            r.left_bottom(),
+            r.left_top(),
+        ];
+        painter.extend(Shape::dashed_line(&pts, Stroke::new(1.0, c.ink), 1.0, 2.0));
+    }
+    painter.galley(r.min + vec2(6.0, 4.0), g, c.ink);
 }
 
 /// The pattern the card's frame wears: denser as the trace climbs.
@@ -197,13 +293,21 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
     }
 
     let mut clicked = None;
+    // Where the runner knows the net's AI is, worked out once for the frame.
+    let ai = netview::ai_mark(game);
     let danger = game.deck.trace >= crate::netmap::anim::TRACE_FAST || game.phase == Phase::Combat;
     for n in &net.nodes {
         if !shown(n.id) {
             continue;
         }
         let ctr = pos(n.id);
-        let r = Rect::from_center_size(ctr, vec2(look::W, look::H));
+        // A node the net's AI holds is drawn as the AI: all ink, its name across it, the box as
+        // wide as the name needs.
+        let held = ai.as_ref().filter(|m| m.holds(n.id)).map(|m| &m.label);
+        let r = match held {
+            Some(name) => held_box(&painter, ctr, name),
+            None => Rect::from_center_size(ctr, vec2(look::W, look::H)),
+        };
         let (hit, hovered) = interact(ui, game, n.id, r.expand(6.0));
         clicked = clicked.or(hit);
         let here = n.id == game.at;
@@ -222,6 +326,8 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         );
         let fill = if !seen {
             "p50"
+        } else if held.is_some() {
+            PAINT_SOLID
         } else if let Some(b) = fx.burst(n.id) {
             // Blowing apart: dense, then thinning out.
             if b < 0.5 { "crosshatch" } else { "p50" }
@@ -245,7 +351,7 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
         if !seen {
             label(&painter, ctr, Align2::CENTER_CENTER, "?", c);
         } else if fill == PAINT_PAPER {
-            let text = tag(game, n.id);
+            let text = netview::tag_with(game, n.id, ai.as_ref());
             let text = if k == MapNode::Bbs {
                 "BBS".to_string()
             } else {
@@ -253,7 +359,13 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
             };
             painter.text(ctr, Align2::CENTER_CENTER, text, small(), c.ink);
         }
-        if seen && k == MapNode::Subnet && !done {
+        if let Some(ai) = held {
+            // All ink in a paper rule, its name on paper across the middle, as a blank node
+            // writes its tag: inside the rule, never below the box, so it keeps off the rows.
+            let s = Stroke::new(1.0, c.paper);
+            painter.rect_stroke(r.shrink(3.0), 0.0, s, StrokeKind::Inside);
+            label(&painter, r.center(), Align2::CENTER_CENTER, ai, c);
+        } else if seen && k == MapNode::Subnet && !done {
             // A box in the box: the private network behind the door.
             let inner = r.shrink2(vec2(16.0, 9.0));
             painter.rect_filled(inner, 0.0, c.paper);
@@ -262,7 +374,7 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
 
         // The name under it, on paper.
         let name = if seen { n.name.as_str() } else { "???" };
-        let under = if done && seen {
+        let under = if done && seen && held.is_none() {
             format!("{name} ok")
         } else {
             name.to_string()
@@ -300,6 +412,15 @@ pub fn show(ui: &mut Ui, game: &Game, p: &Palette) -> Option<usize> {
                 c,
             );
         }
+    }
+
+    // Where it holds a node, the node is drawn as it; anywhere else a card marks it.
+    if let Some(m) = ai.filter(|m| !m.held) {
+        let avoid: Vec<Rect> = (0..net.nodes.len())
+            .filter(|&id| id != m.node)
+            .map(|id| on_card(pos(id)))
+            .collect();
+        ai_card(&painter, pos(m.node), &m, c, inside, &avoid);
     }
 
     // The hint along the bottom of the card.

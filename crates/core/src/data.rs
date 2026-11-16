@@ -158,9 +158,125 @@ pub struct IceDef {
     /// Whether it gives up when it's losing.
     #[serde(default)]
     pub yields: Option<YieldDef>,
+    /// A net's AI: a version of a model in `ai.ron`, made a row of its own as the data loads
+    /// (`Data::parse`). Never written in `ice.ron`, never placed on the map, never patched.
+    #[serde(skip)]
+    pub boss: bool,
+    /// A net's AI's moves on the map (its model's), and how far its `SCAN` may reach.
+    #[serde(skip)]
+    pub walks: Vec<crate::basic::Walk>,
+    #[serde(skip)]
+    pub reach: Option<(u32, u32)>,
+}
+
+/// The ICE tier a net's AI fights as: above black ICE, never on the map.
+pub const BOSS_TIER: u32 = 3;
+
+/// The nets' AIs (`data/ai.ron`): the models the corps buy, the versions they run, and which
+/// version a net of a given tier and heat runs.
+#[derive(Deserialize, Clone, Debug, Default)]
+pub struct AiDef {
+    pub models: Vec<AiModel>,
+    pub versions: Vec<AiVersion>,
+    pub runs: Vec<AiRun>,
+}
+
+/// A model: the product a corp buys, its vocabulary and its machine. Every version of it fits.
+#[derive(Deserialize, Clone, Debug)]
+pub struct AiModel {
+    pub id: String,
+    /// The company that sells it, as its manuals print it.
+    pub company: String,
+    /// The product's name, as its version header prints it (`SENTINEL`).
+    pub name: String,
+    pub class: IceClass,
+    pub cpu: u32,
+    pub ram: u32,
+    pub hdd: u32,
+    pub verbs: Vec<crate::basic::Verb>,
+    pub ranges: Vec<(crate::basic::Verb, u32, u32)>,
+    /// What its program may do on the map, between fights.
+    pub walks: Vec<crate::basic::Walk>,
+    /// The hops a `SCAN n` may reach, (lowest, highest): there exactly when it has `Scan`.
+    #[serde(default)]
+    pub reach: Option<(u32, u32)>,
+    /// What it writes on the sources it gives up when it's beaten.
+    #[serde(default)]
+    pub notes: AiNotes,
+}
+
+/// A version of a model: a program, and the strength it fights at.
+#[derive(Deserialize, Clone, Debug)]
+pub struct AiVersion {
+    pub model: String,
+    /// As the product numbers it (`2.1`).
+    pub version: String,
+    pub strength: u32,
+    pub program: String,
+}
+
+/// Which version a net runs: the row for its tier with the highest `heat` at or under its own.
+#[derive(Deserialize, Clone, Debug)]
+pub struct AiRun {
+    pub tier: u32,
+    pub heat: u32,
+    pub model: String,
+    pub version: String,
+}
+
+impl AiVersion {
+    /// The id its row in `Data::ice` takes.
+    pub fn row_id(&self) -> String {
+        format!("{}-{}", self.model, self.version)
+    }
+}
+
+impl AiDef {
+    /// The rows a fight meets: one per version, its model's machine and vocabulary with the
+    /// version's program and strength.
+    fn rows(&self) -> Result<Vec<IceDef>, String> {
+        self.versions
+            .iter()
+            .map(|v| {
+                let m = self
+                    .models
+                    .iter()
+                    .find(|m| m.id == v.model)
+                    .ok_or_else(|| {
+                        format!("version {} of unknown model `{}`", v.version, v.model)
+                    })?;
+                Ok(IceDef {
+                    id: v.row_id(),
+                    name: format!("{} {}", m.name, v.version),
+                    class: m.class,
+                    tier: BOSS_TIER,
+                    strength: v.strength,
+                    program: v.program.clone(),
+                    cpu: m.cpu,
+                    ram: m.ram,
+                    verbs: m.verbs.clone(),
+                    hdd: m.hdd,
+                    ranges: m.ranges.clone(),
+                    yields: None,
+                    boss: true,
+                    walks: m.walks.clone(),
+                    reach: m.reach,
+                })
+            })
+            .collect()
+    }
 }
 
 impl IceDef {
+    /// The words its program is written in: an ICE's verbs, and a net's AI's walks too.
+    pub fn vocab(&self) -> crate::basic::Vocab<'_> {
+        if self.boss {
+            crate::basic::Vocab::Boss(&self.verbs, &self.walks)
+        } else {
+            crate::basic::Vocab::Ice(&self.verbs)
+        }
+    }
+
     /// The numbers `verb`'s line may carry, (lowest, highest), if its row gives a range.
     pub fn range(&self, verb: crate::basic::Verb) -> Option<(u32, u32)> {
         self.ranges
@@ -487,30 +603,73 @@ impl SourcesDef {
     pub fn header_lines(&self, ice: &str, version: &str, board: &str) -> Vec<String> {
         self.header
             .iter()
-            .map(|l| {
-                l.replace("{ice}", ice)
-                    .replace("{version}", version)
-                    .replace("{board}", board)
-            })
+            .map(|l| fill_note(l, ice, version, ("{board}", board)))
             .collect()
     }
 
     /// Its remark on a line of a program, if the line is an IF that opens with a read it knows.
     pub fn remark(&self, line: &str) -> Option<&str> {
-        let cond = line.strip_prefix("IF ")?;
-        self.remarks
-            .iter()
-            .find(|r| {
-                cond.strip_prefix(r.read.as_str())
-                    .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
-            })
-            .map(|r| r.text.as_str())
+        remark_on(&self.remarks, line)
     }
 
     /// A file's description: kind `ice` at `version` (as printed), 1.0.0's or a later one's.
     pub fn desc(&self, first: bool, ice: &str, version: &str) -> String {
         let t = if first { &self.first } else { &self.patched };
         t.replace("{ice}", ice).replace("{version}", version)
+    }
+}
+
+/// The remark among `remarks` on a line of a program, if the line is an IF that opens with a
+/// read one of them knows: a board's crew's, or a net's AI's own notes.
+pub fn remark_on<'a>(remarks: &'a [RemarkDef], line: &str) -> Option<&'a str> {
+    let cond = line.strip_prefix("IF ")?;
+    remarks
+        .iter()
+        .find(|r| {
+            cond.strip_prefix(r.read.as_str())
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
+        })
+        .map(|r| r.text.as_str())
+}
+
+/// A source's header line filled in: `{ice}` and `{version}`, and its origin's own word (`slot`:
+/// a board's `{board}`, a net's AI's `{ai}`) with its name. One filler for every source's notes.
+pub fn fill_note(template: &str, ice: &str, version: &str, slot: (&str, &str)) -> String {
+    template
+        .replace("{ice}", ice)
+        .replace("{version}", version)
+        .replace(slot.0, slot.1)
+}
+
+/// A net's AI's notes on the sources it gives up (`ai.ron`'s model `notes`): a header over each
+/// listing of a kind it wrote (`{ice}`, `{version}` and `{ai}`, its product name, filled in), a
+/// remark on each read it knows, in the product's voice, and `own`, the header over its own
+/// program, which its maker wrote and shipped (`{ai}` and `{company}`), with no version: its
+/// name carries it.
+#[derive(Deserialize, Clone, Debug, Default)]
+pub struct AiNotes {
+    #[serde(default)]
+    pub header: Vec<String>,
+    #[serde(default)]
+    pub remarks: Vec<RemarkDef>,
+    #[serde(default)]
+    pub own: Vec<String>,
+}
+
+impl AiNotes {
+    pub fn header_lines(&self, ice: &str, version: &str, ai: &str) -> Vec<String> {
+        self.header
+            .iter()
+            .map(|l| fill_note(l, ice, version, ("{ai}", ai)))
+            .collect()
+    }
+
+    /// The header over its own program: `ai` is the row's name, with its version.
+    pub fn own_lines(&self, ai: &str, company: &str) -> Vec<String> {
+        self.own
+            .iter()
+            .map(|l| l.replace("{ai}", ai).replace("{company}", company))
+            .collect()
     }
 }
 
@@ -1143,6 +1302,7 @@ pub struct Sources<'a> {
     pub warez: &'a str,
     pub ice: &'a str,
     pub ice_grammar: &'a str,
+    pub ai: &'a str,
     pub loot: &'a str,
     pub boards: &'a [BoardSrc<'a>],
     pub events: &'a str,
@@ -1181,6 +1341,7 @@ impl Sources<'static> {
             warez: include_str!("../../../data/warez.ron"),
             ice: include_str!("../../../data/ice.ron"),
             ice_grammar: include_str!("../../../data/ice_grammar.ron"),
+            ai: include_str!("../../../data/ai.ron"),
             loot: include_str!("../../../data/loot.ron"),
             boards: BUILTIN_BOARDS,
             events: include_str!("../../../data/events.ron"),
@@ -1241,9 +1402,12 @@ impl Shared for std::sync::Arc<Data> {
 #[derive(Clone, Debug)]
 pub struct Data {
     pub warez: Vec<WarezDef>,
+    /// Every ICE: `ice.ron`'s rows, then a row for each version of a net's AI (`ai`).
     pub ice: Vec<IceDef>,
     /// What new ICE versions are written from.
     pub ice_grammar: IceGrammar,
+    /// The nets' AIs.
+    pub ai: AiDef,
     pub loot: LootTables,
     /// Every BBS, the default board first.
     pub boards: Vec<BbsDef>,
@@ -1322,9 +1486,13 @@ impl Data {
         boards.sort_by_key(|b| !b.default);
         let contracts: ContractsFile =
             ron::from_str(src.contracts).map_err(|e| format!("contracts.ron: {e}"))?;
+        let ai: AiDef = ron::from_str(src.ai).map_err(|e| format!("ai.ron: {e}"))?;
+        let mut ice: Vec<IceDef> = ron::from_str(src.ice).map_err(|e| format!("ice.ron: {e}"))?;
+        ice.extend(ai.rows().map_err(|e| format!("ai.ron: {e}"))?);
         let data = Self {
             warez: ron::from_str(src.warez).map_err(|e| format!("warez.ron: {e}"))?,
-            ice: ron::from_str(src.ice).map_err(|e| format!("ice.ron: {e}"))?,
+            ice,
+            ai,
             ice_grammar: ron::from_str(src.ice_grammar)
                 .map_err(|e| format!("ice_grammar.ron: {e}"))?,
             loot: ron::from_str(src.loot).map_err(|e| format!("loot.ron: {e}"))?,
@@ -1446,13 +1614,21 @@ impl Data {
             self.validate_sources(b)
                 .map_err(|e| format!("bbs/{}/board.ron sources: {e}", b.id))?;
         }
+        self.validate_ai().map_err(|e| format!("ai.ron: {e}"))?;
         for ice in &self.ice {
             self.validate_ice_program(ice)
                 .map_err(|e| format!("ICE `{}`: {e}", ice.id))?;
-            if ice.tier > 2 {
+            if ice.tier > 2 && !ice.boss {
                 return Err(format!(
                     "ICE `{}` has tier {} (0, 1 or 2)",
                     ice.id, ice.tier
+                ));
+            }
+            // SEGFAULT is a net's AI's verb: no ordinary ICE has it.
+            if !ice.boss && ice.verbs.contains(&crate::basic::Verb::Segfault) {
+                return Err(format!(
+                    "ICE `{}` has SEGFAULT, which only a net's AI has",
+                    ice.id
                 ));
             }
             if let Some(y) = &ice.yields
@@ -1951,7 +2127,7 @@ impl Data {
         if let Some(t) = n
             .tiers
             .iter()
-            .find(|t| !self.ice.iter().any(|i| i.tier == **t))
+            .find(|t| !self.ice.iter().any(|i| i.tier == **t && !i.boss))
         {
             return Err(format!("no ICE of tier {t}"));
         }
@@ -1970,6 +2146,7 @@ impl Data {
         let longest = self
             .ice
             .iter()
+            .filter(|i| !i.boss)
             .map(|i| i.name.as_str())
             .max_by_key(|n| n.chars().count())
             .unwrap_or("");
@@ -2032,14 +2209,14 @@ impl Data {
         if let Some(t) = s
             .tiers
             .iter()
-            .find(|t| !self.ice.iter().any(|i| i.tier == **t))
+            .find(|t| !self.ice.iter().any(|i| i.tier == **t && !i.boss))
         {
             return Err(format!("no ICE of tier {t}"));
         }
         let kinds: Vec<&IceDef> = self
             .ice
             .iter()
-            .filter(|i| s.tiers.contains(&i.tier))
+            .filter(|i| s.tiers.contains(&i.tier) && !i.boss)
             .collect();
         if kinds.len() > 9 {
             return Err(format!("{} kinds: an area lists nine at most", kinds.len()));
@@ -2062,40 +2239,11 @@ impl Data {
         let longest = self
             .ice
             .iter()
+            .filter(|i| !i.boss)
             .map(|i| i.name.as_str())
             .max_by_key(|n| n.chars().count())
             .unwrap_or("");
-        for line in s.header_lines(longest, LONG_VERSION, &b.name) {
-            if line.contains('{') || line.contains('}') {
-                return Err(format!("header `{line}` has a word it can't fill"));
-            }
-            if line.chars().count() > NOTE_MAX {
-                return Err(format!("header `{line}` is wider than {NOTE_MAX}"));
-            }
-        }
-        // A remark's read is one an ICE reads: in the grammar, or in a program.
-        let reads: Vec<&str> = self
-            .ice_grammar
-            .classes
-            .iter()
-            .flat_map(|c| c.reads.iter().map(|r| r.read.as_str()))
-            .collect();
-        for r in &s.remarks {
-            let known = reads.iter().any(|g| {
-                g.strip_prefix(r.read.as_str())
-                    .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
-            }) || self.ice.iter().any(|i| {
-                i.program
-                    .lines()
-                    .any(|l| l.contains(&format!("IF {} ", r.read)))
-            });
-            if !known {
-                return Err(format!("a remark on `{}`, which no ICE reads", r.read));
-            }
-            if r.text.chars().count() > REMARK_MAX {
-                return Err(format!("remark `{}` is wider than {REMARK_MAX}", r.text));
-            }
-        }
+        self.check_notes(&s.header_lines(longest, LONG_VERSION, &b.name), &s.remarks)?;
         for first in [true, false] {
             let filled = s.desc(first, longest, LONG_VERSION);
             if filled.contains('{') || filled.contains('}') {
@@ -2124,7 +2272,7 @@ impl Data {
                 return Err(format!("tier {} is in `fair` twice", f.tier));
             }
         }
-        for ice in &self.ice {
+        for ice in self.ice.iter().filter(|i| !i.boss) {
             if !g.fair.iter().any(|f| f.tier == ice.tier) {
                 return Err(format!(
                     "`fair` has no tier {} (ICE `{}`)",
@@ -2138,7 +2286,11 @@ impl Data {
             }
         }
         for class in IceClass::ALL {
-            let rows: Vec<&IceDef> = self.ice.iter().filter(|i| i.class == class).collect();
+            let rows: Vec<&IceDef> = self
+                .ice
+                .iter()
+                .filter(|i| i.class == class && !i.boss)
+                .collect();
             if rows.is_empty() {
                 continue;
             }
@@ -2233,6 +2385,215 @@ impl Data {
         })
     }
 
+    /// The nets' AIs: models named once with a machine, versions of a known model named once,
+    /// every row of `runs` naming a version, and every network tier running one from heat 0.
+    /// (Each version's program is checked as its row in `ice`, against its model.)
+    fn validate_ai(&self) -> Result<(), String> {
+        let ai = &self.ai;
+        for (i, m) in ai.models.iter().enumerate() {
+            if ai.models[..i].iter().any(|o| o.id == m.id) {
+                return Err(format!("model `{}` is listed twice", m.id));
+            }
+            if m.company.trim().is_empty() || m.name.trim().is_empty() {
+                return Err(format!("model `{}` needs a company and a name", m.id));
+            }
+            if !ai.versions.iter().any(|v| v.model == m.id) {
+                return Err(format!("model `{}` has no versions", m.id));
+            }
+            let scans = m.walks.contains(&crate::basic::Walk::Scan);
+            match m.reach {
+                Some((lo, hi)) if !scans => {
+                    return Err(format!("model `{}` reaches {lo}..{hi} with no SCAN", m.id));
+                }
+                Some((lo, hi)) if lo == 0 || lo > hi || hi > crate::basic::MAX_ARG => {
+                    return Err(format!(
+                        "model `{}` reaches {lo}..{hi} (lowest first, 1 to {})",
+                        m.id,
+                        crate::basic::MAX_ARG
+                    ));
+                }
+                None if scans => return Err(format!("model `{}` scans with no reach", m.id)),
+                _ => {}
+            }
+            self.validate_ai_notes(m)?;
+            if let Some((_, w)) = m
+                .walks
+                .iter()
+                .enumerate()
+                .find(|(i, w)| m.walks[..*i].contains(w))
+            {
+                return Err(format!("model `{}` has {} twice", m.id, w.word()));
+            }
+        }
+        for (i, v) in ai.versions.iter().enumerate() {
+            if !ai.models.iter().any(|m| m.id == v.model) {
+                return Err(format!(
+                    "version {} of unknown model `{}`",
+                    v.version, v.model
+                ));
+            }
+            if ai.versions[..i]
+                .iter()
+                .any(|o| o.model == v.model && o.version == v.version)
+            {
+                return Err(format!("{} {} is listed twice", v.model, v.version));
+            }
+            if v.version.trim().is_empty() || v.version.contains(char::is_whitespace) {
+                return Err(format!("{} has a version `{}`", v.model, v.version));
+            }
+            if v.strength == 0 {
+                return Err(format!("{} {} has strength 0", v.model, v.version));
+            }
+        }
+        for v in &ai.versions {
+            if self.ice.iter().filter(|r| r.id == v.row_id()).count() != 1 {
+                return Err(format!(
+                    "{} {}: its id is another ICE's",
+                    v.model, v.version
+                ));
+            }
+        }
+        for (i, r) in ai.runs.iter().enumerate() {
+            if !ai
+                .versions
+                .iter()
+                .any(|v| v.model == r.model && v.version == r.version)
+            {
+                return Err(format!(
+                    "tier {} at heat {} runs {} {}, which isn't a version",
+                    r.tier, r.heat, r.model, r.version
+                ));
+            }
+            if self.networks.tier(r.tier).is_none() {
+                return Err(format!("runs on tier {}, which no network has", r.tier));
+            }
+            if r.heat > crate::tuning::HEAT_MAX {
+                return Err(format!(
+                    "tier {} at heat {}: heat tops out at {}",
+                    r.tier,
+                    r.heat,
+                    crate::tuning::HEAT_MAX
+                ));
+            }
+            if ai.runs[..i]
+                .iter()
+                .any(|o| o.tier == r.tier && o.heat == r.heat)
+            {
+                return Err(format!(
+                    "tier {} at heat {} is listed twice",
+                    r.tier, r.heat
+                ));
+            }
+        }
+        for t in &self.networks.tiers {
+            if !ai.runs.iter().any(|r| r.tier == t.tier && r.heat == 0) {
+                return Err(format!("tier {} runs no AI at heat 0", t.tier));
+            }
+        }
+        Ok(())
+    }
+
+    /// A source's notes, wherever they come from (a board's `sources`, a net's AI's `notes`):
+    /// every header line filled in (`header`, as the longest kind and version fill it) has no
+    /// word left over and fits a listing (`NOTE_MAX`); every remark is on a read some ICE makes
+    /// (in the grammar, or in a program, whole words) and fits (`REMARK_MAX`). One rule for both.
+    fn check_notes(&self, header: &[String], remarks: &[RemarkDef]) -> Result<(), String> {
+        for line in header {
+            if line.contains('{') || line.contains('}') {
+                return Err(format!("header `{line}` has a word it can't fill"));
+            }
+            if line.chars().count() > NOTE_MAX {
+                return Err(format!("header `{line}` is wider than {NOTE_MAX}"));
+            }
+        }
+        let whole = |text: &str, read: &str| {
+            text.strip_prefix(read)
+                .is_some_and(|rest| rest.is_empty() || rest.starts_with(' '))
+        };
+        for r in remarks {
+            let in_grammar = self
+                .ice_grammar
+                .classes
+                .iter()
+                .flat_map(|c| &c.reads)
+                .any(|g| whole(&g.read, &r.read));
+            let in_program = self.ice.iter().any(|i| {
+                i.program.lines().any(|l| {
+                    l.split_once("IF ")
+                        .is_some_and(|(_, cond)| whole(cond.trim_end(), &r.read))
+                })
+            });
+            if !in_grammar && !in_program {
+                return Err(format!("a remark on `{}`, which no ICE reads", r.read));
+            }
+            if r.text.chars().count() > REMARK_MAX {
+                return Err(format!("remark `{}` is wider than {REMARK_MAX}", r.text));
+            }
+        }
+        Ok(())
+    }
+
+    /// A model's notes, by the same rules as a board's ([`Data::check_notes`]), its own
+    /// header too (filled with its longest version's name and its company).
+    fn validate_ai_notes(&self, m: &AiModel) -> Result<(), String> {
+        let longest = self
+            .ice
+            .iter()
+            .filter(|i| !i.boss)
+            .map(|i| i.name.as_str())
+            .max_by_key(|n| n.chars().count())
+            .unwrap_or("");
+        self.check_notes(
+            &m.notes.header_lines(longest, LONG_VERSION, &m.name),
+            &m.notes.remarks,
+        )
+        .map_err(|e| format!("model `{}`: {e}", m.id))?;
+        let own_name = self
+            .ai
+            .versions
+            .iter()
+            .filter(|v| v.model == m.id)
+            .map(|v| format!("{} {}", m.name, v.version))
+            .max_by_key(|n| n.chars().count())
+            .unwrap_or_default();
+        self.check_notes(&m.notes.own_lines(&own_name, &m.company), &[])
+            .map_err(|e| format!("model `{}` own: {e}", m.id))?;
+        if self.board(&m.id).is_some() {
+            return Err(format!(
+                "model `{}` has a board's id: a source's origin would mean both",
+                m.id
+            ));
+        }
+        Ok(())
+    }
+
+    /// The row in `ice` of the AI a net of tier `tier` at heat `heat` runs: its tier's row in
+    /// `ai.ron`'s `runs` with the highest heat at or under `heat`.
+    pub fn boss_for(&self, tier: u32, heat: u32) -> Option<usize> {
+        let run = self
+            .ai
+            .runs
+            .iter()
+            .filter(|r| r.tier == tier && r.heat <= heat)
+            .max_by_key(|r| r.heat)?;
+        let id = format!("{}-{}", run.model, run.version);
+        self.ice.iter().position(|i| i.boss && i.id == id)
+    }
+
+    /// The model a net's AI's row (an index into `ice`) is a version of.
+    pub fn boss_model(&self, ice: usize) -> Option<&AiModel> {
+        self.boss_model_of(self.ice.get(ice)?)
+    }
+
+    /// The model a net's AI's row is a version of; `None` for an ordinary ICE's row.
+    pub fn boss_model_of(&self, row: &IceDef) -> Option<&AiModel> {
+        if !row.boss {
+            return None;
+        }
+        let v = self.ai.versions.iter().find(|v| v.row_id() == row.id)?;
+        self.ai.models.iter().find(|m| m.id == v.model)
+    }
+
     /// An ICE's row must have budgets to run with, verbs, an HDD, a range for every verb that
     /// takes a number (and none for a verb it doesn't have or that takes none), and a program
     /// that passes [`Data::check_ice_program`].
@@ -2283,13 +2644,16 @@ impl Data {
     /// range, and it holds no more lines that attack the program than its tier may (the
     /// grammar's `fair`). The row's own program and every version the generator draws pass this one check.
     pub fn check_ice_program(&self, ice: &IceDef, program: &str) -> Result<(), String> {
-        use crate::basic::{Cond, Stmt, Vocab};
-        let p = crate::basic::parse_with(program, Vocab::Ice(&ice.verbs));
+        use crate::basic::{Cond, Stmt};
+        let p = crate::basic::parse_with(program, ice.vocab());
         if let Some(s) = p.stray.first() {
             return Err(format!("program line `{s}` has no line number"));
         }
         if !p.can_act() {
             return Err("program never acts: no verb can be reached from the top".into());
+        }
+        if ice.boss && !p.can_walk() {
+            return Err("program never walks: no walk can be reached from the top".into());
         }
         let lines = p
             .lines
@@ -2310,7 +2674,8 @@ impl Data {
             })
             .count();
         let most = self.ice_grammar.most_program_attacks(ice.tier);
-        if attacks > most as usize {
+        // A net's AI is written against the deck's program: no tier's fairness binds it.
+        if attacks > most as usize && !ice.boss {
             return Err(format!(
                 "program has {attacks} lines that attack the program; tier {} holds {most}",
                 ice.tier
@@ -2329,6 +2694,15 @@ impl Data {
                 return Err(format!(
                     "program line {} reads `{name}`, which no program is called",
                     l.no
+                ));
+            }
+            if let Stmt::Walk(crate::basic::WalkAct::Scan(n)) = l.stmt
+                && let Some((lo, hi)) = ice.reach
+                && !(lo..=hi).contains(&n)
+            {
+                return Err(format!(
+                    "program line {} `{}`: SCAN takes {lo} to {hi}",
+                    l.no, l.text
                 ));
             }
             if let Stmt::Act(intent) = l.stmt

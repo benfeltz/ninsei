@@ -183,8 +183,8 @@ pub struct Combat {
     /// The deck owns the source of that version (`Game::owns_source`, as the fight opened or
     /// since): every screen and the log list its program. Never read by play.
     pub listed: bool,
-    /// The board that source came from (`IceSource::from`; empty: none): its header and
-    /// remarks list with the program. Never read by play.
+    /// Where that source came from (`IceSource::from`: a board's id, or a net's AI's model id;
+    /// empty: none): its header and remarks list with the program. Never read by play.
     pub source_from: String,
     pub strength: u32,
     pub strength_max: u32,
@@ -287,6 +287,9 @@ pub struct Kit {
     /// is empty. A save always passes its own (`Save::free`); empty means the classic four
     /// (`CLASSIC_WAREZ`), for a bare run.
     pub free: Vec<String>,
+    /// The net's AI: its row in `Data::ice` and the trace it wakes at (`Save::dial` gives every
+    /// number one). `None`: a bare run, with no AI on the net.
+    pub boss: Option<(usize, u32)>,
 }
 
 impl Default for Kit {
@@ -318,6 +321,7 @@ impl Default for Kit {
             study_key: 0,
             origins: Vec::new(),
             free: Vec::new(),
+            boss: None,
         }
     }
 }
@@ -418,6 +422,63 @@ pub struct Encounter {
     /// Set once a choice has been made; the window then shows `result`.
     pub done: bool,
     pub result: Vec<LogLine>,
+}
+
+/// The net's AI this run (`crate::boss`).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Boss {
+    /// Its row in `Data::ice`.
+    pub ice: usize,
+    /// The trace it wakes at.
+    pub wake: u32,
+    pub state: BossState,
+    /// What its last pass on the map did, line by line.
+    pub last: Vec<crate::boss::Step>,
+    /// Passes it has taken on the map: one a hop since it woke.
+    pub passes: u32,
+    /// The hop it woke on (`Game::hops`), once it has.
+    pub woke_at: Option<u32>,
+    /// Where the runner last knew it to be (`Game::sighting`).
+    pub known: Option<usize>,
+    /// The node and hop the runner was arriving on when it met them: once it's beaten, the
+    /// node has its say.
+    pending: Option<(usize, Hop)>,
+}
+
+/// Where the net's AI is in the run.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BossState {
+    /// Not up yet: the trace hasn't reached its threshold.
+    Asleep,
+    /// Up, on the map.
+    Awake(crate::boss::Hunter),
+    /// Beaten: down for the run.
+    Down,
+}
+
+/// What the runner knows of where the net's AI is ([`Game::sighting`]).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Sighting {
+    /// It is within sight: `BOSS_SEEN_HOPS` hops or nearer.
+    Near(usize),
+    /// Its scan found the runner this hop, and the runner heard it: where it scanned from.
+    Scanned(usize),
+    /// Neither: where it was when the runner last knew.
+    Last(usize),
+}
+
+impl Sighting {
+    /// The node it says.
+    pub fn node(self) -> usize {
+        match self {
+            Sighting::Near(n) | Sighting::Scanned(n) | Sighting::Last(n) => n,
+        }
+    }
+
+    /// Whether the runner knows it is there now.
+    pub fn now(self) -> bool {
+        !matches!(self, Sighting::Last(_))
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -658,6 +719,8 @@ pub struct Game {
     pub program: Program,
     /// Where the program is in this fight.
     pub exec: Exec,
+    /// The net's AI, if the net has one.
+    pub boss: Option<Boss>,
     /// Set only on the copy `Game::starved` plays: what the forecast may and may not know.
     dry: Dry,
 }
@@ -813,6 +876,10 @@ pub struct Hop {
     /// It steps onto a node whose ICE the deck beat there: the ICE comes back up, maybe as a
     /// version its sysops ship there and then, and it's a fight that pays nothing.
     pub rearms: bool,
+    /// It steps onto the node the runner knows the net's AI is on (`Game::sighting`): a fight
+    /// that can't be left. Only what the runner knows: the AI moves after the hop, and an AI
+    /// the runner can't see is never in the preview.
+    pub meets: bool,
 }
 
 /// The forecast's lines, less any the pass executes, in order, once each.
@@ -918,6 +985,20 @@ impl Game {
             &data,
             &crate::bbs::shipped(&ice_versions),
         );
+        // The net's AI, asleep until the trace reaches its threshold.
+        let boss = kit
+            .boss
+            .filter(|(ice, _)| data.ice.get(*ice).is_some_and(|r| r.boss))
+            .map(|(ice, wake)| Boss {
+                ice,
+                wake,
+                state: BossState::Asleep,
+                last: Vec::new(),
+                passes: 0,
+                woke_at: None,
+                known: None,
+                pending: None,
+            });
         let mut game = Self {
             at: net.entry(),
             outer: None,
@@ -969,6 +1050,7 @@ impl Game {
             from_stash: Vec::new(),
             program: crate::basic::parse(&kit.program),
             exec: Exec::default(),
+            boss,
             dry: Dry::default(),
         };
         let classic: Vec<String> = CLASSIC_WAREZ.iter().map(|s| s.to_string()).collect();
@@ -1462,13 +1544,19 @@ impl Game {
             ));
         }
         let n = &net.nodes[to];
+        let meets = !self.in_subnet() && self.sighting().is_some_and(|s| s.now() && s.node() == to);
         Ok(Hop {
             trace: self.mods.trace(TRACE_PER_HOP),
             back,
+            // Beaten with the AI on it, the ICE is gone for the run. Where the AI is now has no
+            // say: the runner may only think it's there (`meets`), and the move resolves with
+            // this.
             rearms: matches!(n.kind, NodeKind::Ice | NodeKind::BlackIce)
                 && n.cleared
                 && n.beaten.is_some()
-                && n.ice.is_some(),
+                && n.ice.is_some()
+                && !n.replaced,
+            meets,
         })
     }
 
@@ -1692,6 +1780,29 @@ impl Game {
         if self.check_trace() {
             return Ok(());
         }
+        // The net's AI: the runner stepped onto it, or it takes its pass and steps onto them.
+        if self.boss_here() {
+            self.meet(Some((to, hop)));
+            return Ok(());
+        }
+        self.boss_hop();
+        if self.boss_here() {
+            self.meet(Some((to, hop)));
+            return Ok(());
+        }
+        self.arrive(to, hop);
+        // Surfaced from a subnet onto the node it holds.
+        if self.boss_here() {
+            self.meet(None);
+        }
+        self.see_boss();
+        Ok(())
+    }
+
+    /// The runner is on node `to`, come by `hop`: the node has its say (a fight, a vault, a
+    /// board, an exit).
+    fn arrive(&mut self, to: usize, hop: Hop) {
+        let node = self.net.nodes[to].clone();
         match node.kind {
             NodeKind::Ice | NodeKind::BlackIce if !node.cleared => {
                 if let Some(ice) = node.ice {
@@ -1765,7 +1876,153 @@ impl Game {
             _ => {}
         }
         self.void_unreachable_contracts();
-        Ok(())
+    }
+
+    // ---- the net's AI ------------------------------------------------------------
+
+    /// Whether node `id`'s ICE is the net's AI's: beaten with it there (gone for the run), or
+    /// with the AI on it now (`ai_on_it`), whose fight is then the only one there. `false` for a
+    /// node with no ICE. The one place it is decided: the fight's end and the preview ask it.
+    pub fn ice_replaced(&self, id: usize, ai_on_it: bool) -> bool {
+        let n = &self.net.nodes[id];
+        matches!(n.kind, NodeKind::Ice | NodeKind::BlackIce)
+            && n.ice.is_some()
+            && (n.replaced || ai_on_it)
+    }
+
+    /// The net's AI's name and maker, once it has woken this run (asleep: `None`): what each
+    /// deck's alert names.
+    pub fn ai_woke(&self) -> Option<(&str, &str)> {
+        let b = self.boss.as_ref().filter(|b| b.woke_at.is_some())?;
+        let model = self.data.boss_model(b.ice)?;
+        Some((self.data.ice[b.ice].name.as_str(), model.company.as_str()))
+    }
+
+    /// Whether the net's AI woke on the hop the runner is on: the moment every deck's alert is
+    /// about, read from the one booking (`Boss::woke_at`).
+    pub fn ai_woke_this_hop(&self) -> bool {
+        self.boss
+            .as_ref()
+            .is_some_and(|b| b.woke_at == Some(self.hops))
+    }
+
+    /// The net's AI on the map, if it's awake.
+    pub fn hunter(&self) -> Option<&crate::boss::Hunter> {
+        match &self.boss.as_ref()?.state {
+            BossState::Awake(h) => Some(h),
+            _ => None,
+        }
+    }
+
+    /// The strength the net's AI fights at: its version's, and the net's ICE bonus (heat in it).
+    fn boss_strength(&self, ice: usize) -> u32 {
+        self.data.ice[ice].strength + self.mods.ice_bonus
+    }
+
+    /// Whether the net's AI is awake on the runner's node, with nothing else going on there.
+    fn boss_here(&self) -> bool {
+        self.phase == Phase::Exploring
+            && !self.in_subnet()
+            && self.hunter().is_some_and(|h| h.at == self.at)
+    }
+
+    /// A hop's turn for the net's AI: asleep, it wakes once the trace has reached its threshold;
+    /// awake, it takes one pass of its program. Nothing here draws from the run's RNG.
+    fn boss_hop(&mut self) {
+        let Some(b) = self.boss.as_ref() else { return };
+        let ice = b.ice;
+        if b.state == BossState::Asleep
+            && self.deck.trace >= b.wake
+            && let Some(at) = self.wake_node()
+        {
+            let runner = self.root_at();
+            let h = crate::boss::Hunter::wake(ice, &self.data.ice[ice], at, runner);
+            let hop = self.hops;
+            if let Some(b) = self.boss.as_mut() {
+                b.state = BossState::Awake(h);
+                b.woke_at = Some(hop);
+            }
+            // The deck's OS sees a new process come up on the net it's on.
+            let name = self.data.ice[ice].name.clone();
+            self.say(LogKind::Bad, format!("!! {name} is up on the net."));
+        }
+        let strength = self.boss_strength(ice);
+        let (runner, trace) = (self.root_at(), self.deck.trace);
+        let data = std::sync::Arc::clone(&self.data);
+        let net = self.outer.as_ref().map_or(&self.net, |o| &o.net);
+        let Some(b) = self.boss.as_mut() else { return };
+        let BossState::Awake(h) = &mut b.state else {
+            return;
+        };
+        let g = crate::boss::Ground {
+            net,
+            runner,
+            here: self.outer.is_none(),
+            trace,
+            strength,
+        };
+        b.last = h.pass(&data.ice[ice], &g);
+        b.passes += 1;
+    }
+
+    /// Where the net's AI wakes: ahead of the runner, `BOSS_WAKE_AHEAD` hops along the shortest
+    /// route they can walk from where they are (a subnet's door, from inside it) to the exit,
+    /// the exit itself if that's nearer. Never their node; always one they can walk to. `None`
+    /// when they're on the exit: the hop that woke it is the one that takes them off the net.
+    fn wake_node(&self) -> Option<usize> {
+        let net = self.root();
+        let from = self.root_at();
+        let exit = crate::boss::exit(net).filter(|&e| e != from)?;
+        Some(match crate::boss::route(net, from, exit) {
+            Some(r) if r.len() > 1 => r[(BOSS_WAKE_AHEAD as usize).clamp(1, r.len() - 1)],
+            _ => exit,
+        })
+    }
+
+    /// The runner meets the net's AI on their node: a fight that can't be left. `arriving` is
+    /// the node they were stepping onto and how, which has its say once it's beaten.
+    fn meet(&mut self, arriving: Option<(usize, Hop)>) {
+        let at = self.at;
+        let Some(b) = self.boss.as_mut() else { return };
+        b.pending = arriving;
+        b.known = Some(at);
+        let ice = b.ice;
+        self.start_combat(at, ice);
+    }
+
+    /// What the runner knows of where the net's AI is: near (within `BOSS_SEEN_HOPS` hops of
+    /// them, on the main network), its scan this hop (which they hear), or where they last
+    /// knew it to be. `None` while it's asleep or down, or before they ever knew. This is the
+    /// one place it is decided; the preview and the bots read it.
+    pub fn sighting(&self) -> Option<Sighting> {
+        let b = self.boss.as_ref()?;
+        let BossState::Awake(h) = &b.state else {
+            return None;
+        };
+        if !self.in_subnet()
+            && crate::boss::hops(&self.net, h.at, self.at).is_some_and(|d| d <= BOSS_SEEN_HOPS)
+        {
+            return Some(Sighting::Near(h.at));
+        }
+        // Where its last scan that found them came from: that's where they heard it.
+        let scanned = b.last.iter().rev().find_map(|s| match s.did {
+            crate::boss::Did::Scanned {
+                from, found: true, ..
+            } => Some(from),
+            _ => None,
+        });
+        if let Some(from) = scanned {
+            return Some(Sighting::Scanned(from));
+        }
+        b.known.map(Sighting::Last)
+    }
+
+    /// Books where the runner knows the net's AI to be, after a hop.
+    fn see_boss(&mut self) {
+        let now = self.sighting().filter(|s| s.now()).map(Sighting::node);
+        if let (Some(n), Some(b)) = (now, self.boss.as_mut()) {
+            b.known = Some(n);
+        }
     }
 
     /// Drops through subnet node `node` into the private network behind it.
@@ -1795,6 +2052,10 @@ impl Game {
     /// of its kind in force this run (`Enigma 1.3.0`). The version is the player's to read, so
     /// 1.0.0 shows too.
     pub fn ice_label(&self, ice: usize) -> String {
+        // A net's AI's name carries its product's version (`WATCHMAN 1.2`); no sysop patches it.
+        if self.data.ice[ice].boss {
+            return self.data.ice[ice].name.clone();
+        }
         format!("{} {}", self.data.ice[ice].name, self.version_met(ice))
     }
 
@@ -1898,9 +2159,14 @@ impl Game {
     }
 
     fn start_combat(&mut self, node: usize, ice: usize) {
-        let strength = self.data.ice[ice].strength
-            + ICE_STRENGTH_PER_LAYER * self.depth(node)
-            + self.mods.ice_bonus;
+        // The net's AI is no deeper anywhere: it's the whole net's.
+        let strength = if self.data.ice[ice].boss {
+            self.boss_strength(ice)
+        } else {
+            self.data.ice[ice].strength
+                + ICE_STRENGTH_PER_LAYER * self.depth(node)
+                + self.mods.ice_bonus
+        };
         let def = &self.data.ice[ice];
         let class = def.class.label();
         // The kind's version in force: the kit's, or 1.0.0, its row's.
@@ -1908,7 +2174,7 @@ impl Game {
         let (ice_prog, bump, program) = match self.ice_versions.iter().find(|(i, ..)| *i == ice) {
             Some((_, _, p, b)) => (p.clone(), *b, p.text()),
             None => (
-                crate::basic::parse_with(&def.program, Vocab::Ice(&def.verbs)),
+                crate::basic::parse_with(&def.program, def.vocab()),
                 None,
                 String::new(),
             ),
@@ -2099,9 +2365,13 @@ impl Game {
         if let Some(b) = self.bouts.last_mut() {
             b.broken = true;
         }
-        self.wake_study(c.ice, c.ice_version);
         self.end_pass();
         self.phase = Phase::Exploring;
+        if self.data.ice[c.ice].boss {
+            self.down_boss(c);
+            return;
+        }
+        self.wake_study(c.ice, c.ice_version);
         let n = &mut self.net.nodes[c.node];
         n.cleared = true;
         // The node's own ICE: a client's setup fought on it is another kind.
@@ -2133,6 +2403,75 @@ impl Game {
         // Contracts target the main network; a subnet's node ids mean nothing to them.
         if self.outer.is_none() {
             self.settle_contracts(c.node);
+        }
+    }
+
+    /// The deck beat the net's AI: it's down for the run, and the node the runner was arriving
+    /// on has its say. The AI stood in its ICE's place there, so that ICE is gone for the run:
+    /// no fight, no pay, never back up. The rest of the node is the runner's.
+    fn down_boss(&mut self, c: Combat) {
+        let name = self.data.ice[c.ice].name.clone();
+        if c.strength == 0 {
+            self.say(LogKind::Good, format!("{name} derezzed."));
+        }
+        let pending = self.boss.as_mut().and_then(|b| {
+            b.state = BossState::Down;
+            b.pending.take()
+        });
+        let table = self.data.loot.black_ice.clone();
+        self.roll_loot(&table);
+        // The net's big payout: what was behind the thing that ran it.
+        let tier = (self.tier() as usize).clamp(1, AI_PAY.len());
+        let pay = self.mods.pay(AI_PAY[tier - 1]);
+        self.deck.credits += pay;
+        self.say(LogKind::Loot, format!("+ {pay}¢ from {name}'s accounts."));
+        self.take_sources(c.ice);
+        if let Some((node, hop)) = pending {
+            let replaced = self.ice_replaced(node, true);
+            if replaced {
+                let n = &mut self.net.nodes[node];
+                n.cleared = true;
+                n.replaced = true;
+            }
+            let rearms = hop.rearms && !replaced;
+            self.arrive(node, Hop { rearms, ..hop });
+        }
+    }
+
+    /// The net's AI (row `ai`) is beaten and gives up what it wrote: the source of every ICE kind
+    /// on the net's main network at the version in force, and its own, each from its model (so
+    /// they list with its notes), booked like any source. One the deck owns stays as it is.
+    fn take_sources(&mut self, ai: usize) {
+        let Some(model) = self.data.boss_model(ai).map(|m| m.id.clone()) else {
+            return;
+        };
+        let mut kinds: Vec<usize> = self
+            .root()
+            .nodes
+            .iter()
+            .filter_map(|n| n.ice)
+            .filter(|&i| !self.data.ice[i].boss)
+            .collect();
+        kinds.sort_unstable();
+        kinds.dedup();
+        kinds.push(ai);
+        let mut got = 0;
+        for ice in kinds {
+            let v = self.ice_version(ice);
+            // Owned ones are refused: they stay as they are.
+            if self.learn_source(ice, v, &model).is_ok() {
+                got += 1;
+            }
+        }
+        if got > 0 {
+            let name = self.data.ice[ai].name.clone();
+            self.say(
+                LogKind::Loot,
+                format!(
+                    "+ {got} source{} from {name}'s revision store.",
+                    if got == 1 { "" } else { "s" }
+                ),
+            );
         }
     }
 
@@ -2355,6 +2694,11 @@ impl Game {
             Cond::Target(..) | Cond::TargetRan(_) | Cond::SelfStr(..) => {
                 crate::ice_version::holds(cond, self)
             }
+            // A net's AI's, in a fight: the runner is in front of it, on its node.
+            Cond::Seen => c.is_some(),
+            Cond::Dist(op, n) => c.is_some() && op.test(0, *n),
+            Cond::TargetTrace(op, n) => op.test(self.deck.trace, *n),
+            Cond::At(k) => c.is_some_and(|c| self.net.nodes[c.node].kind == *k),
         }
     }
 
@@ -2591,7 +2935,8 @@ impl Game {
             self.ex_mut(side).pc = next;
             ran |= !matches!(stmt, Stmt::Rem);
             match stmt {
-                Stmt::Rem => {}
+                // A net's AI's moves on the map: a fight passes over them.
+                Stmt::Rem | Stmt::Walk(_) => {}
                 Stmt::Bad(why) => {
                     let why = self.prog(side).fault(no).unwrap_or(why);
                     self.trace_step(side, no, StepWhat::Skipped(why));

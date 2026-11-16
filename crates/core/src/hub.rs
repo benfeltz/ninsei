@@ -11,8 +11,8 @@ use crate::rng::Rng;
 use crate::tuning::{
     BBS_LAYER, DEADMAN_PCT, FRAGMENTS_PER_OPT, HEAT_COOL, HEAT_ICE, HEAT_MAX, HEAT_PER_RUN,
     HEAT_TRACE_PCT, HUB_DRAG_SECS, HUB_PALETTE_CHARS, LOCAL_RANGE, MAX_OPT, NET_MID_LAYERS,
-    NET_ONE_WAY_PCT, PHONEBOOK_START, RESULTS_KEPT, START_WAREZ, STASH_BASE_SLOTS, TRAP_TRACE_PCT,
-    WARDIAL_BLOCK,
+    NET_ONE_WAY_PCT, PHONEBOOK_START, RESULTS_KEPT, START_WAREZ, STASH_BASE_SLOTS, TRACE_MAX,
+    TRAP_TRACE_PCT, WARDIAL_BLOCK,
 };
 
 /// Bump when the save's shape changes incompatibly. 2: binary byte 07 (the RAM cost) became
@@ -299,6 +299,8 @@ pub struct TierDef {
     /// Percent of links that are one way (walked deeper, never back). A trait's `Shape` may
     /// say its own.
     pub one_way: u32,
+    /// The trace the net's AI wakes at (`ai.ron`); a trait's `wake` moves it.
+    pub wake: u32,
 }
 
 fn full_pct() -> u32 {
@@ -329,6 +331,10 @@ pub struct TraitDef {
     pub label: String,
     pub blurb: String,
     pub effect: TraitEffect,
+    /// Moves the trace the net's AI wakes at by this much: a jumpy net wakes it early, a
+    /// skeleton crew late.
+    #[serde(default)]
+    pub wake: i32,
     /// How Tiger Team Pro's assessment words it: the corporate view of the same thing.
     pub finding: String,
     pub severity: Severity,
@@ -546,6 +552,14 @@ impl NetworksDef {
             if d.one_way > 100 {
                 return Err(format!("tier {t} one-way share is over 100%"));
             }
+            // At TRACE_MAX the run is over before the AI's turn comes.
+            if !(1..TRACE_MAX).contains(&d.wake) {
+                return Err(format!(
+                    "tier {t} wakes its AI at {}% trace (1-{})",
+                    d.wake,
+                    TRACE_MAX - 1
+                ));
+            }
         }
         for (i, t) in self.traits.iter().enumerate() {
             if t.finding.trim().is_empty() {
@@ -553,6 +567,12 @@ impl NetworksDef {
             }
             if self.traits[..i].iter().any(|o| o.id == t.id) {
                 return Err(format!("trait `{}` is listed twice", t.id));
+            }
+            if t.wake.unsigned_abs() >= TRACE_MAX {
+                return Err(format!(
+                    "trait `{}` moves the AI's wake by {} (under {TRACE_MAX} either way)",
+                    t.id, t.wake
+                ));
             }
             if let TraitEffect::Shape(shape) = t.effect {
                 shape
@@ -1280,8 +1300,10 @@ pub struct IceSource {
     /// Its program; empty for 1.0.0, the row's (so a change to the row doesn't strand it).
     #[serde(default)]
     pub program: String,
-    /// The board it came from (an id in `data/bbs/`): its header and remarks list with it.
-    /// Empty: from no board, and it lists bare.
+    /// Where it came from: a board (an id in `data/bbs/`), or a net's AI that gave it up when
+    /// it was beaten (its model's id in `ai.ron`; `Data::validate` keeps the two apart). Its
+    /// header and remarks list with it (`ice_listing::notes`). Empty: from neither, and it
+    /// lists bare.
     #[serde(default)]
     pub from: String,
 }
@@ -1968,6 +1990,22 @@ impl Save {
         (p, m)
     }
 
+    /// The AI an entry's network runs (its row in `Data::ice`, `ai.ron`'s pick for its tier and
+    /// heat) and the trace it wakes at: its tier's, moved by its traits', kept between 1 and
+    /// one short of `TRACE_MAX`, where the run is over before it could wake.
+    pub fn site_boss(data: &Data, e: &Entry) -> Option<(usize, u32)> {
+        let ice = data.boss_for(e.tier, e.heat)?;
+        let tier = data.networks.tier(e.tier)?;
+        let moved: i32 = e
+            .traits
+            .iter()
+            .filter_map(|id| data.networks.trait_def(id))
+            .map(|d| d.wake)
+            .sum();
+        let wake = (tier.wake as i32 + moved).clamp(1, TRACE_MAX as i32 - 1) as u32;
+        Some((ice, wake))
+    }
+
     /// Which BBS an entry's network runs: a trait's `Board` if it has one, else one of the
     /// boards for its tier, picked by the phone number so a number always reaches the same
     /// board. Falls back to the default board.
@@ -2015,6 +2053,7 @@ impl Save {
         kit.net = net;
         kit.mods = mods;
         kit.board = Self::site_board(data, &e);
+        kit.boss = Self::site_boss(data, &e);
         // Jobs taken at home for this number come along. Unfinished, they're gone with the run.
         let (mine, rest) = std::mem::take(&mut self.pending)
             .into_iter()
@@ -2524,6 +2563,7 @@ impl Save {
             games: self.cracks(),
             tunes: self.tunes.clone(),
             free: self.free(data).to_vec(),
+            boss: None,
             texts: self
                 .texts
                 .iter()

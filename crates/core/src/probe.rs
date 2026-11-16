@@ -242,8 +242,8 @@ pub struct RunLog {
     /// they took together.
     pub fought: u32,
     pub turns: u32,
-    /// ICE turns that hid NEXT (`SPOOF`) or garbled a line of its program (`SEGFAULT`). A bot
-    /// can't retype a line mid-fight, so a garbled line stays garbled until the run ends.
+    /// ICE turns that hid NEXT (`SPOOF`) or garbled a line of its program (`SEGFAULT`). The
+    /// bot retypes its program between turns (138.1: a fight with the net's AI can't be left).
     pub spoofs: u32,
     pub segfaults: u32,
     /// BBS downloads: (what kind of file, price).
@@ -262,6 +262,23 @@ pub struct RunLog {
     pub rearmed: u32,
     /// Hacks it ran on the map.
     pub hacks: u32,
+    /// The net's AI, if it had one: how the run went with it.
+    pub ai: Option<AiRun>,
+}
+
+/// A run's net's AI, as the run left it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AiRun {
+    /// Its row in `Data::ice`.
+    pub ice: usize,
+    /// It woke: the trace reached its threshold.
+    pub woke: bool,
+    /// The runner met it: a fight.
+    pub met: bool,
+    /// The runner beat it.
+    pub beaten: bool,
+    /// It flatlined the runner.
+    pub killed: bool,
 }
 
 impl RunLog {
@@ -352,6 +369,8 @@ fn play_paced(
     if g.program.lines.is_empty() {
         g.apply(Action::Program(bot.program().to_string()));
     }
+    // The program as the bot brought it: what it retypes over a garbled line.
+    let script = g.program.text();
     // The program handed the turn over (a STOP or a hang): a bot has no hands, so it ends it.
     let mut handed = false;
     let mut clock = FightClock::default();
@@ -402,6 +421,18 @@ fn play_paced(
                 }
             }
             Phase::Combat => {
+                // A SEGFAULT garbled a line: between turns the bot retypes its program, as a
+                // player would. The net's AI's fight can't be left, so a bot that couldn't would
+                // sit in it to the step limit.
+                if !g.pass_open()
+                    && g.program
+                        .lines
+                        .iter()
+                        .any(|l| crate::basic::garbled(&l.text))
+                {
+                    g.apply(Action::Program(script.clone()));
+                    clock.see(&g, &mut log);
+                }
                 if handed {
                     handed = false;
                     g.apply(Action::EndTurn);
@@ -454,6 +485,13 @@ fn play_paced(
     }
     // A run cut off by the step limit mid-fight still counts that fight's turns.
     clock.close(&mut log);
+    log.ai = g.boss.as_ref().map(|b| AiRun {
+        ice: b.ice,
+        woke: b.state != crate::game::BossState::Asleep,
+        met: g.bouts.iter().any(|f| f.ice == b.ice),
+        beaten: b.state == crate::game::BossState::Down,
+        killed: g.killed_by() == Some(b.ice),
+    });
     for k in g
         .contracts
         .iter()
@@ -624,6 +662,13 @@ fn best_route(g: &Game) -> Option<usize> {
         } else {
             0
         };
+        // The net's AI where the runner can see it: around it when there's a way, through it
+        // when there isn't.
+        let ai: i64 = if g.route(to).is_ok_and(|h| h.meets) {
+            -400
+        } else {
+            0
+        };
         let n = &g.net.nodes[to];
         let ice_strength = n
             .ice
@@ -647,7 +692,7 @@ fn best_route(g: &Game) -> Option<usize> {
                 NodeKind::Subnet => -50,
             }
         };
-        (score + pull, -(to as i64))
+        (score + pull + ai, -(to as i64))
     })
 }
 
@@ -925,6 +970,8 @@ fn talk(g: &Game, known: &[String], log: &mut RunLog) -> Option<usize> {
 enum Fate {
     Exit,
     Traced,
+    /// Flatlined in a fight with the net's AI.
+    Ai,
     Ice,
     BlackIce,
 }
@@ -933,12 +980,19 @@ fn fate(g: &Game) -> Fate {
     if g.phase == Phase::JackedOut {
         return Fate::Exit;
     }
+    // Flatlined in the net's AI's fight (a flatline takes the fight off the game).
+    if g.killed_by().is_some_and(|k| g.data.ice[k].boss) {
+        return Fate::Ai;
+    }
     // A run that ends mid-fight is the ICE's doing, whether it took the deck's integrity or
     // kept it there until the trace ran out.
     let fighting =
         g.combat.is_some() || g.net.nodes[g.at].ice.is_some() && !g.net.nodes[g.at].cleared;
     if !fighting && g.deck.trace >= TRACE_MAX {
         return Fate::Traced;
+    }
+    if g.combat.as_ref().is_some_and(|c| g.data.ice[c.ice].boss) {
+        return Fate::Ai;
     }
     let black = g
         .combat
@@ -956,6 +1010,8 @@ pub struct TierStats {
     pub traced: u32,
     pub ice: u32,
     pub black_ice: u32,
+    /// Flatlined by the net's AI.
+    pub ai: u32,
     pub banked: u64,
     /// Fights in these runs, and the turns they took.
     pub fights: u32,
@@ -986,6 +1042,7 @@ impl TierStats {
             Fate::Traced => self.traced += 1,
             Fate::Ice => self.ice += 1,
             Fate::BlackIce => self.black_ice += 1,
+            Fate::Ai => self.ai += 1,
         }
     }
 
@@ -1008,14 +1065,16 @@ impl TierStats {
         }
     }
 
-    /// The row the report prints for it: out, traced, ICE, black ICE, turns a fight.
+    /// The row the report prints for it: out, traced, ICE, black ICE, the net's AI, turns a
+    /// fight.
     fn row(&self) -> String {
         format!(
-            "{:>3}%  {:>5}%  {:>3}% {:>5}%  {:>5.1}",
+            "{:>3}%  {:>5}%  {:>3}% {:>5}% {:>3}%  {:>5.1}",
             self.win_pct(),
             pct(self.traced, self.runs),
             pct(self.ice, self.runs),
             pct(self.black_ice, self.runs),
+            pct(self.ai, self.runs),
             self.turns_per_fight()
         )
     }
@@ -1148,6 +1207,19 @@ pub struct Stats {
     pub versus: [TierStats; 3],
     /// Drafts the sysops tried, in the careful careers and in the SAFE_PICK ones.
     pub drafts: [u64; 2],
+    /// Careful career runs by the net's AI they dialed into (its row id).
+    pub ai: Vec<(String, AiStats)>,
+}
+
+/// Career runs on nets running one version of an AI.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct AiStats {
+    pub runs: u32,
+    pub woke: u32,
+    pub met: u32,
+    pub beaten: u32,
+    pub killed: u32,
+    pub exits: u32,
 }
 
 /// Adds one shipped version of kind `id`, made by `bump`, to a tally.
@@ -1488,7 +1560,7 @@ impl Probe {
             self.stats.by_patched[bucket].1 += u32::from(f == Fate::Exit);
             // A kind it met was patched, or ICE killed it: the careful bot writes its next
             // program, as a player would.
-            if !new.is_empty() || matches!(f, Fate::Ice | Fate::BlackIce) {
+            if !new.is_empty() || matches!(f, Fate::Ice | Fate::BlackIce | Fate::Ai) {
                 self.rotation += 1;
             }
         }
@@ -1553,6 +1625,23 @@ impl Probe {
             }
         }
         self.stats.fights += u64::from(log.fights);
+        if let Some(a) = log.ai {
+            let id = data.ice[a.ice].id.clone();
+            let i = match self.stats.ai.iter().position(|(r, _)| *r == id) {
+                Some(i) => i,
+                None => {
+                    self.stats.ai.push((id, AiStats::default()));
+                    self.stats.ai.len() - 1
+                }
+            };
+            let t = &mut self.stats.ai[i].1;
+            t.runs += 1;
+            t.woke += u32::from(a.woke);
+            t.met += u32::from(a.met);
+            t.beaten += u32::from(a.beaten);
+            t.killed += u32::from(a.killed);
+            t.exits += u32::from(f == Fate::Exit);
+        }
         for (k, price) in &log.bought {
             match self.stats.bought.iter_mut().find(|(w, _, _)| w == k) {
                 Some((_, n, spent)) => {
@@ -1879,7 +1968,7 @@ impl Probe {
         }
         out.push(String::new());
         out.push("single runs, plain network".into());
-        out.push("  program    tier  out   traced  ice  black  turns/fight".into());
+        out.push("  program    tier  out   traced  ice  black  ai   turns/fight".into());
         for (b, bot) in Bot::ALL.iter().enumerate() {
             for (t, ts) in s.spot[b].iter().enumerate() {
                 out.push(format!("  {:<10} {:>4} {}", bot.label(), t + 1, ts.row()));
@@ -1899,7 +1988,7 @@ impl Probe {
         }
         out.push(String::new());
         out.push("careers (smart bot, climbing)".into());
-        out.push("  tier  runs  out   traced  ice  black  turns/fight  banked/run".into());
+        out.push("  tier  runs  out   traced  ice  black  ai   turns/fight  banked/run".into());
         for (t, c) in s.career.iter().enumerate() {
             let avg = if c.runs == 0 {
                 0
@@ -1972,9 +2061,29 @@ impl Probe {
                 None => format!("  first {label} exit: never, in {n} careers"),
             });
         }
+        out.push("  the nets' AIs, by version:   runs  woke   met  beaten  killed   out".into());
+        let mut ai = s.ai.clone();
+        ai.sort_by(|a, b| a.0.cmp(&b.0));
+        for (id, t) in ai {
+            let name = self
+                .data
+                .ice
+                .iter()
+                .find(|r| r.id == id)
+                .map_or(id.clone(), |r| r.name.clone());
+            out.push(format!(
+                "    {name:<26} {:>5}  {:>3}%  {:>3}%    {:>3}%    {:>3}%  {:>3}%",
+                t.runs,
+                pct(t.woke, t.runs),
+                pct(t.met, t.runs),
+                pct(t.beaten, t.runs),
+                pct(t.killed, t.runs),
+                pct(t.exits, t.runs)
+            ));
+        }
         out.push(String::new());
         out.push("the same careers fighting with SAFE_PICK".into());
-        out.push("  tier  runs  out   traced  ice  black  turns/fight".into());
+        out.push("  tier  runs  out   traced  ice  black  ai   turns/fight".into());
         out.extend(pick_rows);
         out.extend(self.versions_report());
         out.push(String::new());

@@ -131,6 +131,8 @@ fn next_to_subnet(seed: u64) -> (Game, usize) {
         .find(|&&n| g.net.nodes[n].links.contains(&sub))
         .unwrap();
     g.at = before;
+    // The subnet's own rules: no AI on the net to wake on the way.
+    g.boss = None;
     (g, sub)
 }
 

@@ -46,6 +46,13 @@
             "|07Intrusion countermeasures have been upgraded on all segments.",
             "|12Do not|07 share your access codes or departmental prefixes.",
         ]),
+        (title: "PERIMETER REVISION PROCESS", body: [
+            "|07From the Office of Information Security:",
+            "|07Revisions to perimeter software are now drafted by each network's",
+            "|07monitoring system, then reviewed and approved by staff before release.",
+            "|07The monitoring system stays on duty after hours. It answers to us.",
+            "|12Do not|07 attempt to interact with it. Report anomalies to the IT Help Desk.",
+        ]),
         (title: "CAFETERIA MENU", body: [
             "|07MON  soy loaf           THU  soy loaf (spicy)",
             "|07TUE  krill noodles      FRI  chef's choice",

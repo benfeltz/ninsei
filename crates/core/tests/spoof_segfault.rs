@@ -33,8 +33,12 @@ fn spoof_and_segfault_are_an_ices_words() {
 }
 
 /// The builtin ICE with one more row, `probe`, that has this program and verbs. It is tier 0, the
-/// rival's, which may hold two lines that attack the program (`ice_grammar.ron`'s `fair`).
+/// rival's, which may hold two lines that attack the program (`ice_grammar.ron`'s `fair`). With
+/// SEGFAULT, a net's AI's verb, it is a net's AI instead (`probe-1.0`), which no tier binds.
 fn with_row(program: &str, verbs: &str) -> Data {
+    if verbs.contains("Segfault") {
+        return common::with_probe_ai(verbs, program).unwrap();
+    }
     common::with_probe_row(
         "class: Sentry, tier: 0, strength: 10, cpu: 1, ram: 2",
         verbs,
@@ -64,7 +68,12 @@ fn fight_carrying(data: Data, program: &str, more: &[&str]) -> ninsei_core::Game
     };
     let mut g = Game::start(data, 7, &kit);
     let target = g.net.nodes[g.at].links[0];
-    let ice = g.data.ice.iter().position(|i| i.id == "probe").unwrap();
+    let ice = g
+        .data
+        .ice
+        .iter()
+        .position(|i| i.id == "probe" || i.id == "probe-1.0")
+        .unwrap();
     g.net.nodes[target].kind = network::NodeKind::Ice;
     g.net.nodes[target].ice = Some(ice);
     g.net.nodes[target].cleared = false;

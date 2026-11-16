@@ -37,10 +37,12 @@ pub enum Cue {
     JackOut,
     /// A hack ran on the map.
     Hack,
+    /// The net's AI woke up.
+    AiWake,
 }
 
 impl Cue {
-    pub const ALL: [Cue; 15] = [
+    pub const ALL: [Cue; 16] = [
         Cue::Hop,
         Cue::IceRez,
         Cue::Hit,
@@ -56,6 +58,7 @@ impl Cue {
         Cue::Flatline,
         Cue::JackOut,
         Cue::Hack,
+        Cue::AiWake,
     ];
 }
 
@@ -224,6 +227,8 @@ pub struct Snap {
     fight: Option<(usize, u32, u32)>,
     encounter: bool,
     hacks: u32,
+    /// The net's AI had woken.
+    ai: bool,
 }
 
 impl Snap {
@@ -239,6 +244,7 @@ impl Snap {
             fight: g.combat.as_ref().map(|c| (c.node, c.strength, c.shield)),
             encounter: g.encounter.is_some(),
             hacks: g.hacks,
+            ai: g.ai_woke().is_some(),
         }
     }
 }
@@ -287,6 +293,9 @@ pub fn cues(was: &Snap, g: &Game, bought: bool) -> Vec<Cue> {
     }
     if g.encounter.is_some() && !was.encounter {
         out.push(Cue::Encounter);
+    }
+    if g.ai_woke().is_some() && !was.ai {
+        out.push(Cue::AiWake);
     }
     if g.phase != was.phase {
         match g.phase {
