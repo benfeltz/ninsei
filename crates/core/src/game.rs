@@ -2388,12 +2388,13 @@ impl Game {
         self.say(LogKind::Loot, format!("+ {pay}¢ from {name}'s accounts."));
         self.take_sources(c.ice);
         if let Some((node, hop)) = pending {
-            if self.ice_replaced(node, true) {
+            let replaced = self.ice_replaced(node, true);
+            if replaced {
                 let n = &mut self.net.nodes[node];
                 n.cleared = true;
                 n.replaced = true;
             }
-            let rearms = hop.rearms && !self.ice_replaced(node, false);
+            let rearms = hop.rearms && !replaced;
             self.arrive(node, Hop { rearms, ..hop });
         }
     }
