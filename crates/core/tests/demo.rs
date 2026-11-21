@@ -179,7 +179,7 @@ fn text_is_shaded_top_to_bottom_and_the_shade_rolls() {
 }
 
 #[test]
-fn the_band_is_clear_of_the_flight() {
+fn a_band_with_a_fill_is_clear_of_the_flight() {
     let d = small();
     let f = d.frame(1.0);
     let px = d.pixels(&f);
@@ -348,4 +348,28 @@ fn the_game_needs_the_intro_it_starts_from() {
     })
     .unwrap_err();
     assert!(err.contains("demos/ninsei.ron"), "{err}");
+}
+
+#[test]
+fn only_the_credits_print_in_the_shipped_band() {
+    // The band is where the game's menu will go: the flight runs behind it (it has no fill,
+    // as signed off), and no text but the credits is ever printed in it.
+    let data = Data::builtin().unwrap();
+    let d = data.demo("ninsei").unwrap();
+    let (top, bottom) = (d.band.y, d.band.y + d.band.h);
+    for n in 0..320 {
+        let f = d.frame(f64::from(d.secs) * f64::from(n) / 320.0);
+        let credits: usize = f.page.map_or(0, |p| {
+            d.credits.pages[p]
+                .iter()
+                .map(|l| l.chars().filter(|&c| c != ' ').count())
+                .sum()
+        });
+        let inside = f
+            .prints
+            .iter()
+            .filter(|p| p.y + 8 > top && p.y < bottom)
+            .count();
+        assert_eq!(inside, credits, "step {n}");
+    }
 }
