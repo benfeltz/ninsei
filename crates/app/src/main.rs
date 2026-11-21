@@ -6,6 +6,9 @@ mod chrome;
 mod crash;
 mod crt;
 mod crt_gl;
+// Drawn from step 4, when the game starts on it.
+#[allow(dead_code)]
+mod demo_view;
 mod encounter_view;
 mod fightview;
 mod games_view;
