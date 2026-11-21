@@ -2952,8 +2952,10 @@ pub struct RunReport {
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Screen {
     /// The game's own intro ([`LAUNCH_DEMO`]), where every launch starts: it stays up until a
-    /// key or a click, then the desktop opens.
-    Intro,
+    /// key or a click, then the desktop opens. `t` is how long it has been up, in seconds.
+    Intro {
+        t: f64,
+    },
     /// The Workbench desktop.
     Hub,
     /// The desktop sliding down to reveal the run behind it.
@@ -2985,7 +2987,7 @@ impl Screen {
     pub fn drag(self) -> f32 {
         let ease = |x: f32| 1.0 - (1.0 - x.clamp(0.0, 1.0)).powi(3);
         match self {
-            Screen::Intro | Screen::Hub => 0.0,
+            Screen::Intro { .. } | Screen::Hub => 0.0,
             Screen::JackIn { t } => ease(t / HUB_DRAG_SECS),
             Screen::Run | Screen::Crash => 1.0,
             Screen::JackOut { t } => 1.0 - ease(t / HUB_DRAG_SECS),
@@ -2994,14 +2996,19 @@ impl Screen {
 
     /// Whether the run's UI is visible at all.
     pub fn shows_run(self) -> bool {
-        !matches!(self, Screen::Intro | Screen::Hub)
+        !matches!(self, Screen::Intro { .. } | Screen::Hub)
+    }
+
+    /// Whether the game's intro is up.
+    pub fn is_intro(self) -> bool {
+        matches!(self, Screen::Intro { .. })
     }
 
     /// The screen a launch opens on: the game's intro, unless intros are off, and then the
     /// desktop. It reads the save and changes nothing.
     pub fn first(save: &Save) -> Screen {
         if save.intros {
-            Screen::Intro
+            Screen::Intro { t: 0.0 }
         } else {
             Screen::Hub
         }

@@ -329,14 +329,15 @@ fn a_launch_opens_on_the_intro_unless_intros_are_off() {
     use ninsei_core::hub::{Save, Screen};
     let mut save = Save::default();
     let before = save.to_text();
-    assert_eq!(Screen::first(&save), Screen::Intro);
+    assert_eq!(Screen::first(&save), Screen::Intro { t: 0.0 });
     assert_eq!(save.to_text(), before, "it books nothing");
     save.intros = false;
     assert_eq!(Screen::first(&save), Screen::Hub);
     // On the intro, nothing of the run or the desktop is up, and the desktop's music holds.
-    assert!(!Screen::Intro.shows_run() && !Screen::Intro.hub_live());
-    assert!(!ninsei_core::player::at_home(Screen::Intro));
-    assert_eq!(Screen::Intro.tick(1000.0), Screen::Intro, "it stays up");
+    let up = Screen::Intro { t: 3.0 };
+    assert!(!up.shows_run() && !up.hub_live());
+    assert!(!ninsei_core::player::at_home(up));
+    assert!(up.tick(1000.0).is_intro(), "it stays up");
 }
 
 #[test]
@@ -370,5 +371,29 @@ fn only_the_credits_print_in_the_shipped_band() {
             .filter(|p| p.y + 8 > top && p.y < bottom)
             .count();
         assert_eq!(inside, credits, "step {n}");
+    }
+}
+
+#[test]
+fn the_intro_s_tune_plays_at_the_picture_s_place_in_the_loop() {
+    use ninsei_core::hub::{Save, Screen};
+    use ninsei_core::player::{self, INTRO_TUNE, Play, Transport};
+    let data = Data::builtin().unwrap();
+    let d = data.launch_demo();
+    let save = Save::default();
+    // Whatever the player is doing, the intro has the channel while it's up.
+    let t = Transport {
+        play: Play::Playing,
+        ..Transport::default()
+    };
+    for (at, want) in [
+        (0.0, 0.0),
+        (5.5, 5.5),
+        (f64::from(d.secs) * 2.0 + 1.25, 1.25),
+    ] {
+        let w = player::wanted(&save, &data, Screen::Intro { t: at }, &t).unwrap();
+        assert_eq!(w.id, INTRO_TUNE);
+        assert!(std::ptr::eq(w.tune, &d.tune));
+        assert!((w.at - want).abs() < 1e-3, "{at}: {}", w.at);
     }
 }

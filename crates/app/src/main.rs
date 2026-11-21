@@ -316,14 +316,9 @@ struct App {
     suite: suite::State,
     /// The run screen's sound pop-out.
     sound_popup: volume::Popup,
-    /// The game's own intro, while it's up (`Screen::Intro`), and how long it has been.
+    /// The game's own intro's picture, while it's up (`Screen::Intro`).
     intro: demo_view::DemoView,
-    intro_t: f64,
 }
-
-/// The intro's tune as the speaker's looping channel knows it: no tune on a music disk
-/// has a name like it.
-const INTRO_TUNE: &str = "demo:launch";
 
 impl App {
     fn new(cc: &eframe::CreationContext<'_>, data: Data, first_seed: Option<u64>) -> Self {
@@ -412,7 +407,6 @@ impl App {
             suite: suite::State::default(),
             sound_popup: volume::Popup::default(),
             intro: demo_view::DemoView::default(),
-            intro_t: 0.0,
             last_phase: game.phase,
             game,
             dock: default_layout(Chrome::Classic, &[]),
@@ -502,7 +496,7 @@ impl App {
     /// The CRT effects to draw, if they're on.
     fn effects(&self) -> Option<Effects> {
         // The game's own intro is no screen on your machine: no monitor's glass over it.
-        if !self.crt || self.screen == Screen::Intro {
+        if !self.crt || self.screen.is_intro() {
             return None;
         }
         self.data
@@ -628,19 +622,9 @@ impl App {
         if player::tick(&mut self.save, &self.data, &mut self.home.player, dt, live) {
             self.save_dirty = true;
         }
-        // The game's intro has the channel while it's up: its tune loops with it, and the
-        // player's comes back where it was once the desktop opens.
-        let want = if self.screen == Screen::Intro {
-            let d = self.data.launch_demo();
-            Some(player::Want {
-                id: INTRO_TUNE,
-                tune: &d.tune,
-                at: (self.intro_t % f64::from(d.secs.max(1.0))) as f32,
-                cue: 0,
-            })
-        } else {
-            player::wanted(&self.save, &self.data, self.screen, &self.home.player)
-        };
+        // While the game's intro is up its tune has the channel; the player's comes back where
+        // it was once the desktop opens.
+        let want = player::wanted(&self.save, &self.data, self.screen, &self.home.player);
         // The player's spectrum hears the speaker as the vis pane does, and only while the
         // player is on screen.
         let pass = ctx.cumulative_pass_nr();
@@ -1467,7 +1451,7 @@ impl eframe::App for App {
             theme::apply(&ctx, &pal);
             self.applied_pal = Some(pal);
         }
-        let on_intro = self.screen == Screen::Intro;
+        let on_intro = self.screen.is_intro();
         if on_intro {
             self.intro_ui(ui, &ctx, dt);
         } else if self.screen.shows_run() {
@@ -1650,8 +1634,12 @@ impl App {
     /// before the first input, and the intro plays silent until then.
     fn intro_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, dt: f32) {
         let def = self.data.launch_demo();
-        self.intro_t += f64::from(dt);
-        self.intro.paint(ui, def, self.intro_t);
+        let Screen::Intro { t } = self.screen else {
+            return;
+        };
+        let t = t + f64::from(dt);
+        self.screen = Screen::Intro { t };
+        self.intro.paint(ui, def, t);
         let leave = ctx.input_mut(|i| {
             let any = i.events.iter().any(|e| {
                 matches!(
@@ -2550,7 +2538,7 @@ mod tests {
         fn a_launch_opens_on_the_intro_and_it_stays_up() {
             let mut h = Harness::new(1280.0, 800.0);
             let mut app = launch(&h, None);
-            assert_eq!(app.screen, Screen::Intro);
+            assert!(app.screen.is_intro());
             for _ in 0..5 {
                 frame(&mut h, &mut app, Vec::new());
             }
@@ -2563,12 +2551,17 @@ mod tests {
             );
             // Left running past its length, it is still up, round again.
             let secs = f64::from(app.data.launch_demo().secs);
-            app.intro_t = secs * 3.0 - 0.05;
+            app.screen = Screen::Intro {
+                t: secs * 3.0 - 0.05,
+            };
             for _ in 0..3 {
                 frame(&mut h, &mut app, Vec::new());
             }
-            assert_eq!(app.screen, Screen::Intro);
-            assert!(app.intro_t > secs * 3.0, "its clock goes on");
+            assert!(
+                matches!(app.screen, Screen::Intro { t } if t > secs * 3.0),
+                "still up, its clock going on: {:?}",
+                app.screen
+            );
         }
 
         #[test]
@@ -2651,7 +2644,7 @@ mod tests {
                 &mut app,
                 vec![egui::Event::PointerMoved(egui::pos2(5.0, 5.0))],
             );
-            assert_eq!(app.screen, Screen::Intro);
+            assert!(app.screen.is_intro());
         }
 
         #[test]
@@ -2663,7 +2656,7 @@ mod tests {
             };
             assert_eq!(launch(&h, Some(&save)).screen, Screen::Hub);
             save.intros = true;
-            assert_eq!(launch(&h, Some(&save)).screen, Screen::Intro);
+            assert!(launch(&h, Some(&save)).screen.is_intro());
         }
 
         #[test]
