@@ -318,6 +318,9 @@ struct App {
     sound_popup: volume::Popup,
     /// The game's own intro's picture, while it's up (`Screen::Intro`).
     intro: demo_view::DemoView,
+    /// The running time its first frame was drawn at: its clock is the app's, as the tune's is
+    /// the audio's, so a frame that comes late never puts the picture behind the music.
+    intro_from: Option<f64>,
 }
 
 impl App {
@@ -407,6 +410,7 @@ impl App {
             suite: suite::State::default(),
             sound_popup: volume::Popup::default(),
             intro: demo_view::DemoView::default(),
+            intro_from: None,
             last_phase: game.phase,
             game,
             dock: default_layout(Chrome::Classic, &[]),
@@ -1453,7 +1457,7 @@ impl eframe::App for App {
         }
         let on_intro = self.screen.is_intro();
         if on_intro {
-            self.intro_ui(ui, &ctx, dt);
+            self.intro_ui(ui, &ctx);
         } else if self.screen.shows_run() {
             if self.crashed {
                 let clicked = crash::show(ui, self.booked.as_ref());
@@ -1632,12 +1636,15 @@ impl App {
     /// the desktop. The input that leaves it is spent here and reaches nothing else; the
     /// desktop draws from the next frame. Never waits on the speaker: a browser gives no sound
     /// before the first input, and the intro plays silent until then.
-    fn intro_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, dt: f32) {
+    fn intro_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let def = self.data.launch_demo();
+        let now = ctx.input(|i| i.time);
         let Screen::Intro { t } = self.screen else {
             return;
         };
-        let t = t + f64::from(dt);
+        // Picked up from wherever it is (a launch starts at 0).
+        let from = *self.intro_from.get_or_insert(now - t);
+        let t = (now - from).max(0.0);
         self.screen = Screen::Intro { t };
         self.intro.paint(ui, def, t);
         let leave = ctx.input_mut(|i| {
@@ -2554,6 +2561,7 @@ mod tests {
             app.screen = Screen::Intro {
                 t: secs * 3.0 - 0.05,
             };
+            app.intro_from = None;
             for _ in 0..3 {
                 frame(&mut h, &mut app, Vec::new());
             }
@@ -2620,6 +2628,23 @@ mod tests {
             };
             frame(&mut h, &mut app, vec![touch]);
             assert_eq!(app.screen, Screen::Hub);
+        }
+
+        #[test]
+        fn the_intro_keeps_the_running_time_through_a_hitch() {
+            let mut h = Harness::new(1280.0, 800.0);
+            let mut app = launch(&h, None);
+            frame(&mut h, &mut app, Vec::new());
+            // A hidden tab or a dragged window: no frames for five seconds.
+            h.wait(5.0);
+            frame(&mut h, &mut app, Vec::new());
+            let Screen::Intro { t } = app.screen else {
+                panic!("{:?}", app.screen)
+            };
+            assert!(
+                (t - 5.1).abs() < 0.05,
+                "the tune went on; so does the picture: {t}"
+            );
         }
 
         #[test]
