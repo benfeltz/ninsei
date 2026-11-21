@@ -1110,7 +1110,10 @@ pub struct Save {
     /// ([`crate::ice_study`]), in the order the deck first beat them.
     #[serde(default)]
     pub ice_study: Vec<crate::ice_study::Study>,
-    /// Programs open with their cracktros (`data/intros/`). On unless switched off in System.
+    /// Programs open with their cracktros (`data/intros/`), and the game itself with its own
+    /// (`data/demos/`, [`Screen::first`]): in the fiction your copy of ninsei is a cracked
+    /// program from the boards too, so the one switch covers both. On unless switched off in
+    /// System.
     #[serde(default = "default_intros")]
     pub intros: bool,
     /// The Welcome to the Net stack has opened (on a new save's first boot). Old saves have
