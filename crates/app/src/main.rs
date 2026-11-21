@@ -501,7 +501,8 @@ impl App {
 
     /// The CRT effects to draw, if they're on.
     fn effects(&self) -> Option<Effects> {
-        if !self.crt {
+        // The game's own intro is no screen on your machine: no monitor's glass over it.
+        if !self.crt || self.screen == Screen::Intro {
             return None;
         }
         self.data
@@ -2626,6 +2627,16 @@ mod tests {
             };
             frame(&mut h, &mut app, vec![touch]);
             assert_eq!(app.screen, Screen::Hub);
+        }
+
+        #[test]
+        fn no_monitor_s_glass_is_over_the_intro() {
+            let h = Harness::new(1280.0, 800.0);
+            let mut app = launch(&h, None);
+            app.crt = true;
+            assert!(app.effects().is_none(), "the intro is drawn as it is");
+            app.screen = Screen::Hub;
+            assert!(app.effects().is_some(), "the desktop is behind the monitor's glass");
         }
 
         #[test]
