@@ -327,13 +327,12 @@ fn nothing_in_the_game_names_the_crew_that_cracked_it() {
 #[test]
 fn a_launch_opens_on_the_intro_unless_intros_are_off() {
     use ninsei_core::hub::{Save, Screen};
-    let data = Data::builtin().unwrap();
     let mut save = Save::default();
     let before = save.to_text();
-    assert_eq!(Screen::first(&save, &data), Screen::Intro);
+    assert_eq!(Screen::first(&save), Screen::Intro);
     assert_eq!(save.to_text(), before, "it books nothing");
     save.intros = false;
-    assert_eq!(Screen::first(&save, &data), Screen::Hub);
+    assert_eq!(Screen::first(&save), Screen::Hub);
     // On the intro, nothing of the run or the desktop is up, and the desktop's music holds.
     assert!(!Screen::Intro.shows_run() && !Screen::Intro.hub_live());
     assert!(!ninsei_core::player::at_home(Screen::Intro));

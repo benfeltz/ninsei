@@ -2997,10 +2997,10 @@ impl Screen {
         !matches!(self, Screen::Intro | Screen::Hub)
     }
 
-    /// The screen a launch opens on: the game's intro, unless intros are off or there is
-    /// none, and then the desktop. It reads the save and changes nothing.
-    pub fn first(save: &Save, data: &Data) -> Screen {
-        if save.intros && data.demo(LAUNCH_DEMO).is_some() {
+    /// The screen a launch opens on: the game's intro, unless intros are off, and then the
+    /// desktop. It reads the save and changes nothing.
+    pub fn first(save: &Save) -> Screen {
+        if save.intros {
             Screen::Intro
         } else {
             Screen::Hub

@@ -49,7 +49,7 @@ use ninsei_core::bbs::Outcome;
 use ninsei_core::game::ExecState;
 use ninsei_core::hexedit::HexBuffer;
 use ninsei_core::hub::{
-    Answer, DEFAULT_RUN_THEME, LAUNCH_DEMO, RunEnd, RunReport, SAVE_KEY, Save, Screen, Tool,
+    Answer, DEFAULT_RUN_THEME, RunEnd, RunReport, SAVE_KEY, Save, Screen, Tool,
 };
 use ninsei_core::{Action, Command, Data, Game, LogKind, Phase};
 
@@ -382,7 +382,7 @@ impl App {
         theme::apply(&cc.egui_ctx, &pal);
         let game = Game::new(data.clone(), first_seed.unwrap_or(0));
         // Every launch opens on the game's intro (unless intros are off); it books nothing.
-        let screen = Screen::first(&save, &data);
+        let screen = Screen::first(&save);
         let mut me = Self {
             crt: save.crt,
             speaker: {
@@ -631,7 +631,8 @@ impl App {
         // The game's intro has the channel while it's up: its tune loops with it, and the
         // player's comes back where it was once the desktop opens.
         let want = if self.screen == Screen::Intro {
-            self.data.demo(LAUNCH_DEMO).map(|d| player::Want {
+            let d = self.data.launch_demo();
+            Some(player::Want {
                 id: INTRO_TUNE,
                 tune: &d.tune,
                 at: (self.intro_t % f64::from(d.secs.max(1.0))) as f32,
@@ -1648,10 +1649,7 @@ impl App {
     /// desktop draws from the next frame. Never waits on the speaker: a browser gives no sound
     /// before the first input, and the intro plays silent until then.
     fn intro_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, dt: f32) {
-        let Some(def) = self.data.demo(LAUNCH_DEMO) else {
-            self.screen = Screen::Hub;
-            return;
-        };
+        let def = self.data.launch_demo();
         self.intro_t += f64::from(dt);
         self.intro.paint(ui, def, self.intro_t);
         let leave = ctx.input_mut(|i| {
@@ -2564,7 +2562,7 @@ mod tests {
                 h.texts()
             );
             // Left running past its length, it is still up, round again.
-            let secs = f64::from(app.data.demo(LAUNCH_DEMO).unwrap().secs);
+            let secs = f64::from(app.data.launch_demo().secs);
             app.intro_t = secs * 3.0 - 0.05;
             for _ in 0..3 {
                 frame(&mut h, &mut app, Vec::new());

@@ -2853,6 +2853,13 @@ impl Data {
         self.intros.iter().find(|i| i.id == id)
     }
 
+    /// The intro the game starts from ([`crate::hub::LAUNCH_DEMO`]). `Data::validate` refuses
+    /// data without it, so there always is one.
+    pub fn launch_demo(&self) -> &crate::demo::DemoDef {
+        self.demo(crate::hub::LAUNCH_DEMO)
+            .expect("Data::validate requires the launch demo")
+    }
+
     /// The demo called `id` (a file in `data/demos/`).
     pub fn demo(&self, id: &str) -> Option<&crate::demo::DemoDef> {
         self.demos.iter().find(|d| d.id == id)
