@@ -257,3 +257,62 @@ fn font_for(name: &str) -> String {
     out.push_str("('A',");
     out
 }
+
+#[test]
+fn the_game_starts_from_straylight_s_intro_and_its_font_draws_every_word() {
+    let data = Data::builtin().unwrap();
+    let d = data.demo("ninsei").expect("data/demos/ninsei.ron");
+    assert_eq!(d.group, "STRAYLIGHT");
+    let mut words: Vec<String> = d.title.iter().map(|l| l.text.clone()).collect();
+    words.extend(d.credits.pages.iter().flatten().cloned());
+    words.push(d.scroller_text());
+    for w in &words {
+        for c in w.chars().filter(|&c| c != ' ') {
+            assert!(
+                d.font.glyphs.iter().any(|(g, _)| *g == c),
+                "no `{c}` in the font, for \"{w}\""
+            );
+        }
+    }
+    assert!(!d.scroller.greetz.is_empty(), "it greets the scene");
+    assert!(
+        !d.scroller_text().contains("555"),
+        "a launch screen gives no number away"
+    );
+}
+
+#[test]
+fn nothing_in_the_game_names_the_crew_that_cracked_it() {
+    let src = Sources::builtin();
+    let mut texts: Vec<(String, &str)> = vec![
+        ("warez.ron".into(), src.warez),
+        ("ice.ron".into(), src.ice),
+        ("ai.ron".into(), src.ai),
+        ("loot.ron".into(), src.loot),
+        ("events.ron".into(), src.events),
+        ("contracts.ron".into(), src.contracts),
+        ("hub/tools.ron".into(), src.tools),
+        ("hub/games.ron".into(), src.games),
+        ("hub/compilations.ron".into(), src.compilations),
+        ("hub/shopper.ron".into(), src.shopper),
+        ("hub/hardware.ron".into(), src.hardware),
+        ("hub/networks.ron".into(), src.networks),
+        ("stacks/welcome.ron".into(), src.welcome),
+    ];
+    for b in src.boards {
+        texts.push((format!("bbs/{}/board.ron", b.id), b.board));
+        texts.push((format!("bbs/{}/splash.txt", b.id), b.splash));
+    }
+    for i in src.intros {
+        texts.push((format!("intros/{}.ron", i.id), i.intro));
+    }
+    for t in src.tunes {
+        texts.push((format!("music/{}.ron", t.id), t.tune));
+    }
+    for (file, text) in texts {
+        assert!(
+            !text.to_lowercase().contains("straylight"),
+            "{file} names STRAYLIGHT, who exists only in the game's own intro"
+        );
+    }
+}
