@@ -10,6 +10,8 @@ use ninsei_core::demo::DemoDef;
 #[derive(Default)]
 pub struct DemoView {
     tex: Option<TextureHandle>,
+    /// The demo's palette, read from its file once.
+    palette: Vec<Color32>,
     /// The rect it was last drawn in, for tests.
     pub drawn: Option<Rect>,
 }
@@ -39,11 +41,14 @@ impl DemoView {
         let screen = ctx.content_rect();
         let painter = ui.painter_at(screen);
         painter.rect_filled(screen, 0.0, Color32::BLACK);
-        let palette: Vec<Color32> = def
-            .rgb()
-            .into_iter()
-            .map(|[r, g, b]| Color32::from_rgb(r, g, b))
-            .collect();
+        if self.palette.is_empty() {
+            self.palette = def
+                .rgb()
+                .into_iter()
+                .map(|[r, g, b]| Color32::from_rgb(r, g, b))
+                .collect();
+        }
+        let palette = &self.palette;
         let px = def.pixels(&def.frame(t));
         let image = ColorImage::new(
             [def.width as usize, def.height as usize],

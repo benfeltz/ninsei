@@ -398,10 +398,9 @@ impl DemoDef {
         Some((pa, pb, depth))
     }
 
-    /// The colour at `depth` along ramp `ramp`, out to `far` (the glow's ramp runs out where
-    /// its colours do, at the same spacing).
-    fn faded(&self, ramp: &str, depth: f32, len_for: Option<usize>) -> Option<u8> {
-        let r = self.ramp_at(ramp)?;
+    /// The colour at `depth` along `r` (palette indices), out to `far` (the glow's ramp runs
+    /// out where its colours do, at the same spacing as the ramp `len_for` long).
+    fn faded(&self, r: &[u8], depth: f32, len_for: Option<usize>) -> Option<u8> {
         let near = self.camera.near;
         let span = (self.camera.far - near).max(f32::EPSILON);
         let n = len_for.unwrap_or(r.len()).max(1);
@@ -418,19 +417,19 @@ impl DemoDef {
         let z0 = ((e.pos[2] - sp) / sp).floor() as i32;
         let cells = ((self.camera.far + sp) / sp).ceil() as i32 + 1;
         for plane in &g.planes {
+            // Resolved once a frame, not once a line.
             let Some(ramp) = self.ramp_at(&plane.ramp) else {
                 continue;
             };
+            let halo = plane.glow.as_deref().and_then(|g| self.ramp_at(g));
             let glow = |d: f32| {
-                plane
-                    .glow
-                    .as_deref()
-                    .and_then(|gl| self.faded(gl, d, Some(ramp.len())))
+                halo.as_deref()
+                    .and_then(|h| self.faded(h, d, Some(ramp.len())))
             };
             let mut seg = |a: [f32; 3], b: [f32; 3]| {
                 if let Some((pa, pb, d)) = self.line(e, a, b)
                     && d <= self.camera.far
-                    && let Some(ink) = self.faded(&plane.ramp, d, None)
+                    && let Some(ink) = self.faded(&ramp, d, None)
                 {
                     out.push(Seg {
                         a: pa,
@@ -479,18 +478,18 @@ impl DemoDef {
             let Some(ramp) = self.ramp_at(&s.ramp) else {
                 continue;
             };
+            let halo = s.glow.as_deref().and_then(|g| self.ramp_at(g));
             for [i, j] in &shape.edges {
                 let (Some(&a), Some(&b)) = (shape.points.get(*i), shape.points.get(*j)) else {
                     continue;
                 };
                 if let Some((pa, pb, d)) = self.line(e, place(a), place(b))
                     && d <= self.camera.far
-                    && let Some(ink) = self.faded(&s.ramp, d, None)
+                    && let Some(ink) = self.faded(&ramp, d, None)
                 {
-                    let glow = s
-                        .glow
+                    let glow = halo
                         .as_deref()
-                        .and_then(|g| self.faded(g, d, Some(ramp.len())));
+                        .and_then(|h| self.faded(h, d, Some(ramp.len())));
                     out.push(Seg {
                         a: pa,
                         b: pb,

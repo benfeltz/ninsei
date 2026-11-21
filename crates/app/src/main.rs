@@ -1671,6 +1671,8 @@ impl App {
         });
         if leave {
             self.screen = Screen::Hub;
+            // Its picture isn't needed again this session.
+            self.intro = demo_view::DemoView::default();
             ctx.request_repaint();
         }
     }
