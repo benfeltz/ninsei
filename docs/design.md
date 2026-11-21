@@ -25,7 +25,7 @@ deck ─> firmware ─────┘
                                                         * planned for the Sense/Net deck (#46)
 ```
 
-- **Colour roles.** Every part draws with the theme's six roles, darkest to brightest: `bg`, `panel`, `faint`, `dim`, `fg`, `bright`. No part brings its own colours; a deck's personality comes from shape, layout, type and motion. (The BBS window's CGA and the crash screen's red are the only exceptions.)
+- **Colour roles.** Every part draws with the theme's six roles, darkest to brightest: `bg`, `panel`, `faint`, `dim`, `fg`, `bright`. No part brings its own colours; a deck's personality comes from shape, layout, type and motion. (The BBS window's CGA, the crash screen's red and the game's own intro, whose palette is in its file, are the only exceptions.)
 - **Danger** is `bright` plus motion: a faster pulse, a burst, a glitch. There's no red.
 - **A new part** is one enum variant and one renderer. A deck's firmware names it in data. Never special-case a deck id in code.
 
@@ -240,6 +240,14 @@ A reader of the ICE's listing can predict both *when* and *where* (Archer SPOOFs
 | the trace | the Message box, a sentence per line | a terminal line | an activity-log row with a reference number |
 
 **Set aside.** `SHIELD`, `SCRUB` and `BEST BREAKER` as keywords (the warez are the verbs); a breakpoints pane (STOP is a line; a gutter mark is a view of it, never a second mechanism); downloaded editor and debugger (they are the deck's own software, dressed per chrome; "tools are downloaded" stays about the desktop's apps); a program library (deferred); a pure deckbuilder or puzzle fights without automation.
+
+## The game's own intro
+
+ninsei starts the way a cracked game did in 1993: a crew's intro before anything else. STRAYLIGHT presents NINSEI, and the fiction is that your copy is a cracked one. The reference is an Amiga cracktro of that year (Paradox's for Arabian Nights is the bar for era and craft; nothing of it is copied): a first-person flight over a softly glowing grid, wireframe ICE passing low at the sides, the logo shaded white to ice blue, credit lines centred on black under it, and a sine scroller in a chunky bitmap font whose shade cycles white to ice blue, over a four-track tune. It runs at 320x200 in its own twelve-bit palette, scaled up by a whole number, so it looks like the machine and not like egui.
+
+It sits outside the decks on purpose. It is the game's front, not a screen on your machine: no theme, no deck, no firmware and no monitor choose how it looks, and it is the one drawn screen with its own colours. Its crew exists only here, and nothing inside the world knows it. It stays up, looping, until any key or click, and then the desktop opens; the band where the credits page is kept clear for the game's menu (load, save) later. It books nothing.
+
+Shots: `docs/shots/intro-flight.png` (the grid and ICE in the foreground), `intro-credits.png`, `intro-band-clear.png` (between pages: the band the menu will use), `intro-scroller.png`, and `intro-browser.png` (the web build). No monitor's glass is drawn over it: the CRT pass skips the intro.
 
 ## Desktop music
 
