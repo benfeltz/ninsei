@@ -1045,6 +1045,16 @@ pub struct TuneSrc<'a> {
 /// Every tune in `data/music/`, in file order.
 pub const BUILTIN_TUNES: &[TuneSrc<'static>] = include!(concat!(env!("OUT_DIR"), "/music.rs"));
 
+/// One demo's raw file, found under `data/demos/<id>.ron` at build time.
+#[derive(Clone, Copy, Debug)]
+pub struct DemoSrc<'a> {
+    pub id: &'a str,
+    pub demo: &'a str,
+}
+
+/// Every demo in `data/demos/`, in file order.
+pub const BUILTIN_DEMOS: &[DemoSrc<'static>] = include!(concat!(env!("OUT_DIR"), "/demos.rs"));
+
 /// A tune on a music disk (`data/music/<id>.ron`): what the desktop's player plays. Its title
 /// and its author are the author's own words; the tune is a cracktro-format pattern,
 /// synthesized like everything else.
@@ -1297,6 +1307,7 @@ pub struct Sources<'a> {
     pub art: &'a [ArtSrc<'a>],
     pub intros: &'a [IntroSrc<'a>],
     pub tunes: &'a [TuneSrc<'a>],
+    pub demos: &'a [DemoSrc<'a>],
     pub welcome: &'a str,
     pub starts: &'a str,
     pub rig: &'a str,
@@ -1336,6 +1347,7 @@ impl Sources<'static> {
             art: BUILTIN_ART,
             intros: BUILTIN_INTROS,
             tunes: BUILTIN_TUNES,
+            demos: BUILTIN_DEMOS,
             welcome: include_str!("../../../data/stacks/welcome.ron"),
             starts: include_str!("../../../data/hub/starts.ron"),
             rig: include_str!("../../../data/hub/rig.ron"),
@@ -1423,6 +1435,8 @@ pub struct Data {
     pub intros: Vec<crate::intro::IntroDef>,
     /// Tunes on music disks, one per file in `data/music/`.
     pub tunes: Vec<TuneFile>,
+    /// Drawn intros, one per file in `data/demos/`.
+    pub demos: Vec<crate::demo::DemoDef>,
     /// The Welcome to the Net stack (`data/stacks/welcome.ron`).
     pub welcome: crate::cards::StackDef,
     /// How a new deck starts: what everyone gets, and the kits (`data/hub/starts.ron`).
@@ -1515,6 +1529,18 @@ impl Data {
                         .map_err(|e| format!("music/{}.ron: {e}", t.id))
                 })
                 .collect::<Result<_, _>>()?,
+            demos: src
+                .demos
+                .iter()
+                .map(|d| {
+                    ron::from_str::<crate::demo::DemoDef>(d.demo)
+                        .map(|mut def| {
+                            def.id = d.id.to_string();
+                            def
+                        })
+                        .map_err(|e| format!("demos/{}.ron: {e}", d.id))
+                })
+                .collect::<Result<_, _>>()?,
             art: src.art.iter().map(|a| ArtDef::parse(a.id, a.art)).collect(),
             sounds: src
                 .sounds
@@ -1571,6 +1597,18 @@ impl Data {
         self.validate_games()
             .map_err(|e| format!("hub/games.ron: {e}"))?;
         self.validate_tunes()?;
+        for (n, d) in self.demos.iter().enumerate() {
+            if self.demos[..n].iter().any(|o| o.id == d.id) {
+                return Err(format!("two demos called `{}`", d.id));
+            }
+            d.validate(self)?;
+        }
+        if self.demo(crate::hub::LAUNCH_DEMO).is_none() {
+            return Err(format!(
+                "the game starts from `demos/{}.ron`, which isn't there",
+                crate::hub::LAUNCH_DEMO
+            ));
+        }
         self.validate_compilations()
             .map_err(|e| format!("hub/compilations.ron: {e}"))?;
         for (i, w) in self.warez.iter().enumerate() {
@@ -2813,6 +2851,18 @@ impl Data {
 
     pub fn intro(&self, id: &str) -> Option<&crate::intro::IntroDef> {
         self.intros.iter().find(|i| i.id == id)
+    }
+
+    /// The intro the game starts from ([`crate::hub::LAUNCH_DEMO`]). `Data::validate` refuses
+    /// data without it, so there always is one.
+    pub fn launch_demo(&self) -> &crate::demo::DemoDef {
+        self.demo(crate::hub::LAUNCH_DEMO)
+            .expect("Data::validate requires the launch demo")
+    }
+
+    /// The demo called `id` (a file in `data/demos/`).
+    pub fn demo(&self, id: &str) -> Option<&crate::demo::DemoDef> {
+        self.demos.iter().find(|d| d.id == id)
     }
 
     pub fn tool(&self, id: &str) -> Option<&ToolDef> {

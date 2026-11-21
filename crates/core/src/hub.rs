@@ -20,6 +20,8 @@ use crate::tuning::{
 pub const SAVE_VERSION: u32 = 2;
 /// Run theme a new save starts with.
 pub const DEFAULT_RUN_THEME: &str = "amber";
+/// The drawn intro the game starts from (`data/demos/`).
+pub const LAUNCH_DEMO: &str = "ninsei";
 
 /// The one number a new deck comes with: Sense/Net's customer board (`data/bbs/sensenet/`).
 pub const FIRST_BOARD: &str = "sensenet";
@@ -1108,7 +1110,10 @@ pub struct Save {
     /// ([`crate::ice_study`]), in the order the deck first beat them.
     #[serde(default)]
     pub ice_study: Vec<crate::ice_study::Study>,
-    /// Programs open with their cracktros (`data/intros/`). On unless switched off in System.
+    /// Programs open with their cracktros (`data/intros/`), and the game itself with its own
+    /// (`data/demos/`, [`Screen::first`]): in the fiction your copy of ninsei is a cracked
+    /// program from the boards too, so the one switch covers both. On unless switched off in
+    /// System.
     #[serde(default = "default_intros")]
     pub intros: bool,
     /// The Welcome to the Net stack has opened (on a new save's first boot). Old saves have
@@ -2949,6 +2954,11 @@ pub struct RunReport {
 /// Which machine is on screen, and the drags between them.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Screen {
+    /// The game's own intro ([`LAUNCH_DEMO`]), where every launch starts: it stays up until a
+    /// key or a click, then the desktop opens. `t` is how long it has been up, in seconds.
+    Intro {
+        t: f64,
+    },
     /// The Workbench desktop.
     Hub,
     /// The desktop sliding down to reveal the run behind it.
@@ -2980,7 +2990,7 @@ impl Screen {
     pub fn drag(self) -> f32 {
         let ease = |x: f32| 1.0 - (1.0 - x.clamp(0.0, 1.0)).powi(3);
         match self {
-            Screen::Hub => 0.0,
+            Screen::Intro { .. } | Screen::Hub => 0.0,
             Screen::JackIn { t } => ease(t / HUB_DRAG_SECS),
             Screen::Run | Screen::Crash => 1.0,
             Screen::JackOut { t } => 1.0 - ease(t / HUB_DRAG_SECS),
@@ -2989,7 +2999,22 @@ impl Screen {
 
     /// Whether the run's UI is visible at all.
     pub fn shows_run(self) -> bool {
-        !matches!(self, Screen::Hub)
+        !matches!(self, Screen::Intro { .. } | Screen::Hub)
+    }
+
+    /// Whether the game's intro is up.
+    pub fn is_intro(self) -> bool {
+        matches!(self, Screen::Intro { .. })
+    }
+
+    /// The screen a launch opens on: the game's intro, unless intros are off, and then the
+    /// desktop. It reads the save and changes nothing.
+    pub fn first(save: &Save) -> Screen {
+        if save.intros {
+            Screen::Intro { t: 0.0 }
+        } else {
+            Screen::Hub
+        }
     }
 
     /// Whether the desktop takes input.

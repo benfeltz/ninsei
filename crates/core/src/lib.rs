@@ -13,6 +13,7 @@ pub mod cards;
 pub mod command;
 pub mod cue;
 pub mod data;
+pub mod demo;
 pub mod desktop;
 pub mod directory;
 pub mod disk;

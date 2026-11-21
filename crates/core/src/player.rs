@@ -306,9 +306,23 @@ pub struct Want<'a> {
     pub cue: u32,
 }
 
-/// What the speaker should be playing for the desktop: nothing in a run, on the crash screen,
-/// or while the player is stopped or paused; otherwise the current tune.
+/// The game's intro's tune as the speaker's looping channel knows it: no tune on a music disk
+/// has a name like it.
+pub const INTRO_TUNE: &str = "demo:launch";
+
+/// What the speaker should be playing for the desktop: the game's intro's tune while it's up,
+/// at the same place in its loop as the picture; nothing in a run, on the crash screen, or
+/// while the player is stopped or paused; otherwise the current tune.
 pub fn wanted<'a>(save: &Save, data: &'a Data, screen: Screen, t: &Transport) -> Option<Want<'a>> {
+    if let Screen::Intro { t } = screen {
+        let d = data.launch_demo();
+        return Some(Want {
+            id: INTRO_TUNE,
+            tune: &d.tune,
+            at: (d.phase(t) * f64::from(d.secs)) as f32,
+            cue: 0,
+        });
+    }
     if !at_home(screen) || t.play != Play::Playing {
         return None;
     }
