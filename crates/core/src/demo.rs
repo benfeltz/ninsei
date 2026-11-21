@@ -684,12 +684,7 @@ impl DemoDef {
             if let Some(c) = st.outline.as_deref().and_then(|c| self.colour(c)) {
                 for (fx, fy) in cells() {
                     for (ox, oy) in [(-1, 0), (1, 0), (0, -1), (0, 1)] {
-                        let (x, y) = (p.x + fx * sc + ox, p.y + fy * sc + oy);
-                        for dy in 0..sc {
-                            for dx in 0..sc {
-                                put(x + dx, y + dy, c);
-                            }
-                        }
+                        block(&mut put, p.x + fx * sc + ox, p.y + fy * sc + oy, c);
                     }
                 }
             }
