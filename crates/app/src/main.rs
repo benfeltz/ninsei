@@ -2636,7 +2636,10 @@ mod tests {
             app.crt = true;
             assert!(app.effects().is_none(), "the intro is drawn as it is");
             app.screen = Screen::Hub;
-            assert!(app.effects().is_some(), "the desktop is behind the monitor's glass");
+            assert!(
+                app.effects().is_some(),
+                "the desktop is behind the monitor's glass"
+            );
         }
 
         #[test]
