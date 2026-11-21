@@ -321,7 +321,12 @@ struct App {
     /// The running time its first frame was drawn at: its clock is the app's, as the tune's is
     /// the audio's, so a frame that comes late never puts the picture behind the music.
     intro_from: Option<f64>,
+    /// When a key, a click or a touch said to leave the intro; it goes once nothing is held.
+    intro_leaving: Option<f64>,
 }
+
+/// The longest the intro waits for a key or a button that said to leave it to come up.
+const INTRO_LET_GO_SECS: f64 = 1.0;
 
 impl App {
     fn new(cc: &eframe::CreationContext<'_>, data: Data, first_seed: Option<u64>) -> Self {
@@ -411,6 +416,7 @@ impl App {
             sound_popup: volume::Popup::default(),
             intro: demo_view::DemoView::default(),
             intro_from: None,
+            intro_leaving: None,
             last_phase: game.phase,
             game,
             dock: default_layout(Chrome::Classic, &[]),
@@ -1633,8 +1639,8 @@ fn hotkeys(
 
 impl App {
     /// The game's intro, on the app's running time, until any key, a click or a touch opens
-    /// the desktop. The input that leaves it is spent here and reaches nothing else; the
-    /// desktop draws from the next frame. Never waits on the speaker: a browser gives no sound
+    /// the desktop once it's let go. The input that leaves it, the release included, is spent
+    /// here and reaches nothing else; the desktop draws from the next frame. Never waits on the speaker: a browser gives no sound
     /// before the first input, and the intro plays silent until then.
     fn intro_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context) {
         let def = self.data.launch_demo();
@@ -1647,8 +1653,10 @@ impl App {
         let t = (now - from).max(0.0);
         self.screen = Screen::Intro { t };
         self.intro.paint(ui, def, t);
+        // Once a key, a click or a touch says to leave, every input is spent here until nothing
+        // is held, so the release of the click or the key never reaches the desktop either.
         let leave = ctx.input_mut(|i| {
-            let any = i.events.iter().any(|e| {
+            let asked = i.events.iter().any(|e| {
                 matches!(
                     e,
                     egui::Event::Key { pressed: true, .. }
@@ -1657,13 +1665,21 @@ impl App {
                         | egui::Event::Touch { .. }
                 )
             });
-            if any {
-                i.events.clear();
+            if asked && self.intro_leaving.is_none() {
+                self.intro_leaving = Some(now);
             }
-            any
+            let Some(since) = self.intro_leaving else {
+                return false;
+            };
+            i.events.clear();
+            // A key-up that never comes (a lost focus, a chord the OS kept) can't keep the
+            // player from the desktop.
+            let held = i.pointer.any_down() || !i.keys_down.is_empty();
+            !held || now - since >= INTRO_LET_GO_SECS
         });
         if leave {
             self.screen = Screen::Hub;
+            self.intro_leaving = None;
             // Its picture isn't needed again this session.
             self.intro = demo_view::DemoView::default();
             ctx.request_repaint();
@@ -2628,6 +2644,76 @@ mod tests {
             };
             frame(&mut h, &mut app, vec![touch]);
             assert_eq!(app.screen, Screen::Hub);
+        }
+
+        #[test]
+        fn the_release_of_the_click_that_leaves_never_reaches_the_desktop() {
+            let mut h = Harness::new(1280.0, 800.0);
+            let mut app = launch(&h, None);
+            frame(&mut h, &mut app, Vec::new());
+            let at = egui::pos2(640.0, 400.0);
+            let button = |pressed| egui::Event::PointerButton {
+                pos: at,
+                button: egui::PointerButton::Primary,
+                pressed,
+                modifiers: egui::Modifiers::NONE,
+            };
+            // Held down: still the intro, nothing of the desktop.
+            frame(
+                &mut h,
+                &mut app,
+                vec![egui::Event::PointerMoved(at), button(true)],
+            );
+            frame(&mut h, &mut app, Vec::new());
+            assert!(app.screen.is_intro(), "the button is still down");
+            // Let go: that frame is the intro's too; the desktop opens on the next.
+            assert!(
+                frame(&mut h, &mut app, vec![button(false)]),
+                "the release is spent"
+            );
+            assert_eq!(app.screen, Screen::Hub);
+            assert!(h.texts().is_empty(), "no desktop on the release's frame");
+            frame(&mut h, &mut app, Vec::new());
+            assert!(h.find("Welcome to the Net").is_some(), "{:?}", h.texts());
+        }
+
+        #[test]
+        fn a_key_held_down_leaves_when_it_comes_up() {
+            let mut h = Harness::new(1280.0, 800.0);
+            let mut app = launch(&h, None);
+            let k = |pressed| egui::Event::Key {
+                key: egui::Key::Enter,
+                physical_key: None,
+                pressed,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            };
+            frame(&mut h, &mut app, vec![k(true)]);
+            assert!(app.screen.is_intro(), "still held");
+            assert!(frame(&mut h, &mut app, vec![k(false)]));
+            assert_eq!(app.screen, Screen::Hub);
+        }
+
+        #[test]
+        fn a_key_whose_release_never_comes_still_opens_the_desktop() {
+            let mut h = Harness::new(1280.0, 800.0);
+            let mut app = launch(&h, None);
+            let down = egui::Event::Key {
+                key: egui::Key::A,
+                physical_key: None,
+                pressed: true,
+                repeat: false,
+                modifiers: egui::Modifiers::NONE,
+            };
+            frame(&mut h, &mut app, vec![down]);
+            for _ in 0..12 {
+                frame(&mut h, &mut app, Vec::new());
+            }
+            assert_eq!(
+                app.screen,
+                Screen::Hub,
+                "no key-up came, and it went anyway"
+            );
         }
 
         #[test]
