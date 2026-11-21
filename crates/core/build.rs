@@ -55,10 +55,8 @@ fn ron_dir(dir: &str, out_file: &str, ty: &str, field: &str, ext: &str) {
         .join("../../data")
         .join(dir);
     println!("cargo:rerun-if-changed={}", root.display());
-    // A folder nothing has been put in yet holds nothing.
     let mut files: Vec<_> = std::fs::read_dir(&root)
-        .into_iter()
-        .flatten()
+        .expect(dir)
         .filter_map(|e| e.ok())
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|x| x == ext))
