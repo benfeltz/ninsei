@@ -42,10 +42,11 @@ const SMALL: &str = r####"(
 )"####;
 
 fn parse(src: &str) -> Result<Data, String> {
-    let demos = [DemoSrc {
+    let mut demos = Sources::builtin().demos.to_vec();
+    demos.push(DemoSrc {
         id: "small",
         demo: src,
-    }];
+    });
     Data::parse(Sources {
         demos: &demos,
         ..Sources::builtin()
@@ -315,4 +316,30 @@ fn nothing_in_the_game_names_the_crew_that_cracked_it() {
             "{file} names STRAYLIGHT, who exists only in the game's own intro"
         );
     }
+}
+
+#[test]
+fn a_launch_opens_on_the_intro_unless_intros_are_off() {
+    use ninsei_core::hub::{Save, Screen};
+    let data = Data::builtin().unwrap();
+    let mut save = Save::default();
+    let before = save.to_text();
+    assert_eq!(Screen::first(&save, &data), Screen::Intro);
+    assert_eq!(save.to_text(), before, "it books nothing");
+    save.intros = false;
+    assert_eq!(Screen::first(&save, &data), Screen::Hub);
+    // On the intro, nothing of the run or the desktop is up, and the desktop's music holds.
+    assert!(!Screen::Intro.shows_run() && !Screen::Intro.hub_live());
+    assert!(!ninsei_core::player::at_home(Screen::Intro));
+    assert_eq!(Screen::Intro.tick(1000.0), Screen::Intro, "it stays up");
+}
+
+#[test]
+fn the_game_needs_the_intro_it_starts_from() {
+    let err = Data::parse(Sources {
+        demos: &[],
+        ..Sources::builtin()
+    })
+    .unwrap_err();
+    assert!(err.contains("demos/ninsei.ron"), "{err}");
 }

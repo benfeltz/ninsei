@@ -6,8 +6,6 @@ mod chrome;
 mod crash;
 mod crt;
 mod crt_gl;
-// Drawn from step 4, when the game starts on it.
-#[allow(dead_code)]
 mod demo_view;
 mod encounter_view;
 mod fightview;
@@ -51,7 +49,7 @@ use ninsei_core::bbs::Outcome;
 use ninsei_core::game::ExecState;
 use ninsei_core::hexedit::HexBuffer;
 use ninsei_core::hub::{
-    Answer, DEFAULT_RUN_THEME, RunEnd, RunReport, SAVE_KEY, Save, Screen, Tool,
+    Answer, DEFAULT_RUN_THEME, LAUNCH_DEMO, RunEnd, RunReport, SAVE_KEY, Save, Screen, Tool,
 };
 use ninsei_core::{Action, Command, Data, Game, LogKind, Phase};
 
@@ -318,7 +316,14 @@ struct App {
     suite: suite::State,
     /// The run screen's sound pop-out.
     sound_popup: volume::Popup,
+    /// The game's own intro, while it's up (`Screen::Intro`), and how long it has been.
+    intro: demo_view::DemoView,
+    intro_t: f64,
 }
+
+/// The intro's tune as the speaker's looping channel knows it: no tune on a music disk
+/// has a name like it.
+const INTRO_TUNE: &str = "demo:launch";
 
 impl App {
     fn new(cc: &eframe::CreationContext<'_>, data: Data, first_seed: Option<u64>) -> Self {
@@ -376,6 +381,8 @@ impl App {
             .unwrap_or(FALLBACK_PALETTE);
         theme::apply(&cc.egui_ctx, &pal);
         let game = Game::new(data.clone(), first_seed.unwrap_or(0));
+        // Every launch opens on the game's intro (unless intros are off); it books nothing.
+        let screen = Screen::first(&save, &data);
         let mut me = Self {
             crt: save.crt,
             speaker: {
@@ -389,7 +396,7 @@ impl App {
             save,
             save_dirty: keyed,
             keep: Vec::new(),
-            screen: Screen::Hub,
+            screen,
             home: Home::new(boot),
             desktops: Desktops::new(),
             booked: None,
@@ -404,6 +411,8 @@ impl App {
             talk: EncounterView::default(),
             suite: suite::State::default(),
             sound_popup: volume::Popup::default(),
+            intro: demo_view::DemoView::default(),
+            intro_t: 0.0,
             last_phase: game.phase,
             game,
             dock: default_layout(Chrome::Classic, &[]),
@@ -618,7 +627,18 @@ impl App {
         if player::tick(&mut self.save, &self.data, &mut self.home.player, dt, live) {
             self.save_dirty = true;
         }
-        let want = player::wanted(&self.save, &self.data, self.screen, &self.home.player);
+        // The game's intro has the channel while it's up: its tune loops with it, and the
+        // player's comes back where it was once the desktop opens.
+        let want = if self.screen == Screen::Intro {
+            self.data.demo(LAUNCH_DEMO).map(|d| player::Want {
+                id: INTRO_TUNE,
+                tune: &d.tune,
+                at: (self.intro_t % f64::from(d.secs.max(1.0))) as f32,
+                cue: 0,
+            })
+        } else {
+            player::wanted(&self.save, &self.data, self.screen, &self.home.player)
+        };
         // The player's spectrum hears the speaker as the vis pane does, and only while the
         // player is on screen.
         let pass = ctx.cumulative_pass_nr();
@@ -743,7 +763,7 @@ impl App {
     /// how long until the next is due, while any are at work.
     fn sysops_tick(&mut self, now: f64) -> Option<f64> {
         use ninsei_core::ice_study::owed;
-        let in_run = self.booked.is_none() && self.screen != Screen::Hub;
+        let in_run = self.booked.is_none() && self.screen.shows_run();
         // A run that's over and not yet home (the keep picker, the crash screen) can't spend
         // the time, and its studies aren't the save's yet: the clock isn't read, so the time
         // goes to the save's once it's booked.
@@ -1445,7 +1465,10 @@ impl eframe::App for App {
             theme::apply(&ctx, &pal);
             self.applied_pal = Some(pal);
         }
-        if self.screen.shows_run() {
+        let on_intro = self.screen == Screen::Intro;
+        if on_intro {
+            self.intro_ui(ui, &ctx, dt);
+        } else if self.screen.shows_run() {
             if self.crashed {
                 let clicked = crash::show(ui, self.booked.as_ref());
                 if clicked && self.screen == Screen::Crash {
@@ -1463,8 +1486,9 @@ impl eframe::App for App {
             }
         }
 
-        // The desktop: on its own while home, dragging during the transitions.
-        if !matches!(self.screen, Screen::Run | Screen::Crash) {
+        // The desktop: on its own while home, dragging during the transitions. Not on the
+        // frame the intro was left: the key or click that left it is spent.
+        if !on_intro && !matches!(self.screen, Screen::Run | Screen::Crash) {
             self.hub_ui(&ctx, &pal);
         }
 
@@ -1618,6 +1642,38 @@ fn hotkeys(
 }
 
 impl App {
+    /// The game's intro, on the app's running time, until any key, a click or a touch opens
+    /// the desktop. The input that leaves it is spent here and reaches nothing else; the
+    /// desktop draws from the next frame. Never waits on the speaker: a browser gives no sound
+    /// before the first input, and the intro plays silent until then.
+    fn intro_ui(&mut self, ui: &mut egui::Ui, ctx: &egui::Context, dt: f32) {
+        let Some(def) = self.data.demo(LAUNCH_DEMO) else {
+            self.screen = Screen::Hub;
+            return;
+        };
+        self.intro_t += f64::from(dt);
+        self.intro.paint(ui, def, self.intro_t);
+        let leave = ctx.input_mut(|i| {
+            let any = i.events.iter().any(|e| {
+                matches!(
+                    e,
+                    egui::Event::Key { pressed: true, .. }
+                        | egui::Event::Text(_)
+                        | egui::Event::PointerButton { pressed: true, .. }
+                        | egui::Event::Touch { .. }
+                )
+            });
+            if any {
+                i.events.clear();
+            }
+            any
+        });
+        if leave {
+            self.screen = Screen::Hub;
+            ctx.request_repaint();
+        }
+    }
+
     /// The desktop and anything called up over it (a board dialled from home), with what they
     /// send applied: on its own while home, dragging during the transitions.
     fn hub_ui(&mut self, ctx: &egui::Context, pal: &theme::Palette) {
@@ -1934,6 +1990,13 @@ fn unpacked(r: &ninsei_core::hub::RunReport) -> Option<String> {
 mod tests {
     use super::*;
 
+    /// A fresh app at its desktop, past the game's intro that every launch opens on.
+    fn at_desk(cc: &eframe::CreationContext<'_>) -> App {
+        let mut app = App::new(cc, Data::builtin().unwrap(), Some(7));
+        app.screen = Screen::Hub;
+        app
+    }
+
     #[test]
     fn a_running_program_walks_a_line_a_beat_and_pause_stops_it_mid_pass() {
         let mut g = Game::new(Data::builtin().unwrap(), 7);
@@ -2061,7 +2124,7 @@ mod tests {
         use ninsei_core::hub::GameCopy;
         let mut h = Harness::new(1280.0, 800.0);
         let cc = eframe::CreationContext::_new_kittest(h.ctx.clone());
-        let mut app = App::new(&cc, Data::builtin().unwrap(), Some(7));
+        let mut app = at_desk(&cc);
         app.save.decks.push("onosendai".into());
         app.save.deck = "onosendai".into();
         app.save.firmware = app.save.deck_def(&app.data).firmware[0].id.clone();
@@ -2106,7 +2169,7 @@ mod tests {
         use crate::uitest::{Harness, key};
         let mut h = Harness::new(1280.0, 800.0);
         let cc = eframe::CreationContext::_new_kittest(h.ctx.clone());
-        let mut app = App::new(&cc, Data::builtin().unwrap(), Some(7));
+        let mut app = at_desk(&cc);
         app.save.decks.push("onosendai".into());
         app.save.deck = "onosendai".into();
         app.save.firmware = app.save.deck_def(&app.data).firmware[0].id.clone();
@@ -2137,7 +2200,7 @@ mod tests {
         use crate::uitest::{Harness, click, key};
         let mut h = Harness::new(1280.0, 800.0);
         let cc = eframe::CreationContext::_new_kittest(h.ctx.clone());
-        let mut app = App::new(&cc, Data::builtin().unwrap(), Some(7));
+        let mut app = at_desk(&cc);
         app.save.intros = false;
         app.save.guide_seen = true;
         app.save.learn_tool("player");
@@ -2191,7 +2254,7 @@ mod tests {
         use crate::uitest::{Harness, click, key};
         let mut h = Harness::new(1280.0, 800.0);
         let cc = eframe::CreationContext::_new_kittest(h.ctx.clone());
-        let mut app = App::new(&cc, Data::builtin().unwrap(), Some(7));
+        let mut app = at_desk(&cc);
         app.save.intros = false;
         app.save.guide_seen = true;
         app.save.decks.push("hosaka".into());
@@ -2245,7 +2308,7 @@ mod tests {
         use ninsei_core::hub::GameCopy;
         let mut h = Harness::new(1280.0, 800.0);
         let cc = eframe::CreationContext::_new_kittest(h.ctx.clone());
-        let mut app = App::new(&cc, Data::builtin().unwrap(), Some(7));
+        let mut app = at_desk(&cc);
         app.save.decks.push("onosendai".into());
         app.save.guide_seen = true;
         app.save.tiling_help_seen = true;
@@ -2313,7 +2376,7 @@ mod tests {
         fn app() -> App {
             let h = crate::uitest::Harness::new(1280.0, 800.0);
             let cc = eframe::CreationContext::_new_kittest(h.ctx.clone());
-            App::new(&cc, Data::builtin().unwrap(), Some(7))
+            at_desk(&cc)
         }
 
         /// Sysops at work on Enigma 1.0.0, woken by SAFE_PICK beating it on three seeds.
@@ -2444,6 +2507,164 @@ mod tests {
         }
     }
 
+    mod launch {
+        use super::*;
+        use crate::uitest::{Harness, click, key, text};
+
+        /// Holds a save as the browser's or the disk's storage would.
+        struct Stored(String);
+
+        impl eframe::Storage for Stored {
+            fn get_string(&self, k: &str) -> Option<String> {
+                (k == SAVE_KEY).then(|| self.0.clone())
+            }
+            fn set_string(&mut self, _: &str, _: String) {}
+            fn remove_string(&mut self, _: &str) {}
+            fn flush(&mut self) {}
+        }
+
+        /// The app as a launch makes it, on `save` (none: a first launch), quiet.
+        fn launch(h: &Harness, save: Option<&Save>) -> App {
+            let stored = save.map(|s| Stored(s.to_text()));
+            let mut cc = eframe::CreationContext::_new_kittest(h.ctx.clone());
+            cc.storage = stored.as_ref().map(|s| s as &dyn eframe::Storage);
+            let mut app = App::new(&cc, Data::builtin().unwrap(), None);
+            app.speaker = sound::Speaker::new(false);
+            app
+        }
+
+        /// One whole frame of the app with these events; true if they were all spent by the
+        /// time it was done drawing.
+        fn frame(h: &mut Harness, app: &mut App, events: Vec<egui::Event>) -> bool {
+            let mut spent = false;
+            let mut f = eframe::Frame::_new_kittest();
+            h.frame(events, |ui| {
+                eframe::App::ui(app, ui, &mut f);
+                spent = ui.ctx().input(|i| i.events.is_empty());
+            });
+            spent
+        }
+
+        #[test]
+        fn a_launch_opens_on_the_intro_and_it_stays_up() {
+            let mut h = Harness::new(1280.0, 800.0);
+            let mut app = launch(&h, None);
+            assert_eq!(app.screen, Screen::Intro);
+            for _ in 0..5 {
+                frame(&mut h, &mut app, Vec::new());
+            }
+            let r = app.intro.drawn.expect("drawn");
+            assert_eq!((r.width(), r.height()), (1280.0, 800.0), "4x at 1280x800");
+            assert!(
+                h.texts().is_empty(),
+                "nothing of the desktop: {:?}",
+                h.texts()
+            );
+            // Left running past its length, it is still up, round again.
+            let secs = f64::from(app.data.demo(LAUNCH_DEMO).unwrap().secs);
+            app.intro_t = secs * 3.0 - 0.05;
+            for _ in 0..3 {
+                frame(&mut h, &mut app, Vec::new());
+            }
+            assert_eq!(app.screen, Screen::Intro);
+            assert!(app.intro_t > secs * 3.0, "its clock goes on");
+        }
+
+        #[test]
+        fn a_key_opens_the_desktop_and_reaches_nothing_else() {
+            let mut h = Harness::new(1280.0, 800.0);
+            let mut app = launch(&h, None);
+            let before = app.save.to_text();
+            for _ in 0..10 {
+                frame(&mut h, &mut app, Vec::new());
+            }
+            let mut press = key(egui::Key::X);
+            press.extend(text("x"));
+            assert!(
+                frame(&mut h, &mut app, press),
+                "the key is spent on the intro"
+            );
+            assert_eq!(app.screen, Screen::Hub);
+            assert!(
+                h.texts().is_empty(),
+                "the desktop waits a frame: {:?}",
+                h.texts()
+            );
+            assert_eq!(
+                app.save.to_text(),
+                before,
+                "watching and leaving it book nothing"
+            );
+            frame(&mut h, &mut app, Vec::new());
+            assert!(
+                h.find("Welcome to the Net").is_some(),
+                "then it opens: {:?}",
+                h.texts()
+            );
+            frame(&mut h, &mut app, Vec::new());
+            assert!(
+                !h.visible_text().iter().any(|t| t.trim() == "x"),
+                "nothing typed the x: {:?}",
+                h.visible_text()
+            );
+        }
+
+        #[test]
+        fn a_click_or_a_touch_opens_the_desktop_too() {
+            let mut h = Harness::new(1280.0, 800.0);
+            let mut app = launch(&h, None);
+            frame(&mut h, &mut app, Vec::new());
+            assert!(frame(&mut h, &mut app, click(egui::pos2(640.0, 400.0))));
+            assert_eq!(app.screen, Screen::Hub);
+            let mut app = launch(&h, None);
+            let touch = egui::Event::Touch {
+                device_id: egui::TouchDeviceId(1),
+                id: egui::TouchId(1),
+                phase: egui::TouchPhase::Start,
+                pos: egui::pos2(10.0, 10.0),
+                force: None,
+            };
+            frame(&mut h, &mut app, vec![touch]);
+            assert_eq!(app.screen, Screen::Hub);
+        }
+
+        #[test]
+        fn the_mouse_moving_leaves_it_up() {
+            let mut h = Harness::new(1280.0, 800.0);
+            let mut app = launch(&h, None);
+            frame(
+                &mut h,
+                &mut app,
+                vec![egui::Event::PointerMoved(egui::pos2(5.0, 5.0))],
+            );
+            assert_eq!(app.screen, Screen::Intro);
+        }
+
+        #[test]
+        fn with_intros_off_a_launch_opens_on_the_desktop() {
+            let h = Harness::new(1280.0, 800.0);
+            let mut save = Save {
+                intros: false,
+                ..Save::default()
+            };
+            assert_eq!(launch(&h, Some(&save)).screen, Screen::Hub);
+            save.intros = true;
+            assert_eq!(launch(&h, Some(&save)).screen, Screen::Intro);
+        }
+
+        #[test]
+        fn the_desktop_s_music_holds_while_the_intro_is_up() {
+            let mut h = Harness::new(1280.0, 800.0);
+            let mut app = launch(&h, None);
+            app.home.player.play = ninsei_core::player::Play::Playing;
+            let at = app.home.player.at;
+            for _ in 0..5 {
+                frame(&mut h, &mut app, Vec::new());
+            }
+            assert_eq!(app.home.player.at, at, "the player's clock waits");
+        }
+    }
+
     mod sound_pop_out {
         use super::*;
         use crate::uitest::{Harness, click, key, text};
@@ -2453,7 +2674,7 @@ mod tests {
         fn running(deck: &str) -> (Harness, App) {
             let h = Harness::new(1280.0, 800.0);
             let cc = eframe::CreationContext::_new_kittest(h.ctx.clone());
-            let mut app = App::new(&cc, Data::builtin().unwrap(), Some(7));
+            let mut app = at_desk(&cc);
             if !app.save.decks.iter().any(|d| d == deck) {
                 app.save.decks.push(deck.into());
             }

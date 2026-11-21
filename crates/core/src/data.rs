@@ -1603,6 +1603,12 @@ impl Data {
             }
             d.validate(self)?;
         }
+        if self.demo(crate::hub::LAUNCH_DEMO).is_none() {
+            return Err(format!(
+                "the game starts from `demos/{}.ron`, which isn't there",
+                crate::hub::LAUNCH_DEMO
+            ));
+        }
         self.validate_compilations()
             .map_err(|e| format!("hub/compilations.ron: {e}"))?;
         for (i, w) in self.warez.iter().enumerate() {
