@@ -1,7 +1,8 @@
 //! Finds every BBS under `data/bbs/<id>/` (a `board.ron` and a `splash.txt`) and every sound
 //! pack under `data/sounds/<id>.ron`, intro under `data/intros/<id>.ron`, picture under
-//! `data/art/<id>.txt` and tune under `data/music/<id>.ron`, and compiles them in, so a new
-//! board is a new folder and a new sound pack, intro, picture or tune a new file.
+//! `data/art/<id>.txt`, tune under `data/music/<id>.ron` and demo under `data/demos/<id>.ron`,
+//! and compiles them in, so a new board is a new folder and a new sound pack, intro, picture,
+//! tune or demo a new file.
 
 use std::fmt::Write;
 use std::path::Path;
@@ -45,6 +46,7 @@ fn main() {
     ron_dir("intros", "intros.rs", "IntroSrc", "intro", "ron");
     ron_dir("art", "art.rs", "ArtSrc", "art", "txt");
     ron_dir("music", "music.rs", "TuneSrc", "tune", "ron");
+    ron_dir("demos", "demos.rs", "DemoSrc", "demo", "ron");
 }
 
 /// Every `data/<dir>/<id>.ron` as `Ty { id, field: include_str!(..) }`, in file order.
@@ -53,8 +55,10 @@ fn ron_dir(dir: &str, out_file: &str, ty: &str, field: &str, ext: &str) {
         .join("../../data")
         .join(dir);
     println!("cargo:rerun-if-changed={}", root.display());
+    // A folder nothing has been put in yet holds nothing.
     let mut files: Vec<_> = std::fs::read_dir(&root)
-        .expect(dir)
+        .into_iter()
+        .flatten()
         .filter_map(|e| e.ok())
         .map(|e| e.path())
         .filter(|p| p.extension().is_some_and(|x| x == ext))
