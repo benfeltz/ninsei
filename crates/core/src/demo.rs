@@ -721,7 +721,14 @@ impl DemoDef {
                 ));
             }
         }
-        if data.signs(&self.group) {
+        // Compared as greetz are, so no casing of a crew's name slips through.
+        let crew = plain(&self.group);
+        let signs = data
+            .intros
+            .iter()
+            .any(|i| i.group.split(" & ").any(|g| plain(g) == crew))
+            || data.tunes.iter().any(|t| plain(&t.by) == crew);
+        if signs {
             return err(format!(
                 "`{}` signs something in the game; a demo's crew is its own",
                 self.group

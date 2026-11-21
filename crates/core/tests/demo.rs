@@ -223,6 +223,12 @@ fn bad_files_are_refused() {
     refused("secs: 4.0", "secs: 5.0", "doesn't go into the loop");
     refused("greetz: []", "greetz: [\"ABBA\"]", "isn't a crew");
     refused("\"TESTCREW\"", "\"PHOSPHOR\"", "a demo's crew is its own");
+    refused("\"TESTCREW\"", "\"Phosphor\"", "a demo's crew is its own");
+    refused(
+        "\"TESTCREW\"",
+        "\"the nightmoths\"",
+        "a demo's crew is its own",
+    );
     refused("('C', [\".##.\"", "('C', [\".###.\"", "glyph `C`");
     refused("scale: 2", "scale: 9", "scale 9");
     refused("style: \"logo\"", "style: \"huge\"", "unknown style `huge`");
